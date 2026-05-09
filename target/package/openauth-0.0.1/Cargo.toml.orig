@@ -1,0 +1,18 @@
+[package]
+name = "openauth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+description = "Rust authentication toolkit."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

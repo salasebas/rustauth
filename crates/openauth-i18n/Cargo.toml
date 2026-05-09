@@ -1,0 +1,18 @@
+[package]
+name = "openauth-i18n"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/openauth-i18n"
+readme = "../../README.md"
+description = "Internationalization support for OpenAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

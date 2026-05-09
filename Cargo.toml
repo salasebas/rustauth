@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/openauth",
+    "crates/openauth-core",
+    "crates/openauth-i18n",
+    "crates/openauth-oauth",
+    "crates/openauth-scim",
+    "crates/openauth-sso",
+    "crates/openauth-stripe",
+    "crates/openauth-telemetry",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/sebastiansala/openauth"
+homepage = "https://github.com/sebastiansala/openauth"
+documentation = "https://docs.rs/openauth"
+readme = "README.md"
+keywords = ["auth", "oauth", "sso", "scim", "identity"]
+categories = ["authentication", "web-programming"]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+panic = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
