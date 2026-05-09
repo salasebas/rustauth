@@ -1,0 +1,90 @@
+{
+  "name": "auth",
+  "version": "1.6.9",
+  "description": "The CLI for Better Auth",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://www.better-auth.com/docs/concepts/cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/better-auth/better-auth.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "auth",
+    "cli",
+    "typescript",
+    "better-auth"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "executableFiles": [
+      "./dist/index.mjs"
+    ]
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsx ./src/index.ts",
+    "start": "node ./dist/index.mjs",
+    "lint:package": "publint run --strict --pack false",
+    "lint:types": "attw --profile esm-only --pack .",
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "vitest",
+    "coverage": "vitest run --coverage --coverage.provider=istanbul"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./api": {
+      "types": "./dist/api.d.mts",
+      "default": "./dist/api.mjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "api": [
+        "./dist/api.d.mts"
+      ]
+    }
+  },
+  "bin": {
+    "better-auth": "./dist/index.mjs",
+    "auth": "./dist/index.mjs"
+  },
+  "dependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
+    "@better-auth/core": "workspace:*",
+    "@better-auth/telemetry": "workspace:*",
+    "@better-auth/utils": "catalog:",
+    "@clack/prompts": "^0.11.0",
+    "@mrleebo/prisma-ast": "^0.13.1",
+    "better-auth": "workspace:*",
+    "c12": "^3.3.3",
+    "chalk": "^5.6.2",
+    "commander": "^12.1.0",
+    "dotenv": "^17.3.1",
+    "get-tsconfig": "^4.13.6",
+    "open": "^10.2.0",
+    "prettier": "^3.8.1",
+    "prompts": "^2.4.2",
+    "semver": "^7.7.4",
+    "yocto-spinner": "^0.2.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@better-auth/passkey": "workspace:*",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/prompts": "^2.4.9",
+    "@types/semver": "^7.7.1",
+    "better-sqlite3": "^12.6.2",
+    "jiti": "^2.6.1",
+    "memfs": "^4.56.10",
+    "tsdown": "catalog:",
+    "tsx": "^4.21.0",
+    "type-fest": "^5.4.4",
+    "typescript": "catalog:"
+  }
+}

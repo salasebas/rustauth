@@ -1,0 +1,92 @@
+{
+  "name": "@better-auth/sso",
+  "version": "1.6.9",
+  "description": "SSO plugin for Better Auth",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://www.better-auth.com/docs/plugins/sso",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/better-auth/better-auth.git",
+    "directory": "packages/sso"
+  },
+  "author": "Bereket Engida",
+  "keywords": [
+    "sso",
+    "auth",
+    "saml",
+    "oauth",
+    "oidc",
+    "openid",
+    "openid connect",
+    "single sign on",
+    "typescript",
+    "better-auth"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "lint:package": "publint run --strict --pack false",
+    "lint:types": "attw --profile esm-only --pack .",
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "vitest",
+    "coverage": "vitest run --coverage --coverage.provider=istanbul"
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "dev-source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./client": {
+      "dev-source": "./src/client.ts",
+      "types": "./dist/client.d.mts",
+      "default": "./dist/client.mjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/index.d.mts"
+      ],
+      "client": [
+        "./dist/client.d.mts"
+      ]
+    }
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.5.7",
+    "jose": "^6.1.3",
+    "samlify": "~2.10.2",
+    "tldts": "^6.1.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@better-auth/core": "workspace:*",
+    "@types/body-parser": "^1.19.6",
+    "@types/express": "^5.0.6",
+    "better-auth": "workspace:*",
+    "better-call": "catalog:",
+    "body-parser": "^2.2.2",
+    "express": "^5.2.1",
+    "oauth2-mock-server": "^8.2.2",
+    "tsdown": "catalog:"
+  },
+  "peerDependencies": {
+    "@better-auth/core": "workspace:^",
+    "@better-auth/utils": "catalog:",
+    "@better-fetch/fetch": "catalog:",
+    "better-auth": "workspace:^",
+    "better-call": "catalog:"
+  }
+}
