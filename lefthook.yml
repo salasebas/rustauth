@@ -1,0 +1,18 @@
+output:
+  - success
+  - failure
+
+pre-commit:
+  parallel: false
+  commands:
+    fmt:
+      run: cargo fmt --all
+      stage_fixed: true
+    lint:
+      run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+pre-push:
+  parallel: true
+  commands:
+    test:
+      run: cargo test --workspace --all-targets --all-features --locked
