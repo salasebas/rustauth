@@ -1,0 +1,1 @@
+//! OAuth authorization URL placeholders.
