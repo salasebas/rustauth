@@ -3,7 +3,9 @@
 use time::OffsetDateTime;
 
 use crate::crypto::random::generate_random_string;
-use crate::db::{Account, Create, DbAdapter, DbRecord, DbValue, FindMany, FindOne, User, Where};
+use crate::db::{
+    Account, Create, DbAdapter, DbRecord, DbValue, Delete, FindMany, FindOne, Update, User, Where,
+};
 use crate::error::OpenAuthError;
 
 const USER_MODEL: &str = "user";
@@ -81,6 +83,34 @@ pub struct CreateCredentialAccountInput {
     pub id: Option<String>,
     pub user_id: String,
     pub password_hash: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpdateUserInput {
+    pub name: Option<String>,
+    pub image: Option<Option<String>>,
+}
+
+impl UpdateUserInput {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    #[must_use]
+    pub fn image(mut self, image: Option<String>) -> Self {
+        self.image = Some(image);
+        self
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none() && self.image.is_none()
+    }
 }
 
 impl CreateCredentialAccountInput {
@@ -249,6 +279,61 @@ impl<'a> DbUserStore<'a> {
             .await?;
 
         record.map(account_from_record).transpose()
+    }
+
+    pub async fn update_user(
+        &self,
+        user_id: &str,
+        input: UpdateUserInput,
+    ) -> Result<Option<User>, OpenAuthError> {
+        if input.is_empty() {
+            return self.find_user_by_id(user_id).await;
+        }
+        let mut query = Update::new(USER_MODEL)
+            .where_clause(Where::new("id", DbValue::String(user_id.to_owned())))
+            .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()));
+        if let Some(name) = input.name {
+            query = query.data("name", DbValue::String(name));
+        }
+        if let Some(image) = input.image {
+            query = query.data("image", optional_string(image));
+        }
+
+        self.adapter
+            .update(query)
+            .await?
+            .map(user_from_record)
+            .transpose()
+    }
+
+    pub async fn update_credential_password(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> Result<Option<Account>, OpenAuthError> {
+        self.adapter
+            .update(
+                Update::new(ACCOUNT_MODEL)
+                    .where_clause(Where::new("user_id", DbValue::String(user_id.to_owned())))
+                    .where_clause(Where::new(
+                        "provider_id",
+                        DbValue::String(CREDENTIAL_PROVIDER_ID.to_owned()),
+                    ))
+                    .data("password", DbValue::String(password_hash.to_owned()))
+                    .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc())),
+            )
+            .await?
+            .map(account_from_record)
+            .transpose()
+    }
+
+    pub async fn delete_account(&self, account_id: &str) -> Result<(), OpenAuthError> {
+        self.adapter
+            .delete(
+                Delete::new(ACCOUNT_MODEL)
+                    .where_clause(Where::new("id", DbValue::String(account_id.to_owned()))),
+            )
+            .await
     }
 }
 

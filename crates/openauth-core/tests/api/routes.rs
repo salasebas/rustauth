@@ -22,6 +22,7 @@ struct RouteAdapter {
     users: Mutex<HashMap<String, DbRecord>>,
     accounts: Mutex<HashMap<String, DbRecord>>,
     sessions: Mutex<HashMap<String, DbRecord>>,
+    verifications: Mutex<HashMap<String, DbRecord>>,
 }
 
 impl RouteAdapter {
@@ -69,6 +70,14 @@ impl DbAdapter for RouteAdapter {
                     self.sessions.lock().await.insert(token, query.data.clone());
                     Ok(query.data)
                 }
+                "verification" => {
+                    let identifier = string_field(&query.data, "identifier")?.to_owned();
+                    self.verifications
+                        .lock()
+                        .await
+                        .insert(identifier, query.data.clone());
+                    Ok(query.data)
+                }
                 model => Err(OpenAuthError::Adapter(format!(
                     "unexpected create model `{model}`"
                 ))),
@@ -110,6 +119,10 @@ impl DbAdapter for RouteAdapter {
                     let token = string_filter(&query.where_clauses, "token")?;
                     Ok(self.sessions.lock().await.get(token).cloned())
                 }
+                "verification" => {
+                    let identifier = string_filter(&query.where_clauses, "identifier")?;
+                    Ok(self.verifications.lock().await.get(identifier).cloned())
+                }
                 model => Err(OpenAuthError::Adapter(format!(
                     "unexpected find_one model `{model}`"
                 ))),
@@ -146,6 +159,19 @@ impl DbAdapter for RouteAdapter {
                         .cloned()
                         .collect())
                 }
+                "verification" => {
+                    let identifier = string_filter(&query.where_clauses, "identifier")?;
+                    Ok(self
+                        .verifications
+                        .lock()
+                        .await
+                        .values()
+                        .filter(|record| {
+                            matches!(record.get("identifier"), Some(DbValue::String(value)) if value == identifier)
+                        })
+                        .cloned()
+                        .collect())
+                }
                 _ => Ok(Vec::new()),
             }
         })
@@ -157,12 +183,25 @@ impl DbAdapter for RouteAdapter {
 
     fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
         Box::pin(async move {
-            let token = string_filter(&query.where_clauses, "token")?;
-            let mut sessions = self.sessions.lock().await;
-            let Some(record) = sessions.get_mut(token) else {
+            let records = match query.model.as_str() {
+                "user" => &self.users,
+                "account" => &self.accounts,
+                "session" => &self.sessions,
+                "verification" => &self.verifications,
+                model => {
+                    return Err(OpenAuthError::Adapter(format!(
+                        "unexpected update model `{model}`"
+                    )))
+                }
+            };
+            let mut records = records.lock().await;
+            let Some(record) = records
+                .values_mut()
+                .find(|record| matches_where(record, &query.where_clauses))
+            else {
                 return Ok(None);
             };
-            for (key, value) in query.data {
+            for (key, value) in query.data.clone() {
                 record.insert(key, value);
             }
             Ok(Some(record.clone()))
@@ -175,8 +214,25 @@ impl DbAdapter for RouteAdapter {
 
     fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            let token = string_filter(&query.where_clauses, "token")?;
-            self.sessions.lock().await.remove(token);
+            match query.model.as_str() {
+                "session" => {
+                    let token = string_filter(&query.where_clauses, "token")?;
+                    self.sessions.lock().await.remove(token);
+                }
+                "verification" => {
+                    let identifier = string_filter(&query.where_clauses, "identifier")?;
+                    self.verifications.lock().await.remove(identifier);
+                }
+                "account" => {
+                    let id = string_filter(&query.where_clauses, "id")?;
+                    self.accounts.lock().await.remove(id);
+                }
+                model => {
+                    return Err(OpenAuthError::Adapter(format!(
+                        "unexpected delete model `{model}`"
+                    )))
+                }
+            }
             Ok(())
         })
     }
@@ -508,6 +564,395 @@ async fn revoke_other_sessions_route_keeps_current_session(
     Ok(())
 }
 
+#[tokio::test]
+async fn list_accounts_route_returns_current_user_accounts(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    adapter
+        .insert_account(linked_account_record(
+            "account_2",
+            "github",
+            "github_ada",
+            "user_1",
+            Some("read:user,user:email"),
+            now,
+        ))
+        .await?;
+    let router = router(adapter)?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/list-accounts",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body.as_array().map(Vec::len), Some(2));
+    assert_eq!(body[0]["userId"], "user_1");
+    assert!(body
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|account| account["providerId"] == "github"
+            && account["scopes"] == serde_json::json!(["read:user", "user:email"])));
+    Ok(())
+}
+
+#[tokio::test]
+async fn unlink_account_route_deletes_matching_account_when_multiple_linked(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    adapter
+        .insert_account(linked_account_record(
+            "account_2",
+            "github",
+            "github_ada",
+            "user_1",
+            None,
+            now,
+        ))
+        .await?;
+    let router = router(adapter.clone())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/unlink-account",
+            r#"{"providerId":"github","accountId":"github_ada"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["status"], true);
+    assert!(!adapter.accounts.lock().await.contains_key("account_2"));
+    assert!(adapter.accounts.lock().await.contains_key("account_1"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn unlink_account_route_rejects_last_account() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    let router = router(adapter.clone())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/unlink-account",
+            r#"{"providerId":"credential","accountId":"user_1"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "FAILED_TO_UNLINK_LAST_ACCOUNT");
+    assert!(adapter.accounts.lock().await.contains_key("account_1"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_user_route_updates_name_and_image() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router(adapter.clone())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/update-user",
+            r#"{"name":"Grace","image":"https://example.com/grace.png"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["status"], true);
+    let users = adapter.users.lock().await;
+    let updated = users.get("ada@example.com").ok_or("missing user")?;
+    assert_eq!(
+        updated.get("name"),
+        Some(&DbValue::String("Grace".to_owned()))
+    );
+    assert_eq!(
+        updated.get("image"),
+        Some(&DbValue::String("https://example.com/grace.png".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_user_route_rejects_email_updates() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router(adapter)?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/update-user",
+            r#"{"email":"new@example.com"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "EMAIL_CAN_NOT_BE_UPDATED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn change_password_route_updates_credentials() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router(adapter.clone())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/change-password",
+            r#"{"currentPassword":"secret123","newPassword":"new-secret123"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["user"]["id"], "user_1");
+    let accounts = adapter.accounts.lock().await;
+    let account = accounts.get("account_1").ok_or("missing account")?;
+    let hash = string_field(account, "password")?;
+    assert!(!openauth_core::crypto::password::verify_password(
+        hash,
+        "secret123"
+    )?);
+    assert!(openauth_core::crypto::password::verify_password(
+        hash,
+        "new-secret123"
+    )?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_password_route_rejects_wrong_password() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router(adapter)?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/verify-password",
+            r#"{"password":"wrong"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "INVALID_PASSWORD");
+    Ok(())
+}
+
+#[tokio::test]
+async fn set_password_route_creates_missing_credential_account(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router(adapter.clone())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/set-password",
+            r#"{"newPassword":"new-secret123"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(adapter.accounts.lock().await.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn reset_password_route_updates_password_and_consumes_token(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    let router = router(adapter.clone())?;
+
+    let request_response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/request-password-reset",
+            r#"{"email":"ada@example.com","redirectTo":"/reset"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(request_response.status(), StatusCode::OK);
+    let identifier = adapter
+        .verifications
+        .lock()
+        .await
+        .keys()
+        .next()
+        .cloned()
+        .ok_or("missing verification")?;
+    let token = identifier
+        .strip_prefix("reset-password:")
+        .ok_or("bad identifier")?
+        .to_owned();
+
+    let reset_response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/reset-password",
+            &format!(r#"{{"newPassword":"new-secret123","token":"{token}"}}"#),
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(reset_response.status(), StatusCode::OK);
+    assert!(adapter.verifications.lock().await.is_empty());
+    let accounts = adapter.accounts.lock().await;
+    let account = accounts.get("account_1").ok_or("missing account")?;
+    let hash = string_field(account, "password")?;
+    assert!(openauth_core::crypto::password::verify_password(
+        hash,
+        "new-secret123"
+    )?);
+
+    let reused_response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/reset-password",
+            &format!(r#"{{"newPassword":"another-secret123","token":"{token}"}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(reused_response.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn request_password_reset_route_does_not_reveal_user_existence(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router(adapter.clone())?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/request-password-reset",
+            r#"{"email":"missing@example.com","redirectTo":"/reset"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(
+        body["message"],
+        "If this email exists in our system, check your email for the reset link"
+    );
+    assert!(adapter.verifications.lock().await.is_empty());
+    Ok(())
+}
+
 #[test]
 fn core_auth_routes_expose_upstream_openapi_metadata() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
@@ -550,6 +995,23 @@ fn core_auth_routes_expose_upstream_openapi_metadata() -> Result<(), Box<dyn std
             ["schema"]["required"],
         serde_json::json!(["token"])
     );
+    assert_eq!(
+        openapi["paths"]["/change-password"]["post"]["operationId"],
+        "changePassword"
+    );
+    assert_eq!(
+        openapi["paths"]["/request-password-reset"]["post"]["operationId"],
+        "requestPasswordReset"
+    );
+    assert_eq!(
+        openapi["paths"]["/list-accounts"]["get"]["operationId"],
+        "listUserAccounts"
+    );
+    assert_eq!(
+        openapi["paths"]["/unlink-account"]["post"]["requestBody"]["content"]["application/json"]
+            ["schema"]["required"],
+        serde_json::json!(["providerId"])
+    );
     Ok(())
 }
 
@@ -558,6 +1020,7 @@ fn router(adapter: Arc<RouteAdapter>) -> Result<AuthRouter, OpenAuthError> {
         secret: Some(secret().to_owned()),
         advanced: AdvancedOptions {
             disable_csrf_check: true,
+            disable_origin_check: true,
             ..AdvancedOptions::default()
         },
         ..OpenAuthOptions::default()
@@ -684,27 +1147,57 @@ fn session_record(session: Session) -> DbRecord {
 }
 
 fn credential_account_record(user_id: &str, password_hash: &str, now: OffsetDateTime) -> DbRecord {
+    let mut record = linked_account_record("account_1", "credential", user_id, user_id, None, now);
+    record.insert(
+        "password".to_owned(),
+        DbValue::String(password_hash.to_owned()),
+    );
+    record
+}
+
+fn linked_account_record(
+    id: &str,
+    provider_id: &str,
+    account_id: &str,
+    user_id: &str,
+    scope: Option<&str>,
+    now: OffsetDateTime,
+) -> DbRecord {
     let mut record = DbRecord::new();
-    record.insert("id".to_owned(), DbValue::String("account_1".to_owned()));
+    record.insert("id".to_owned(), DbValue::String(id.to_owned()));
     record.insert(
         "provider_id".to_owned(),
-        DbValue::String("credential".to_owned()),
+        DbValue::String(provider_id.to_owned()),
     );
-    record.insert("account_id".to_owned(), DbValue::String(user_id.to_owned()));
+    record.insert(
+        "account_id".to_owned(),
+        DbValue::String(account_id.to_owned()),
+    );
     record.insert("user_id".to_owned(), DbValue::String(user_id.to_owned()));
     record.insert("access_token".to_owned(), DbValue::Null);
     record.insert("refresh_token".to_owned(), DbValue::Null);
     record.insert("id_token".to_owned(), DbValue::Null);
     record.insert("access_token_expires_at".to_owned(), DbValue::Null);
     record.insert("refresh_token_expires_at".to_owned(), DbValue::Null);
-    record.insert("scope".to_owned(), DbValue::Null);
     record.insert(
-        "password".to_owned(),
-        DbValue::String(password_hash.to_owned()),
+        "scope".to_owned(),
+        scope
+            .map(|scope| DbValue::String(scope.to_owned()))
+            .unwrap_or(DbValue::Null),
     );
+    record.insert("password".to_owned(), DbValue::Null);
     record.insert("created_at".to_owned(), DbValue::Timestamp(now));
     record.insert("updated_at".to_owned(), DbValue::Timestamp(now));
     record
+}
+
+fn matches_where(record: &DbRecord, where_clauses: &[Where]) -> bool {
+    where_clauses.iter().all(|where_clause| {
+        matches!(
+            record.get(&where_clause.field),
+            Some(value) if value == &where_clause.value
+        )
+    })
 }
 
 fn string_filter<'a>(where_clauses: &'a [Where], field: &str) -> Result<&'a str, OpenAuthError> {

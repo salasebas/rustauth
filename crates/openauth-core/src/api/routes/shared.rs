@@ -7,12 +7,13 @@ use crate::api::{ApiErrorResponse, ApiRequest, ApiResponse};
 use crate::auth::email_password::{
     AuthFlowError, AuthFlowErrorCode, EmailPasswordConfig, SignInInput, SignUpInput,
 };
+use crate::auth::session::{GetSessionInput, SessionAuth};
 use crate::context::AuthContext;
 use crate::cookies::{
     set_cookie_cache, set_session_cookie, Cookie, CookieCachePayload, CookieOptions,
     SessionCookieOptions,
 };
-use crate::db::{Session, User};
+use crate::db::{DbAdapter, Session, User};
 use crate::error::OpenAuthError;
 
 pub(super) trait RequestMetadata {
@@ -149,6 +150,46 @@ pub(super) fn request_cookie_header(request: &ApiRequest) -> Option<String> {
         .get(header::COOKIE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
+}
+
+pub(super) async fn current_session(
+    adapter: &dyn DbAdapter,
+    context: &AuthContext,
+    request: &ApiRequest,
+) -> Result<Option<(Session, User, Vec<Cookie>)>, OpenAuthError> {
+    let cookie_header = request_cookie_header(request).unwrap_or_default();
+    let Some(result) = SessionAuth::new(adapter, context)
+        .get_session(GetSessionInput::new(cookie_header))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let Some(session) = result.session else {
+        return Ok(None);
+    };
+    let Some(user) = result.user else {
+        return Ok(None);
+    };
+    Ok(Some((session, user, result.cookies)))
+}
+
+pub(super) fn error_response(
+    status: StatusCode,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) -> Result<ApiResponse, OpenAuthError> {
+    json_response(
+        status,
+        &ApiErrorResponse {
+            code: code.into(),
+            message: message.into(),
+        },
+        Vec::new(),
+    )
+}
+
+pub(super) fn unauthorized() -> Result<ApiResponse, OpenAuthError> {
+    error_response(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Unauthorized")
 }
 
 pub(super) fn json_openapi_response(description: &str, schema: Value) -> Value {

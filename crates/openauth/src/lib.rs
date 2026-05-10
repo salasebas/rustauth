@@ -37,7 +37,7 @@ pub use openauth_core::options::{
 pub use openauth_core::plugin::{AuthPlugin, PluginMiddleware, PluginRequestAction};
 pub use openauth_core::session::{CreateSessionInput, DbSessionStore};
 pub use openauth_core::user::{
-    CreateCredentialAccountInput, CreateUserInput, DbUserStore, UserWithAccounts,
+    CreateCredentialAccountInput, CreateUserInput, DbUserStore, UpdateUserInput, UserWithAccounts,
 };
 pub use openauth_core::verification::{
     CreateVerificationInput, DbVerificationStore, UpdateVerificationInput,

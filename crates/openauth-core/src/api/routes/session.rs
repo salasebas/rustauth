@@ -4,17 +4,15 @@ use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use super::shared::{
-    get_session_openapi_response, json_response, list_sessions_openapi_response,
-    request_cookie_header, status_openapi_response,
+    current_session, get_session_openapi_response, json_response, list_sessions_openapi_response,
+    request_cookie_header, status_openapi_response, unauthorized,
 };
 use crate::api::{
-    create_auth_endpoint, parse_request_body, ApiErrorResponse, ApiRequest, ApiResponse,
-    AsyncAuthEndpoint, AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType,
-    OpenApiOperation,
+    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
+    BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::auth::session::{GetSessionInput, SessionAuth};
 use crate::db::{DbAdapter, Session, User};
-use crate::error::OpenAuthError;
 use crate::session::DbSessionStore;
 
 #[derive(Debug, Serialize)]
@@ -214,40 +212,8 @@ pub(super) fn revoke_other_sessions_endpoint(adapter: Arc<dyn DbAdapter>) -> Asy
     )
 }
 
-async fn current_session(
-    adapter: &dyn DbAdapter,
-    context: &crate::context::AuthContext,
-    request: &ApiRequest,
-) -> Result<Option<(Session, User, Vec<crate::cookies::Cookie>)>, OpenAuthError> {
-    let cookie_header = request_cookie_header(request).unwrap_or_default();
-    let Some(result) = SessionAuth::new(adapter, context)
-        .get_session(GetSessionInput::new(cookie_header))
-        .await?
-    else {
-        return Ok(None);
-    };
-    let Some(session) = result.session else {
-        return Ok(None);
-    };
-    let Some(user) = result.user else {
-        return Ok(None);
-    };
-    Ok(Some((session, user, result.cookies)))
-}
-
 fn revoke_session_body_schema() -> BodySchema {
     BodySchema::object([
         BodyField::new("token", JsonSchemaType::String).description("The token to revoke")
     ])
-}
-
-fn unauthorized() -> Result<ApiResponse, OpenAuthError> {
-    json_response(
-        StatusCode::UNAUTHORIZED,
-        &ApiErrorResponse {
-            code: "UNAUTHORIZED".to_owned(),
-            message: "Unauthorized".to_owned(),
-        },
-        Vec::new(),
-    )
 }

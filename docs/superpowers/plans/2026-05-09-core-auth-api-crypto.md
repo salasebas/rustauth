@@ -64,6 +64,9 @@ Implement the next core/public-auth slice as a Rust-native port of Better Auth 1
 - [x] Add a Better Auth-inspired `create_auth_endpoint` builder with endpoint options, per-endpoint middleware, allowed media types, body schema validation, operation IDs, and OpenAPI schema generation.
 - [x] Expand OpenAPI generation toward upstream shape: operation metadata, default error responses, request body fallback for body-using methods, path parameter formatting, security schemes, top-level security, servers, tags, and model schemas.
 - [x] Add DB-backed session route builders for `/list-sessions`, `/revoke-session`, `/revoke-sessions`, and `/revoke-other-sessions`.
+- [x] Add DB-backed user/password route builders for `/update-user`, `/change-password`, `/set-password`, `/verify-password`, `/request-password-reset`, and `/reset-password`.
+- [x] Add DB-backed account route builders for `/list-accounts` and `/unlink-account`, leaving OAuth token/linking routes out of core scope for now.
+- [x] Reorganize integration tests into grouped `tests/<domain>/main.rs` suites so API, auth, cookies, crypto, DB, context, env, rate limit, and utils coverage can grow without one flat directory.
 - [x] Add disabled-path handling, trusted-origin checks, percent-decoded callback URL validation, Fetch Metadata CSRF checks, origin/path normalization hooks, strict/default trailing-slash route matching, and typed API errors.
 - [x] Resolve static base URL/path at context initialization; keep dynamic request-derived URL support minimal and explicit.
 - [x] Add plugin lookup helpers without porting client behavior.
@@ -76,6 +79,10 @@ Implement the next core/public-auth slice as a Rust-native port of Better Auth 1
 - [x] Expand endpoint contracts from plain function handlers into async endpoint + middleware chains that can support DB/network work and plugin hooks without framework coupling.
 - [x] Implement full rate limiting behavior, including storage contracts, request keying, response headers, disabled-path interaction, and tests against the Better Auth route behavior.
 - [x] Add router-level plugin hooks for `onRequest`, `onResponse`, middleware path matching, and endpoint conflict detection.
+- [ ] Add `update-session` once OpenAuth has first-class additional session field configuration; upstream route only updates configured additional fields.
+- [ ] Add email verification and email change routes once email callback/config contracts are modeled.
+- [ ] Add delete-user routes once user deletion options, verification callbacks, and before/after hooks are modeled.
+- [ ] Add OAuth account routes such as `/link-social`, `/get-access-token`, `/refresh-token`, `/account-info`, and callback routes in `openauth-oauth` rather than core.
 
 ## Continued Hardening
 
@@ -89,27 +96,15 @@ Implement the next core/public-auth slice as a Rust-native port of Better Auth 1
 
 ## Test Plan
 
-- [x] `cargo test -p openauth-core --test crypto_buffer`
-- [x] `cargo test -p openauth-core --test crypto_random`
-- [x] `cargo test -p openauth-core --test crypto_password`
-- [x] `cargo test -p openauth-core --test crypto_jwe`
-- [x] `cargo test -p openauth-core --test crypto_secret_rotation`
+- [x] `cargo test -p openauth-core --test api`
+- [x] `cargo test -p openauth-core --test auth`
+- [x] `cargo test -p openauth-core --test context`
 - [x] `cargo test -p openauth-core --test cookies`
-- [x] `cargo test -p openauth-core --test cookie_store`
-- [x] `cargo test -p openauth-core --test context_runtime`
-- [x] `cargo test -p openauth-core --test auth_api`
-- [x] `cargo test -p openauth-core --test trusted_origins`
-- [x] `cargo test -p openauth-core --test rate_limiter`
-- [x] `cargo test -p openauth-core --test plugin_router`
-- [x] `cargo test -p openauth-core --test async_api`
-- [x] `cargo test -p openauth-core --test api_body`
-- [x] `cargo test -p openauth-core --test auth_endpoint_builder`
-- [x] `cargo test -p openauth-core --test auth_routes`
-- [x] `cargo test -p openauth-core --test email_password_auth`
-- [x] `cargo test -p openauth-core --test session_auth`
-- [x] `cargo test -p openauth-core --test session_store`
-- [x] `cargo test -p openauth-core --test user_store`
-- [x] `cargo test -p openauth-core --test verification_store`
+- [x] `cargo test -p openauth-core --test crypto`
+- [x] `cargo test -p openauth-core --test db`
+- [x] `cargo test -p openauth-core --test env`
+- [x] `cargo test -p openauth-core --test rate_limit`
+- [x] `cargo test -p openauth-core --test utils`
 - [x] `cargo test -p openauth-core --test options`
 - [x] `cargo test -p openauth --test public_api`
 - [x] `cargo test --workspace`

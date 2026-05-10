@@ -4,7 +4,7 @@ use openauth::{
     ApiErrorResponse, ApiRequest, ApiResponse, AsyncAuthEndpoint, AuthEndpoint,
     AuthEndpointOptions, AuthPlugin, BodyField, BodySchema, CookieCacheStrategy, EndpointKind,
     JsonSchemaType, OpenApiOperation, OpenAuthError, OpenAuthOptions, PluginRequestAction,
-    RateLimitOptions, SessionAuth, SignOutResult, TrustedOriginOptions,
+    RateLimitOptions, SessionAuth, SignOutResult, TrustedOriginOptions, UpdateUserInput,
 };
 
 #[test]
@@ -69,6 +69,7 @@ fn openauth_crate_reexports_core_contract_types() {
     let _cookie_strategy = CookieCacheStrategy::Jwe;
     let _memory_storage = openauth::rate_limit::MemoryRateLimitStorage::new();
     let _session_auth_type: Option<SessionAuth<'_>> = None;
+    let _update_user = UpdateUserInput::new().name("Ada").image(None);
     let _route_builder = core_auth_async_endpoints;
     let _endpoint_options = AuthEndpointOptions::new()
         .operation_id("testOperation")
