@@ -1,0 +1,1 @@
+//! Kakao provider placeholder.

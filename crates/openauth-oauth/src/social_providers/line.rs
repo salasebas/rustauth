@@ -1,0 +1,1 @@
+//! Line provider placeholder.

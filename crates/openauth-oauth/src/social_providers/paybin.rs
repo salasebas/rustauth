@@ -1,0 +1,1 @@
+//! Paybin provider placeholder.

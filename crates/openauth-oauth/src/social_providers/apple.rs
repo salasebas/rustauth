@@ -1,0 +1,1 @@
+//! Apple provider placeholder.

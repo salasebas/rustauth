@@ -1,0 +1,1 @@
+//! LinkedIn provider placeholder.
