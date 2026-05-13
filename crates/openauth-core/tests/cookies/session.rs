@@ -64,7 +64,7 @@ fn delete_session_cookie_expires_session_cookies_and_chunks(
 
     let expired = delete_session_cookie(
         &cookies,
-        "better-auth.session_data.0=abc; better-auth.session_data.1=def",
+        "better-auth.session_data.0=abc; better-auth.session_data.1=def; better-auth.account_data.0=ghi; better-auth.account_data.1=jkl",
         false,
     );
 
@@ -73,7 +73,19 @@ fn delete_session_cookie_expires_session_cookies_and_chunks(
         .any(|cookie| cookie.name == "better-auth.session_token"));
     assert!(expired
         .iter()
+        .any(|cookie| cookie.name == "better-auth.session_data"));
+    assert!(expired
+        .iter()
         .any(|cookie| cookie.name == "better-auth.session_data.0"));
+    assert!(expired
+        .iter()
+        .any(|cookie| cookie.name == "better-auth.account_data"));
+    assert!(expired
+        .iter()
+        .any(|cookie| cookie.name == "better-auth.account_data.0"));
+    assert!(expired
+        .iter()
+        .any(|cookie| cookie.name == "better-auth.dont_remember"));
     assert!(expired
         .iter()
         .all(|cookie| cookie.attributes.max_age == Some(0)));

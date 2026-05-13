@@ -2,22 +2,28 @@ use std::sync::Arc;
 
 use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use time::OffsetDateTime;
 
 use super::shared::{
-    current_session, get_session_openapi_response, json_response, list_sessions_openapi_response,
-    request_cookie_header, status_openapi_response, unauthorized,
+    current_session, error_response, get_session_openapi_response, json_openapi_response,
+    json_response, list_sessions_openapi_response, request_cookie_header, status_openapi_response,
+    unauthorized,
 };
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::auth::session::{GetSessionInput, SessionAuth};
-use crate::db::{DbAdapter, Session, User};
+use crate::context::AuthContext;
+use crate::db::{DbAdapter, DbFieldType, DbRecord, DbValue, FindOne, Session, Update, User, Where};
+use crate::error::OpenAuthError;
+use crate::options::SessionAdditionalField;
 use crate::session::DbSessionStore;
 
 #[derive(Debug, Serialize)]
 struct SessionUserBody {
-    session: Session,
+    session: Value,
     user: User,
 }
 
@@ -75,7 +81,11 @@ pub(super) fn get_session_endpoint(
                 };
                 json_response(
                     StatusCode::OK,
-                    &SessionUserBody { session, user },
+                    &SessionUserBody {
+                        session: session_response_value(adapter.as_ref(), context, &session)
+                            .await?,
+                        user,
+                    },
                     result.cookies,
                 )
             })
@@ -212,8 +222,249 @@ pub(super) fn revoke_other_sessions_endpoint(adapter: Arc<dyn DbAdapter>) -> Asy
     )
 }
 
+pub(super) fn update_session_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        "/update-session",
+        Method::POST,
+        AuthEndpointOptions::new()
+            .operation_id("updateSession")
+            .openapi(
+                OpenApiOperation::new("updateSession")
+                    .description("Update the current session")
+                    .request_body(update_session_request_body())
+                    .response("200", update_session_response()),
+            ),
+        move |context, request| {
+            let adapter = Arc::clone(&adapter);
+            Box::pin(async move {
+                let Some((current, _user, cookies)) =
+                    current_session(adapter.as_ref(), context, &request).await?
+                else {
+                    return unauthorized();
+                };
+                let body: Value = parse_request_body(&request)?;
+                let Some(fields) = body.as_object() else {
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        "BODY_MUST_BE_AN_OBJECT",
+                        "Body must be an object",
+                    );
+                };
+
+                let mut update = Update::new("session")
+                    .where_clause(Where::new("token", DbValue::String(current.token.clone())));
+                for (name, value) in fields {
+                    if is_core_session_field(name) {
+                        continue;
+                    }
+                    let Some(field) = context.options.session.additional_fields.get(name) else {
+                        continue;
+                    };
+                    if !field.input {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            "INVALID_REQUEST_BODY",
+                            "field is not accepted as input",
+                        );
+                    }
+                    let Ok(value) = session_field_value(name, field, value) else {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            "INVALID_REQUEST_BODY",
+                            "invalid session field value",
+                        );
+                    };
+                    update = update.data(name, value);
+                }
+
+                if update.data.is_empty() {
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        "NO_FIELDS_TO_UPDATE",
+                        "No fields to update",
+                    );
+                }
+
+                update = update.data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()));
+                let Some(record) = adapter.update(update).await? else {
+                    return unauthorized();
+                };
+                let session = session_value_from_record(context, &record, &current)?;
+                json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({ "session": session }),
+                    cookies,
+                )
+            })
+        },
+    )
+}
+
 fn revoke_session_body_schema() -> BodySchema {
     BodySchema::object([
         BodyField::new("token", JsonSchemaType::String).description("The token to revoke")
     ])
+}
+
+async fn session_response_value(
+    adapter: &dyn DbAdapter,
+    context: &AuthContext,
+    session: &Session,
+) -> Result<Value, OpenAuthError> {
+    if context.options.session.additional_fields.is_empty() {
+        return serde_json::to_value(session)
+            .map_err(|error| OpenAuthError::Api(error.to_string()));
+    }
+    let record = adapter
+        .find_one(
+            FindOne::new("session")
+                .where_clause(Where::new("token", DbValue::String(session.token.clone()))),
+        )
+        .await?;
+    match record {
+        Some(record) => session_value_from_record(context, &record, session),
+        None => {
+            serde_json::to_value(session).map_err(|error| OpenAuthError::Api(error.to_string()))
+        }
+    }
+}
+
+fn session_value_from_record(
+    context: &AuthContext,
+    record: &DbRecord,
+    session: &Session,
+) -> Result<Value, OpenAuthError> {
+    let mut value =
+        serde_json::to_value(session).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let Some(object) = value.as_object_mut() else {
+        return Err(OpenAuthError::Api(
+            "could not serialize session as an object".to_owned(),
+        ));
+    };
+    for (name, field) in &context.options.session.additional_fields {
+        if !field.returned {
+            continue;
+        }
+        if let Some(value) = record.get(name) {
+            object.insert(name.clone(), db_value_to_json(value)?);
+        }
+    }
+    Ok(value)
+}
+
+fn session_field_value(
+    name: &str,
+    field: &SessionAdditionalField,
+    value: &Value,
+) -> Result<DbValue, String> {
+    if value.is_null() {
+        return Ok(DbValue::Null);
+    }
+    match field.field_type {
+        DbFieldType::String => value
+            .as_str()
+            .map(|value| DbValue::String(value.to_owned())),
+        DbFieldType::Number => value.as_i64().map(DbValue::Number),
+        DbFieldType::Boolean => value.as_bool().map(DbValue::Boolean),
+        DbFieldType::Json => Some(DbValue::Json(value.clone())),
+        DbFieldType::StringArray => value.as_array().and_then(|values| {
+            values
+                .iter()
+                .map(|value| value.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+                .map(DbValue::StringArray)
+        }),
+        DbFieldType::NumberArray => value.as_array().and_then(|values| {
+            values
+                .iter()
+                .map(Value::as_i64)
+                .collect::<Option<Vec<_>>>()
+                .map(DbValue::NumberArray)
+        }),
+        DbFieldType::Timestamp => None,
+    }
+    .ok_or_else(|| format!("invalid value for session field `{name}`"))
+}
+
+fn db_value_to_json(value: &DbValue) -> Result<Value, OpenAuthError> {
+    match value {
+        DbValue::String(value) => Ok(Value::String(value.clone())),
+        DbValue::Number(value) => Ok(Value::Number((*value).into())),
+        DbValue::Boolean(value) => Ok(Value::Bool(*value)),
+        DbValue::Timestamp(value) => {
+            serde_json::to_value(value).map_err(|error| OpenAuthError::Api(error.to_string()))
+        }
+        DbValue::Json(value) => Ok(value.clone()),
+        DbValue::StringArray(values) => Ok(Value::Array(
+            values.iter().cloned().map(Value::String).collect(),
+        )),
+        DbValue::NumberArray(values) => Ok(Value::Array(
+            values
+                .iter()
+                .map(|value| Value::Number((*value).into()))
+                .collect(),
+        )),
+        DbValue::Record(record) => db_record_to_json(record),
+        DbValue::RecordArray(records) => records
+            .iter()
+            .map(db_record_to_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
+        DbValue::Null => Ok(Value::Null),
+    }
+}
+
+fn db_record_to_json(record: &DbRecord) -> Result<Value, OpenAuthError> {
+    record
+        .iter()
+        .map(|(field, value)| db_value_to_json(value).map(|value| (field.clone(), value)))
+        .collect::<Result<serde_json::Map<_, _>, _>>()
+        .map(Value::Object)
+}
+
+fn is_core_session_field(name: &str) -> bool {
+    matches!(
+        name,
+        "id" | "user_id"
+            | "userId"
+            | "expires_at"
+            | "expiresAt"
+            | "token"
+            | "ip_address"
+            | "ipAddress"
+            | "user_agent"
+            | "userAgent"
+            | "created_at"
+            | "createdAt"
+            | "updated_at"
+            | "updatedAt"
+    )
+}
+
+fn update_session_request_body() -> Value {
+    serde_json::json!({
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+            },
+        },
+    })
+}
+
+fn update_session_response() -> Value {
+    json_openapi_response(
+        "Success",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "session": {
+                    "type": "object",
+                    "$ref": "#/components/schemas/Session",
+                },
+            },
+        }),
+    )
 }

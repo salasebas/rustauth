@@ -79,6 +79,10 @@ impl AuthFlowError {
     pub fn code_str(&self) -> &'static str {
         self.code.as_str()
     }
+
+    pub fn message(&self) -> &str {
+        self.message.as_str()
+    }
 }
 
 impl fmt::Display for AuthFlowError {

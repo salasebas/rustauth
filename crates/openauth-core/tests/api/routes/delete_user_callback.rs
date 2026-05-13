@@ -56,9 +56,9 @@ async fn delete_user_callback_route_deletes_user_for_valid_token(
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["success"], true);
-    assert!(adapter.users.lock().await.is_empty());
-    assert!(adapter.accounts.lock().await.is_empty());
-    assert!(adapter.sessions.lock().await.is_empty());
-    assert!(adapter.verifications.lock().await.is_empty());
+    assert!(adapter.is_empty("user").await);
+    assert!(adapter.is_empty("account").await);
+    assert!(adapter.is_empty("session").await);
+    assert!(adapter.is_empty("verification").await);
     Ok(())
 }

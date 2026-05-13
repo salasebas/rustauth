@@ -21,6 +21,6 @@ async fn request_password_reset_route_does_not_reveal_user_existence(
         body["message"],
         "If this email exists in our system, check your email for the reset link"
     );
-    assert!(adapter.verifications.lock().await.is_empty());
+    assert!(adapter.is_empty("verification").await);
     Ok(())
 }

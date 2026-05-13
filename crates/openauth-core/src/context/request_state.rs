@@ -3,9 +3,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::error::OpenAuthError;
+use serde_json::Value;
 
 tokio::task_local! {
     static REQUEST_STATE: RefCell<RequestStateStore>;
@@ -92,6 +93,22 @@ where
         key: RequestStateKey::new(),
         init: Arc::new(init),
     }
+}
+
+static CURRENT_SESSION_USER: OnceLock<RequestState<Option<Value>>> = OnceLock::new();
+
+fn current_session_user_state() -> &'static RequestState<Option<Value>> {
+    CURRENT_SESSION_USER.get_or_init(|| define_request_state(|| None))
+}
+
+/// Store the current session user JSON for after-response hooks in this request.
+pub fn set_current_session_user(user: Value) -> Result<(), OpenAuthError> {
+    current_session_user_state().set(Some(user))
+}
+
+/// Read the current session user JSON for this request, when an endpoint resolved one.
+pub fn current_session_user() -> Result<Option<Value>, OpenAuthError> {
+    current_session_user_state().get()
 }
 
 /// Run a future inside a fresh request state scope.

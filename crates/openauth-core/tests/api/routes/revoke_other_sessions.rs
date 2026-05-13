@@ -29,8 +29,7 @@ async fn revoke_other_sessions_route_keeps_current_session(
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let sessions = adapter.sessions.lock().await;
-    assert!(sessions.contains_key("token_1"));
-    assert!(!sessions.contains_key("token_2"));
+    assert!(contains_record_string(&adapter, "session", "token", "token_1").await?);
+    assert!(!contains_record_string(&adapter, "session", "token", "token_2").await?);
     Ok(())
 }

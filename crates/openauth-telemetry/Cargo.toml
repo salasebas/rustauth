@@ -15,7 +15,18 @@ categories.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+base64.workspace = true
+openauth-core = { path = "../openauth-core", version = "0.0.1" }
+rand.workspace = true
+reqwest = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 tokio.workspace = true
+
+[features]
+default = ["http"]
+http = ["dep:reqwest"]
 
 [lints]
 workspace = true

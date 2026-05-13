@@ -8,6 +8,7 @@ use crate::auth::email_password::{
     AuthFlowError, AuthFlowErrorCode, EmailPasswordConfig, SignInInput, SignUpInput,
 };
 use crate::auth::session::{GetSessionInput, SessionAuth};
+use crate::context::request_state::{has_request_state, set_current_session_user};
 use crate::context::AuthContext;
 use crate::cookies::{
     set_cookie_cache, set_session_cookie, Cookie, CookieCachePayload, CookieOptions,
@@ -114,7 +115,8 @@ pub(super) fn auth_flow_error_response(error: AuthFlowError) -> Result<ApiRespon
         status,
         &ApiErrorResponse {
             code: error.code_str().to_owned(),
-            message: error.to_string(),
+            message: error.message().to_owned(),
+            original_message: None,
         },
         Vec::new(),
     )
@@ -179,6 +181,11 @@ pub(super) async fn current_session(
     let Some(user) = result.user else {
         return Ok(None);
     };
+    if has_request_state() {
+        set_current_session_user(
+            serde_json::to_value(&user).map_err(|error| OpenAuthError::Api(error.to_string()))?,
+        )?;
+    }
     Ok(Some((session, user, result.cookies)))
 }
 
@@ -192,6 +199,7 @@ pub(super) fn error_response(
         &ApiErrorResponse {
             code: code.into(),
             message: message.into(),
+            original_message: None,
         },
         Vec::new(),
     )

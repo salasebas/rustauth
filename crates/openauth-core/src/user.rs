@@ -4,8 +4,8 @@ use time::OffsetDateTime;
 
 use crate::crypto::random::generate_random_string;
 use crate::db::{
-    Account, Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindMany, FindOne, Update,
-    User, Where,
+    Account, Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindMany, FindOne,
+    JoinOption, Update, User, Where,
 };
 use crate::error::OpenAuthError;
 
@@ -327,10 +327,34 @@ impl<'a> DbUserStore<'a> {
         &self,
         email: &str,
     ) -> Result<Option<UserWithAccounts>, OpenAuthError> {
-        let Some(user) = self.find_user_by_email(email).await? else {
+        let Some(mut record) = self
+            .adapter
+            .find_one(
+                FindOne::new(USER_MODEL)
+                    .where_clause(Where::new("email", DbValue::String(normalize_email(email))))
+                    .select(USER_FIELDS)
+                    .join(ACCOUNT_MODEL, JoinOption::enabled()),
+            )
+            .await?
+        else {
             return Ok(None);
         };
-        let accounts = self.list_accounts_for_user(&user.id).await?;
+
+        let joined_accounts = record.shift_remove(ACCOUNT_MODEL);
+        let user = user_from_record(record)?;
+        let accounts = match joined_accounts {
+            Some(DbValue::RecordArray(accounts)) => accounts
+                .into_iter()
+                .map(account_from_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(DbValue::Null) => Vec::new(),
+            None => self.list_accounts_for_user(&user.id).await?,
+            Some(_) => {
+                return Err(OpenAuthError::Adapter(
+                    "joined account result must be an array".to_owned(),
+                ));
+            }
+        };
         Ok(Some(UserWithAccounts { user, accounts }))
     }
 

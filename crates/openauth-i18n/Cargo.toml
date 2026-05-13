@@ -15,7 +15,18 @@ categories.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-tokio.workspace = true
+http.workspace = true
+indexmap.workspace = true
+openauth-core = { path = "../openauth-core", version = "0.0.1" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+openauth-core = { path = "../openauth-core", version = "0.0.1" }
+serde_json.workspace = true
+time = { workspace = true, features = ["serde"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

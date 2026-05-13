@@ -1,13 +1,28 @@
 //! Configuration types for OpenAuth core.
 
 use crate::crypto::SecretEntry;
-use crate::db::User;
+use crate::db::{DbFieldType, User};
 use crate::error::OpenAuthError;
 use crate::plugin::AuthPlugin;
 use crate::utils::ip::Ipv6Subnet;
 use http::Request;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
+
+/// Telemetry collection settings (parity with Better Auth `telemetry` init option).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TelemetryOptions {
+    /// When `None`, option-side telemetry is off unless overridden by environment.
+    pub enabled: Option<bool>,
+    pub debug: bool,
+}
+
+/// Experimental feature flags.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ExperimentalOptions {
+    pub joins: bool,
+}
 
 /// Top-level OpenAuth configuration.
 #[derive(Clone, Default)]
@@ -27,6 +42,8 @@ pub struct OpenAuthOptions {
     pub rate_limit: RateLimitOptions,
     pub plugins: Vec<AuthPlugin>,
     pub production: bool,
+    pub telemetry: TelemetryOptions,
+    pub experimental: ExperimentalOptions,
 }
 
 impl fmt::Debug for OpenAuthOptions {
@@ -51,6 +68,8 @@ impl fmt::Debug for OpenAuthOptions {
             .field("rate_limit", &self.rate_limit)
             .field("plugins", &self.plugins)
             .field("production", &self.production)
+            .field("telemetry", &self.telemetry)
+            .field("experimental", &self.experimental)
             .finish()
     }
 }
@@ -280,6 +299,37 @@ pub struct SessionOptions {
     pub update_age: Option<u64>,
     pub fresh_age: Option<u64>,
     pub cookie_cache: CookieCacheOptions,
+    pub additional_fields: BTreeMap<String, SessionAdditionalField>,
+}
+
+/// Runtime metadata for custom session fields accepted by `/update-session`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionAdditionalField {
+    pub field_type: DbFieldType,
+    pub input: bool,
+    pub returned: bool,
+}
+
+impl SessionAdditionalField {
+    pub fn new(field_type: DbFieldType) -> Self {
+        Self {
+            field_type,
+            input: true,
+            returned: true,
+        }
+    }
+
+    #[must_use]
+    pub fn generated(mut self) -> Self {
+        self.input = false;
+        self
+    }
+
+    #[must_use]
+    pub fn hidden(mut self) -> Self {
+        self.returned = false;
+        self
+    }
 }
 
 /// Session cookie cache configuration.

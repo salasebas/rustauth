@@ -37,9 +37,8 @@ async fn revoke_sessions_route_deletes_all_current_user_sessions(
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    let sessions = adapter.sessions.lock().await;
-    assert!(!sessions.contains_key("token_1"));
-    assert!(!sessions.contains_key("token_2"));
-    assert!(sessions.contains_key("token_3"));
+    assert!(!contains_record_string(&adapter, "session", "token", "token_1").await?);
+    assert!(!contains_record_string(&adapter, "session", "token", "token_2").await?);
+    assert!(contains_record_string(&adapter, "session", "token", "token_3").await?);
     Ok(())
 }

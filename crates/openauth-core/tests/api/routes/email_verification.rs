@@ -138,13 +138,10 @@ async fn verify_email_route_marks_user_verified() -> Result<(), Box<dyn std::err
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["status"], true);
     assert!(body["user"].is_null());
-    let users = adapter.users.lock().await;
-    assert_eq!(
-        users
-            .get("ada@example.com")
-            .and_then(|record| record.get("email_verified")),
-        Some(&DbValue::Boolean(true))
-    );
+    let user = record_by_string(&adapter, "user", "email", "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(user.get("email_verified"), Some(&DbValue::Boolean(true)));
     Ok(())
 }
 

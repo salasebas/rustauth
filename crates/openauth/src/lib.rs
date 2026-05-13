@@ -2,7 +2,10 @@
 
 pub mod auth;
 
-pub use auth::{open_auth, open_auth_with_endpoints, OpenAuth};
+pub use auth::{
+    open_auth, open_auth_with_adapter, open_auth_with_adapter_and_endpoints,
+    open_auth_with_endpoints, OpenAuth,
+};
 pub use openauth_core::api::{
     core_auth_async_endpoints, create_auth_endpoint, parse_request_body, ApiErrorCode,
     ApiErrorResponse, ApiRequest, ApiResponse, AsyncAuthEndpoint, AuthEndpoint,
@@ -26,14 +29,16 @@ pub use openauth_core::crypto::{
     symmetric_encode_jwt, symmetric_encrypt, validate_secrets, Envelope, JweSecretSource,
     SecretConfig, SecretEntry,
 };
+pub use openauth_core::db::MemoryAdapter;
 pub use openauth_core::error::OpenAuthError;
 pub use openauth_core::options::{
-    AdvancedOptions, ChangeEmailOptions, CookieAttributesOverride, CookieCacheOptions,
-    CookieCacheStrategy, CookieConfig, DeleteUserOptions, DynamicRateLimitPathRule,
-    EmailVerificationOptions, IpAddressOptions, OpenAuthOptions, PasswordOptions, RateLimitOptions,
+    AccountLinkingOptions, AccountOptions, AdvancedOptions, ChangeEmailOptions,
+    CookieAttributesOverride, CookieCacheOptions, CookieCacheStrategy, CookieConfig,
+    DeleteUserOptions, DynamicRateLimitPathRule, EmailVerificationOptions, ExperimentalOptions,
+    IpAddressOptions, OAuthStateStoreStrategy, OpenAuthOptions, PasswordOptions, RateLimitOptions,
     RateLimitPathRule, RateLimitRecord, RateLimitRule, RateLimitRuleProvider, RateLimitStorage,
-    RateLimitStorageOption, SendVerificationEmail, SessionOptions, TrustedOriginOptions,
-    TrustedOriginsProvider, UserOptions, VerificationEmail,
+    RateLimitStorageOption, SendVerificationEmail, SessionAdditionalField, SessionOptions,
+    TelemetryOptions, TrustedOriginOptions, TrustedOriginsProvider, UserOptions, VerificationEmail,
 };
 pub use openauth_core::plugin::{AuthPlugin, PluginMiddleware, PluginRequestAction};
 pub use openauth_core::session::{CreateSessionInput, DbSessionStore};
@@ -48,6 +53,10 @@ pub use openauth_core::{
     utils, verification,
 };
 pub use openauth_core::{oauth, social_providers};
+pub use openauth_telemetry::{
+    create_telemetry, get_telemetry_auth_config, TelemetryContext, TelemetryEvent,
+    TelemetryPublisher, TelemetryTestHooks,
+};
 
 /// Current crate version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

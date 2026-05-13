@@ -23,8 +23,9 @@ async fn update_user_route_updates_name_and_image() -> Result<(), Box<dyn std::e
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["status"], true);
-    let users = adapter.users.lock().await;
-    let updated = users.get("ada@example.com").ok_or("missing user")?;
+    let updated = record_by_string(&adapter, "user", "email", "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
     assert_eq!(
         updated.get("name"),
         Some(&DbValue::String("Grace".to_owned()))

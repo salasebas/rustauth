@@ -30,9 +30,10 @@ async fn change_password_route_updates_credentials() -> Result<(), Box<dyn std::
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["user"]["id"], "user_1");
-    let accounts = adapter.accounts.lock().await;
-    let account = accounts.get("account_1").ok_or("missing account")?;
-    let hash = string_field(account, "password")?;
+    let account = record_by_string(&adapter, "account", "id", "account_1")
+        .await?
+        .ok_or("missing account")?;
+    let hash = string_field(&account, "password")?;
     assert!(!openauth_core::crypto::password::verify_password(
         hash,
         "secret123"

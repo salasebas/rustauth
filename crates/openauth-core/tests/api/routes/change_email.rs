@@ -44,14 +44,12 @@ async fn change_email_route_updates_unverified_user_when_allowed(
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["status"], true);
     assert_eq!(body["message"], "Email updated");
-    assert!(adapter.users.lock().await.get("ada@example.com").is_none());
+    assert!(!contains_record_string(&adapter, "user", "email", "ada@example.com").await?);
+    let updated = record_by_string(&adapter, "user", "email", "new@example.com")
+        .await?
+        .ok_or("missing updated user")?;
     assert_eq!(
-        adapter
-            .users
-            .lock()
-            .await
-            .get("new@example.com")
-            .and_then(|record| record.get("email")),
+        updated.get("email"),
         Some(&DbValue::String("new@example.com".to_owned()))
     );
     Ok(())
@@ -104,6 +102,6 @@ async fn change_email_route_hides_existing_email() -> Result<(), Box<dyn std::er
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["status"], true);
-    assert!(adapter.users.lock().await.get("ada@example.com").is_some());
+    assert!(contains_record_string(&adapter, "user", "email", "ada@example.com").await?);
     Ok(())
 }

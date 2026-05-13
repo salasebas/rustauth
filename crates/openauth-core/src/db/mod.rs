@@ -3,6 +3,7 @@
 mod adapter;
 mod factory;
 mod id;
+mod memory;
 mod models;
 mod output;
 mod schema;
@@ -14,8 +15,10 @@ pub use adapter::{
     JoinConfig, JoinOn, JoinOption, JoinRelation, JoinResolution, SchemaCreation, Sort,
     SortDirection, TransactionCallback, Update, UpdateMany, Where, WhereMode, WhereOperator,
 };
+pub use factory::JoinAdapter;
 pub use factory::SchemaAdapter;
 pub use id::{IdGeneration, IdPolicy, IdValue};
+pub use memory::MemoryAdapter;
 pub use models::{Account, RateLimit, Session, User, Verification};
 pub use output::filter_output_fields;
 pub use schema::{

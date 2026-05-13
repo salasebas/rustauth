@@ -50,9 +50,9 @@ async fn delete_user_route_deletes_user_accounts_and_sessions_with_password(
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["success"], true);
     assert_eq!(body["message"], "User deleted");
-    assert!(adapter.users.lock().await.is_empty());
-    assert!(adapter.accounts.lock().await.is_empty());
-    assert!(adapter.sessions.lock().await.is_empty());
+    assert!(adapter.is_empty("user").await);
+    assert!(adapter.is_empty("account").await);
+    assert!(adapter.is_empty("session").await);
     assert!(set_cookie_values(&response)
         .iter()
         .any(|cookie| cookie.starts_with("better-auth.session_token=;")
@@ -99,6 +99,6 @@ async fn delete_user_route_rejects_wrong_password() -> Result<(), Box<dyn std::e
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["code"], "INVALID_PASSWORD");
-    assert!(adapter.users.lock().await.contains_key("ada@example.com"));
+    assert!(contains_record_string(&adapter, "user", "email", "ada@example.com").await?);
     Ok(())
 }

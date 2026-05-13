@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use openauth_core::db::{
     auth_schema, AdapterCapabilities, AdapterFuture, Count, Create, DbAdapter, DbRecord, DbValue,
-    Delete, DeleteMany, FindMany, FindOne, SchemaAdapter, TransactionCallback, Update, UpdateMany,
-    Where,
+    Delete, DeleteMany, FindMany, FindOne, JoinAdapter, JoinOption, SchemaAdapter,
+    TransactionCallback, Update, UpdateMany, Where,
 };
 use openauth_core::error::OpenAuthError;
 use tokio::sync::Mutex;
@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 struct CapturingAdapter {
     capabilities: Option<AdapterCapabilities>,
     create: Arc<Mutex<Option<Create>>>,
+    find_one: Arc<Mutex<Option<FindOne>>>,
     find_many: Arc<Mutex<Option<FindMany>>>,
 }
 
@@ -33,8 +34,11 @@ impl DbAdapter for CapturingAdapter {
         })
     }
 
-    fn find_one<'a>(&'a self, _query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
-        Box::pin(async { Ok(None) })
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        Box::pin(async move {
+            self.find_one.lock().await.replace(query);
+            Ok(None)
+        })
     }
 
     fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
@@ -67,6 +71,54 @@ impl DbAdapter for CapturingAdapter {
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
         callback(self)
     }
+}
+
+#[tokio::test]
+async fn join_adapter_falls_back_without_passing_joins_to_inner_adapter(
+) -> Result<(), OpenAuthError> {
+    let inner = CapturingAdapter::default();
+    let adapter = JoinAdapter::new(
+        auth_schema(Default::default()),
+        Arc::new(inner.clone()),
+        false,
+    );
+
+    adapter
+        .find_one(FindOne::new("user").join("account", JoinOption::enabled()))
+        .await?;
+
+    let captured = inner
+        .find_one
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| OpenAuthError::Adapter("find_one query was not delegated".to_owned()))?;
+
+    assert!(captured.joins.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn join_adapter_passes_joins_when_experimental_and_supported() -> Result<(), OpenAuthError> {
+    let inner =
+        CapturingAdapter::with_capabilities(AdapterCapabilities::new("capture").with_joins());
+    let adapter = JoinAdapter::new(
+        auth_schema(Default::default()),
+        Arc::new(inner.clone()),
+        true,
+    );
+
+    adapter
+        .find_many(FindMany::new("user").join("account", JoinOption::enabled()))
+        .await?;
+
+    let captured =
+        inner.find_many.lock().await.clone().ok_or_else(|| {
+            OpenAuthError::Adapter("find_many query was not delegated".to_owned())
+        })?;
+
+    assert!(captured.joins.contains_key("account"));
+    Ok(())
 }
 
 impl CapturingAdapter {

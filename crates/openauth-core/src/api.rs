@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::auth::trusted_origins::OriginMatchSettings;
+use crate::context::request_state::run_with_request_state;
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use crate::plugin::PluginRequestAction;
@@ -85,6 +86,10 @@ impl ApiErrorCode {
 pub struct ApiErrorResponse {
     pub code: String,
     pub message: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "originalMessage")]
+    pub original_message: Option<String>,
 }
 
 #[derive(Clone)]
@@ -571,10 +576,14 @@ impl AuthRouter {
         }
         let response = (endpoint.handler)(&self.context, request.clone())?;
         on_response_rate_limit(&self.context, &request)?;
-        run_on_response_plugins(&self.context, response)
+        run_on_response_plugins(&self.context, &request, response)
     }
 
-    pub async fn handle_async(
+    pub async fn handle_async(&self, request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
+        run_with_request_state(self.handle_async_scoped(request)).await
+    }
+
+    async fn handle_async_scoped(
         &self,
         mut request: ApiRequest,
     ) -> Result<ApiResponse, OpenAuthError> {
@@ -628,12 +637,12 @@ impl AuthRouter {
             }
             let response = (endpoint.handler)(&self.context, request.clone()).await?;
             on_response_rate_limit(&self.context, &request)?;
-            return run_on_response_plugins(&self.context, response);
+            return run_on_response_plugins(&self.context, &request, response);
         }
         if let Some(endpoint) = sync_endpoint {
             let response = (endpoint.handler)(&self.context, request.clone())?;
             on_response_rate_limit(&self.context, &request)?;
-            return run_on_response_plugins(&self.context, response);
+            return run_on_response_plugins(&self.context, &request, response);
         }
         unreachable!("endpoint existence checked before rate limiting")
     }
@@ -665,6 +674,7 @@ pub fn api_error(status: StatusCode, code: ApiErrorCode) -> Result<ApiResponse, 
     let body = serde_json::to_vec(&ApiErrorResponse {
         code: code.as_str().to_owned(),
         message: code.message().to_owned(),
+        original_message: None,
     })
     .map_err(|error| OpenAuthError::Api(error.to_string()))?;
 
@@ -952,6 +962,7 @@ fn invalid_request_response(
     let body = serde_json::to_vec(&ApiErrorResponse {
         code: code.to_owned(),
         message: message.to_owned(),
+        original_message: None,
     })
     .map_err(|error| OpenAuthError::Api(error.to_string()))?;
 
@@ -1227,11 +1238,12 @@ fn run_matching_middlewares(
 
 fn run_on_response_plugins(
     context: &AuthContext,
+    request: &ApiRequest,
     mut response: ApiResponse,
 ) -> Result<ApiResponse, OpenAuthError> {
     for plugin in &context.plugins {
         if let Some(hook) = &plugin.on_response {
-            response = hook(context, response)?;
+            response = hook(context, request, response)?;
         }
     }
     Ok(response)

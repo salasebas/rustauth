@@ -109,12 +109,13 @@ fn middleware_matches_path_and_can_block_endpoint() -> Result<(), Box<dyn std::e
 
 #[test]
 fn on_response_plugin_can_replace_response() -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = AuthPlugin::new("response-mutator").with_on_response(|_context, mut response| {
-        response
-            .headers_mut()
-            .insert("x-plugin-response", http::HeaderValue::from_static("1"));
-        Ok(response)
-    });
+    let plugin =
+        AuthPlugin::new("response-mutator").with_on_response(|_context, _request, mut response| {
+            response
+                .headers_mut()
+                .insert("x-plugin-response", http::HeaderValue::from_static("1"));
+            Ok(response)
+        });
     let context = create_auth_context(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),

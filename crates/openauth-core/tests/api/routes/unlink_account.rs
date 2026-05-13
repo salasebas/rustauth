@@ -41,8 +41,8 @@ async fn unlink_account_route_deletes_matching_account_when_multiple_linked(
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["status"], true);
-    assert!(!adapter.accounts.lock().await.contains_key("account_2"));
-    assert!(adapter.accounts.lock().await.contains_key("account_1"));
+    assert!(!contains_record_string(&adapter, "account", "id", "account_2").await?);
+    assert!(contains_record_string(&adapter, "account", "id", "account_1").await?);
     Ok(())
 }
 
@@ -76,6 +76,6 @@ async fn unlink_account_route_rejects_last_account() -> Result<(), Box<dyn std::
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["code"], "FAILED_TO_UNLINK_LAST_ACCOUNT");
-    assert!(adapter.accounts.lock().await.contains_key("account_1"));
+    assert!(contains_record_string(&adapter, "account", "id", "account_1").await?);
     Ok(())
 }

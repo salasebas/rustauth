@@ -22,8 +22,8 @@ async fn sign_up_email_route_creates_session_and_sets_cookie(
         .as_str()
         .is_some_and(|token| !token.is_empty()));
     assert_eq!(body["user"]["email"], "ada@example.com");
-    assert_eq!(adapter.users.lock().await.len(), 1);
-    assert_eq!(adapter.sessions.lock().await.len(), 1);
+    assert_eq!(adapter.len("user").await, 1);
+    assert_eq!(adapter.len("session").await, 1);
     assert!(set_cookie_values(&response)
         .iter()
         .any(|cookie| cookie.starts_with("better-auth.session_token=")));

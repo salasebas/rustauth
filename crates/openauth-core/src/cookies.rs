@@ -426,17 +426,29 @@ pub fn delete_session_cookie(
     let mut expired = vec![
         expire_cookie(&auth_cookies.session_token),
         expire_cookie(&auth_cookies.session_data),
+        expire_cookie(&auth_cookies.account_data),
     ];
-    let store = ChunkedCookieStore::new(
-        auth_cookies.session_data.name.clone(),
-        auth_cookies.session_data.attributes.clone(),
+    expired.extend(clean_chunked_cookie(
+        &auth_cookies.session_data,
         cookie_header,
-    );
-    expired.extend(store.clean());
+    ));
+    expired.extend(clean_chunked_cookie(
+        &auth_cookies.account_data,
+        cookie_header,
+    ));
     if !skip_dont_remember {
         expired.push(expire_cookie(&auth_cookies.dont_remember_token));
     }
     expired
+}
+
+fn clean_chunked_cookie(cookie: &AuthCookie, cookie_header: &str) -> Vec<Cookie> {
+    ChunkedCookieStore::new(
+        cookie.name.clone(),
+        cookie.attributes.clone(),
+        cookie_header,
+    )
+    .clean()
 }
 
 pub fn set_cookie_cache<S, U>(

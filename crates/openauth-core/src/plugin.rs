@@ -3,6 +3,7 @@
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use http::{Request, Response};
+use serde_json::Value;
 use std::fmt;
 use std::sync::Arc;
 
@@ -13,7 +14,9 @@ pub type PluginOnRequest = Arc<
     dyn Fn(&AuthContext, PluginRequest) -> Result<PluginRequestAction, OpenAuthError> + Send + Sync,
 >;
 pub type PluginOnResponse = Arc<
-    dyn Fn(&AuthContext, PluginResponse) -> Result<PluginResponse, OpenAuthError> + Send + Sync,
+    dyn Fn(&AuthContext, &PluginRequest, PluginResponse) -> Result<PluginResponse, OpenAuthError>
+        + Send
+        + Sync,
 >;
 pub type PluginMiddlewareHandler = Arc<
     dyn Fn(&AuthContext, &PluginRequest) -> Result<Option<PluginResponse>, OpenAuthError>
@@ -25,6 +28,7 @@ pub type PluginMiddlewareHandler = Arc<
 pub struct AuthPlugin {
     pub id: String,
     pub version: Option<String>,
+    pub options: Option<Value>,
     pub middlewares: Vec<PluginMiddleware>,
     pub on_request: Option<PluginOnRequest>,
     pub on_response: Option<PluginOnResponse>,
@@ -35,6 +39,7 @@ impl AuthPlugin {
         Self {
             id: id.into(),
             version: None,
+            options: None,
             middlewares: Vec::new(),
             on_request: None,
             on_response: None,
@@ -43,6 +48,11 @@ impl AuthPlugin {
 
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
         self.version = Some(version.into());
+        self
+    }
+
+    pub fn with_options(mut self, options: Value) -> Self {
+        self.options = Some(options);
         self
     }
 
@@ -73,7 +83,11 @@ impl AuthPlugin {
 
     pub fn with_on_response<F>(mut self, hook: F) -> Self
     where
-        F: Fn(&AuthContext, PluginResponse) -> Result<PluginResponse, OpenAuthError>
+        F: Fn(
+                &AuthContext,
+                &PluginRequest,
+                PluginResponse,
+            ) -> Result<PluginResponse, OpenAuthError>
             + Send
             + Sync
             + 'static,
@@ -89,6 +103,7 @@ impl fmt::Debug for AuthPlugin {
             .debug_struct("AuthPlugin")
             .field("id", &self.id)
             .field("version", &self.version)
+            .field("options", &self.options)
             .field("middlewares", &self.middlewares)
             .field("on_request", &self.on_request.as_ref().map(|_| "<hook>"))
             .field("on_response", &self.on_response.as_ref().map(|_| "<hook>"))

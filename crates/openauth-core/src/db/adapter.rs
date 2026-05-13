@@ -43,6 +43,7 @@ pub struct AdapterCapabilities {
     pub supports_dates: bool,
     pub supports_booleans: bool,
     pub supports_arrays: bool,
+    pub supports_joins: bool,
     pub supports_transactions: bool,
     pub disable_id_generation: bool,
 }
@@ -58,6 +59,7 @@ impl AdapterCapabilities {
             supports_dates: true,
             supports_booleans: true,
             supports_arrays: false,
+            supports_joins: false,
             supports_transactions: false,
             disable_id_generation: false,
         }
@@ -95,6 +97,11 @@ impl AdapterCapabilities {
 
     pub fn with_arrays(mut self) -> Self {
         self.supports_arrays = true;
+        self
+    }
+
+    pub fn with_joins(mut self) -> Self {
+        self.supports_joins = true;
         self
     }
 
@@ -149,6 +156,8 @@ pub enum DbValue {
     Json(serde_json::Value),
     StringArray(Vec<String>),
     NumberArray(Vec<i64>),
+    Record(DbRecord),
+    RecordArray(Vec<DbRecord>),
     Null,
 }
 

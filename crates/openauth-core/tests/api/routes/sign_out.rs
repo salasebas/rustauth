@@ -21,7 +21,7 @@ async fn sign_out_route_deletes_session_and_expires_cookie(
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(adapter.sessions.lock().await.is_empty());
+    assert!(adapter.is_empty("session").await);
     assert!(set_cookie_values(&response)
         .iter()
         .any(|cookie| cookie.starts_with("better-auth.session_token=;")

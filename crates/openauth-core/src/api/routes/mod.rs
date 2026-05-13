@@ -32,6 +32,7 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
         session::get_session_endpoint(Method::GET, Arc::clone(&adapter)),
         session::get_session_endpoint(Method::POST, Arc::clone(&adapter)),
         session::list_sessions_endpoint(Arc::clone(&adapter)),
+        session::update_session_endpoint(Arc::clone(&adapter)),
         session::revoke_session_endpoint(Arc::clone(&adapter)),
         session::revoke_sessions_endpoint(Arc::clone(&adapter)),
         session::revoke_other_sessions_endpoint(Arc::clone(&adapter)),

@@ -22,6 +22,6 @@ async fn set_password_route_creates_missing_credential_account(
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(adapter.accounts.lock().await.len(), 1);
+    assert_eq!(adapter.len("account").await, 1);
     Ok(())
 }

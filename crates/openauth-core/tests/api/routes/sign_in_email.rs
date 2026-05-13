@@ -27,7 +27,7 @@ async fn sign_in_email_route_rejects_invalid_credentials() -> Result<(), Box<dyn
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["code"], "INVALID_EMAIL_OR_PASSWORD");
-    assert!(adapter.sessions.lock().await.is_empty());
+    assert!(adapter.is_empty("session").await);
     Ok(())
 }
 
@@ -62,7 +62,7 @@ async fn sign_in_email_route_returns_token_user_and_sets_cookie(
         .as_str()
         .is_some_and(|token| !token.is_empty()));
     assert_eq!(body["user"]["id"], "user_1");
-    assert_eq!(adapter.sessions.lock().await.len(), 1);
+    assert_eq!(adapter.len("session").await, 1);
     assert!(set_cookie_values(&response)
         .iter()
         .any(|cookie| cookie.starts_with("better-auth.session_token=")));

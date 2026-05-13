@@ -31,6 +31,6 @@ async fn revoke_session_route_deletes_session_for_current_user(
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["status"], true);
-    assert!(!adapter.sessions.lock().await.contains_key("token_2"));
+    assert!(!contains_record_string(&adapter, "session", "token", "token_2").await?);
     Ok(())
 }

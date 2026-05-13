@@ -164,6 +164,7 @@ fn adapter_capabilities_default_to_core_safe_values() {
     assert!(!capabilities.supports_uuid_ids);
     assert!(!capabilities.supports_json);
     assert!(!capabilities.supports_arrays);
+    assert!(!capabilities.supports_joins);
     assert!(!capabilities.supports_transactions);
     assert!(!capabilities.disable_id_generation);
 }
@@ -175,6 +176,7 @@ fn adapter_capabilities_can_describe_sql_style_databases() {
         .with_uuid_ids()
         .with_json()
         .with_arrays()
+        .with_joins()
         .with_transactions()
         .without_id_generation();
 
@@ -182,8 +184,26 @@ fn adapter_capabilities_can_describe_sql_style_databases() {
     assert!(capabilities.supports_uuid_ids);
     assert!(capabilities.supports_json);
     assert!(capabilities.supports_arrays);
+    assert!(capabilities.supports_joins);
     assert!(capabilities.supports_transactions);
     assert!(capabilities.disable_id_generation);
+}
+
+#[test]
+fn db_value_supports_nested_join_records() -> Result<(), Box<dyn std::error::Error>> {
+    let mut user = DbRecord::new();
+    user.insert("id".to_owned(), DbValue::String("user_1".to_owned()));
+
+    let mut account = DbRecord::new();
+    account.insert("id".to_owned(), DbValue::String("account_1".to_owned()));
+
+    let value = DbValue::RecordArray(vec![account.clone()]);
+    let serialized = serde_json::to_value(&value)?;
+    let deserialized: DbValue = serde_json::from_value(serialized)?;
+
+    assert_eq!(deserialized, DbValue::RecordArray(vec![account]));
+    assert_eq!(DbValue::Record(user.clone()), DbValue::Record(user));
+    Ok(())
 }
 
 #[test]

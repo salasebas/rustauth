@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use http::{header, Method, Request, StatusCode};
@@ -7,283 +8,43 @@ use openauth_core::context::create_auth_context;
 use openauth_core::cookies::Cookie;
 use openauth_core::crypto::password::hash_password;
 use openauth_core::db::{
-    run_transaction_without_native_support, AdapterFuture, Count, Create, DbAdapter, DbRecord,
-    DbValue, Delete, DeleteMany, FindMany, FindOne, Session, TransactionCallback, Update,
-    UpdateMany, User, Where, WhereOperator,
+    AdapterFuture, Create, DbAdapter, DbRecord, DbValue, FindOne, MemoryAdapter, Session, User,
+    Where,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
-use tokio::sync::Mutex;
 
-#[derive(Default)]
-struct RouteAdapter {
-    users: Mutex<HashMap<String, DbRecord>>,
-    accounts: Mutex<HashMap<String, DbRecord>>,
-    sessions: Mutex<HashMap<String, DbRecord>>,
-    verifications: Mutex<HashMap<String, DbRecord>>,
+type RouteAdapter = MemoryAdapter;
+type UnitFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
+trait RouteAdapterSeed {
+    fn insert_user(&self, user: User) -> UnitFuture<'_>;
+    fn insert_account(&self, record: DbRecord) -> AdapterFuture<'_, ()>;
+    fn insert_session(&self, session: Session) -> UnitFuture<'_>;
 }
 
-impl RouteAdapter {
-    async fn insert_user(&self, user: User) {
-        self.users
-            .lock()
-            .await
-            .insert(user.email.clone(), user_record(user));
-    }
-
-    async fn insert_account(&self, record: DbRecord) -> Result<(), OpenAuthError> {
-        let id = string_field(&record, "id")?.to_owned();
-        self.accounts.lock().await.insert(id, record);
-        Ok(())
-    }
-
-    async fn insert_session(&self, session: Session) {
-        self.sessions
-            .lock()
-            .await
-            .insert(session.token.clone(), session_record(session));
-    }
-}
-
-impl DbAdapter for RouteAdapter {
-    fn id(&self) -> &str {
-        "route-memory"
-    }
-
-    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+impl RouteAdapterSeed for RouteAdapter {
+    fn insert_user(&self, user: User) -> UnitFuture<'_> {
         Box::pin(async move {
-            match query.model.as_str() {
-                "user" => {
-                    let email = string_field(&query.data, "email")?.to_owned();
-                    self.users.lock().await.insert(email, query.data.clone());
-                    Ok(query.data)
-                }
-                "account" => {
-                    let id = string_field(&query.data, "id")?.to_owned();
-                    self.accounts.lock().await.insert(id, query.data.clone());
-                    Ok(query.data)
-                }
-                "session" => {
-                    let token = string_field(&query.data, "token")?.to_owned();
-                    self.sessions.lock().await.insert(token, query.data.clone());
-                    Ok(query.data)
-                }
-                "verification" => {
-                    let identifier = string_field(&query.data, "identifier")?.to_owned();
-                    self.verifications
-                        .lock()
-                        .await
-                        .insert(identifier, query.data.clone());
-                    Ok(query.data)
-                }
-                model => Err(OpenAuthError::Adapter(format!(
-                    "unexpected create model `{model}`"
-                ))),
-            }
+            let _ = self.create(create_query("user", user_record(user))).await;
         })
     }
 
-    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+    fn insert_account(&self, record: DbRecord) -> AdapterFuture<'_, ()> {
         Box::pin(async move {
-            match query.model.as_str() {
-                "user" => {
-                    if let Ok(email) = string_filter(&query.where_clauses, "email") {
-                        return Ok(self.users.lock().await.get(email).cloned());
-                    }
-                    let id = string_filter(&query.where_clauses, "id")?;
-                    Ok(self
-                        .users
-                        .lock()
-                        .await
-                        .values()
-                        .find(|record| matches!(record.get("id"), Some(DbValue::String(value)) if value == id))
-                        .cloned())
-                }
-                "account" => {
-                    let user_id = string_filter(&query.where_clauses, "user_id")?;
-                    let provider_id = string_filter(&query.where_clauses, "provider_id")?;
-                    Ok(self
-                        .accounts
-                        .lock()
-                        .await
-                        .values()
-                        .find(|record| {
-                            matches!(record.get("user_id"), Some(DbValue::String(value)) if value == user_id)
-                                && matches!(record.get("provider_id"), Some(DbValue::String(value)) if value == provider_id)
-                        })
-                        .cloned())
-                }
-                "session" => {
-                    let token = string_filter(&query.where_clauses, "token")?;
-                    Ok(self.sessions.lock().await.get(token).cloned())
-                }
-                "verification" => {
-                    let identifier = string_filter(&query.where_clauses, "identifier")?;
-                    Ok(self.verifications.lock().await.get(identifier).cloned())
-                }
-                model => Err(OpenAuthError::Adapter(format!(
-                    "unexpected find_one model `{model}`"
-                ))),
-            }
-        })
-    }
-
-    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
-        Box::pin(async move {
-            match query.model.as_str() {
-                "account" => {
-                    let user_id = string_filter(&query.where_clauses, "user_id")?;
-                    Ok(self
-                        .accounts
-                        .lock()
-                        .await
-                        .values()
-                        .filter(|record| {
-                            matches!(record.get("user_id"), Some(DbValue::String(value)) if value == user_id)
-                        })
-                        .cloned()
-                        .collect())
-                }
-                "session" => {
-                    let user_id = string_filter(&query.where_clauses, "user_id")?;
-                    Ok(self
-                        .sessions
-                        .lock()
-                        .await
-                        .values()
-                        .filter(|record| {
-                            matches!(record.get("user_id"), Some(DbValue::String(value)) if value == user_id)
-                        })
-                        .cloned()
-                        .collect())
-                }
-                "verification" => {
-                    let identifier = string_filter(&query.where_clauses, "identifier")?;
-                    Ok(self
-                        .verifications
-                        .lock()
-                        .await
-                        .values()
-                        .filter(|record| {
-                            matches!(record.get("identifier"), Some(DbValue::String(value)) if value == identifier)
-                        })
-                        .cloned()
-                        .collect())
-                }
-                _ => Ok(Vec::new()),
-            }
-        })
-    }
-
-    fn count<'a>(&'a self, _query: Count) -> AdapterFuture<'a, u64> {
-        Box::pin(async { Ok(0) })
-    }
-
-    fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
-        Box::pin(async move {
-            let records = match query.model.as_str() {
-                "user" => &self.users,
-                "account" => &self.accounts,
-                "session" => &self.sessions,
-                "verification" => &self.verifications,
-                model => {
-                    return Err(OpenAuthError::Adapter(format!(
-                        "unexpected update model `{model}`"
-                    )))
-                }
-            };
-            let mut records = records.lock().await;
-            let Some((record_key, record)) = records
-                .iter_mut()
-                .find(|(_, record)| matches_where(record, &query.where_clauses))
-                .map(|(key, record)| (key.clone(), record))
-            else {
-                return Ok(None);
-            };
-            for (key, value) in query.data.clone() {
-                record.insert(key, value);
-            }
-            let updated = record.clone();
-            drop(records);
-            if query.model == "user" {
-                rekey_user_by_email(&self.users, record_key, &updated).await?;
-            }
-            Ok(Some(updated))
-        })
-    }
-
-    fn update_many<'a>(&'a self, _query: UpdateMany) -> AdapterFuture<'a, u64> {
-        Box::pin(async { Ok(0) })
-    }
-
-    fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
-        Box::pin(async move {
-            match query.model.as_str() {
-                "session" => {
-                    let token = string_filter(&query.where_clauses, "token")?;
-                    self.sessions.lock().await.remove(token);
-                }
-                "verification" => {
-                    let identifier = string_filter(&query.where_clauses, "identifier")?;
-                    self.verifications.lock().await.remove(identifier);
-                }
-                "account" => {
-                    let id = string_filter(&query.where_clauses, "id")?;
-                    self.accounts.lock().await.remove(id);
-                }
-                "user" => {
-                    let id = string_filter(&query.where_clauses, "id")?;
-                    let mut users = self.users.lock().await;
-                    let key = users
-                        .iter()
-                        .find(|(_, record)| {
-                            matches!(record.get("id"), Some(DbValue::String(value)) if value == id)
-                        })
-                        .map(|(key, _)| key.clone());
-                    if let Some(key) = key {
-                        users.remove(&key);
-                    }
-                }
-                model => {
-                    return Err(OpenAuthError::Adapter(format!(
-                        "unexpected delete model `{model}`"
-                    )))
-                }
-            }
+            self.create(create_query("account", record)).await?;
             Ok(())
         })
     }
 
-    fn delete_many<'a>(&'a self, query: DeleteMany) -> AdapterFuture<'a, u64> {
+    fn insert_session(&self, session: Session) -> UnitFuture<'_> {
         Box::pin(async move {
-            match query.model.as_str() {
-                "session" => {
-                    let user_id = string_filter(&query.where_clauses, "user_id")?;
-                    let mut sessions = self.sessions.lock().await;
-                    let before = sessions.len();
-                    sessions.retain(|_, record| {
-                        !matches!(record.get("user_id"), Some(DbValue::String(value)) if value == user_id)
-                    });
-                    Ok((before - sessions.len()) as u64)
-                }
-                "account" => {
-                    let user_id = string_filter(&query.where_clauses, "user_id")?;
-                    let mut accounts = self.accounts.lock().await;
-                    let before = accounts.len();
-                    accounts.retain(|_, record| {
-                        !matches!(record.get("user_id"), Some(DbValue::String(value)) if value == user_id)
-                    });
-                    Ok((before - accounts.len()) as u64)
-                }
-                _ => Ok(0),
-            }
+            let _ = self
+                .create(create_query("session", session_record(session)))
+                .await;
         })
-    }
-
-    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
-        run_transaction_without_native_support(self, callback)
     }
 }
 
@@ -306,6 +67,7 @@ mod sign_in_email;
 mod sign_out;
 mod sign_up_email;
 mod unlink_account;
+mod update_session;
 mod update_user;
 mod verify_password;
 
@@ -425,6 +187,38 @@ fn user_record(user: User) -> DbRecord {
     record
 }
 
+fn create_query(model: &str, record: DbRecord) -> Create {
+    record
+        .into_iter()
+        .fold(Create::new(model), |query, (field, value)| {
+            query.data(field, value)
+        })
+}
+
+async fn record_by_string(
+    adapter: &RouteAdapter,
+    model: &str,
+    field: &str,
+    value: &str,
+) -> Result<Option<DbRecord>, OpenAuthError> {
+    adapter
+        .find_one(
+            FindOne::new(model).where_clause(Where::new(field, DbValue::String(value.to_owned()))),
+        )
+        .await
+}
+
+async fn contains_record_string(
+    adapter: &RouteAdapter,
+    model: &str,
+    field: &str,
+    value: &str,
+) -> Result<bool, OpenAuthError> {
+    Ok(record_by_string(adapter, model, field, value)
+        .await?
+        .is_some())
+}
+
 fn session_record(session: Session) -> DbRecord {
     let mut record = DbRecord::new();
     record.insert("id".to_owned(), DbValue::String(session.id));
@@ -490,54 +284,6 @@ fn linked_account_record(
     record.insert("created_at".to_owned(), DbValue::Timestamp(now));
     record.insert("updated_at".to_owned(), DbValue::Timestamp(now));
     record
-}
-
-fn matches_where(record: &DbRecord, where_clauses: &[Where]) -> bool {
-    where_clauses.iter().all(|where_clause| {
-        matches!(
-            record.get(&where_clause.field),
-            Some(value) if value == &where_clause.value
-        )
-    })
-}
-
-async fn rekey_user_by_email(
-    users: &Mutex<HashMap<String, DbRecord>>,
-    _old_key: String,
-    updated: &DbRecord,
-) -> Result<(), OpenAuthError> {
-    let id = string_field(updated, "id")?.to_owned();
-    let email = string_field(updated, "email")?.to_owned();
-    let mut users = users.lock().await;
-    let stale_key = users
-        .iter()
-        .find(
-            |(_, record)| matches!(record.get("id"), Some(DbValue::String(value)) if value == &id),
-        )
-        .map(|(key, _)| key.clone());
-    if let Some(stale_key) = stale_key {
-        users.remove(&stale_key);
-    }
-    users.insert(email, updated.clone());
-    Ok(())
-}
-
-fn string_filter<'a>(where_clauses: &'a [Where], field: &str) -> Result<&'a str, OpenAuthError> {
-    where_clauses
-        .iter()
-        .find_map(|where_clause| {
-            match (
-                where_clause.field.as_str(),
-                where_clause.operator,
-                &where_clause.value,
-            ) {
-                (candidate, WhereOperator::Eq, DbValue::String(value)) if candidate == field => {
-                    Some(value.as_str())
-                }
-                _ => None,
-            }
-        })
-        .ok_or_else(|| OpenAuthError::Adapter(format!("missing {field} filter")))
 }
 
 fn string_field<'a>(record: &'a DbRecord, field: &str) -> Result<&'a str, OpenAuthError> {

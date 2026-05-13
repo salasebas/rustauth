@@ -5,7 +5,9 @@ members = [
     "crates/openauth-core",
     "crates/openauth-i18n",
     "crates/openauth-oauth",
+    "crates/openauth-oauth-provider",
     "crates/openauth-scim",
+    "crates/openauth-sqlx",
     "crates/openauth-social-providers",
     "crates/openauth-sso",
     "crates/openauth-stripe",
@@ -38,6 +40,7 @@ scrypt = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "time", "json"] }
 subtle = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["serde"] }

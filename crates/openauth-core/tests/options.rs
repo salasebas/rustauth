@@ -1,6 +1,6 @@
 use openauth_core::context::{AuthEnvironment, SecretMaterial};
 use openauth_core::crypto::{SecretConfig, SecretEntry};
-use openauth_core::options::OpenAuthOptions;
+use openauth_core::options::{ExperimentalOptions, OpenAuthOptions};
 
 #[test]
 fn openauth_options_debug_redacts_secret_material() {
@@ -54,4 +54,17 @@ fn auth_environment_debug_redacts_secret_material() {
     assert!(!output.contains("better-auth-secret-should-not-appear"));
     assert!(!output.contains("auth-secret-should-not-appear"));
     assert!(!output.contains("rotating-env-secret-should-not-appear"));
+}
+
+#[test]
+fn experimental_joins_default_to_disabled_and_can_be_enabled() {
+    assert!(!OpenAuthOptions::default().experimental.joins);
+
+    let options = OpenAuthOptions {
+        experimental: ExperimentalOptions { joins: true },
+        ..OpenAuthOptions::default()
+    };
+
+    assert!(options.experimental.joins);
+    assert!(format!("{options:?}").contains("experimental"));
 }
