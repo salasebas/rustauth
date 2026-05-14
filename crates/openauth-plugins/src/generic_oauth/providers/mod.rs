@@ -1,4 +1,4 @@
-//! Generic OAuth provider helper placeholders.
+//! Generic OAuth provider helpers.
 
 pub mod auth0;
 pub mod gumroad;
@@ -21,3 +21,13 @@ pub const PROVIDER_IDS: &[&str] = &[
     "patreon",
     "slack",
 ];
+
+pub use auth0::auth0;
+pub use gumroad::gumroad;
+pub use hubspot::hubspot;
+pub use keycloak::keycloak;
+pub use line::line;
+pub use microsoft_entra_id::microsoft_entra_id;
+pub use okta::okta;
+pub use patreon::patreon;
+pub use slack::slack;
