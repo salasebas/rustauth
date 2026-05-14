@@ -141,6 +141,25 @@ impl<'a> DbVerificationStore<'a> {
         Ok(Some(verification))
     }
 
+    pub async fn find_verification_including_expired(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        self.adapter
+            .find_many(
+                FindMany::new(VERIFICATION_MODEL)
+                    .where_clause(identifier_where(identifier))
+                    .sort_by(Sort::new("created_at", SortDirection::Desc))
+                    .limit(1)
+                    .select(VERIFICATION_FIELDS),
+            )
+            .await?
+            .into_iter()
+            .next()
+            .map(verification_from_record)
+            .transpose()
+    }
+
     pub async fn update_verification(
         &self,
         identifier: &str,

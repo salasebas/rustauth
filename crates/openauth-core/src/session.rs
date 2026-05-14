@@ -24,7 +24,7 @@ const DEFAULT_SESSION_ID_LENGTH: usize = 32;
 const DEFAULT_SESSION_TOKEN_LENGTH: usize = 32;
 
 /// Input for creating a persisted session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateSessionInput {
     pub id: Option<String>,
     pub user_id: String,
@@ -32,6 +32,7 @@ pub struct CreateSessionInput {
     pub token: Option<String>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub additional_fields: DbRecord,
 }
 
 impl CreateSessionInput {
@@ -43,6 +44,7 @@ impl CreateSessionInput {
             token: None,
             ip_address: None,
             user_agent: None,
+            additional_fields: DbRecord::new(),
         }
     }
 
@@ -67,6 +69,12 @@ impl CreateSessionInput {
     #[must_use]
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = Some(user_agent.into());
+        self
+    }
+
+    #[must_use]
+    pub fn additional_fields(mut self, additional_fields: DbRecord) -> Self {
+        self.additional_fields = additional_fields;
         self
     }
 }
@@ -94,45 +102,51 @@ impl<'a> DbSessionStore<'a> {
             .token
             .unwrap_or_else(|| generate_random_string(DEFAULT_SESSION_TOKEN_LENGTH));
 
-        let record = self
-            .adapter
-            .create(
-                Create::new(SESSION_MODEL)
-                    .data("id", DbValue::String(id))
-                    .data("user_id", DbValue::String(input.user_id))
-                    .data("expires_at", DbValue::Timestamp(input.expires_at))
-                    .data("token", DbValue::String(token))
-                    .data("ip_address", optional_string(input.ip_address))
-                    .data("user_agent", optional_string(input.user_agent))
-                    .data("created_at", DbValue::Timestamp(now))
-                    .data("updated_at", DbValue::Timestamp(now))
-                    .select(SESSION_FIELDS)
-                    .force_allow_id(),
-            )
-            .await?;
+        let mut query = Create::new(SESSION_MODEL)
+            .data("id", DbValue::String(id))
+            .data("user_id", DbValue::String(input.user_id))
+            .data("expires_at", DbValue::Timestamp(input.expires_at))
+            .data("token", DbValue::String(token))
+            .data("ip_address", optional_string(input.ip_address))
+            .data("user_agent", optional_string(input.user_agent))
+            .data("created_at", DbValue::Timestamp(now))
+            .data("updated_at", DbValue::Timestamp(now))
+            .select(SESSION_FIELDS)
+            .force_allow_id();
+        for (field, value) in input.additional_fields {
+            query = query.data(field, value);
+        }
+
+        let record = self.adapter.create(query).await?;
 
         session_from_record(record)
     }
 
     pub async fn find_session(&self, token: &str) -> Result<Option<Session>, OpenAuthError> {
-        let Some(record) = self
-            .adapter
+        let Some(session) = self.find_session_including_expired(token).await? else {
+            return Ok(None);
+        };
+
+        if session.expires_at <= OffsetDateTime::now_utc() {
+            return Ok(None);
+        }
+
+        Ok(Some(session))
+    }
+
+    pub async fn find_session_including_expired(
+        &self,
+        token: &str,
+    ) -> Result<Option<Session>, OpenAuthError> {
+        self.adapter
             .find_one(
                 FindOne::new(SESSION_MODEL)
                     .where_clause(token_where(token))
                     .select(SESSION_FIELDS),
             )
             .await?
-        else {
-            return Ok(None);
-        };
-
-        let session = session_from_record(record)?;
-        if session.expires_at <= OffsetDateTime::now_utc() {
-            return Ok(None);
-        }
-
-        Ok(Some(session))
+            .map(session_from_record)
+            .transpose()
     }
 
     pub async fn update_session_expiry(

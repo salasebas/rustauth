@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::shared::{
     auth_session_cookies, current_session, error_response, json_response, query_param,
-    serialize_cookie, unauthorized,
+    record_new_session, serialize_cookie, unauthorized,
 };
 use crate::api::{
     create_auth_endpoint, parse_request_body, ApiRequest, ApiResponse, AsyncAuthEndpoint,
@@ -284,6 +284,7 @@ async fn sign_in_with_id_token(
                 .map_or("OAuth sign in failed".to_owned(), oauth_user_info_error),
         );
     };
+    record_new_session(&data.session, &data.user)?;
     let cookies = auth_session_cookies(context, &data.session, &data.user, false)?;
     json_response(
         StatusCode::OK,
@@ -374,6 +375,7 @@ async fn callback_get(
             .map_or_else(|| "oauth_sign_in_failed".to_owned(), oauth_user_info_error);
         return redirect_with_error(&error_url, &error);
     };
+    record_new_session(&data.session, &data.user)?;
     let cookies = auth_session_cookies(context, &data.session, &data.user, false)?;
     let target = if result.is_register {
         state_data

@@ -1,158 +1,28 @@
 //! Database-backed user and credential account helpers.
 
+mod input;
+mod record;
+
 use time::OffsetDateTime;
 
 use crate::crypto::random::generate_random_string;
 use crate::db::{
-    Account, Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindMany, FindOne,
-    JoinOption, Update, User, Where,
+    Account, Create, DbAdapter, DbValue, Delete, DeleteMany, FindMany, FindOne, JoinOption, Update,
+    User, Where,
 };
 use crate::error::OpenAuthError;
+pub use input::{
+    CreateCredentialAccountInput, CreateOAuthAccountInput, CreateUserInput, UpdateAccountInput,
+    UpdateUserInput,
+};
+use record::{
+    account_from_record, user_from_record, ACCOUNT_FIELDS, USER_FIELDS, USER_FIELDS_WITH_USERNAME,
+};
 
-const USER_MODEL: &str = "user";
-const ACCOUNT_MODEL: &str = "account";
+pub(super) const USER_MODEL: &str = "user";
+pub(super) const ACCOUNT_MODEL: &str = "account";
 const CREDENTIAL_PROVIDER_ID: &str = "credential";
 const DEFAULT_ID_LENGTH: usize = 32;
-
-const USER_FIELDS: [&str; 7] = [
-    "id",
-    "name",
-    "email",
-    "email_verified",
-    "image",
-    "created_at",
-    "updated_at",
-];
-
-const ACCOUNT_FIELDS: [&str; 13] = [
-    "id",
-    "provider_id",
-    "account_id",
-    "user_id",
-    "access_token",
-    "refresh_token",
-    "id_token",
-    "access_token_expires_at",
-    "refresh_token_expires_at",
-    "scope",
-    "password",
-    "created_at",
-    "updated_at",
-];
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateUserInput {
-    pub id: Option<String>,
-    pub name: String,
-    pub email: String,
-    pub email_verified: bool,
-    pub image: Option<String>,
-}
-
-impl CreateUserInput {
-    pub fn new(name: impl Into<String>, email: impl Into<String>) -> Self {
-        Self {
-            id: None,
-            name: name.into(),
-            email: email.into(),
-            email_verified: false,
-            image: None,
-        }
-    }
-
-    #[must_use]
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
-        self
-    }
-
-    #[must_use]
-    pub fn email_verified(mut self, email_verified: bool) -> Self {
-        self.email_verified = email_verified;
-        self
-    }
-
-    #[must_use]
-    pub fn image(mut self, image: impl Into<String>) -> Self {
-        self.image = Some(image.into());
-        self
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateCredentialAccountInput {
-    pub id: Option<String>,
-    pub user_id: String,
-    pub password_hash: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateOAuthAccountInput {
-    pub id: Option<String>,
-    pub provider_id: String,
-    pub account_id: String,
-    pub user_id: String,
-    pub access_token: Option<String>,
-    pub refresh_token: Option<String>,
-    pub id_token: Option<String>,
-    pub access_token_expires_at: Option<OffsetDateTime>,
-    pub refresh_token_expires_at: Option<OffsetDateTime>,
-    pub scope: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct UpdateAccountInput {
-    pub access_token: Option<Option<String>>,
-    pub refresh_token: Option<Option<String>>,
-    pub id_token: Option<Option<String>>,
-    pub access_token_expires_at: Option<Option<OffsetDateTime>>,
-    pub refresh_token_expires_at: Option<Option<OffsetDateTime>>,
-    pub scope: Option<Option<String>>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct UpdateUserInput {
-    pub name: Option<String>,
-    pub image: Option<Option<String>>,
-}
-
-impl UpdateUserInput {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    #[must_use]
-    pub fn name(mut self, name: impl Into<String>) -> Self {
-        self.name = Some(name.into());
-        self
-    }
-
-    #[must_use]
-    pub fn image(mut self, image: Option<String>) -> Self {
-        self.image = Some(image);
-        self
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.name.is_none() && self.image.is_none()
-    }
-}
-
-impl CreateCredentialAccountInput {
-    pub fn new(user_id: impl Into<String>, password_hash: impl Into<String>) -> Self {
-        Self {
-            id: None,
-            user_id: user_id.into(),
-            password_hash: password_hash.into(),
-        }
-    }
-
-    #[must_use]
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
-        self
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserWithAccounts {
@@ -189,21 +59,30 @@ impl<'a> DbUserStore<'a> {
             .id
             .unwrap_or_else(|| generate_random_string(DEFAULT_ID_LENGTH));
 
-        let record = self
-            .adapter
-            .create(
-                Create::new(USER_MODEL)
-                    .data("id", DbValue::String(id))
-                    .data("name", DbValue::String(input.name))
-                    .data("email", DbValue::String(normalize_email(&input.email)))
-                    .data("email_verified", DbValue::Boolean(input.email_verified))
-                    .data("image", optional_string(input.image))
-                    .data("created_at", DbValue::Timestamp(now))
-                    .data("updated_at", DbValue::Timestamp(now))
-                    .select(USER_FIELDS)
-                    .force_allow_id(),
-            )
-            .await?;
+        let include_username_fields = input.username.is_some() || input.display_username.is_some();
+        let mut query = Create::new(USER_MODEL)
+            .data("id", DbValue::String(id))
+            .data("name", DbValue::String(input.name))
+            .data("email", DbValue::String(normalize_email(&input.email)))
+            .data("email_verified", DbValue::Boolean(input.email_verified))
+            .data("image", optional_string(input.image))
+            .data("created_at", DbValue::Timestamp(now))
+            .data("updated_at", DbValue::Timestamp(now))
+            .force_allow_id();
+        if include_username_fields {
+            query = query
+                .data("username", optional_string(input.username))
+                .data("display_username", optional_string(input.display_username))
+                .select(USER_FIELDS_WITH_USERNAME);
+        } else {
+            query = query.select(USER_FIELDS);
+        }
+
+        for (field, value) in input.additional_fields {
+            query = query.data(field, value);
+        }
+
+        let record = self.adapter.create(query).await?;
 
         user_from_record(record)
     }
@@ -321,6 +200,33 @@ impl<'a> DbUserStore<'a> {
             .await?;
 
         record.map(user_from_record).transpose()
+    }
+
+    pub async fn find_user_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<User>, OpenAuthError> {
+        let record = self
+            .adapter
+            .find_one(
+                FindOne::new(USER_MODEL)
+                    .where_clause(Where::new("username", DbValue::String(username.to_owned())))
+                    .select(USER_FIELDS_WITH_USERNAME),
+            )
+            .await?;
+
+        record.map(user_from_record).transpose()
+    }
+
+    pub async fn find_user_by_username_with_accounts(
+        &self,
+        username: &str,
+    ) -> Result<Option<UserWithAccounts>, OpenAuthError> {
+        let Some(user) = self.find_user_by_username(username).await? else {
+            return Ok(None);
+        };
+        let accounts = self.list_accounts_for_user(&user.id).await?;
+        Ok(Some(UserWithAccounts { user, accounts }))
     }
 
     pub async fn find_user_by_email_with_accounts(
@@ -494,6 +400,18 @@ impl<'a> DbUserStore<'a> {
         if let Some(image) = input.image {
             query = query.data("image", optional_string(image));
         }
+        if let Some(username) = input.username {
+            query = query.data("username", optional_string(username));
+        }
+        if let Some(display_username) = input.display_username {
+            query = query.data("display_username", optional_string(display_username));
+        }
+        for (field, value) in input.fields {
+            query = query.data(field, value);
+        }
+        for (field, value) in input.additional_fields {
+            query = query.data(field, value);
+        }
 
         self.adapter
             .update(query)
@@ -597,85 +515,4 @@ fn optional_string(value: Option<String>) -> DbValue {
 
 fn optional_timestamp(value: Option<OffsetDateTime>) -> DbValue {
     value.map(DbValue::Timestamp).unwrap_or(DbValue::Null)
-}
-
-fn user_from_record(record: DbRecord) -> Result<User, OpenAuthError> {
-    Ok(User {
-        id: required_string(&record, "id")?.to_owned(),
-        name: required_string(&record, "name")?.to_owned(),
-        email: required_string(&record, "email")?.to_owned(),
-        email_verified: required_bool(&record, "email_verified")?,
-        image: optional_string_field(&record, "image")?,
-        created_at: required_timestamp(&record, "created_at")?,
-        updated_at: required_timestamp(&record, "updated_at")?,
-    })
-}
-
-fn account_from_record(record: DbRecord) -> Result<Account, OpenAuthError> {
-    Ok(Account {
-        id: required_string(&record, "id")?.to_owned(),
-        provider_id: required_string(&record, "provider_id")?.to_owned(),
-        account_id: required_string(&record, "account_id")?.to_owned(),
-        user_id: required_string(&record, "user_id")?.to_owned(),
-        access_token: optional_string_field(&record, "access_token")?,
-        refresh_token: optional_string_field(&record, "refresh_token")?,
-        id_token: optional_string_field(&record, "id_token")?,
-        access_token_expires_at: optional_timestamp_field(&record, "access_token_expires_at")?,
-        refresh_token_expires_at: optional_timestamp_field(&record, "refresh_token_expires_at")?,
-        scope: optional_string_field(&record, "scope")?,
-        password: optional_string_field(&record, "password")?,
-        created_at: required_timestamp(&record, "created_at")?,
-        updated_at: required_timestamp(&record, "updated_at")?,
-    })
-}
-
-fn required_string<'a>(record: &'a DbRecord, field: &str) -> Result<&'a str, OpenAuthError> {
-    match record.get(field) {
-        Some(DbValue::String(value)) => Ok(value),
-        Some(_) => Err(invalid_field(field, "string")),
-        None => Err(missing_field(field)),
-    }
-}
-
-fn required_bool(record: &DbRecord, field: &str) -> Result<bool, OpenAuthError> {
-    match record.get(field) {
-        Some(DbValue::Boolean(value)) => Ok(*value),
-        Some(_) => Err(invalid_field(field, "boolean")),
-        None => Err(missing_field(field)),
-    }
-}
-
-fn required_timestamp(record: &DbRecord, field: &str) -> Result<OffsetDateTime, OpenAuthError> {
-    match record.get(field) {
-        Some(DbValue::Timestamp(value)) => Ok(*value),
-        Some(_) => Err(invalid_field(field, "timestamp")),
-        None => Err(missing_field(field)),
-    }
-}
-
-fn optional_string_field(record: &DbRecord, field: &str) -> Result<Option<String>, OpenAuthError> {
-    match record.get(field) {
-        Some(DbValue::String(value)) => Ok(Some(value.to_owned())),
-        Some(DbValue::Null) | None => Ok(None),
-        Some(_) => Err(invalid_field(field, "string or null")),
-    }
-}
-
-fn optional_timestamp_field(
-    record: &DbRecord,
-    field: &str,
-) -> Result<Option<OffsetDateTime>, OpenAuthError> {
-    match record.get(field) {
-        Some(DbValue::Timestamp(value)) => Ok(Some(*value)),
-        Some(DbValue::Null) | None => Ok(None),
-        Some(_) => Err(invalid_field(field, "timestamp or null")),
-    }
-}
-
-fn missing_field(field: &str) -> OpenAuthError {
-    OpenAuthError::Adapter(format!("record is missing `{field}`"))
-}
-
-fn invalid_field(field: &str, expected: &str) -> OpenAuthError {
-    OpenAuthError::Adapter(format!("record field `{field}` must be {expected}"))
 }

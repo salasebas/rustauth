@@ -1,7 +1,291 @@
-#[test]
-fn exposes_one_time_token_placeholder() {
-    assert_eq!(
-        openauth_plugins::one_time_token::UPSTREAM_PLUGIN_ID,
-        "one-time-token"
+mod helpers;
+
+use helpers::*;
+use http::{header, Method, StatusCode};
+use openauth_plugins::one_time_token::{
+    default_key_hasher, one_time_token, one_time_token_with_options, OneTimeTokenOptions,
+    StoreToken,
+};
+use serde_json::Value;
+use time::{Duration, OffsetDateTime};
+
+#[tokio::test]
+async fn registers_generate_and_verify_endpoints() -> Result<(), Box<dyn std::error::Error>> {
+    let (_adapter, router) = router_with_plugin(one_time_token())?;
+    let registry = router.endpoint_registry();
+
+    assert!(registry.iter().any(|endpoint| {
+        endpoint.path == "/one-time-token/generate" && endpoint.method == Method::GET
+    }));
+    assert!(registry.iter().any(|endpoint| {
+        endpoint.path == "/one-time-token/verify" && endpoint.method == Method::POST
+    }));
+    Ok(())
+}
+
+#[tokio::test]
+async fn generated_token_verifies_once_and_sets_session_cookie(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_plugin(one_time_token())?;
+    let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
+
+    let generate = router
+        .handle_async(request(
+            Method::GET,
+            "/api/auth/one-time-token/generate",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(generate.status(), StatusCode::OK);
+    let generated: Value = serde_json::from_slice(generate.body())?;
+    let token = generated["token"]
+        .as_str()
+        .ok_or("missing generated token")?;
+
+    let verify = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            &format!(r#"{{"token":"{token}"}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(verify.status(), StatusCode::OK);
+    let verified: Value = serde_json::from_slice(verify.body())?;
+    assert_eq!(verified["session"]["token"], "session-token");
+    assert_eq!(verified["user"]["email"], "ada@example.com");
+    assert!(set_cookie_values(&verify)
+        .iter()
+        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+
+    let second = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            &format!(r#"{{"token":"{token}"}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(second.status(), StatusCode::BAD_REQUEST);
+    let second_body: Value = serde_json::from_slice(second.body())?;
+    assert_eq!(second_body["message"], "Invalid token");
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_token_fails_and_is_consumed() -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_plugin(one_time_token())?;
+    seed_user_and_session(&adapter, default_session_expires_at()).await?;
+    seed_verification(
+        &adapter,
+        "one-time-token:expired-token",
+        "session-token",
+        OffsetDateTime::now_utc() - Duration::minutes(1),
+    )
+    .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            r#"{"token":"expired-token"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["message"], "Token expired");
+    assert!(
+        verification_record(&adapter, "one-time-token:expired-token")
+            .await?
+            .is_none()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_session_fails_with_session_expired() -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_plugin(one_time_token_with_options(
+        OneTimeTokenOptions::default().expires_in_minutes(10),
+    ))?;
+    seed_user_and_session(&adapter, OffsetDateTime::now_utc() - Duration::minutes(1)).await?;
+    seed_verification(
+        &adapter,
+        "one-time-token:valid-token",
+        "session-token",
+        OffsetDateTime::now_utc() + Duration::minutes(5),
+    )
+    .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            r#"{"token":"valid-token"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["message"], "Session expired");
+    Ok(())
+}
+
+#[tokio::test]
+async fn hashed_storage_uses_default_key_hasher() -> Result<(), Box<dyn std::error::Error>> {
+    let options = OneTimeTokenOptions::default()
+        .store_token(StoreToken::Hashed)
+        .generate_token(|_, _| Ok("123456".to_owned()));
+    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
+
+    let generate = router
+        .handle_async(request(
+            Method::GET,
+            "/api/auth/one-time-token/generate",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(generate.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(generate.body())?;
+    assert_eq!(body["token"], "123456");
+    let hashed = default_key_hasher("123456");
+    assert!(
+        verification_record(&adapter, &format!("one-time-token:{hashed}"))
+            .await?
+            .is_some()
+    );
+    assert!(verification_record(&adapter, "one-time-token:123456")
+        .await?
+        .is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn custom_storage_hasher_is_used() -> Result<(), Box<dyn std::error::Error>> {
+    let options = OneTimeTokenOptions::default()
+        .store_token(StoreToken::custom(|token| Ok(format!("{token}:hashed"))))
+        .generate_token(|_, _| Ok("custom-token".to_owned()));
+    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
+
+    let generate = router
+        .handle_async(request(
+            Method::GET,
+            "/api/auth/one-time-token/generate",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(generate.status(), StatusCode::OK);
+    assert!(
+        verification_record(&adapter, "one-time-token:custom-token:hashed")
+            .await?
+            .is_some()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn disable_set_session_cookie_omits_cookie() -> Result<(), Box<dyn std::error::Error>> {
+    let options = OneTimeTokenOptions::default().disable_set_session_cookie(true);
+    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    seed_user_and_session(&adapter, default_session_expires_at()).await?;
+    seed_verification(
+        &adapter,
+        "one-time-token:no-cookie-token",
+        "session-token",
+        OffsetDateTime::now_utc() + Duration::minutes(5),
+    )
+    .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            r#"{"token":"no-cookie-token"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(set_cookie_values(&response).is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn disable_client_request_rejects_generate_endpoint() -> Result<(), Box<dyn std::error::Error>>
+{
+    let options = OneTimeTokenOptions::default().disable_client_request(true);
+    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
+
+    let response = router
+        .handle_async(request(
+            Method::GET,
+            "/api/auth/one-time-token/generate",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["message"], "Client requests are disabled");
+    Ok(())
+}
+
+#[tokio::test]
+async fn set_ott_header_on_new_sign_up_session() -> Result<(), Box<dyn std::error::Error>> {
+    let options = OneTimeTokenOptions::default().set_ott_header_on_new_session(true);
+    let (_adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let ott = response
+        .headers()
+        .get("set-ott")
+        .and_then(|value| value.to_str().ok())
+        .ok_or("missing set-ott header")?;
+    assert_eq!(ott.len(), 32);
+    assert!(response
+        .headers()
+        .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|header| header.trim() == "set-ott")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn set_ott_header_on_new_sign_in_session() -> Result<(), Box<dyn std::error::Error>> {
+    let options = OneTimeTokenOptions::default().set_ott_header_on_new_session(true);
+    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    seed_user_and_credential_account(&adapter).await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().get("set-ott").is_some());
+    Ok(())
 }
