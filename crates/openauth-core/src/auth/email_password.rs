@@ -6,7 +6,7 @@ use std::fmt;
 use time::{Duration, OffsetDateTime};
 
 use crate::crypto::password::{hash_password, verify_password};
-use crate::db::{DbAdapter, Session, User};
+use crate::db::{DbAdapter, DbRecord, Session, User};
 use crate::error::OpenAuthError;
 use crate::session::{CreateSessionInput, DbSessionStore};
 use crate::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
@@ -120,15 +120,19 @@ impl Default for EmailPasswordConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SignUpInput {
     pub name: String,
     pub email: String,
     pub password: String,
     pub image: Option<String>,
+    pub username: Option<String>,
+    pub display_username: Option<String>,
     pub remember_me: bool,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub additional_user_fields: DbRecord,
+    pub additional_session_fields: DbRecord,
 }
 
 impl SignUpInput {
@@ -142,9 +146,13 @@ impl SignUpInput {
             email: email.into(),
             password: password.into(),
             image: None,
+            username: None,
+            display_username: None,
             remember_me: true,
             ip_address: None,
             user_agent: None,
+            additional_user_fields: DbRecord::new(),
+            additional_session_fields: DbRecord::new(),
         }
     }
 
@@ -155,6 +163,18 @@ impl SignUpInput {
     }
 
     #[must_use]
+    pub fn username(mut self, username: impl Into<String>) -> Self {
+        self.username = Some(username.into());
+        self
+    }
+
+    #[must_use]
+    pub fn display_username(mut self, display_username: impl Into<String>) -> Self {
+        self.display_username = Some(display_username.into());
+        self
+    }
+
+    #[must_use]
     pub fn remember_me(mut self, remember_me: bool) -> Self {
         self.remember_me = remember_me;
         self
@@ -171,15 +191,28 @@ impl SignUpInput {
         self.user_agent = Some(user_agent.into());
         self
     }
+
+    #[must_use]
+    pub fn additional_user_fields(mut self, fields: DbRecord) -> Self {
+        self.additional_user_fields = fields;
+        self
+    }
+
+    #[must_use]
+    pub fn additional_session_fields(mut self, fields: DbRecord) -> Self {
+        self.additional_session_fields = fields;
+        self
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SignInInput {
     pub email: String,
     pub password: String,
     pub remember_me: bool,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    pub additional_session_fields: DbRecord,
 }
 
 impl SignInInput {
@@ -190,6 +223,7 @@ impl SignInInput {
             remember_me: true,
             ip_address: None,
             user_agent: None,
+            additional_session_fields: DbRecord::new(),
         }
     }
 
@@ -208,6 +242,12 @@ impl SignInInput {
     #[must_use]
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = Some(user_agent.into());
+        self
+    }
+
+    #[must_use]
+    pub fn additional_session_fields(mut self, fields: DbRecord) -> Self {
+        self.additional_session_fields = fields;
         self
     }
 }
@@ -256,9 +296,16 @@ impl<'a> EmailPasswordAuth<'a> {
         }
 
         let password_hash = (self.hash_password)(&input.password)?;
-        let mut create_user = CreateUserInput::new(input.name, input.email);
+        let mut create_user = CreateUserInput::new(input.name, input.email)
+            .additional_fields(input.additional_user_fields);
         if let Some(image) = input.image {
             create_user = create_user.image(image);
+        }
+        if let Some(username) = input.username {
+            create_user = create_user.username(username);
+        }
+        if let Some(display_username) = input.display_username {
+            create_user = create_user.display_username(display_username);
         }
         let user = users.create_user(create_user).await?;
         users
@@ -273,6 +320,7 @@ impl<'a> EmailPasswordAuth<'a> {
                 input.remember_me,
                 input.ip_address,
                 input.user_agent,
+                input.additional_session_fields,
             )
             .await?;
 
@@ -322,6 +370,7 @@ impl<'a> EmailPasswordAuth<'a> {
                 input.remember_me,
                 input.ip_address,
                 input.user_agent,
+                input.additional_session_fields,
             )
             .await?;
 
@@ -351,6 +400,7 @@ impl<'a> EmailPasswordAuth<'a> {
         remember_me: bool,
         ip_address: Option<String>,
         user_agent: Option<String>,
+        additional_fields: DbRecord,
     ) -> Result<Session, AuthFlowError> {
         let expires_in = if remember_me {
             self.config.session_expires_in
@@ -360,7 +410,8 @@ impl<'a> EmailPasswordAuth<'a> {
         let seconds = i64::try_from(expires_in)
             .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))?;
         let expires_at = OffsetDateTime::now_utc() + Duration::seconds(seconds);
-        let mut input = CreateSessionInput::new(user_id, expires_at);
+        let mut input =
+            CreateSessionInput::new(user_id, expires_at).additional_fields(additional_fields);
         if let Some(ip_address) = ip_address {
             input = input.ip_address(ip_address);
         }

@@ -162,6 +162,44 @@ async fn update_session_route_rejects_invalid_field_type() -> Result<(), Box<dyn
     Ok(())
 }
 
+#[tokio::test]
+async fn sign_up_email_route_applies_additional_session_field_defaults(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let mut options = session_field_options();
+    options.session.additional_fields.insert(
+        "mode".to_owned(),
+        SessionAdditionalField::new(DbFieldType::String)
+            .default_value(DbValue::String("standard".to_owned())),
+    );
+    let router = router_with_options(adapter, options)?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = cookie_header_from_response(&response)?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/get-session",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["session"]["mode"], "standard");
+    Ok(())
+}
+
 fn session_field_options() -> OpenAuthOptions {
     OpenAuthOptions {
         session: SessionOptions {
@@ -173,4 +211,15 @@ fn session_field_options() -> OpenAuthOptions {
         },
         ..OpenAuthOptions::default()
     }
+}
+
+fn cookie_header_from_response(
+    response: &http::Response<Vec<u8>>,
+) -> Result<String, OpenAuthError> {
+    let cookies = set_cookie_values(response);
+    Ok(cookies
+        .iter()
+        .filter_map(|cookie| cookie.split_once(';').map(|(value, _)| value.to_owned()))
+        .collect::<Vec<_>>()
+        .join("; "))
 }

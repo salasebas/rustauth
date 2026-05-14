@@ -169,6 +169,37 @@ async fn db_user_store_creates_user_with_lowercase_email() -> Result<(), OpenAut
 }
 
 #[tokio::test]
+async fn db_user_store_creates_user_with_username_fields() -> Result<(), OpenAuthError> {
+    let adapter = InMemoryUserAdapter::default();
+    let store = DbUserStore::new(&adapter);
+
+    let user = store
+        .create_user(
+            CreateUserInput::new("Ada Lovelace", "ada@example.com")
+                .id("user_1")
+                .username("ada_lovelace")
+                .display_username("Ada Lovelace"),
+        )
+        .await?;
+
+    assert_eq!(user.username.as_deref(), Some("ada_lovelace"));
+    assert_eq!(user.display_username.as_deref(), Some("Ada Lovelace"));
+    let creates = adapter.creates.lock().await;
+    let create = creates
+        .first()
+        .ok_or_else(|| OpenAuthError::Adapter("missing user create".to_owned()))?;
+    assert_eq!(
+        create.data.get("username"),
+        Some(&DbValue::String("ada_lovelace".to_owned()))
+    );
+    assert_eq!(
+        create.data.get("display_username"),
+        Some(&DbValue::String("Ada Lovelace".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn db_user_store_creates_credential_account() -> Result<(), OpenAuthError> {
     let adapter = InMemoryUserAdapter::default();
     let store = DbUserStore::new(&adapter);
@@ -198,6 +229,8 @@ async fn db_user_store_finds_user_by_email_with_accounts() -> Result<(), OpenAut
             email: "ada@example.com".to_owned(),
             email_verified: true,
             image: None,
+            username: None,
+            display_username: None,
             created_at: now,
             updated_at: now,
         })

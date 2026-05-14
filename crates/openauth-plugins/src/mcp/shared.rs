@@ -251,6 +251,8 @@ fn user_from_record(record: &DbRecord) -> Result<User, OpenAuthError> {
         email: required_string(record, "email")?,
         email_verified: optional_bool(record, "email_verified")?.unwrap_or(false),
         image: optional_string(record, "image")?,
+        username: optional_string(record, "username")?,
+        display_username: optional_string(record, "display_username")?,
         created_at: required_timestamp(record, "created_at")?,
         updated_at: required_timestamp(record, "updated_at")?,
     })

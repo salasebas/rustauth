@@ -6,7 +6,9 @@ use super::rate_limit::PluginRateLimitRule;
 use super::schema::PluginSchemaContribution;
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
+use crate::options::{SessionAdditionalField, UserAdditionalField};
 use openauth_oauth::oauth2::SocialOAuthProvider;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -24,6 +26,8 @@ pub struct PluginInitOutput {
     pub database_hooks: Vec<PluginDatabaseHook>,
     pub migrations: Vec<PluginMigration>,
     pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
+    pub user_additional_fields: BTreeMap<String, UserAdditionalField>,
+    pub session_additional_fields: BTreeMap<String, SessionAdditionalField>,
 }
 
 impl fmt::Debug for PluginInitOutput {
@@ -37,6 +41,8 @@ impl fmt::Debug for PluginInitOutput {
             .field("error_codes", &self.error_codes)
             .field("database_hooks", &self.database_hooks)
             .field("migrations", &self.migrations)
+            .field("user_additional_fields", &self.user_additional_fields)
+            .field("session_additional_fields", &self.session_additional_fields)
             .field(
                 "social_providers",
                 &self
@@ -99,6 +105,26 @@ impl PluginInitOutput {
     #[must_use]
     pub fn social_provider(mut self, provider: impl Into<Arc<dyn SocialOAuthProvider>>) -> Self {
         self.social_providers.push(provider.into());
+        self
+    }
+
+    #[must_use]
+    pub fn user_additional_field(
+        mut self,
+        name: impl Into<String>,
+        field: UserAdditionalField,
+    ) -> Self {
+        self.user_additional_fields.insert(name.into(), field);
+        self
+    }
+
+    #[must_use]
+    pub fn session_additional_field(
+        mut self,
+        name: impl Into<String>,
+        field: SessionAdditionalField,
+    ) -> Self {
+        self.session_additional_fields.insert(name.into(), field);
         self
     }
 }

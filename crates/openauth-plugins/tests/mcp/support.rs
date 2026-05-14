@@ -252,6 +252,8 @@ async fn seed_user(adapter: &MemoryAdapter, now: OffsetDateTime) -> Result<(), O
         email: "ada@example.com".to_owned(),
         email_verified: true,
         image: None,
+        username: None,
+        display_username: None,
         created_at: now,
         updated_at: now,
     };
