@@ -4,6 +4,8 @@ use sha1::{Digest, Sha1};
 use std::future::Future;
 use std::pin::Pin;
 
+const HIBP_USER_AGENT: &str = "BetterAuth Password Checker";
+
 pub type HaveIBeenPwnedCheckFuture<'a> =
     Pin<Box<dyn Future<Output = Result<bool, HaveIBeenPwnedCheckError>> + Send + 'a>>;
 
@@ -40,6 +42,23 @@ impl ReqwestHaveIBeenPwnedChecker {
             base_url: "https://api.pwnedpasswords.com".to_owned(),
         }
     }
+
+    #[cfg(test)]
+    fn with_base_url(base_url: impl Into<String>) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            base_url: base_url.into(),
+        }
+    }
+
+    fn range_request(&self, prefix: &str) -> Result<reqwest::Request, reqwest::Error> {
+        let url = format!("{}/range/{prefix}", self.base_url.trim_end_matches('/'));
+        self.client
+            .get(url)
+            .header("Add-Padding", "true")
+            .header("User-Agent", HIBP_USER_AGENT)
+            .build()
+    }
 }
 
 impl HaveIBeenPwnedChecker for ReqwestHaveIBeenPwnedChecker {
@@ -49,13 +68,12 @@ impl HaveIBeenPwnedChecker for ReqwestHaveIBeenPwnedChecker {
         suffix: &'a str,
     ) -> HaveIBeenPwnedCheckFuture<'a> {
         Box::pin(async move {
-            let url = format!("{}/range/{prefix}", self.base_url.trim_end_matches('/'));
+            let request = self
+                .range_request(prefix)
+                .map_err(|error| HaveIBeenPwnedCheckError::Transport(error.to_string()))?;
             let response = self
                 .client
-                .get(url)
-                .header("Add-Padding", "true")
-                .header("User-Agent", "OpenAuth Password Checker")
-                .send()
+                .execute(request)
                 .await
                 .map_err(|error| HaveIBeenPwnedCheckError::Transport(error.to_string()))?;
             if !response.status().is_success() {
@@ -91,7 +109,10 @@ pub(crate) fn range_response_contains_suffix(body: &str, suffix: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{range_response_contains_suffix, sha1_prefix_suffix};
+    use super::{
+        range_response_contains_suffix, sha1_prefix_suffix, ReqwestHaveIBeenPwnedChecker,
+        HIBP_USER_AGENT,
+    };
 
     #[test]
     fn range_response_matches_suffix_case_insensitively_with_crlf() {
@@ -113,5 +134,34 @@ mod tests {
 
         assert_eq!(prefix, "F7C3B");
         assert_eq!(suffix, "C1D808E04732ADF679965CCC34CA7AE3441");
+    }
+
+    #[test]
+    fn reqwest_checker_uses_range_endpoint_padding_and_upstream_user_agent(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let checker = ReqwestHaveIBeenPwnedChecker::with_base_url("http://hibp.test/");
+
+        let request = checker.range_request("ABCDE")?;
+
+        assert!(
+            request.url().as_str() == "http://hibp.test/range/ABCDE",
+            "request URL should include only the k-anonymity hash prefix"
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("Add-Padding")
+                .and_then(|value| value.to_str().ok()),
+            Some("true")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("User-Agent")
+                .and_then(|value| value.to_str().ok()),
+            Some(HIBP_USER_AGENT)
+        );
+        assert!(!request.url().as_str().contains("012345"));
+        Ok(())
     }
 }

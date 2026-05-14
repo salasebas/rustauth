@@ -9,6 +9,10 @@ pub struct User {
     pub email: String,
     pub email_verified: bool,
     pub image: Option<String>,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default, alias = "displayUsername")]
+    pub display_username: Option<String>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

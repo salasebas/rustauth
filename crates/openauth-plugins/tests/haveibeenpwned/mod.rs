@@ -7,6 +7,7 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::plugin::PluginPasswordValidationInput;
 use openauth_plugins::haveibeenpwned::{
     have_i_been_pwned_with_checker, HaveIBeenPwnedCheckError, HaveIBeenPwnedChecker,
     HaveIBeenPwnedOptions, UPSTREAM_PLUGIN_ID,
@@ -176,23 +177,155 @@ async fn checker_receives_hash_prefix_and_suffix_not_raw_password(
     Ok(())
 }
 
+#[tokio::test]
+async fn compromised_password_blocks_change_password() -> Result<(), Box<dyn std::error::Error>> {
+    let checker = Arc::new(FakeChecker::compromised());
+    let adapter = Arc::new(MemoryAdapter::default());
+    let router = router_with_adapter(
+        adapter,
+        have_i_been_pwned_with_checker(
+            HaveIBeenPwnedOptions {
+                paths: vec!["/change-password".to_owned()],
+                ..HaveIBeenPwnedOptions::default()
+            },
+            checker,
+        ),
+    )?;
+
+    let sign_up_response = router
+        .handle_async(json_request(
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+        )?)
+        .await?;
+    assert_eq!(sign_up_response.status(), http::StatusCode::OK);
+    let cookie = cookie_header_from_set_cookie(&sign_up_response);
+
+    let response = router
+        .handle_async(json_request_with_cookie(
+            "/api/auth/change-password",
+            r#"{"currentPassword":"secret123","newPassword":"new-secret123"}"#,
+            &cookie,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), http::StatusCode::BAD_REQUEST);
+    let body: ApiErrorResponse = serde_json::from_slice(response.body())?;
+    assert_eq!(body.code, "PASSWORD_COMPROMISED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn empty_password_skips_checker() -> Result<(), Box<dyn std::error::Error>> {
+    let checker = Arc::new(FakeChecker::compromised());
+    let plugin = have_i_been_pwned_with_checker(HaveIBeenPwnedOptions::default(), checker.clone());
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some("test-secret-123456789012345678901234".to_owned()),
+            advanced: AdvancedOptions {
+                disable_csrf_check: true,
+                disable_origin_check: true,
+                ..AdvancedOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+        Arc::new(MemoryAdapter::default()),
+    )?;
+
+    let result = (plugin.password_validators[0].handler)(
+        &context,
+        PluginPasswordValidationInput::new("/sign-up/email", ""),
+    )
+    .await;
+
+    assert_eq!(result, Ok(()));
+    let observed = checker
+        .observed_hash_parts
+        .lock()
+        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    assert!(observed.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn http_status_failure_returns_status_specific_500() -> Result<(), Box<dyn std::error::Error>>
+{
+    let checker = Arc::new(FakeChecker::http_status(503));
+    let router = router(have_i_been_pwned_with_checker(
+        HaveIBeenPwnedOptions::default(),
+        checker,
+    ))?;
+
+    let response = router
+        .handle_async(json_request(
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), http::StatusCode::INTERNAL_SERVER_ERROR);
+    let body: ApiErrorResponse = serde_json::from_slice(response.body())?;
+    assert_eq!(body.code, "INTERNAL_SERVER_ERROR");
+    assert_eq!(body.message, "Failed to check password. Status: 503");
+    Ok(())
+}
+
+#[tokio::test]
+async fn transport_failure_returns_generic_500() -> Result<(), Box<dyn std::error::Error>> {
+    let checker = Arc::new(FakeChecker::transport("connection failed"));
+    let router = router(have_i_been_pwned_with_checker(
+        HaveIBeenPwnedOptions::default(),
+        checker,
+    ))?;
+
+    let response = router
+        .handle_async(json_request(
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), http::StatusCode::INTERNAL_SERVER_ERROR);
+    let body: ApiErrorResponse = serde_json::from_slice(response.body())?;
+    assert_eq!(body.code, "INTERNAL_SERVER_ERROR");
+    assert_eq!(
+        body.message,
+        "Failed to check password. Please try again later."
+    );
+    Ok(())
+}
+
 #[derive(Debug)]
 struct FakeChecker {
-    compromised: bool,
+    result: Result<bool, HaveIBeenPwnedCheckError>,
     observed_hash_parts: Mutex<Vec<(String, String)>>,
 }
 
 impl FakeChecker {
     fn compromised() -> Self {
         Self {
-            compromised: true,
+            result: Ok(true),
             observed_hash_parts: Mutex::new(Vec::new()),
         }
     }
 
     fn uncompromised() -> Self {
         Self {
-            compromised: false,
+            result: Ok(false),
+            observed_hash_parts: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn http_status(status: u16) -> Self {
+        Self {
+            result: Err(HaveIBeenPwnedCheckError::HttpStatus(status)),
+            observed_hash_parts: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn transport(message: impl Into<String>) -> Self {
+        Self {
+            result: Err(HaveIBeenPwnedCheckError::Transport(message.into())),
             observed_hash_parts: Mutex::new(Vec::new()),
         }
     }
@@ -209,7 +342,7 @@ impl HaveIBeenPwnedChecker for FakeChecker {
                 .lock()
                 .map_err(|error| HaveIBeenPwnedCheckError::Transport(error.to_string()))?
                 .push((prefix.to_owned(), suffix.to_owned()));
-            Ok(self.compromised)
+            self.result.clone()
         })
     }
 }
@@ -244,4 +377,28 @@ fn json_request(path: &str, body: &str) -> Result<openauth_core::api::ApiRequest
         .uri(format!("http://localhost:3000{path}"))
         .header(http::header::CONTENT_TYPE, "application/json")
         .body(body.as_bytes().to_vec())
+}
+
+fn json_request_with_cookie(
+    path: &str,
+    body: &str,
+    cookie: &str,
+) -> Result<openauth_core::api::ApiRequest, http::Error> {
+    http::Request::builder()
+        .method(http::Method::POST)
+        .uri(format!("http://localhost:3000{path}"))
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .header(http::header::COOKIE, cookie)
+        .body(body.as_bytes().to_vec())
+}
+
+fn cookie_header_from_set_cookie(response: &http::Response<Vec<u8>>) -> String {
+    response
+        .headers()
+        .get_all(http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .filter_map(|value| value.split(';').next())
+        .collect::<Vec<_>>()
+        .join("; ")
 }

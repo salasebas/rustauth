@@ -23,4 +23,4 @@ pub use rate_limit::{
 };
 pub use root::{ExperimentalOptions, OpenAuthOptions, TelemetryOptions};
 pub use session::{SessionAdditionalField, SessionOptions};
-pub use user::{ChangeEmailOptions, DeleteUserOptions, UserOptions};
+pub use user::{ChangeEmailOptions, DeleteUserOptions, UserAdditionalField, UserOptions};

@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use openauth_core::plugin::{AuthPlugin, PluginErrorCode, PluginPasswordValidationRejection};
 
-use super::checker::{sha1_prefix_suffix, HaveIBeenPwnedChecker, ReqwestHaveIBeenPwnedChecker};
+use super::checker::{
+    sha1_prefix_suffix, HaveIBeenPwnedCheckError, HaveIBeenPwnedChecker,
+    ReqwestHaveIBeenPwnedChecker,
+};
 use super::error::{CHECK_FAILED_MESSAGE, PASSWORD_COMPROMISED_CODE, PASSWORD_COMPROMISED_MESSAGE};
 use super::options::HaveIBeenPwnedOptions;
 
@@ -44,15 +47,14 @@ pub fn have_i_been_pwned_with_checker(
                 if !options.enabled || !options.paths.iter().any(|path| path == &input.path) {
                     return Ok(());
                 }
+                if input.password.is_empty() {
+                    return Ok(());
+                }
                 let (prefix, suffix) = sha1_prefix_suffix(&input.password);
                 let compromised = checker
                     .is_hash_suffix_compromised(&prefix, &suffix)
                     .await
-                    .map_err(|_error| {
-                        PluginPasswordValidationRejection::internal_server_error(
-                            CHECK_FAILED_MESSAGE,
-                        )
-                    })?;
+                    .map_err(check_error_response)?;
                 if compromised {
                     return Err(PluginPasswordValidationRejection::bad_request(
                         PASSWORD_COMPROMISED_CODE,
@@ -64,4 +66,17 @@ pub fn have_i_been_pwned_with_checker(
                 Ok(())
             })
         })
+}
+
+fn check_error_response(error: HaveIBeenPwnedCheckError) -> PluginPasswordValidationRejection {
+    match error {
+        HaveIBeenPwnedCheckError::HttpStatus(status) => {
+            PluginPasswordValidationRejection::internal_server_error(format!(
+                "Failed to check password. Status: {status}"
+            ))
+        }
+        HaveIBeenPwnedCheckError::Transport(_) => {
+            PluginPasswordValidationRejection::internal_server_error(CHECK_FAILED_MESSAGE)
+        }
+    }
 }

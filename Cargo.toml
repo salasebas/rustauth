@@ -35,6 +35,7 @@ http = "1"
 indexmap = { version = "2", features = ["serde"] }
 josekit = "0.10"
 hkdf = "0.12"
+data-encoding = "2"
 openauth-core = { path = "crates/openauth-core", version = "0.0.2" }
 openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.2" }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.2" }

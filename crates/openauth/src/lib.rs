@@ -42,10 +42,12 @@ pub use openauth_core::options::{
     IpAddressOptions, OAuthStateStoreStrategy, OpenAuthOptions, PasswordOptions, RateLimitOptions,
     RateLimitPathRule, RateLimitRecord, RateLimitRule, RateLimitRuleProvider, RateLimitStorage,
     RateLimitStorageOption, SendVerificationEmail, SessionAdditionalField, SessionOptions,
-    TelemetryOptions, TrustedOriginOptions, TrustedOriginsProvider, UserOptions, VerificationEmail,
+    TelemetryOptions, TrustedOriginOptions, TrustedOriginsProvider, UserAdditionalField,
+    UserOptions, VerificationEmail,
 };
 pub use openauth_core::plugin::{
-    AuthPlugin, PluginAfterHook, PluginAfterHookAction, PluginBeforeHook, PluginBeforeHookAction,
+    AuthPlugin, PluginAfterHook, PluginAfterHookAction, PluginAfterHookFuture,
+    PluginAsyncAfterHook, PluginAsyncAfterHookHandler, PluginBeforeHook, PluginBeforeHookAction,
     PluginDatabaseAfterInput, PluginDatabaseBeforeAction, PluginDatabaseBeforeInput,
     PluginDatabaseHook, PluginDatabaseHookContext, PluginDatabaseOperation, PluginEndpoint,
     PluginEndpointHooks, PluginErrorCode, PluginHookMatcher, PluginInitOutput, PluginMiddleware,
