@@ -7,7 +7,6 @@ use openauth_core::api::{
 };
 use openauth_core::auth::trusted_origins::OriginMatchSettings;
 use openauth_core::context::AuthContext;
-use openauth_core::cookies::{set_session_cookie, CookieOptions, SessionCookieOptions};
 use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindOne, User, Verification, Where};
 use openauth_core::error::OpenAuthError;
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
@@ -16,15 +15,18 @@ use openauth_core::verification::{
     CreateVerificationInput, DbVerificationStore, UpdateVerificationInput,
 };
 use serde::Serialize;
+use serde_json::Value;
 use time::{Duration, OffsetDateTime};
 use url::Url;
 
-use super::options::{MagicLinkEmail, MagicLinkOptions};
+use super::options::{MagicLinkEmail, MagicLinkOptions, MagicLinkSendContext};
 use super::payload::{
     parse_verify_query, SignInMagicLinkBody, VerificationPayload, VerifyMagicLinkQuery,
 };
 use super::response;
+use super::session_response::{record_new_session, session_cookies};
 use super::token::generate_magic_link_token;
+use super::user_response::{additional_user_create_values, user_response_value};
 
 pub(crate) fn sign_in_magic_link_endpoint(options: MagicLinkOptions) -> AsyncAuthEndpoint {
     create_auth_endpoint(
@@ -71,7 +73,7 @@ pub(crate) fn sign_in_magic_link_endpoint(options: MagicLinkOptions) -> AsyncAut
                 })
                 .map_err(|error| OpenAuthError::Api(error.to_string()))?;
                 let expires_at = OffsetDateTime::now_utc()
-                    .checked_add(Duration::seconds(options.expires_in as i64))
+                    .checked_add(Duration::seconds(effective_expires_in(&options) as i64))
                     .ok_or_else(|| OpenAuthError::Api("magic link expiry overflow".to_owned()))?;
 
                 DbVerificationStore::new(adapter.as_ref())
@@ -81,12 +83,18 @@ pub(crate) fn sign_in_magic_link_endpoint(options: MagicLinkOptions) -> AsyncAut
                     .await?;
 
                 let url = magic_link_url(context, &token, &body)?;
-                (options.send_magic_link)(MagicLinkEmail {
-                    email: body.email,
-                    url,
-                    token,
-                    metadata: body.metadata,
-                })
+                (options.send_magic_link)(
+                    MagicLinkEmail {
+                        email: body.email,
+                        url,
+                        token,
+                        metadata: body.metadata,
+                    },
+                    MagicLinkSendContext {
+                        context,
+                        request: &request,
+                    },
+                )
                 .await?;
 
                 response::json(
@@ -181,28 +189,42 @@ pub(crate) fn verify_magic_link_endpoint(options: MagicLinkOptions) -> AsyncAuth
                     )
                     .await?;
 
-                let Some((user, is_new_user)) =
-                    resolve_user(adapter.as_ref(), &options, &payload).await?
-                else {
-                    return response::redirect_with_error(&error_url, "new_user_signup_disabled");
-                };
+                let (user, is_new_user) =
+                    match resolve_user(adapter.as_ref(), context, &options, &payload).await {
+                        Ok(Some(user)) => user,
+                        Ok(None) => {
+                            return response::redirect_with_error(
+                                &error_url,
+                                "new_user_signup_disabled",
+                            );
+                        }
+                        Err(_) => {
+                            return response::redirect_with_error(
+                                &error_url,
+                                "failed_to_create_user",
+                            );
+                        }
+                    };
                 let expires_at = OffsetDateTime::now_utc()
                     .checked_add(Duration::seconds(context.session_config.expires_in as i64))
                     .ok_or_else(|| OpenAuthError::Api("session expiry overflow".to_owned()))?;
-                let session = DbSessionStore::new(adapter.as_ref())
+                let session = match DbSessionStore::new(adapter.as_ref())
                     .create_session(CreateSessionInput::new(user.id.clone(), expires_at))
-                    .await?;
-                let cookies = set_session_cookie(
-                    &context.auth_cookies,
-                    &context.secret,
-                    &session.token,
-                    SessionCookieOptions {
-                        dont_remember: false,
-                        overrides: CookieOptions::default(),
-                    },
-                )?;
+                    .await
+                {
+                    Ok(session) => session,
+                    Err(_) => {
+                        return response::redirect_with_error(
+                            &error_url,
+                            "failed_to_create_session",
+                        );
+                    }
+                };
+                record_new_session(&session, &user)?;
+                let cookies = session_cookies(context, &session, &user)?;
 
                 if query.callback_url.is_none() {
+                    let user = user_response_value(adapter.as_ref(), context, &user).await?;
                     return response::json(
                         StatusCode::OK,
                         &VerifyResponse {
@@ -225,7 +247,7 @@ pub(crate) fn verify_magic_link_endpoint(options: MagicLinkOptions) -> AsyncAuth
 #[derive(Debug, Serialize)]
 struct VerifyResponse {
     token: String,
-    user: User,
+    user: Value,
     session: openauth_core::db::Session,
 }
 
@@ -237,10 +259,26 @@ fn required_adapter(context: &AuthContext) -> Result<Arc<dyn DbAdapter>, OpenAut
 
 fn validate_email(email: &str) -> Result<(), OpenAuthError> {
     let trimmed = email.trim();
-    if trimmed.is_empty() || !trimmed.contains('@') {
+    let Some((local, domain)) = trimmed.split_once('@') else {
+        return Err(OpenAuthError::Api("invalid magic link email".to_owned()));
+    };
+    if local.is_empty()
+        || domain.is_empty()
+        || !domain.contains('.')
+        || domain.starts_with('.')
+        || domain.ends_with('.')
+    {
         return Err(OpenAuthError::Api("invalid magic link email".to_owned()));
     }
     Ok(())
+}
+
+fn effective_expires_in(options: &MagicLinkOptions) -> u64 {
+    if options.expires_in == 0 {
+        60 * 5
+    } else {
+        options.expires_in
+    }
 }
 
 fn sign_in_body_schema() -> BodySchema {
@@ -284,7 +322,13 @@ fn magic_link_url(
 fn base_auth_url(context: &AuthContext, path: &str) -> Result<Url, OpenAuthError> {
     let mut base = Url::parse(&context.base_url)
         .map_err(|error| OpenAuthError::Api(format!("invalid base_url: {error}")))?;
-    let base_path = context.base_path.trim_end_matches('/');
+    let base_url_path = base.path().trim_end_matches('/');
+    let has_base_url_path = !base_url_path.is_empty();
+    let base_path = if has_base_url_path {
+        base_url_path
+    } else {
+        context.base_path.trim_end_matches('/')
+    };
     base.set_path(&format!("{base_path}{path}"));
     Ok(base)
 }
@@ -341,6 +385,7 @@ fn validate_verify_origins(
 
 async fn resolve_user(
     adapter: &dyn DbAdapter,
+    context: &AuthContext,
     options: &MagicLinkOptions,
     payload: &VerificationPayload,
 ) -> Result<Option<(User, bool)>, OpenAuthError> {
@@ -352,7 +397,8 @@ async fn resolve_user(
         let user = users
             .create_user(
                 CreateUserInput::new(payload.name.clone().unwrap_or_default(), &payload.email)
-                    .email_verified(true),
+                    .email_verified(true)
+                    .additional_fields(additional_user_create_values(context)),
             )
             .await?;
         return Ok(Some((user, true)));

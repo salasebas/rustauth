@@ -4,9 +4,13 @@ mod endpoints;
 mod options;
 mod payload;
 mod response;
+mod session_response;
 mod token;
+mod user_response;
 
-pub use options::{MagicLinkEmail, MagicLinkFuture, MagicLinkOptions, MagicLinkRateLimit};
+pub use options::{
+    MagicLinkEmail, MagicLinkFuture, MagicLinkOptions, MagicLinkRateLimit, MagicLinkSendContext,
+};
 pub use token::{default_key_hasher, TokenStorage};
 
 use openauth_core::plugin::{AuthPlugin, PluginRateLimitRule};

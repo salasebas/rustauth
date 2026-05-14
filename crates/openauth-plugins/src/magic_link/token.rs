@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use openauth_core::crypto::random::generate_random_string;
 use openauth_core::error::OpenAuthError;
+use rand::rngs::OsRng;
+use rand::RngCore;
 use sha2::{Digest, Sha256};
 
 use super::options::MagicLinkFuture;
@@ -36,7 +37,23 @@ impl TokenStorage {
 }
 
 pub fn generate_magic_link_token() -> String {
-    generate_random_string(32)
+    const LETTERS: &[u8; 52] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const ACCEPT_LIMIT: u8 = 52 * 4;
+    let mut output = String::with_capacity(32);
+    while output.len() < 32 {
+        let mut random = [0_u8; 32];
+        OsRng.fill_bytes(&mut random);
+        for byte in random {
+            if byte >= ACCEPT_LIMIT {
+                continue;
+            }
+            output.push(char::from(LETTERS[usize::from(byte % 52)]));
+            if output.len() == 32 {
+                break;
+            }
+        }
+    }
+    output
 }
 
 pub fn default_key_hasher(token: &str) -> String {

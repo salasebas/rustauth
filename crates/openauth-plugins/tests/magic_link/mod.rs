@@ -10,9 +10,11 @@ use openauth_plugins::magic_link::{
     default_key_hasher, magic_link, MagicLinkEmail, MagicLinkOptions, TokenStorage,
 };
 
+mod failure_redirects;
 mod rate_limit;
 mod support;
 mod token_generation;
+mod upstream_parity;
 
 use support::{
     build_router, get, json_body, options, post_json, seed_user, sender, sent_messages,
@@ -123,7 +125,7 @@ async fn rejects_reused_expired_and_invalid_tokens() -> Result<(), Box<dyn std::
     let invalid = get(&router, "/api/auth/magic-link/verify?token=missing").await?;
     assert_redirect_error(&invalid, "INVALID_TOKEN")?;
 
-    let short_lived = MagicLinkOptions::new(sender(sent.clone())).expires_in(0);
+    let short_lived = MagicLinkOptions::new(sender(sent.clone())).expires_in(1);
     let (router, _adapter) = build_router(sent.clone(), short_lived)?;
     post_json(
         &router,
@@ -132,6 +134,7 @@ async fn rejects_reused_expired_and_invalid_tokens() -> Result<(), Box<dyn std::
     )
     .await?;
     let expired_token = token_from_last_message(&sent)?;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let expired = get(
         &router,
         &format!("/api/auth/magic-link/verify?token={expired_token}"),

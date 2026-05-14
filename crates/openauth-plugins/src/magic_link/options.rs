@@ -2,6 +2,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use http::Request;
+use openauth_core::context::AuthContext;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::RateLimitRule;
 use serde_json::Value;
@@ -19,7 +21,18 @@ pub struct MagicLinkEmail {
     pub metadata: Option<Value>,
 }
 
+#[derive(Clone, Copy)]
+pub struct MagicLinkSendContext<'a> {
+    pub context: &'a AuthContext,
+    pub request: &'a Request<Vec<u8>>,
+}
+
 pub type SendMagicLink = Arc<dyn Fn(MagicLinkEmail) -> MagicLinkFuture<'static, ()> + Send + Sync>;
+pub type SendMagicLinkWithContext = Arc<
+    dyn for<'a> Fn(MagicLinkEmail, MagicLinkSendContext<'a>) -> MagicLinkFuture<'a, ()>
+        + Send
+        + Sync,
+>;
 pub type GenerateToken = Arc<dyn for<'a> Fn(&'a str) -> MagicLinkFuture<'a, String> + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +51,7 @@ impl Default for MagicLinkRateLimit {
 pub struct MagicLinkOptions {
     pub(crate) expires_in: u64,
     pub(crate) allowed_attempts: AllowedAttempts,
-    pub(crate) send_magic_link: SendMagicLink,
+    pub(crate) send_magic_link: SendMagicLinkWithContext,
     pub(crate) disable_sign_up: bool,
     pub(crate) rate_limit: MagicLinkRateLimit,
     pub(crate) generate_token: Option<GenerateToken>,
@@ -49,6 +62,20 @@ impl MagicLinkOptions {
     pub fn new<F>(send_magic_link: F) -> Self
     where
         F: Fn(MagicLinkEmail) -> MagicLinkFuture<'static, ()> + Send + Sync + 'static,
+    {
+        let send_magic_link: SendMagicLink = Arc::new(send_magic_link);
+        Self::new_with_context(move |email, _ctx| {
+            let send_magic_link = Arc::clone(&send_magic_link);
+            Box::pin(async move { send_magic_link(email).await })
+        })
+    }
+
+    pub fn new_with_context<F>(send_magic_link: F) -> Self
+    where
+        F: for<'a> Fn(MagicLinkEmail, MagicLinkSendContext<'a>) -> MagicLinkFuture<'a, ()>
+            + Send
+            + Sync
+            + 'static,
     {
         Self {
             expires_in: 60 * 5,
