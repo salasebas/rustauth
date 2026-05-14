@@ -1,18 +1,22 @@
 //! Request and runtime context contracts.
 
+pub mod request_state;
+
+mod builder;
+mod origins;
+mod plugins;
+mod secrets;
+
 use crate::auth::trusted_origins::{matches_origin_pattern, OriginMatchSettings};
-use crate::cookies::{get_cookies, AuthCookies};
-use crate::crypto::password::{hash_password, verify_password};
-use crate::crypto::{build_secret_config, parse_secrets_env, JweSecretSource, SecretConfig};
-use crate::db::{auth_schema, DbAdapter, DbSchema};
-use crate::env::is_production;
-use crate::env::logger::{create_logger, Logger, LoggerOptions};
+use crate::cookies::AuthCookies;
+use crate::db::{DbAdapter, DbSchema};
+use crate::env::logger::Logger;
 use crate::error::OpenAuthError;
 use crate::options::{
     DynamicRateLimitPathRule, OpenAuthOptions, RateLimitPathRule, RateLimitStorage,
     RateLimitStorageOption,
 };
-use crate::plugin::{AuthPlugin, PluginErrorCode, PluginInitOutput};
+use crate::plugin::{AuthPlugin, PluginErrorCode};
 use crate::rate_limit::MemoryRateLimitStorage;
 use http::Request;
 use openauth_oauth::oauth2::SocialOAuthProvider;
@@ -20,9 +24,13 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-pub mod request_state;
+pub use builder::{
+    create_auth_context, create_auth_context_with_adapter, create_auth_context_with_environment,
+    create_auth_context_with_environment_and_adapter,
+};
+pub use secrets::SecretMaterial;
 
-const DEFAULT_SECRET: &str = "better-auth-secret-12345678901234567890";
+use origins::push_trusted_origin;
 
 #[derive(Clone)]
 pub struct AuthContext {
@@ -94,40 +102,6 @@ pub struct SessionConfig {
     pub cookie_refresh_cache: bool,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub enum SecretMaterial {
-    Single(String),
-    Rotating(SecretConfig),
-}
-
-impl fmt::Debug for SecretMaterial {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Single(_) => formatter
-                .debug_tuple("Single")
-                .field(&"<redacted>")
-                .finish(),
-            Self::Rotating(config) => formatter.debug_tuple("Rotating").field(config).finish(),
-        }
-    }
-}
-
-impl JweSecretSource for SecretMaterial {
-    fn current_jwe_secret(&self) -> Result<String, OpenAuthError> {
-        match self {
-            Self::Single(secret) => secret.current_jwe_secret(),
-            Self::Rotating(config) => config.current_jwe_secret(),
-        }
-    }
-
-    fn all_jwe_secrets(&self) -> Result<Vec<crate::crypto::jwe::JweSecret>, OpenAuthError> {
-        match self {
-            Self::Single(secret) => secret.all_jwe_secrets(),
-            Self::Rotating(config) => config.all_jwe_secrets(),
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct PasswordContext {
     pub config: PasswordPolicy,
@@ -197,300 +171,4 @@ impl AuthContext {
             .iter()
             .any(|origin| matches_origin_pattern(url, origin, settings)))
     }
-}
-
-pub fn create_auth_context(options: OpenAuthOptions) -> Result<AuthContext, OpenAuthError> {
-    create_auth_context_with_environment_and_adapter(options, AuthEnvironment::from_process(), None)
-}
-
-pub fn create_auth_context_with_adapter(
-    options: OpenAuthOptions,
-    adapter: Arc<dyn DbAdapter>,
-) -> Result<AuthContext, OpenAuthError> {
-    create_auth_context_with_environment_and_adapter(
-        options,
-        AuthEnvironment::from_process(),
-        Some(adapter),
-    )
-}
-
-pub fn create_auth_context_with_environment(
-    options: OpenAuthOptions,
-    environment: AuthEnvironment,
-) -> Result<AuthContext, OpenAuthError> {
-    create_auth_context_with_environment_and_adapter(options, environment, None)
-}
-
-pub fn create_auth_context_with_environment_and_adapter(
-    options: OpenAuthOptions,
-    environment: AuthEnvironment,
-    adapter: Option<Arc<dyn DbAdapter>>,
-) -> Result<AuthContext, OpenAuthError> {
-    let logger = create_logger(LoggerOptions::default());
-    let production = options.production || is_production();
-    let env_secrets = parse_secrets_env(environment.better_auth_secrets.as_deref())?;
-    let secrets = if options.secrets.is_empty() {
-        env_secrets.unwrap_or_default()
-    } else {
-        options.secrets.clone()
-    };
-    let legacy_secret = resolve_legacy_secret(&options, &environment);
-
-    let (secret, secret_config) = if secrets.is_empty() {
-        let secret = legacy_secret.unwrap_or_else(|| DEFAULT_SECRET.to_owned());
-        validate_secret(&secret, production)?;
-        (secret.clone(), SecretMaterial::Single(secret))
-    } else {
-        let config = build_secret_config(&secrets, legacy_secret.as_deref().unwrap_or(""))?;
-        let current = config
-            .keys
-            .get(&config.current_version)
-            .cloned()
-            .ok_or_else(|| {
-                OpenAuthError::InvalidSecretConfig(format!(
-                    "secret version {} not found in keys",
-                    config.current_version
-                ))
-            })?;
-        (current, SecretMaterial::Rotating(config))
-    };
-
-    let base_path = options
-        .base_path
-        .clone()
-        .unwrap_or_else(|| "/api/auth".to_owned());
-    let base_url = options.base_url.clone().unwrap_or_default();
-    let trusted_origins = resolve_trusted_origins(&base_url, &options);
-    let auth_cookies = get_cookies(&options)?;
-    let social_providers = resolve_social_providers(&options)?;
-    let session_config = SessionConfig {
-        update_age: options.session.update_age.unwrap_or(24 * 60 * 60),
-        expires_in: options.session.expires_in.unwrap_or(60 * 60 * 24 * 7),
-        fresh_age: options.session.fresh_age.unwrap_or(60 * 60 * 24),
-        cookie_refresh_cache: options.session.cookie_cache.refresh_cache,
-    };
-    let password = PasswordContext {
-        config: PasswordPolicy {
-            min_password_length: options.password.min_password_length,
-            max_password_length: options.password.max_password_length,
-        },
-        hash: hash_password,
-        verify: verify_password,
-    };
-    validate_rate_limit_storage(&options)?;
-    let rate_limit = RateLimitContext {
-        enabled: options.rate_limit.enabled.unwrap_or(production),
-        window: options.rate_limit.window,
-        max: options.rate_limit.max,
-        storage: options.rate_limit.storage,
-        custom_rules: options.rate_limit.custom_rules.clone(),
-        dynamic_rules: options.rate_limit.dynamic_rules.clone(),
-        plugin_rules: Vec::new(),
-        custom_storage: options.rate_limit.custom_storage.clone(),
-        memory_storage: Arc::new(MemoryRateLimitStorage::new()),
-    };
-
-    let mut context = AuthContext {
-        app_name: "OpenAuth".to_owned(),
-        base_url,
-        base_path,
-        options: options.clone(),
-        auth_cookies,
-        session_config,
-        secret,
-        secret_config,
-        password,
-        rate_limit,
-        trusted_origins,
-        disabled_paths: options.disabled_paths,
-        plugins: options.plugins,
-        adapter,
-        social_providers,
-        db_schema: auth_schema(Default::default()),
-        plugin_error_codes: BTreeMap::new(),
-        plugin_database_hooks: Vec::new(),
-        plugin_migrations: Vec::new(),
-        logger,
-    };
-    initialize_plugins(&mut context)?;
-    Ok(context)
-}
-
-fn resolve_social_providers(
-    options: &OpenAuthOptions,
-) -> Result<BTreeMap<String, Arc<dyn SocialOAuthProvider>>, OpenAuthError> {
-    let mut providers = BTreeMap::new();
-    for provider in &options.social_providers {
-        let id = provider.id().to_owned();
-        if id.trim().is_empty() {
-            return Err(OpenAuthError::InvalidConfig(
-                "social provider id cannot be empty".to_owned(),
-            ));
-        }
-        if providers.insert(id.clone(), provider.clone()).is_some() {
-            return Err(OpenAuthError::InvalidConfig(format!(
-                "duplicate social provider `{id}`"
-            )));
-        }
-    }
-    Ok(providers)
-}
-
-fn resolve_trusted_origins(base_url: &str, options: &OpenAuthOptions) -> Vec<String> {
-    let mut origins = Vec::new();
-    if let Some(origin) = origin_from_url(base_url) {
-        push_trusted_origin(&mut origins, origin);
-    }
-    for origin in options.trusted_origins.as_static_slice() {
-        push_trusted_origin(&mut origins, origin.clone());
-    }
-    origins
-}
-
-fn push_trusted_origin(origins: &mut Vec<String>, origin: String) {
-    if origin.trim().is_empty() {
-        return;
-    }
-    if !origins.iter().any(|existing| existing == &origin) {
-        origins.push(origin);
-    }
-}
-
-fn push_unique(values: &mut Vec<String>, value: String) {
-    if value.trim().is_empty() {
-        return;
-    }
-    if !values.iter().any(|existing| existing == &value) {
-        values.push(value);
-    }
-}
-
-fn initialize_plugins(context: &mut AuthContext) -> Result<(), OpenAuthError> {
-    let plugins = context.plugins.clone();
-    for plugin in plugins {
-        apply_plugin_output(
-            context,
-            &plugin.id,
-            PluginInitOutput {
-                schema: plugin.schema.clone(),
-                rate_limit: plugin.rate_limit.clone(),
-                error_codes: plugin.error_codes.clone(),
-                database_hooks: plugin.database_hooks.clone(),
-                migrations: plugin.migrations.clone(),
-                ..PluginInitOutput::default()
-            },
-        )?;
-        if let Some(init) = &plugin.init {
-            let output = init(context)?;
-            apply_plugin_output(context, &plugin.id, output)?;
-        }
-    }
-    Ok(())
-}
-
-fn apply_plugin_output(
-    context: &mut AuthContext,
-    plugin_id: &str,
-    output: PluginInitOutput,
-) -> Result<(), OpenAuthError> {
-    for origin in output.trusted_origins {
-        push_trusted_origin(&mut context.trusted_origins, origin);
-    }
-    for path in output.disabled_paths {
-        push_unique(&mut context.disabled_paths, path);
-    }
-    for contribution in output.schema {
-        contribution.apply(&mut context.db_schema)?;
-    }
-    context.rate_limit.plugin_rules.extend(output.rate_limit);
-    for error_code in output.error_codes {
-        error_code.validate()?;
-        if let Some(existing) = context.plugin_error_codes.get(&error_code.code) {
-            if existing != &error_code {
-                return Err(OpenAuthError::InvalidConfig(format!(
-                    "plugin `{plugin_id}` tried to register conflicting error code `{}`",
-                    error_code.code
-                )));
-            }
-            continue;
-        }
-        context
-            .plugin_error_codes
-            .insert(error_code.code.clone(), error_code);
-    }
-    for hook in output.database_hooks {
-        let hook = hook.with_plugin_id(plugin_id);
-        if context
-            .plugin_database_hooks
-            .iter()
-            .any(|existing| existing.has_overlapping_phase(&hook))
-        {
-            return Err(OpenAuthError::InvalidConfig(format!(
-                "plugin `{plugin_id}` tried to register duplicate database hook `{}` for {:?}",
-                hook.name, hook.operation
-            )));
-        }
-        context.plugin_database_hooks.push(hook);
-    }
-    for migration in output.migrations {
-        if context
-            .plugin_migrations
-            .iter()
-            .any(|existing| existing.name == migration.name)
-        {
-            return Err(OpenAuthError::InvalidConfig(format!(
-                "plugin `{plugin_id}` tried to register duplicate migration `{}`",
-                migration.name
-            )));
-        }
-        context.plugin_migrations.push(migration);
-    }
-    Ok(())
-}
-
-fn origin_from_url(url: &str) -> Option<String> {
-    let (protocol, rest) = url.split_once("://")?;
-    let host = rest.split('/').next().unwrap_or(rest);
-    let host = host.split('?').next().unwrap_or(host);
-    (!host.is_empty()).then(|| format!("{protocol}://{host}"))
-}
-
-fn resolve_legacy_secret(
-    options: &OpenAuthOptions,
-    environment: &AuthEnvironment,
-) -> Option<String> {
-    options
-        .secret
-        .clone()
-        .or_else(|| environment.better_auth_secret.clone())
-        .or_else(|| environment.auth_secret.clone())
-}
-
-fn validate_secret(secret: &str, production: bool) -> Result<(), OpenAuthError> {
-    if secret.is_empty() {
-        return Err(OpenAuthError::InvalidConfig(
-            "OpenAuth secret is missing".to_owned(),
-        ));
-    }
-    if production && secret == DEFAULT_SECRET {
-        return Err(OpenAuthError::InvalidConfig(
-            "default secret cannot be used in production".to_owned(),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_rate_limit_storage(options: &OpenAuthOptions) -> Result<(), OpenAuthError> {
-    if options.rate_limit.custom_storage.is_some() {
-        return Ok(());
-    }
-    if matches!(
-        options.rate_limit.storage,
-        RateLimitStorageOption::Database | RateLimitStorageOption::SecondaryStorage
-    ) {
-        return Err(OpenAuthError::InvalidConfig(
-            "rate_limit.custom_storage is required when using database or secondary-storage rate limiting without a concrete adapter".to_owned(),
-        ));
-    }
-    Ok(())
 }
