@@ -5,8 +5,9 @@ use openauth::{
     AsyncAuthEndpoint, AuthEndpoint, AuthEndpointOptions, AuthPlugin, BodyField, BodySchema,
     ChangeEmailOptions, CookieCacheStrategy, DeleteUserOptions, EmailVerificationOptions,
     EndpointKind, JsonSchemaType, MemoryAdapter, OpenApiOperation, OpenAuthError, OpenAuthOptions,
-    PluginRequestAction, RateLimitOptions, SessionAdditionalField, SessionAuth, SessionOptions,
-    SignOutResult, TrustedOriginOptions, UpdateUserInput, UserOptions, VerificationEmail,
+    PathParams, PluginRequestAction, ProviderOptions, RateLimitOptions, SessionAdditionalField,
+    SessionAuth, SessionOptions, SignOutResult, SocialOAuthProvider, TrustedOriginOptions,
+    UpdateUserInput, UserOptions, VerificationEmail,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -56,8 +57,22 @@ fn openauth_crate_reexports_oauth_and_social_provider_packages() {
 }
 
 #[test]
+fn openauth_crate_accepts_social_oauth_runtime_providers() {
+    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(
+        openauth::social_providers::github::github(ProviderOptions::default()),
+    );
+    let options = OpenAuthOptions {
+        social_providers: vec![provider],
+        ..OpenAuthOptions::default()
+    };
+
+    assert_eq!(options.social_providers[0].id(), "github");
+}
+
+#[test]
 fn oauth_public_reexports_include_core_and_oauth_helpers() {
     let _authentication = openauth::oauth::oauth2::ClientAuthentication::Basic;
+    let _path_params = PathParams::new(BTreeMap::new());
     let user_info = openauth::auth::oauth::OAuthUserInfo {
         id: "id".to_owned(),
         name: "name".to_owned(),

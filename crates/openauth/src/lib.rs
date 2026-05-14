@@ -10,7 +10,7 @@ pub use openauth_core::api::{
     core_auth_async_endpoints, create_auth_endpoint, parse_request_body, ApiErrorCode,
     ApiErrorResponse, ApiRequest, ApiResponse, AsyncAuthEndpoint, AuthEndpoint,
     AuthEndpointOptions, AuthRouter, BodyField, BodySchema, EndpointInfo, EndpointKind,
-    EndpointMiddleware, JsonSchemaType, OpenApiOperation,
+    EndpointMiddleware, JsonSchemaType, OpenApiOperation, PathParams,
 };
 pub use openauth_core::auth::email_password::{
     AuthFlowError, AuthFlowErrorCode, EmailPasswordAuth, EmailPasswordAuthResult,
@@ -31,6 +31,10 @@ pub use openauth_core::crypto::{
 };
 pub use openauth_core::db::MemoryAdapter;
 pub use openauth_core::error::OpenAuthError;
+pub use openauth_core::oauth::oauth2::{
+    OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
+    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
+};
 pub use openauth_core::options::{
     AccountLinkingOptions, AccountOptions, AdvancedOptions, ChangeEmailOptions,
     CookieAttributesOverride, CookieCacheOptions, CookieCacheStrategy, CookieConfig,
