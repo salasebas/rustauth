@@ -8,7 +8,9 @@ use crate::auth::email_password::{
     AuthFlowError, AuthFlowErrorCode, EmailPasswordConfig, SignInInput, SignUpInput,
 };
 use crate::auth::session::{GetSessionInput, SessionAuth};
-use crate::context::request_state::{has_request_state, set_current_session_user};
+use crate::context::request_state::{
+    has_request_state, set_current_new_session, set_current_session_user,
+};
 use crate::context::AuthContext;
 use crate::cookies::{
     set_cookie_cache, set_session_cookie, Cookie, CookieCachePayload, CookieOptions,
@@ -97,6 +99,13 @@ pub(super) fn auth_session_cookies(
         )?);
     }
     Ok(cookies)
+}
+
+pub(super) fn record_new_session(session: &Session, user: &User) -> Result<(), OpenAuthError> {
+    if has_request_state() {
+        set_current_new_session(session.clone(), user.clone())?;
+    }
+    Ok(())
 }
 
 pub(super) fn auth_flow_error_response(error: AuthFlowError) -> Result<ApiResponse, OpenAuthError> {

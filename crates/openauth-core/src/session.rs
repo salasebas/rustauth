@@ -115,24 +115,30 @@ impl<'a> DbSessionStore<'a> {
     }
 
     pub async fn find_session(&self, token: &str) -> Result<Option<Session>, OpenAuthError> {
-        let Some(record) = self
-            .adapter
+        let Some(session) = self.find_session_including_expired(token).await? else {
+            return Ok(None);
+        };
+
+        if session.expires_at <= OffsetDateTime::now_utc() {
+            return Ok(None);
+        }
+
+        Ok(Some(session))
+    }
+
+    pub async fn find_session_including_expired(
+        &self,
+        token: &str,
+    ) -> Result<Option<Session>, OpenAuthError> {
+        self.adapter
             .find_one(
                 FindOne::new(SESSION_MODEL)
                     .where_clause(token_where(token))
                     .select(SESSION_FIELDS),
             )
             .await?
-        else {
-            return Ok(None);
-        };
-
-        let session = session_from_record(record)?;
-        if session.expires_at <= OffsetDateTime::now_utc() {
-            return Ok(None);
-        }
-
-        Ok(Some(session))
+            .map(session_from_record)
+            .transpose()
     }
 
     pub async fn update_session_expiry(

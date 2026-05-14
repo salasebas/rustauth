@@ -1072,10 +1072,12 @@ dependencies = [
 name = "openauth-plugins"
 version = "0.0.2"
 dependencies = [
+ "base64",
  "http",
  "openauth-core",
  "serde",
  "serde_json",
+ "sha2",
  "time",
  "tokio",
 ]

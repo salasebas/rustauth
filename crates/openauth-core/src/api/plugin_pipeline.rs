@@ -98,6 +98,26 @@ pub(super) fn run_after_hooks(
     Ok(response)
 }
 
+pub(super) async fn run_async_after_hooks(
+    context: &AuthContext,
+    request: &ApiRequest,
+    mut response: ApiResponse,
+    method: &Method,
+    path: &str,
+    operation_id: Option<&str>,
+) -> Result<ApiResponse, OpenAuthError> {
+    for plugin in &context.plugins {
+        for hook in &plugin.hooks.async_after {
+            if hook.matcher.matches(method, path, operation_id) {
+                let PluginAfterHookAction::Continue(next_response) =
+                    (hook.handler)(context, request, response).await?;
+                response = next_response;
+            }
+        }
+    }
+    Ok(response)
+}
+
 pub(super) fn plugin_async_endpoints(
     context: &AuthContext,
     mut async_endpoints: Vec<AsyncAuthEndpoint>,
