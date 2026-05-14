@@ -35,6 +35,7 @@ http = "1"
 indexmap = { version = "2", features = ["serde"] }
 josekit = "0.10"
 hkdf = "0.12"
+data-encoding = "2"
 openauth-core = { path = "crates/openauth-core", version = "0.0.2" }
 openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.2" }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.2" }
@@ -45,6 +46,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 scrypt = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha1 = "0.10"
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "time", "json"] }
 subtle = "2"

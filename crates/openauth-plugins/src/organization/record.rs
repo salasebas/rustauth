@@ -52,6 +52,8 @@ pub fn user_from_record(record: &DbRecord) -> Result<openauth_core::db::User, Op
             _ => false,
         },
         image: optional_string(record, "image")?,
+        username: optional_string(record, "username")?,
+        display_username: optional_string(record, "display_username")?,
         created_at: required_timestamp(record, "created_at")?,
         updated_at: required_timestamp(record, "updated_at")?,
     })

@@ -1,7 +1,10 @@
 use openauth_core::context::request_state::{
-    define_request_state, has_request_state, run_with_request_state,
+    current_new_session, define_request_state, has_request_state, run_with_request_state,
+    set_current_new_session,
 };
+use openauth_core::db::{Session, User};
 use openauth_core::error::OpenAuthError;
+use time::{Duration, OffsetDateTime};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Marker {
@@ -72,4 +75,48 @@ async fn request_state_returns_error_outside_scope() {
     let state = define_request_state(|| Marker { id: "initial" });
 
     assert_eq!(state.get(), Err(OpenAuthError::RequestStateMissing));
+}
+
+#[tokio::test]
+async fn current_new_session_defaults_to_none_inside_scope() -> Result<(), OpenAuthError> {
+    run_with_request_state(async {
+        assert!(current_new_session()?.is_none());
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn current_new_session_can_be_set_inside_scope() -> Result<(), OpenAuthError> {
+    let now = OffsetDateTime::now_utc();
+    let session = Session {
+        id: "session_1".to_owned(),
+        user_id: "user_1".to_owned(),
+        expires_at: now + Duration::days(7),
+        token: "token_1".to_owned(),
+        ip_address: None,
+        user_agent: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let user = User {
+        id: "user_1".to_owned(),
+        name: "Ada".to_owned(),
+        email: "ada@example.com".to_owned(),
+        email_verified: true,
+        image: None,
+        username: None,
+        display_username: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    run_with_request_state(async {
+        set_current_new_session(session.clone(), user.clone())?;
+        let current = current_new_session()?.ok_or(OpenAuthError::RequestStateMissing)?;
+        assert_eq!(current.session, session);
+        assert_eq!(current.user, user);
+        Ok(())
+    })
+    .await
 }

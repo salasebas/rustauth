@@ -89,5 +89,45 @@ pub(super) fn apply_plugin_output(
     for provider in output.social_providers {
         insert_social_provider(&mut context.social_providers, provider)?;
     }
+    for (name, field) in output.user_additional_fields {
+        insert_runtime_field(
+            plugin_id,
+            "user",
+            &mut context.options.user.additional_fields,
+            name,
+            field,
+        )?;
+    }
+    for (name, field) in output.session_additional_fields {
+        insert_runtime_field(
+            plugin_id,
+            "session",
+            &mut context.options.session.additional_fields,
+            name,
+            field,
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_runtime_field<T>(
+    plugin_id: &str,
+    table: &str,
+    fields: &mut std::collections::BTreeMap<String, T>,
+    name: String,
+    field: T,
+) -> Result<(), OpenAuthError>
+where
+    T: PartialEq,
+{
+    if let Some(existing) = fields.get(&name) {
+        if existing == &field {
+            return Ok(());
+        }
+        return Err(OpenAuthError::InvalidConfig(format!(
+            "plugin `{plugin_id}` tried to register conflicting additional field `{name}` on `{table}`"
+        )));
+    }
+    fields.insert(name, field);
     Ok(())
 }

@@ -305,6 +305,8 @@ fn user(id: &str, name: &str, email: &str, email_verified: bool, now: OffsetDate
         email: email.to_owned(),
         email_verified,
         image: None,
+        username: None,
+        display_username: None,
         created_at: now,
         updated_at: now,
     }

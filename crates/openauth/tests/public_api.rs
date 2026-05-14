@@ -166,6 +166,7 @@ fn openauth_crate_reexports_core_contract_types() {
             update_email_without_verification: true,
         },
         delete_user: DeleteUserOptions { enabled: true },
+        ..UserOptions::default()
     };
     let _email_verification = EmailVerificationOptions::default();
     let _verification_email_type: Option<VerificationEmail> = None;

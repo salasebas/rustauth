@@ -150,6 +150,7 @@ pub(super) fn change_password_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuth
                                 + Duration::seconds(context.session_config.expires_in as i64),
                         ))
                         .await?;
+                    super::shared::record_new_session(&new_session, &user)?;
                     cookies = super::shared::auth_session_cookies(
                         context,
                         &new_session,
