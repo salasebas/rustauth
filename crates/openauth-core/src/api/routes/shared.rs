@@ -342,7 +342,7 @@ pub(super) fn status_openapi_response(description: &str) -> Value {
     )
 }
 
-fn serialize_cookie(cookie: &Cookie) -> String {
+pub(super) fn serialize_cookie(cookie: &Cookie) -> String {
     let mut parts = vec![format!("{}={}", cookie.name, cookie.value)];
     if let Some(max_age) = cookie.attributes.max_age {
         parts.push(format!("Max-Age={max_age}"));

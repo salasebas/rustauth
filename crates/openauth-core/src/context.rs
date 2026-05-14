@@ -4,6 +4,7 @@ use crate::auth::trusted_origins::{matches_origin_pattern, OriginMatchSettings};
 use crate::cookies::{get_cookies, AuthCookies};
 use crate::crypto::password::{hash_password, verify_password};
 use crate::crypto::{build_secret_config, parse_secrets_env, JweSecretSource, SecretConfig};
+use crate::db::DbAdapter;
 use crate::env::is_production;
 use crate::env::logger::{create_logger, Logger, LoggerOptions};
 use crate::error::OpenAuthError;
@@ -14,6 +15,8 @@ use crate::options::{
 use crate::plugin::AuthPlugin;
 use crate::rate_limit::MemoryRateLimitStorage;
 use http::Request;
+use openauth_oauth::oauth2::SocialOAuthProvider;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -36,6 +39,8 @@ pub struct AuthContext {
     pub trusted_origins: Vec<String>,
     pub disabled_paths: Vec<String>,
     pub plugins: Vec<AuthPlugin>,
+    pub adapter: Option<Arc<dyn DbAdapter>>,
+    pub social_providers: BTreeMap<String, Arc<dyn SocialOAuthProvider>>,
     pub logger: Logger,
 }
 
@@ -145,6 +150,14 @@ pub struct RateLimitContext {
 }
 
 impl AuthContext {
+    pub fn adapter(&self) -> Option<Arc<dyn DbAdapter>> {
+        self.adapter.clone()
+    }
+
+    pub fn social_provider(&self, id: &str) -> Option<Arc<dyn SocialOAuthProvider>> {
+        self.social_providers.get(id).cloned()
+    }
+
     pub fn has_plugin(&self, id: &str) -> bool {
         self.plugins.iter().any(|plugin| plugin.id == id)
     }
@@ -182,12 +195,31 @@ impl AuthContext {
 }
 
 pub fn create_auth_context(options: OpenAuthOptions) -> Result<AuthContext, OpenAuthError> {
-    create_auth_context_with_environment(options, AuthEnvironment::from_process())
+    create_auth_context_with_environment_and_adapter(options, AuthEnvironment::from_process(), None)
+}
+
+pub fn create_auth_context_with_adapter(
+    options: OpenAuthOptions,
+    adapter: Arc<dyn DbAdapter>,
+) -> Result<AuthContext, OpenAuthError> {
+    create_auth_context_with_environment_and_adapter(
+        options,
+        AuthEnvironment::from_process(),
+        Some(adapter),
+    )
 }
 
 pub fn create_auth_context_with_environment(
     options: OpenAuthOptions,
     environment: AuthEnvironment,
+) -> Result<AuthContext, OpenAuthError> {
+    create_auth_context_with_environment_and_adapter(options, environment, None)
+}
+
+pub fn create_auth_context_with_environment_and_adapter(
+    options: OpenAuthOptions,
+    environment: AuthEnvironment,
+    adapter: Option<Arc<dyn DbAdapter>>,
 ) -> Result<AuthContext, OpenAuthError> {
     let logger = create_logger(LoggerOptions::default());
     let production = options.production || is_production();
@@ -225,6 +257,7 @@ pub fn create_auth_context_with_environment(
     let base_url = options.base_url.clone().unwrap_or_default();
     let trusted_origins = resolve_trusted_origins(&base_url, &options);
     let auth_cookies = get_cookies(&options)?;
+    let social_providers = resolve_social_providers(&options)?;
     let session_config = SessionConfig {
         update_age: options.session.update_age.unwrap_or(24 * 60 * 60),
         expires_in: options.session.expires_in.unwrap_or(60 * 60 * 24 * 7),
@@ -265,8 +298,30 @@ pub fn create_auth_context_with_environment(
         trusted_origins,
         disabled_paths: options.disabled_paths,
         plugins: options.plugins,
+        adapter,
+        social_providers,
         logger,
     })
+}
+
+fn resolve_social_providers(
+    options: &OpenAuthOptions,
+) -> Result<BTreeMap<String, Arc<dyn SocialOAuthProvider>>, OpenAuthError> {
+    let mut providers = BTreeMap::new();
+    for provider in &options.social_providers {
+        let id = provider.id().to_owned();
+        if id.trim().is_empty() {
+            return Err(OpenAuthError::InvalidConfig(
+                "social provider id cannot be empty".to_owned(),
+            ));
+        }
+        if providers.insert(id.clone(), provider.clone()).is_some() {
+            return Err(OpenAuthError::InvalidConfig(format!(
+                "duplicate social provider `{id}`"
+            )));
+        }
+    }
+    Ok(providers)
 }
 
 fn resolve_trusted_origins(base_url: &str, options: &OpenAuthOptions) -> Vec<String> {

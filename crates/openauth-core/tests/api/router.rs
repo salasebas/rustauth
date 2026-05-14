@@ -1,6 +1,7 @@
 use http::{Method, Request, StatusCode};
 use openauth_core::api::{
     core_endpoints, response, ApiErrorResponse, ApiRequest, ApiResponse, AuthEndpoint, AuthRouter,
+    PathParams,
 };
 use openauth_core::context::create_auth_context;
 use openauth_core::error::OpenAuthError;
@@ -19,6 +20,20 @@ fn post_ok_handler(
     _request: ApiRequest,
 ) -> Result<ApiResponse, OpenAuthError> {
     response(StatusCode::OK, b"POST OK".to_vec())
+}
+
+fn path_param_handler(
+    _context: &openauth_core::context::AuthContext,
+    request: ApiRequest,
+) -> Result<ApiResponse, OpenAuthError> {
+    let params = request
+        .extensions()
+        .get::<PathParams>()
+        .ok_or_else(|| OpenAuthError::Api("missing path params".to_owned()))?;
+    let provider = params
+        .get("id")
+        .ok_or_else(|| OpenAuthError::Api("missing id path param".to_owned()))?;
+    response(StatusCode::OK, provider.as_bytes().to_vec())
 }
 
 fn assert_error_body(
@@ -75,6 +90,63 @@ fn auth_router_exposes_ok_endpoint() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.body(), b"OK");
+    Ok(())
+}
+
+#[test]
+fn auth_router_matches_parameterized_path_and_exposes_params(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::try_new(
+        context,
+        vec![AuthEndpoint {
+            path: "/callback/:id".to_owned(),
+            method: Method::GET,
+            handler: path_param_handler,
+        }],
+    )?;
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("http://localhost:3000/api/auth/callback/github")
+        .body(Vec::new())?;
+
+    let response = router.handle(request)?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.body(), b"github");
+    Ok(())
+}
+
+#[test]
+fn auth_router_rejects_conflicting_parameterized_paths() -> Result<(), Box<dyn std::error::Error>> {
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+
+    let result = AuthRouter::try_new(
+        context,
+        vec![
+            AuthEndpoint {
+                path: "/callback/:id".to_owned(),
+                method: Method::GET,
+                handler: path_param_handler,
+            },
+            AuthEndpoint {
+                path: "/callback/:provider".to_owned(),
+                method: Method::GET,
+                handler: path_param_handler,
+            },
+        ],
+    );
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::Api(message)) if message.contains("endpoint conflict")
+    ));
     Ok(())
 }
 

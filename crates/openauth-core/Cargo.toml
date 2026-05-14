@@ -35,6 +35,7 @@ thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
 unicode-normalization.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

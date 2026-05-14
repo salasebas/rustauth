@@ -17,6 +17,7 @@ mod shared;
 mod sign_in;
 mod sign_out;
 mod sign_up;
+mod social;
 mod update_user;
 
 /// Build Better Auth-inspired core endpoints backed by an OpenAuth database adapter.
@@ -29,6 +30,10 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
     vec![
         sign_up::sign_up_email_endpoint(Arc::clone(&adapter)),
         sign_in::sign_in_email_endpoint(Arc::clone(&adapter)),
+        social::sign_in_social_endpoint(Arc::clone(&adapter)),
+        social::callback_oauth_endpoint(Method::GET, Arc::clone(&adapter)),
+        social::callback_oauth_endpoint(Method::POST, Arc::clone(&adapter)),
+        social::link_social_endpoint(Arc::clone(&adapter)),
         session::get_session_endpoint(Method::GET, Arc::clone(&adapter)),
         session::get_session_endpoint(Method::POST, Arc::clone(&adapter)),
         session::list_sessions_endpoint(Arc::clone(&adapter)),

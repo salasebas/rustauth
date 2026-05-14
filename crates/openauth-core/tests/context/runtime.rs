@@ -1,9 +1,16 @@
 use openauth_core::context::{
     create_auth_context, create_auth_context_with_environment, AuthEnvironment,
 };
+use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     OpenAuthOptions, PasswordOptions, RateLimitOptions, RateLimitStorageOption, SessionOptions,
 };
+use openauth_oauth::oauth2::{
+    OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
+    SocialAuthorizationUrlRequest, SocialOAuthProvider, SocialProviderFuture,
+};
+use std::sync::Arc;
+use url::Url;
 
 #[test]
 fn create_auth_context_resolves_defaults() -> Result<(), Box<dyn std::error::Error>> {
@@ -126,4 +133,92 @@ fn create_auth_context_rejects_external_rate_limit_storage_without_storage_contr
         Err(openauth_core::error::OpenAuthError::InvalidConfig(message))
             if message.contains("custom_storage")
     ));
+}
+
+#[test]
+fn create_auth_context_resolves_unique_social_provider_registry(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ctx = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        social_providers: vec![Arc::new(TestProvider::new("github"))],
+        ..OpenAuthOptions::default()
+    })?;
+
+    assert!(ctx.social_provider("github").is_some());
+    Ok(())
+}
+
+#[test]
+fn create_auth_context_rejects_duplicate_social_provider_ids() {
+    let result = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        social_providers: vec![
+            Arc::new(TestProvider::new("github")),
+            Arc::new(TestProvider::new("github")),
+        ],
+        ..OpenAuthOptions::default()
+    });
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::InvalidConfig(message)) if message.contains("duplicate social provider")
+    ));
+}
+
+#[derive(Debug)]
+struct TestProvider {
+    id: String,
+    options: ProviderOptions,
+}
+
+impl TestProvider {
+    fn new(id: &str) -> Self {
+        Self {
+            id: id.to_owned(),
+            options: ProviderOptions {
+                client_id: Some("client-id".into()),
+                ..ProviderOptions::default()
+            },
+        }
+    }
+}
+
+impl SocialOAuthProvider for TestProvider {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn name(&self) -> &str {
+        "Test Provider"
+    }
+
+    fn provider_options(&self) -> ProviderOptions {
+        self.options.clone()
+    }
+
+    fn create_authorization_url(
+        &self,
+        input: SocialAuthorizationUrlRequest,
+    ) -> Result<Url, OAuthError> {
+        Url::parse(&format!(
+            "https://provider.example.com/oauth?client_id=client-id&state={}&redirect_uri={}",
+            input.state, input.redirect_uri
+        ))
+        .map_err(OAuthError::InvalidUrl)
+    }
+
+    fn validate_authorization_code(
+        &self,
+        _input: SocialAuthorizationCodeRequest,
+    ) -> SocialProviderFuture<'_, OAuth2Tokens> {
+        Box::pin(async { Ok(OAuth2Tokens::default()) })
+    }
+
+    fn get_user_info(
+        &self,
+        _tokens: OAuth2Tokens,
+        _provider_user: Option<serde_json::Value>,
+    ) -> SocialProviderFuture<'_, Option<OAuth2UserInfo>> {
+        Box::pin(async { Ok(None) })
+    }
 }

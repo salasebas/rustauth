@@ -6,6 +6,7 @@ use crate::error::OpenAuthError;
 use crate::plugin::AuthPlugin;
 use crate::utils::ip::Ipv6Subnet;
 use http::Request;
+use openauth_oauth::oauth2::SocialOAuthProvider;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
@@ -41,6 +42,7 @@ pub struct OpenAuthOptions {
     pub advanced: AdvancedOptions,
     pub rate_limit: RateLimitOptions,
     pub plugins: Vec<AuthPlugin>,
+    pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
     pub production: bool,
     pub telemetry: TelemetryOptions,
     pub experimental: ExperimentalOptions,
@@ -67,6 +69,14 @@ impl fmt::Debug for OpenAuthOptions {
             .field("advanced", &self.advanced)
             .field("rate_limit", &self.rate_limit)
             .field("plugins", &self.plugins)
+            .field(
+                "social_providers",
+                &self
+                    .social_providers
+                    .iter()
+                    .map(|provider| provider.id())
+                    .collect::<Vec<_>>(),
+            )
             .field("production", &self.production)
             .field("telemetry", &self.telemetry)
             .field("experimental", &self.experimental)

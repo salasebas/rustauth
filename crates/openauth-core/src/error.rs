@@ -15,6 +15,8 @@ pub enum OpenAuthError {
     Cookie(String),
     #[error("api error: {0}")]
     Api(String),
+    #[error("oauth error: {0}")]
+    OAuth(String),
     #[error("no request state found in the current async scope")]
     RequestStateMissing,
     #[error("request state value had an unexpected type")]
@@ -39,4 +41,10 @@ pub enum OpenAuthError {
     },
     #[error("adapter error: {0}")]
     Adapter(String),
+}
+
+impl From<openauth_oauth::oauth2::OAuthError> for OpenAuthError {
+    fn from(error: openauth_oauth::oauth2::OAuthError) -> Self {
+        Self::OAuth(error.to_string())
+    }
 }

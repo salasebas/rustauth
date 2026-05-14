@@ -4,7 +4,7 @@ use openauth_core::api::{
     core_auth_async_endpoints, core_endpoints, ApiRequest, ApiResponse, AsyncAuthEndpoint,
     AuthEndpoint, AuthRouter, EndpointInfo,
 };
-use openauth_core::context::{create_auth_context, AuthContext};
+use openauth_core::context::{create_auth_context, create_auth_context_with_adapter, AuthContext};
 use openauth_core::db::{auth_schema, DbAdapter, JoinAdapter};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::OpenAuthOptions;
@@ -70,12 +70,12 @@ pub fn open_auth_with_adapter_and_endpoints(
     extra_endpoints: Vec<AuthEndpoint>,
     async_endpoints: Vec<AsyncAuthEndpoint>,
 ) -> Result<OpenAuth, OpenAuthError> {
-    let context = create_auth_context(options.clone())?;
     let adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
         auth_schema(Default::default()),
         adapter,
         options.experimental.joins,
     ));
+    let context = create_auth_context_with_adapter(options.clone(), Arc::clone(&adapter))?;
     let mut endpoints = core_endpoints();
     endpoints.extend(extra_endpoints);
     let mut product_async_endpoints = core_auth_async_endpoints(adapter);

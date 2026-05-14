@@ -1026,6 +1026,7 @@ dependencies = [
  "time",
  "tokio",
  "unicode-normalization",
+ "url",
 ]
 
 [[package]]

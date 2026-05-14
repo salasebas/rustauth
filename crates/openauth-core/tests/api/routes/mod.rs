@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
-use openauth_core::context::create_auth_context;
+use openauth_core::context::{create_auth_context, create_auth_context_with_adapter};
 use openauth_core::cookies::Cookie;
 use openauth_core::crypto::password::hash_password;
 use openauth_core::db::{
@@ -66,6 +66,7 @@ mod set_password;
 mod sign_in_email;
 mod sign_out;
 mod sign_up_email;
+mod social_oauth;
 mod unlink_account;
 mod update_session;
 mod update_user;
@@ -79,15 +80,18 @@ fn router_with_options(
     adapter: Arc<RouteAdapter>,
     options: OpenAuthOptions,
 ) -> Result<AuthRouter, OpenAuthError> {
-    let context = create_auth_context(OpenAuthOptions {
-        secret: Some(secret().to_owned()),
-        advanced: AdvancedOptions {
-            disable_csrf_check: true,
-            disable_origin_check: true,
-            ..AdvancedOptions::default()
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some(secret().to_owned()),
+            advanced: AdvancedOptions {
+                disable_csrf_check: true,
+                disable_origin_check: true,
+                ..AdvancedOptions::default()
+            },
+            ..options
         },
-        ..options
-    })?;
+        adapter.clone(),
+    )?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
 }
 

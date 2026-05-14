@@ -37,6 +37,23 @@ pub type EndpointMiddlewareHandler = Arc<
     dyn for<'a> Fn(&'a AuthContext, &'a ApiRequest) -> EndpointMiddlewareFuture<'a> + Send + Sync,
 >;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PathParams(BTreeMap<String, String>);
+
+impl PathParams {
+    pub fn new(params: BTreeMap<String, String>) -> Self {
+        Self(params)
+    }
+
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(String::as_str)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiErrorCode {
     NotFound,
@@ -552,22 +569,22 @@ impl AuthRouter {
             &self.context.base_path,
             self.context.options.advanced.skip_trailing_slashes,
         );
-        let Some(endpoint) = self
-            .endpoints
-            .iter()
-            .find(|endpoint| endpoint.method == *request.method() && endpoint.path == path)
-        else {
-            if self
-                .async_endpoints
-                .iter()
-                .any(|endpoint| endpoint.method == *request.method() && endpoint.path == path)
-            {
+        let Some((endpoint, params)) = self.endpoints.iter().find_map(|endpoint| {
+            (endpoint.method == *request.method())
+                .then(|| match_path_pattern(&endpoint.path, &path).map(|params| (endpoint, params)))
+                .flatten()
+        }) else {
+            if self.async_endpoints.iter().any(|endpoint| {
+                endpoint.method == *request.method()
+                    && match_path_pattern(&endpoint.path, &path).is_some()
+            }) {
                 return Err(OpenAuthError::Api(
                     "async endpoint requires AuthRouter::handle_async".to_owned(),
                 ));
             }
             return api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound);
         };
+        request.extensions_mut().insert(PathParams::new(params));
         if let Some(response) = run_matching_middlewares(&self.context, &request, &path)? {
             return Ok(response);
         }
@@ -609,14 +626,16 @@ impl AuthRouter {
             &self.context.base_path,
             self.context.options.advanced.skip_trailing_slashes,
         );
-        let async_endpoint = self
-            .async_endpoints
-            .iter()
-            .find(|endpoint| endpoint.method == *request.method() && endpoint.path == path);
-        let sync_endpoint = self
-            .endpoints
-            .iter()
-            .find(|endpoint| endpoint.method == *request.method() && endpoint.path == path);
+        let async_endpoint = self.async_endpoints.iter().find_map(|endpoint| {
+            (endpoint.method == *request.method())
+                .then(|| match_path_pattern(&endpoint.path, &path).map(|params| (endpoint, params)))
+                .flatten()
+        });
+        let sync_endpoint = self.endpoints.iter().find_map(|endpoint| {
+            (endpoint.method == *request.method())
+                .then(|| match_path_pattern(&endpoint.path, &path).map(|params| (endpoint, params)))
+                .flatten()
+        });
         if async_endpoint.is_none() && sync_endpoint.is_none() {
             return api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound);
         }
@@ -626,7 +645,8 @@ impl AuthRouter {
         if let Some(rejection) = on_request_rate_limit(&self.context, &request)? {
             return rate_limit_response(rejection);
         }
-        if let Some(endpoint) = async_endpoint {
+        if let Some((endpoint, params)) = async_endpoint {
+            request.extensions_mut().insert(PathParams::new(params));
             if let Some(response) = validate_async_endpoint_request(endpoint, &request)? {
                 return Ok(response);
             }
@@ -639,7 +659,8 @@ impl AuthRouter {
             on_response_rate_limit(&self.context, &request)?;
             return run_on_response_plugins(&self.context, &request, response);
         }
-        if let Some(endpoint) = sync_endpoint {
+        if let Some((endpoint, params)) = sync_endpoint {
+            request.extensions_mut().insert(PathParams::new(params));
             let response = (endpoint.handler)(&self.context, request.clone())?;
             on_response_rate_limit(&self.context, &request)?;
             return run_on_response_plugins(&self.context, &request, response);
@@ -1255,7 +1276,10 @@ fn validate_endpoint_conflicts(
 ) -> Result<(), OpenAuthError> {
     let mut seen = HashSet::new();
     for endpoint in endpoints {
-        let key = (endpoint.method.clone(), endpoint.path.clone());
+        let key = (
+            endpoint.method.clone(),
+            endpoint_conflict_key(&endpoint.path),
+        );
         if !seen.insert(key) {
             return Err(OpenAuthError::Api(format!(
                 "endpoint conflict for {} {}",
@@ -1264,7 +1288,10 @@ fn validate_endpoint_conflicts(
         }
     }
     for endpoint in async_endpoints {
-        let key = (endpoint.method.clone(), endpoint.path.clone());
+        let key = (
+            endpoint.method.clone(),
+            endpoint_conflict_key(&endpoint.path),
+        );
         if !seen.insert(key) {
             return Err(OpenAuthError::Api(format!(
                 "endpoint conflict for {} {}",
@@ -1273,6 +1300,77 @@ fn validate_endpoint_conflicts(
         }
     }
     Ok(())
+}
+
+fn endpoint_conflict_key(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if segment.starts_with(':') && segment.len() > 1 {
+                ":".to_owned()
+            } else {
+                segment.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn match_path_pattern(pattern: &str, path: &str) -> Option<BTreeMap<String, String>> {
+    if pattern == path {
+        return Some(BTreeMap::new());
+    }
+    let pattern_segments = route_segments(pattern);
+    let path_segments = route_segments(path);
+    if pattern_segments.len() != path_segments.len() {
+        return None;
+    }
+    let mut params = BTreeMap::new();
+    for (pattern, value) in pattern_segments.into_iter().zip(path_segments) {
+        if let Some(name) = pattern.strip_prefix(':') {
+            if name.is_empty() || value.is_empty() {
+                return None;
+            }
+            params.insert(name.to_owned(), percent_decode_path_segment(value));
+        } else if pattern != value {
+            return None;
+        }
+    }
+    Some(params)
+}
+
+fn route_segments(value: &str) -> Vec<&str> {
+    let value = value.strip_prefix('/').unwrap_or(value);
+    if value.is_empty() {
+        Vec::new()
+    } else {
+        value.split('/').collect()
+    }
+}
+
+fn percent_decode_path_segment(value: &str) -> String {
+    let mut decoded = Vec::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                let high = hex_value(bytes[index + 1]);
+                let low = hex_value(bytes[index + 2]);
+                if let (Some(high), Some(low)) = (high, low) {
+                    decoded.push((high << 4) | low);
+                    index += 3;
+                } else {
+                    decoded.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(decoded).unwrap_or_else(|_| value.to_owned())
 }
 
 fn path_matches(pattern: &str, path: &str) -> bool {
