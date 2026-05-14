@@ -1,6 +1,7 @@
 //! Microsoft Entra ID generic OAuth provider helper.
 
 use crate::generic_oauth::GenericOAuthConfig;
+use std::sync::Arc;
 
 pub const PROVIDER_ID: &str = "microsoft-entra-id";
 
@@ -23,5 +24,8 @@ pub fn microsoft_entra_id(
         "profile".to_owned(),
         "email".to_owned(),
     ];
+    config.get_user_info = Some(Arc::new(|tokens| {
+        Box::pin(super::user_info::microsoft_entra_id(tokens))
+    }));
     config
 }

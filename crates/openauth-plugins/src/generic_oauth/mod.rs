@@ -1,5 +1,6 @@
 //! Generic OAuth plugin support.
 
+mod account;
 mod config;
 mod discovery;
 mod errors;
@@ -16,7 +17,10 @@ use std::sync::Arc;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "generic-oauth";
 
-pub use config::{GenericOAuthConfig, GenericOAuthOptions};
+pub use config::{
+    GenericOAuthConfig, GenericOAuthGetToken, GenericOAuthGetUserInfo,
+    GenericOAuthMapProfileToUser, GenericOAuthOptions, GenericOAuthTokenRequest,
+};
 pub use errors::{
     INVALID_OAUTH_CONFIG, INVALID_OAUTH_CONFIGURATION, ISSUER_MISMATCH, ISSUER_MISSING,
     PROVIDER_CONFIG_NOT_FOUND, PROVIDER_ID_REQUIRED, SESSION_REQUIRED, TOKEN_URL_NOT_FOUND,

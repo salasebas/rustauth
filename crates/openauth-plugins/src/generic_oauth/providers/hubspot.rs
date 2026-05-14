@@ -1,6 +1,7 @@
 //! HubSpot generic OAuth provider helper.
 
 use openauth_oauth::oauth2::ClientAuthentication;
+use std::sync::Arc;
 
 use crate::generic_oauth::GenericOAuthConfig;
 
@@ -19,5 +20,8 @@ pub fn hubspot(
     );
     config.scopes = vec!["oauth".to_owned()];
     config.authentication = ClientAuthentication::Post;
+    config.get_user_info = Some(Arc::new(|tokens| {
+        Box::pin(super::user_info::hubspot(tokens))
+    }));
     config
 }

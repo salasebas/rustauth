@@ -7,10 +7,10 @@ use openauth_oauth::oauth2::{
 };
 use url::Url;
 
-use super::config::GenericOAuthConfig;
+use super::config::{GenericOAuthConfig, GenericOAuthTokenRequest};
 use super::user_info;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct GenericOAuthProvider {
     config: GenericOAuthConfig,
 }
@@ -112,6 +112,19 @@ impl SocialOAuthProvider for GenericOAuthProvider {
         input: SocialAuthorizationCodeRequest,
     ) -> SocialProviderFuture<'_, OAuth2Tokens> {
         Box::pin(async move {
+            if let Some(get_token) = &self.config.get_token {
+                return get_token(GenericOAuthTokenRequest {
+                    code: input.code,
+                    redirect_uri: self
+                        .config
+                        .redirect_uri
+                        .clone()
+                        .unwrap_or(input.redirect_uri),
+                    code_verifier: self.config.pkce.then_some(input.code_verifier).flatten(),
+                    device_id: input.device_id,
+                })
+                .await;
+            }
             let token_endpoint = self.config.token_url.clone().ok_or_else(|| {
                 OAuthError::InvalidResponse(
                     "Invalid OAuth configuration. Token URL not found.".to_owned(),
@@ -131,7 +144,18 @@ impl SocialOAuthProvider for GenericOAuthProvider {
         _provider_user: Option<serde_json::Value>,
     ) -> SocialProviderFuture<'_, Option<OAuth2UserInfo>> {
         Box::pin(async move {
-            user_info::get_user_info(&tokens, self.config.user_info_url.as_deref()).await
+            let user = if let Some(get_user_info) = &self.config.get_user_info {
+                get_user_info(tokens).await?
+            } else {
+                user_info::get_user_info(&tokens, self.config.user_info_url.as_deref()).await?
+            };
+            if let Some(map_profile) = &self.config.map_profile_to_user {
+                if let Some(user) = user {
+                    return map_profile(user).await.map(Some);
+                }
+                return Ok(None);
+            }
+            Ok(user)
         })
     }
 

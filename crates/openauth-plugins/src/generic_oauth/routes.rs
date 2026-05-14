@@ -4,8 +4,8 @@ use openauth_core::api::{
     AuthEndpointOptions, PathParams,
 };
 use openauth_core::auth::oauth::{
-    generate_oauth_state, handle_oauth_user_info, parse_oauth_state, set_token_util,
-    HandleOAuthUserInfoInput, OAuthAccountInput, OAuthStateInput, OAuthStateLink, OAuthUserInfo,
+    generate_oauth_state, handle_oauth_user_info, parse_oauth_state, HandleOAuthUserInfoInput,
+    OAuthStateInput, OAuthStateLink,
 };
 use openauth_core::context::AuthContext;
 use openauth_core::cookies::{
@@ -14,15 +14,15 @@ use openauth_core::cookies::{
 use openauth_core::db::DbAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::session::DbSessionStore;
-use openauth_core::user::{CreateOAuthAccountInput, DbUserStore};
+use openauth_core::user::DbUserStore;
 use openauth_oauth::oauth2::{
-    OAuth2Tokens, OAuth2UserInfo, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
-    SocialOAuthProvider,
+    SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest, SocialOAuthProvider,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
+use super::account::{link_account, link_error_code, normalize_user_info, oauth_account};
 use super::config::{GenericOAuthConfig, GenericOAuthOptions};
 use super::errors;
 use super::provider::GenericOAuthProvider;
@@ -200,7 +200,6 @@ async fn callback_get(
     let Some(code) = query_param(&request, "code") else {
         return redirect_with_error(&default_error_url(context), "oAuth_code_missing");
     };
-    validate_issuer(&config, query_param(&request, "iss").as_deref())?;
     let Some(state) = query_param(&request, "state") else {
         return redirect_with_error(&default_error_url(context), "invalid_state");
     };
@@ -212,12 +211,15 @@ async fn callback_get(
         .error_url
         .clone()
         .unwrap_or_else(|| default_error_url(context));
+    if let Some(error) = issuer_error(&config, query_param(&request, "iss").as_deref()) {
+        return redirect_with_error(&error_url, error);
+    }
     let provider = GenericOAuthProvider::new(config.clone());
     let tokens = match provider
         .validate_authorization_code(SocialAuthorizationCodeRequest {
             code,
             code_verifier: Some(state_data.code_verifier),
-            redirect_uri: oauth2_redirect_uri(context, &config.provider_id),
+            redirect_uri: callback_redirect_uri(context, &config),
             device_id: query_param(&request, "device_id"),
         })
         .await
@@ -229,7 +231,7 @@ async fn callback_get(
         return redirect_with_error(&error_url, "user_info_is_missing");
     };
     if let Some(link) = state_data.link {
-        link_account(
+        if let Err(error) = link_account(
             context,
             adapter.as_ref(),
             &config,
@@ -237,7 +239,10 @@ async fn callback_get(
             &user_info,
             &tokens,
         )
-        .await?;
+        .await
+        {
+            return redirect_with_error(&error_url, link_error_code(&error));
+        }
         return redirect(&state_data.callback_url, Vec::new());
     }
     let user_info = normalize_user_info(&user_info)?;
@@ -298,18 +303,13 @@ async fn resolved_config(
     Ok(config)
 }
 
-fn validate_issuer(
-    config: &GenericOAuthConfig,
-    received: Option<&str>,
-) -> Result<(), OpenAuthError> {
-    let Some(expected) = config.issuer.as_deref() else {
-        return Ok(());
-    };
+fn issuer_error(config: &GenericOAuthConfig, received: Option<&str>) -> Option<&'static str> {
+    let expected = config.issuer.as_deref()?;
     match received {
-        Some(received) if received == expected => Ok(()),
-        Some(_) => Err(api_error_value(errors::ISSUER_MISMATCH)),
-        None if config.require_issuer_validation => Err(api_error_value(errors::ISSUER_MISSING)),
-        None => Ok(()),
+        Some(received) if received == expected => None,
+        Some(_) => Some("issuer_mismatch"),
+        None if config.require_issuer_validation => Some("issuer_missing"),
+        None => None,
     }
 }
 
@@ -349,73 +349,6 @@ async fn current_session(
     Ok(Some((session, user)))
 }
 
-async fn link_account(
-    context: &AuthContext,
-    adapter: &dyn DbAdapter,
-    config: &GenericOAuthConfig,
-    link: &OAuthStateLink,
-    info: &OAuth2UserInfo,
-    tokens: &OAuth2Tokens,
-) -> Result<(), OpenAuthError> {
-    let normalized = normalize_user_info(info)?;
-    if normalized.email.to_lowercase() != link.email.to_lowercase()
-        && !context
-            .options
-            .account
-            .account_linking
-            .allow_different_emails
-    {
-        return Err(OpenAuthError::Api("email_doesn't_match".to_owned()));
-    }
-    DbUserStore::new(adapter)
-        .link_account(CreateOAuthAccountInput {
-            id: None,
-            provider_id: config.provider_id.clone(),
-            account_id: normalized.id,
-            user_id: link.user_id.clone(),
-            access_token: set_token_util(tokens.access_token.as_deref(), context)?,
-            refresh_token: set_token_util(tokens.refresh_token.as_deref(), context)?,
-            id_token: tokens.id_token.clone(),
-            access_token_expires_at: tokens.access_token_expires_at,
-            refresh_token_expires_at: tokens.refresh_token_expires_at,
-            scope: (!tokens.scopes.is_empty()).then(|| tokens.scopes.join(",")),
-        })
-        .await?;
-    Ok(())
-}
-
-fn oauth_account(
-    context: &AuthContext,
-    provider_id: &str,
-    account_id: &str,
-    tokens: &OAuth2Tokens,
-) -> Result<OAuthAccountInput, OpenAuthError> {
-    Ok(OAuthAccountInput {
-        provider_id: provider_id.to_owned(),
-        account_id: account_id.to_owned(),
-        access_token: set_token_util(tokens.access_token.as_deref(), context)?,
-        refresh_token: set_token_util(tokens.refresh_token.as_deref(), context)?,
-        id_token: tokens.id_token.clone(),
-        access_token_expires_at: tokens.access_token_expires_at,
-        refresh_token_expires_at: tokens.refresh_token_expires_at,
-        scope: (!tokens.scopes.is_empty()).then(|| tokens.scopes.join(",")),
-    })
-}
-
-fn normalize_user_info(info: &OAuth2UserInfo) -> Result<OAuthUserInfo, OpenAuthError> {
-    let email = info
-        .email
-        .clone()
-        .ok_or_else(|| OpenAuthError::Api("OAuth provider did not return an email".to_owned()))?;
-    Ok(OAuthUserInfo {
-        id: info.id.clone(),
-        name: info.name.clone().unwrap_or_default(),
-        email,
-        image: info.image.clone(),
-        email_verified: info.email_verified,
-    })
-}
-
 fn path_param<'a>(request: &'a ApiRequest, name: &str) -> Result<&'a str, OpenAuthError> {
     request
         .extensions()
@@ -437,6 +370,13 @@ fn oauth2_redirect_uri(context: &AuthContext, provider_id: &str) -> String {
         "{}/oauth2/callback/{provider_id}",
         context.base_url.trim_end_matches('/')
     )
+}
+
+fn callback_redirect_uri(context: &AuthContext, config: &GenericOAuthConfig) -> String {
+    config
+        .redirect_uri
+        .clone()
+        .unwrap_or_else(|| oauth2_redirect_uri(context, &config.provider_id))
 }
 
 fn default_error_url(context: &AuthContext) -> String {

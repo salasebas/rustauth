@@ -1,6 +1,7 @@
 //! LINE generic OAuth provider helper.
 
 use crate::generic_oauth::GenericOAuthConfig;
+use std::sync::Arc;
 
 pub const PROVIDER_ID: &str = "line";
 
@@ -18,5 +19,6 @@ pub fn line(client_id: impl Into<String>, client_secret: impl Into<String>) -> G
         "profile".to_owned(),
         "email".to_owned(),
     ];
+    config.get_user_info = Some(Arc::new(|tokens| Box::pin(super::user_info::line(tokens))));
     config
 }

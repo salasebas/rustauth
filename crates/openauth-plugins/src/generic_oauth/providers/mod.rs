@@ -9,6 +9,7 @@ pub mod microsoft_entra_id;
 pub mod okta;
 pub mod patreon;
 pub mod slack;
+mod user_info;
 
 pub const PROVIDER_IDS: &[&str] = &[
     "auth0",

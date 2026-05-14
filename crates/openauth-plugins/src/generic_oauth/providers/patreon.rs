@@ -1,6 +1,7 @@
 //! Patreon generic OAuth provider helper.
 
 use crate::generic_oauth::GenericOAuthConfig;
+use std::sync::Arc;
 
 pub const PROVIDER_ID: &str = "patreon";
 
@@ -20,5 +21,8 @@ pub fn patreon(
             .to_owned(),
     );
     config.scopes = vec!["identity[email]".to_owned()];
+    config.get_user_info = Some(Arc::new(|tokens| {
+        Box::pin(super::user_info::patreon(tokens))
+    }));
     config
 }

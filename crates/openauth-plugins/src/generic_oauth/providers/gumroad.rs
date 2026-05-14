@@ -1,6 +1,7 @@
 //! Gumroad generic OAuth provider helper.
 
 use crate::generic_oauth::GenericOAuthConfig;
+use std::sync::Arc;
 
 pub const PROVIDER_ID: &str = "gumroad";
 
@@ -17,5 +18,8 @@ pub fn gumroad(
     );
     config.user_info_url = Some("https://api.gumroad.com/v2/user".to_owned());
     config.scopes = vec!["view_profile".to_owned()];
+    config.get_user_info = Some(Arc::new(|tokens| {
+        Box::pin(super::user_info::gumroad(tokens))
+    }));
     config
 }

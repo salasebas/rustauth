@@ -1,10 +1,45 @@
-use openauth_oauth::oauth2::{ClientAuthentication, ClientId, ProviderOptions};
+use openauth_oauth::oauth2::{
+    ClientAuthentication, ClientId, OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+pub type GenericOAuthTokenFuture =
+    Pin<Box<dyn Future<Output = Result<OAuth2Tokens, OAuthError>> + Send>>;
+pub type GenericOAuthGetToken =
+    Arc<dyn Fn(GenericOAuthTokenRequest) -> GenericOAuthTokenFuture + Send + Sync>;
+pub type GenericOAuthUserInfoFuture =
+    Pin<Box<dyn Future<Output = Result<Option<OAuth2UserInfo>, OAuthError>> + Send>>;
+pub type GenericOAuthGetUserInfo =
+    Arc<dyn Fn(OAuth2Tokens) -> GenericOAuthUserInfoFuture + Send + Sync>;
+pub type GenericOAuthMapProfileFuture =
+    Pin<Box<dyn Future<Output = Result<OAuth2UserInfo, OAuthError>> + Send>>;
+pub type GenericOAuthMapProfileToUser =
+    Arc<dyn Fn(OAuth2UserInfo) -> GenericOAuthMapProfileFuture + Send + Sync>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GenericOAuthTokenRequest {
+    pub code: String,
+    pub redirect_uri: String,
+    pub code_verifier: Option<String>,
+    pub device_id: Option<String>,
+}
+
+#[derive(Clone, Default)]
 pub struct GenericOAuthOptions {
     pub config: Vec<GenericOAuthConfig>,
+}
+
+impl std::fmt::Debug for GenericOAuthOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GenericOAuthOptions")
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 impl GenericOAuthOptions {
@@ -21,7 +56,7 @@ impl GenericOAuthOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct GenericOAuthConfig {
     pub provider_id: String,
     pub discovery_url: Option<String>,
@@ -47,6 +82,47 @@ pub struct GenericOAuthConfig {
     pub discovery_headers: BTreeMap<String, String>,
     pub authorization_headers: BTreeMap<String, String>,
     pub override_user_info: bool,
+    pub get_token: Option<GenericOAuthGetToken>,
+    pub get_user_info: Option<GenericOAuthGetUserInfo>,
+    pub map_profile_to_user: Option<GenericOAuthMapProfileToUser>,
+}
+
+impl std::fmt::Debug for GenericOAuthConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GenericOAuthConfig")
+            .field("provider_id", &self.provider_id)
+            .field("discovery_url", &self.discovery_url)
+            .field("issuer", &self.issuer)
+            .field("require_issuer_validation", &self.require_issuer_validation)
+            .field("authorization_url", &self.authorization_url)
+            .field("token_url", &self.token_url)
+            .field("user_info_url", &self.user_info_url)
+            .field("client_id", &self.client_id)
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("scopes", &self.scopes)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("response_type", &self.response_type)
+            .field("response_mode", &self.response_mode)
+            .field("prompt", &self.prompt)
+            .field("pkce", &self.pkce)
+            .field("access_type", &self.access_type)
+            .field("authorization_url_params", &self.authorization_url_params)
+            .field("token_url_params", &self.token_url_params)
+            .field("disable_implicit_sign_up", &self.disable_implicit_sign_up)
+            .field("disable_sign_up", &self.disable_sign_up)
+            .field("authentication", &self.authentication)
+            .field("discovery_headers", &self.discovery_headers)
+            .field("authorization_headers", &self.authorization_headers)
+            .field("override_user_info", &self.override_user_info)
+            .field("get_token", &self.get_token.is_some())
+            .field("get_user_info", &self.get_user_info.is_some())
+            .field("map_profile_to_user", &self.map_profile_to_user.is_some())
+            .finish()
+    }
 }
 
 impl GenericOAuthConfig {
@@ -102,8 +178,8 @@ impl GenericOAuthConfig {
         if request_scopes.is_empty() {
             return self.scopes.clone();
         }
-        let mut scopes = self.scopes.clone();
-        scopes.extend(request_scopes);
+        let mut scopes = request_scopes;
+        scopes.extend(self.scopes.clone());
         scopes
     }
 
@@ -154,6 +230,9 @@ impl Default for GenericOAuthConfig {
             discovery_headers: BTreeMap::new(),
             authorization_headers: BTreeMap::new(),
             override_user_info: false,
+            get_token: None,
+            get_user_info: None,
+            map_profile_to_user: None,
         }
     }
 }

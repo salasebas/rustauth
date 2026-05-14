@@ -36,19 +36,21 @@ pub fn decode_id_token_claims(token: &str) -> Option<Value> {
 }
 
 pub fn user_info_from_claims(profile: &Value) -> Option<OAuth2UserInfo> {
-    let id = string(profile, "sub")
-        .or_else(|| string(profile, "id"))
+    let id = string_value(profile, "sub")
+        .or_else(|| string_value(profile, "id"))
+        .or_else(|| string_value(profile, "user_id"))
         .unwrap_or_default();
     if id.is_empty() {
         return None;
     }
     Some(OAuth2UserInfo {
         id,
-        name: string(profile, "name")
-            .or_else(|| string(profile, "preferred_username"))
+        name: string_value(profile, "name")
+            .or_else(|| string_value(profile, "preferred_username"))
             .or_else(|| full_name(profile)),
-        email: string(profile, "email").or_else(|| string(profile, "preferred_username")),
-        image: string(profile, "picture").or_else(|| string(profile, "image")),
+        email: string_value(profile, "email")
+            .or_else(|| string_value(profile, "preferred_username")),
+        image: string_value(profile, "picture").or_else(|| string_value(profile, "image")),
         email_verified: profile
             .get("email_verified")
             .and_then(Value::as_bool)
@@ -56,13 +58,17 @@ pub fn user_info_from_claims(profile: &Value) -> Option<OAuth2UserInfo> {
     })
 }
 
-fn string(profile: &Value, key: &str) -> Option<String> {
-    profile.get(key)?.as_str().map(str::to_owned)
+fn string_value(profile: &Value, key: &str) -> Option<String> {
+    match profile.get(key)? {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
 }
 
 fn full_name(profile: &Value) -> Option<String> {
-    let given = string(profile, "given_name").unwrap_or_default();
-    let family = string(profile, "family_name").unwrap_or_default();
+    let given = string_value(profile, "given_name").unwrap_or_default();
+    let family = string_value(profile, "family_name").unwrap_or_default();
     let name = format!("{given} {family}").trim().to_owned();
     (!name.is_empty()).then_some(name)
 }

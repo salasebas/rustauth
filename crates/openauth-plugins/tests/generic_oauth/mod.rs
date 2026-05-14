@@ -10,12 +10,12 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{DbAdapter, MemoryAdapter};
 use openauth_core::options::OpenAuthOptions;
 use openauth_oauth::oauth2::{
-    ClientAuthentication, OAuthError, SocialAuthorizationCodeRequest,
+    ClientAuthentication, OAuth2Tokens, OAuth2UserInfo, OAuthError, SocialAuthorizationCodeRequest,
     SocialAuthorizationUrlRequest, SocialOAuthProvider,
 };
 use openauth_plugins::generic_oauth::{
     auth0, generic_oauth, gumroad, hubspot, keycloak, line, microsoft_entra_id, okta, patreon,
-    slack, GenericOAuthConfig, GenericOAuthOptions, UPSTREAM_PLUGIN_ID,
+    slack, GenericOAuthConfig, GenericOAuthOptions, GenericOAuthTokenRequest, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -97,7 +97,7 @@ fn provider_authorization_url_uses_better_auth_oauth2_callback_and_pkce() -> Res
     );
     assert_eq!(
         query_value(&url, "scope"),
-        Some("openid email calendar".to_owned())
+        Some("calendar openid email".to_owned())
     );
     assert_eq!(query_value(&url, "prompt"), Some("consent".to_owned()));
     assert_eq!(
@@ -133,6 +133,50 @@ fn provider_authorization_code_request_uses_basic_auth_and_extra_params() -> Res
     assert!(request.header("authorization").is_some());
     assert_eq!(request.form_value("client_secret"), None);
     Ok(())
+}
+
+#[tokio::test]
+async fn provider_uses_custom_get_token_and_maps_profile() {
+    let mut config = example_config();
+    config.get_token = Some(Arc::new(|request: GenericOAuthTokenRequest| {
+        Box::pin(async move {
+            assert_eq!(request.code, "code-1");
+            assert_eq!(
+                request.redirect_uri,
+                "https://app.example.com/oauth2/callback/example"
+            );
+            Ok(OAuth2Tokens {
+                access_token: Some("access-1".to_owned()),
+                id_token: Some(jwt_with_claims(
+                    r#"{"sub":123,"email":"ada@example.com","name":"Ada"}"#,
+                )),
+                ..OAuth2Tokens::default()
+            })
+        })
+    }));
+    config.map_profile_to_user = Some(Arc::new(|mut profile: OAuth2UserInfo| {
+        Box::pin(async move {
+            profile.id = format!("mapped-{}", profile.id);
+            profile.name = Some("Ada Lovelace".to_owned());
+            profile.email_verified = true;
+            Ok(profile)
+        })
+    }));
+    let provider = provider(config);
+    let tokens = provider
+        .validate_authorization_code(SocialAuthorizationCodeRequest {
+            code: "code-1".to_owned(),
+            code_verifier: None,
+            redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
+            device_id: None,
+        })
+        .await
+        .unwrap();
+    let user = provider.get_user_info(tokens, None).await.unwrap().unwrap();
+
+    assert_eq!(user.id, "mapped-123");
+    assert_eq!(user.name.as_deref(), Some("Ada Lovelace"));
+    assert!(user.email_verified);
 }
 
 #[test]
@@ -253,18 +297,42 @@ async fn oauth2_callback_rejects_issuer_mismatch() {
     )
     .unwrap();
     let router = AuthRouter::try_new(context, Vec::new()).unwrap();
-    let error = router
+    let sign_in = router
+        .handle_async(
+            Request::builder()
+                .method(Method::POST)
+                .uri("https://app.example.com/api/auth/sign-in/oauth2")
+                .header("content-type", "application/json")
+                .body(
+                    br#"{"providerId":"example","callbackURL":"/dashboard","errorCallbackURL":"/oauth-error","disableRedirect":true}"#
+                        .to_vec(),
+                )
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(sign_in.body()).unwrap();
+    let auth_url = url::Url::parse(body["url"].as_str().unwrap()).unwrap();
+    let state = query_value(&auth_url, "state").unwrap();
+    let response = router
         .handle_async(
             Request::builder()
                 .method(Method::GET)
-                .uri("https://app.example.com/api/auth/oauth2/callback/example?code=code-1&iss=https%3A%2F%2Fwrong.example.com")
+                .uri(format!("https://app.example.com/api/auth/oauth2/callback/example?code=code-1&state={state}&iss=https%3A%2F%2Fwrong.example.com"))
                 .body(Vec::new())
                 .unwrap(),
         )
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert!(error.to_string().contains("ISSUER_MISMATCH"));
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/oauth-error?error=issuer_mismatch")
+    );
 }
 
 #[tokio::test]
@@ -326,4 +394,29 @@ fn query_value(url: &url::Url, key: &str) -> Option<String> {
     url.query_pairs()
         .find(|(name, _)| name == key)
         .map(|(_, value)| value.into_owned())
+}
+
+fn jwt_with_claims(claims: &str) -> String {
+    fn encode(input: &str) -> String {
+        const TABLE: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let bytes = input.as_bytes();
+        let mut output = String::new();
+        for chunk in bytes.chunks(3) {
+            let b0 = chunk[0];
+            let b1 = *chunk.get(1).unwrap_or(&0);
+            let b2 = *chunk.get(2).unwrap_or(&0);
+            output.push(TABLE[(b0 >> 2) as usize] as char);
+            output.push(TABLE[(((b0 & 0b11) << 4) | (b1 >> 4)) as usize] as char);
+            if chunk.len() > 1 {
+                output.push(TABLE[(((b1 & 0b1111) << 2) | (b2 >> 6)) as usize] as char);
+            }
+            if chunk.len() > 2 {
+                output.push(TABLE[(b2 & 0b111111) as usize] as char);
+            }
+        }
+        output
+    }
+
+    format!("{}.{}.", encode(r#"{"alg":"none"}"#), encode(claims))
 }
