@@ -5,6 +5,7 @@ use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     OpenAuthOptions, PasswordOptions, RateLimitOptions, RateLimitStorageOption, SessionOptions,
 };
+use openauth_core::plugin::{AuthPlugin, PluginInitOutput};
 use openauth_oauth::oauth2::{
     OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
     SocialAuthorizationUrlRequest, SocialOAuthProvider, SocialProviderFuture,
@@ -162,6 +163,116 @@ fn create_auth_context_rejects_duplicate_social_provider_ids() {
     assert!(matches!(
         result,
         Err(OpenAuthError::InvalidConfig(message)) if message.contains("duplicate social provider")
+    ));
+}
+
+#[test]
+fn create_auth_context_accepts_plugin_social_provider() -> Result<(), Box<dyn std::error::Error>> {
+    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("plugin-provider"));
+    let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
+
+    let ctx = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        plugins: vec![plugin],
+        ..OpenAuthOptions::default()
+    })?;
+
+    assert!(ctx.social_provider("plugin-provider").is_some());
+    Ok(())
+}
+
+#[test]
+fn create_auth_context_accepts_plugin_init_social_provider(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = AuthPlugin::new("social-plugin").with_init(|_context| {
+        let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("init-provider"));
+        Ok(PluginInitOutput::new().social_provider(provider))
+    });
+
+    let ctx = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        plugins: vec![plugin],
+        ..OpenAuthOptions::default()
+    })?;
+
+    assert!(ctx.social_provider("init-provider").is_some());
+    Ok(())
+}
+
+#[test]
+fn plugin_init_sees_social_providers_registered_by_previous_plugin(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("first-provider"));
+    let first = AuthPlugin::new("first").with_social_provider(provider);
+    let second = AuthPlugin::new("second").with_init(|context| {
+        assert!(context.social_provider("first-provider").is_some());
+        Ok(PluginInitOutput::new())
+    });
+
+    create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        plugins: vec![first, second],
+        ..OpenAuthOptions::default()
+    })?;
+
+    Ok(())
+}
+
+#[test]
+fn create_auth_context_rejects_duplicate_social_provider_from_plugin() {
+    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("github"));
+    let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
+
+    let result = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        social_providers: vec![Arc::new(TestProvider::new("github"))],
+        plugins: vec![plugin],
+        ..OpenAuthOptions::default()
+    });
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::InvalidConfig(message)) if message.contains("duplicate social provider")
+    ));
+}
+
+#[test]
+fn create_auth_context_rejects_duplicate_social_provider_from_plugin_init() {
+    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("github"));
+    let plugin = AuthPlugin::new("social-plugin")
+        .with_social_provider(provider)
+        .with_init(|_context| {
+            let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("github"));
+            Ok(PluginInitOutput::new().social_provider(provider))
+        });
+
+    let result = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        plugins: vec![plugin],
+        ..OpenAuthOptions::default()
+    });
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::InvalidConfig(message)) if message.contains("duplicate social provider")
+    ));
+}
+
+#[test]
+fn create_auth_context_rejects_empty_social_provider_id_from_plugin() {
+    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new(""));
+    let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
+
+    let result = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        plugins: vec![plugin],
+        ..OpenAuthOptions::default()
+    });
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::InvalidConfig(message))
+            if message.contains("social provider id cannot be empty")
     ));
 }
 

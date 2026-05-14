@@ -27,6 +27,7 @@ use crate::api::AsyncAuthEndpoint;
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use http::{Request, Response};
+use openauth_oauth::oauth2::SocialOAuthProvider;
 use serde_json::Value;
 use std::fmt;
 use std::sync::Arc;
@@ -64,6 +65,7 @@ pub struct AuthPlugin {
     pub error_codes: Vec<PluginErrorCode>,
     pub database_hooks: Vec<PluginDatabaseHook>,
     pub migrations: Vec<PluginMigration>,
+    pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
 }
 
 impl AuthPlugin {
@@ -83,6 +85,7 @@ impl AuthPlugin {
             error_codes: Vec::new(),
             database_hooks: Vec::new(),
             migrations: Vec::new(),
+            social_providers: Vec::new(),
         }
     }
 
@@ -166,6 +169,14 @@ impl AuthPlugin {
         self
     }
 
+    pub fn with_social_provider(
+        mut self,
+        provider: impl Into<Arc<dyn SocialOAuthProvider>>,
+    ) -> Self {
+        self.social_providers.push(provider.into());
+        self
+    }
+
     pub fn with_middleware<F>(mut self, path: impl Into<String>, middleware: F) -> Self
     where
         F: Fn(&AuthContext, &PluginRequest) -> Result<Option<PluginResponse>, OpenAuthError>
@@ -225,6 +236,14 @@ impl fmt::Debug for AuthPlugin {
             .field("error_codes", &self.error_codes)
             .field("database_hooks", &self.database_hooks)
             .field("migrations", &self.migrations)
+            .field(
+                "social_providers",
+                &self
+                    .social_providers
+                    .iter()
+                    .map(|provider| provider.id())
+                    .collect::<Vec<_>>(),
+            )
             .finish()
     }
 }

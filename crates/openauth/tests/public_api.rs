@@ -119,9 +119,12 @@ fn openauth_crate_reexports_core_contract_types() {
         message: "test".to_owned(),
         original_message: None,
     };
-    let _plugin = AuthPlugin::new("test-plugin");
+    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(
+        openauth::social_providers::github::github(ProviderOptions::default()),
+    );
+    let _plugin = AuthPlugin::new("test-plugin").with_social_provider(provider.clone());
     let _plugin_endpoint_type: Option<PluginEndpoint> = None;
-    let _plugin_init = PluginInitOutput::new();
+    let _plugin_init = PluginInitOutput::new().social_provider(provider);
     let _plugin_error = PluginErrorCode::new("PLUGIN_ERROR", "Plugin error");
     let _plugin_rate_rule =
         PluginRateLimitRule::new("/plugin/*", openauth::RateLimitRule { window: 10, max: 1 });

@@ -143,19 +143,27 @@ fn resolve_social_providers(
 ) -> Result<BTreeMap<String, Arc<dyn SocialOAuthProvider>>, OpenAuthError> {
     let mut providers = BTreeMap::new();
     for provider in &options.social_providers {
-        let id = provider.id().to_owned();
-        if id.trim().is_empty() {
-            return Err(OpenAuthError::InvalidConfig(
-                "social provider id cannot be empty".to_owned(),
-            ));
-        }
-        if providers.insert(id.clone(), provider.clone()).is_some() {
-            return Err(OpenAuthError::InvalidConfig(format!(
-                "duplicate social provider `{id}`"
-            )));
-        }
+        insert_social_provider(&mut providers, provider.clone())?;
     }
     Ok(providers)
+}
+
+pub(super) fn insert_social_provider(
+    providers: &mut BTreeMap<String, Arc<dyn SocialOAuthProvider>>,
+    provider: Arc<dyn SocialOAuthProvider>,
+) -> Result<(), OpenAuthError> {
+    let id = provider.id().to_owned();
+    if id.trim().is_empty() {
+        return Err(OpenAuthError::InvalidConfig(
+            "social provider id cannot be empty".to_owned(),
+        ));
+    }
+    if providers.insert(id.clone(), provider).is_some() {
+        return Err(OpenAuthError::InvalidConfig(format!(
+            "duplicate social provider `{id}`"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_rate_limit_storage(options: &OpenAuthOptions) -> Result<(), OpenAuthError> {

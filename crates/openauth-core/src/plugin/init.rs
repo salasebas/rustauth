@@ -6,13 +6,15 @@ use super::rate_limit::PluginRateLimitRule;
 use super::schema::PluginSchemaContribution;
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
+use openauth_oauth::oauth2::SocialOAuthProvider;
+use std::fmt;
 use std::sync::Arc;
 
 pub type PluginInitHandler =
     Arc<dyn Fn(&AuthContext) -> Result<PluginInitOutput, OpenAuthError> + Send + Sync>;
 
 /// Typed, additive output from a plugin init handler.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct PluginInitOutput {
     pub trusted_origins: Vec<String>,
     pub disabled_paths: Vec<String>,
@@ -21,6 +23,30 @@ pub struct PluginInitOutput {
     pub error_codes: Vec<PluginErrorCode>,
     pub database_hooks: Vec<PluginDatabaseHook>,
     pub migrations: Vec<PluginMigration>,
+    pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
+}
+
+impl fmt::Debug for PluginInitOutput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PluginInitOutput")
+            .field("trusted_origins", &self.trusted_origins)
+            .field("disabled_paths", &self.disabled_paths)
+            .field("schema", &self.schema)
+            .field("rate_limit", &self.rate_limit)
+            .field("error_codes", &self.error_codes)
+            .field("database_hooks", &self.database_hooks)
+            .field("migrations", &self.migrations)
+            .field(
+                "social_providers",
+                &self
+                    .social_providers
+                    .iter()
+                    .map(|provider| provider.id())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl PluginInitOutput {
@@ -67,6 +93,12 @@ impl PluginInitOutput {
     #[must_use]
     pub fn migration(mut self, migration: PluginMigration) -> Self {
         self.migrations.push(migration);
+        self
+    }
+
+    #[must_use]
+    pub fn social_provider(mut self, provider: impl Into<Arc<dyn SocialOAuthProvider>>) -> Self {
+        self.social_providers.push(provider.into());
         self
     }
 }
