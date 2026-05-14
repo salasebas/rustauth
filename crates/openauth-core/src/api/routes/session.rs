@@ -8,23 +8,23 @@ use time::OffsetDateTime;
 use super::shared::{
     current_session, error_response, get_session_openapi_response, json_openapi_response,
     json_response, list_sessions_openapi_response, request_cookie_header, status_openapi_response,
-    unauthorized,
+    unauthorized, user_response_value,
 };
+use crate::api::additional_fields::{insert_returned_fields, json_to_db_value};
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::auth::session::{GetSessionInput, SessionAuth};
 use crate::context::AuthContext;
-use crate::db::{DbAdapter, DbFieldType, DbRecord, DbValue, FindOne, Session, Update, User, Where};
+use crate::db::{DbAdapter, DbRecord, DbValue, FindOne, Session, Update, Where};
 use crate::error::OpenAuthError;
-use crate::options::SessionAdditionalField;
 use crate::session::DbSessionStore;
 
 #[derive(Debug, Serialize)]
 struct SessionUserBody {
     session: Value,
-    user: User,
+    user: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,7 +84,7 @@ pub(super) fn get_session_endpoint(
                     &SessionUserBody {
                         session: session_response_value(adapter.as_ref(), context, &session)
                             .await?,
-                        user,
+                        user: user_response_value(adapter.as_ref(), context, &user).await?,
                     },
                     result.cookies,
                 )
@@ -267,7 +267,7 @@ pub(super) fn update_session_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthE
                             "field is not accepted as input",
                         );
                     }
-                    let Ok(value) = session_field_value(name, field, value) else {
+                    let Ok(value) = json_to_db_value(name, &field.field_type, value) else {
                         return error_response(
                             StatusCode::BAD_REQUEST,
                             "INVALID_REQUEST_BODY",
@@ -341,85 +341,8 @@ fn session_value_from_record(
             "could not serialize session as an object".to_owned(),
         ));
     };
-    for (name, field) in &context.options.session.additional_fields {
-        if !field.returned {
-            continue;
-        }
-        if let Some(value) = record.get(name) {
-            object.insert(name.clone(), db_value_to_json(value)?);
-        }
-    }
+    insert_returned_fields(object, &context.options.session.additional_fields, record)?;
     Ok(value)
-}
-
-fn session_field_value(
-    name: &str,
-    field: &SessionAdditionalField,
-    value: &Value,
-) -> Result<DbValue, String> {
-    if value.is_null() {
-        return Ok(DbValue::Null);
-    }
-    match field.field_type {
-        DbFieldType::String => value
-            .as_str()
-            .map(|value| DbValue::String(value.to_owned())),
-        DbFieldType::Number => value.as_i64().map(DbValue::Number),
-        DbFieldType::Boolean => value.as_bool().map(DbValue::Boolean),
-        DbFieldType::Json => Some(DbValue::Json(value.clone())),
-        DbFieldType::StringArray => value.as_array().and_then(|values| {
-            values
-                .iter()
-                .map(|value| value.as_str().map(str::to_owned))
-                .collect::<Option<Vec<_>>>()
-                .map(DbValue::StringArray)
-        }),
-        DbFieldType::NumberArray => value.as_array().and_then(|values| {
-            values
-                .iter()
-                .map(Value::as_i64)
-                .collect::<Option<Vec<_>>>()
-                .map(DbValue::NumberArray)
-        }),
-        DbFieldType::Timestamp => None,
-    }
-    .ok_or_else(|| format!("invalid value for session field `{name}`"))
-}
-
-fn db_value_to_json(value: &DbValue) -> Result<Value, OpenAuthError> {
-    match value {
-        DbValue::String(value) => Ok(Value::String(value.clone())),
-        DbValue::Number(value) => Ok(Value::Number((*value).into())),
-        DbValue::Boolean(value) => Ok(Value::Bool(*value)),
-        DbValue::Timestamp(value) => {
-            serde_json::to_value(value).map_err(|error| OpenAuthError::Api(error.to_string()))
-        }
-        DbValue::Json(value) => Ok(value.clone()),
-        DbValue::StringArray(values) => Ok(Value::Array(
-            values.iter().cloned().map(Value::String).collect(),
-        )),
-        DbValue::NumberArray(values) => Ok(Value::Array(
-            values
-                .iter()
-                .map(|value| Value::Number((*value).into()))
-                .collect(),
-        )),
-        DbValue::Record(record) => db_record_to_json(record),
-        DbValue::RecordArray(records) => records
-            .iter()
-            .map(db_record_to_json)
-            .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array),
-        DbValue::Null => Ok(Value::Null),
-    }
-}
-
-fn db_record_to_json(record: &DbRecord) -> Result<Value, OpenAuthError> {
-    record
-        .iter()
-        .map(|(field, value)| db_value_to_json(value).map(|value| (field.clone(), value)))
-        .collect::<Result<serde_json::Map<_, _>, _>>()
-        .map(Value::Object)
 }
 
 fn is_core_session_field(name: &str) -> bool {

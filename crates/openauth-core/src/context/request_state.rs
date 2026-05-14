@@ -5,6 +5,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
+use crate::db::{Session, User};
 use crate::error::OpenAuthError;
 use serde_json::Value;
 
@@ -96,6 +97,13 @@ where
 }
 
 static CURRENT_SESSION_USER: OnceLock<RequestState<Option<Value>>> = OnceLock::new();
+static CURRENT_NEW_SESSION: OnceLock<RequestState<Option<NewSession>>> = OnceLock::new();
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewSession {
+    pub session: Session,
+    pub user: User,
+}
 
 fn current_session_user_state() -> &'static RequestState<Option<Value>> {
     CURRENT_SESSION_USER.get_or_init(|| define_request_state(|| None))
@@ -109,6 +117,18 @@ pub fn set_current_session_user(user: Value) -> Result<(), OpenAuthError> {
 /// Read the current session user JSON for this request, when an endpoint resolved one.
 pub fn current_session_user() -> Result<Option<Value>, OpenAuthError> {
     current_session_user_state().get()
+}
+
+fn current_new_session_state() -> &'static RequestState<Option<NewSession>> {
+    CURRENT_NEW_SESSION.get_or_init(|| define_request_state(|| None))
+}
+
+pub fn set_current_new_session(session: Session, user: User) -> Result<(), OpenAuthError> {
+    current_new_session_state().set(Some(NewSession { session, user }))
+}
+
+pub fn current_new_session() -> Result<Option<NewSession>, OpenAuthError> {
+    current_new_session_state().get()
 }
 
 /// Run a future inside a fresh request state scope.

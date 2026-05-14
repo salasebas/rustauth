@@ -1,9 +1,18 @@
-use http::{header, HeaderValue, Method, Request, Response, StatusCode};
+use std::sync::Arc;
+
+use http::{header, HeaderValue, Method, Response, StatusCode};
 use openauth_core::context::create_auth_context;
+use openauth_core::db::{DbValue, MemoryAdapter};
 use openauth_core::options::OpenAuthOptions;
 use openauth_plugins::last_login_method::{
     last_login_method, LastLoginMethodOptions, LoginMethodContext, DEFAULT_COOKIE_MAX_AGE,
     DEFAULT_COOKIE_NAME, UPSTREAM_PLUGIN_ID,
+};
+
+mod helpers;
+use helpers::{
+    find_user_by_email, json_request, request, response_with_set_cookie, router_with_plugin,
+    run_last_login_after_hook, secret, set_cookie_values, signed_session_cookie,
 };
 
 #[test]
@@ -12,7 +21,8 @@ fn exposes_last_login_method_plugin_metadata() {
 
     assert_eq!(plugin.id, UPSTREAM_PLUGIN_ID);
     assert_eq!(plugin.version.as_deref(), Some(openauth_plugins::VERSION));
-    assert!(plugin.on_response.is_some());
+    assert!(plugin.on_response.is_none());
+    assert_eq!(plugin.hooks.async_after.len(), 1);
 }
 
 #[test]
@@ -50,10 +60,33 @@ fn custom_resolver_takes_precedence_over_default_resolver() {
 }
 
 #[test]
-fn response_hook_sets_last_method_cookie_when_session_cookie_is_created(
+fn custom_resolver_falls_back_to_default_when_it_returns_none() {
+    let options = LastLoginMethodOptions::default().with_resolver(|_context| None);
+
+    assert_eq!(
+        options.resolve_login_method(&LoginMethodContext::new("/sign-in/email")),
+        Some("email".to_owned())
+    );
+}
+
+#[test]
+fn default_resolver_ignores_missing_or_unknown_path() {
+    assert_eq!(
+        openauth_plugins::last_login_method::default_login_method(&LoginMethodContext::new("")),
+        None
+    );
+    assert_eq!(
+        openauth_plugins::last_login_method::default_login_method(&LoginMethodContext::new(
+            "/not-a-login"
+        )),
+        None
+    );
+}
+
+#[tokio::test]
+async fn async_after_hook_sets_last_method_cookie_when_session_cookie_is_created(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin = last_login_method(LastLoginMethodOptions::default());
-    let hook = plugin.on_response.as_ref().ok_or("missing response hook")?;
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -64,7 +97,7 @@ fn response_hook_sets_last_method_cookie_when_session_cookie_is_created(
         context.auth_cookies.session_token.name
     ))?;
 
-    let response = hook(&context, &request, response)?;
+    let response = run_last_login_after_hook(&plugin, &context, &request, response).await?;
     let cookies = set_cookie_values(&response);
     let last_method = cookies
         .iter()
@@ -78,11 +111,10 @@ fn response_hook_sets_last_method_cookie_when_session_cookie_is_created(
     Ok(())
 }
 
-#[test]
-fn response_hook_does_not_set_cookie_without_session_cookie(
+#[tokio::test]
+async fn async_after_hook_does_not_set_cookie_without_session_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin = last_login_method(LastLoginMethodOptions::default());
-    let hook = plugin.on_response.as_ref().ok_or("missing response hook")?;
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -92,11 +124,80 @@ fn response_hook_does_not_set_cookie_without_session_cookie(
         .status(StatusCode::UNAUTHORIZED)
         .body(Vec::new())?;
 
-    let response = hook(&context, &request, response)?;
+    let response = run_last_login_after_hook(&plugin, &context, &request, response).await?;
 
     assert!(set_cookie_values(&response)
         .iter()
         .all(|cookie| !cookie.starts_with(DEFAULT_COOKIE_NAME)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn async_after_hook_uses_custom_cookie_name_max_age_and_session_attributes(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = last_login_method(
+        LastLoginMethodOptions::default()
+            .cookie_name("my-app.last_method")
+            .max_age(42),
+    );
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some(secret().to_owned()),
+        advanced: openauth_core::options::AdvancedOptions {
+            default_cookie_attributes: openauth_core::options::CookieAttributesOverride {
+                same_site: Some("None".to_owned()),
+                secure: Some(true),
+                partitioned: Some(true),
+                ..openauth_core::options::CookieAttributesOverride::default()
+            },
+            ..openauth_core::options::AdvancedOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    })?;
+    let request = request("/api/auth/sign-in/email")?;
+    let response = response_with_set_cookie(&format!(
+        "{}=signed; Path=/; HttpOnly",
+        context.auth_cookies.session_token.name
+    ))?;
+
+    let response = run_last_login_after_hook(&plugin, &context, &request, response).await?;
+    let cookies = set_cookie_values(&response);
+    let last_method = cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("my-app.last_method"))
+        .ok_or("missing custom last login method cookie")?;
+
+    assert!(last_method.starts_with("my-app.last_method=email"));
+    assert!(last_method.contains("Max-Age=42"));
+    assert!(last_method.contains("SameSite=None"));
+    assert!(last_method.contains("Secure"));
+    assert!(last_method.contains("Partitioned"));
+    assert!(!last_method.contains("HttpOnly"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn async_after_hook_handles_multiple_set_cookie_headers(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = last_login_method(LastLoginMethodOptions::default());
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some(secret().to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let request = request("/api/auth/sign-in/email")?;
+    let mut response = response_with_set_cookie("unrelated=value; Path=/")?;
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "{}=signed; Path=/; HttpOnly",
+            context.auth_cookies.session_token.name
+        ))?,
+    );
+
+    let response = run_last_login_after_hook(&plugin, &context, &request, response).await?;
+
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.starts_with(DEFAULT_COOKIE_NAME)));
     Ok(())
 }
 
@@ -139,32 +240,162 @@ fn store_in_database_uses_custom_database_field_name() -> Result<(), Box<dyn std
     Ok(())
 }
 
-fn request(path: &str) -> Result<Request<Vec<u8>>, http::Error> {
-    Request::builder()
-        .method(Method::POST)
-        .uri(format!("http://localhost:3000{path}"))
-        .body(Vec::new())
+#[tokio::test]
+async fn sign_in_email_persists_last_login_method_and_get_session_returns_it(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router_with_plugin(adapter.clone(), LastLoginMethodOptions::default())?;
+    let sign_up = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_up.status(), StatusCode::OK);
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(sign_in.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_slice(sign_in.body())?;
+    let token = body["token"].as_str().ok_or("missing token")?;
+    let user = find_user_by_email(adapter.as_ref(), "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("last_login_method"),
+        Some(&DbValue::String("email".to_owned()))
+    );
+
+    let session = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/get-session",
+            "",
+            Some(&signed_session_cookie(token)?),
+        )?)
+        .await?;
+    assert_eq!(session.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_slice(session.body())?;
+    assert_eq!(body["user"]["last_login_method"], "email");
+    Ok(())
 }
 
-fn response_with_set_cookie(cookie: &str) -> Result<Response<Vec<u8>>, Box<dyn std::error::Error>> {
-    let mut response = Response::builder()
-        .status(StatusCode::OK)
-        .body(Vec::new())?;
-    response
-        .headers_mut()
-        .append(header::SET_COOKIE, HeaderValue::from_str(cookie)?);
-    Ok(response)
+#[tokio::test]
+async fn sign_up_email_persists_last_login_method() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router_with_plugin(adapter.clone(), LastLoginMethodOptions::default())?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let user = find_user_by_email(adapter.as_ref(), "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("last_login_method"),
+        Some(&DbValue::String("email".to_owned()))
+    );
+    Ok(())
 }
 
-fn set_cookie_values(response: &Response<Vec<u8>>) -> Vec<String> {
-    response
-        .headers()
-        .get_all(header::SET_COOKIE)
+#[tokio::test]
+async fn failed_sign_in_does_not_persist_or_set_cookie() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router_with_plugin(adapter.clone(), LastLoginMethodOptions::default())?;
+    let sign_up = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_up.status(), StatusCode::OK);
+    let user = find_user_by_email(adapter.as_ref(), "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("last_login_method"),
+        Some(&DbValue::String("email".to_owned()))
+    );
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"wrong-password"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(set_cookie_values(&response)
         .iter()
-        .filter_map(|value| value.to_str().ok().map(str::to_owned))
-        .collect()
+        .all(|cookie| !cookie.starts_with(DEFAULT_COOKIE_NAME)));
+    Ok(())
 }
 
-fn secret() -> &'static str {
-    "test-secret-123456789012345678901234"
+#[tokio::test]
+async fn subsequent_login_updates_existing_last_login_method(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router_with_plugin(
+        adapter.clone(),
+        LastLoginMethodOptions::default().with_resolver(|context| match context.path() {
+            "/sign-up/email" => Some("signup-email".to_owned()),
+            "/sign-in/email" => Some("signin-email".to_owned()),
+            _ => None,
+        }),
+    )?;
+    let sign_up = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_up.status(), StatusCode::OK);
+    let user = find_user_by_email(adapter.as_ref(), "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("last_login_method"),
+        Some(&DbValue::String("signup-email".to_owned()))
+    );
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(sign_in.status(), StatusCode::OK);
+    let user = find_user_by_email(adapter.as_ref(), "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("last_login_method"),
+        Some(&DbValue::String("signin-email".to_owned()))
+    );
+    Ok(())
 }

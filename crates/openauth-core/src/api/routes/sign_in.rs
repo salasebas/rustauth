@@ -2,17 +2,19 @@ use std::sync::Arc;
 
 use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::shared::{
-    auth_flow_error_response, auth_session_cookies, email_password_config, json_response,
-    sign_in_email_openapi_response, RequestMetadata,
+    additional_session_create_values, auth_flow_error_response, auth_session_cookies,
+    email_password_config, json_response, record_new_session, sign_in_email_openapi_response,
+    user_response_value, RequestMetadata,
 };
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::auth::email_password::{EmailPasswordAuth, SignInInput};
-use crate::db::{DbAdapter, User};
+use crate::db::DbAdapter;
 
 #[derive(Debug, Deserialize)]
 struct SignInEmailBody {
@@ -28,7 +30,7 @@ struct AuthTokenUserBody {
     token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
-    user: User,
+    user: Value,
 }
 
 pub(super) fn sign_in_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
@@ -49,8 +51,10 @@ pub(super) fn sign_in_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
             Box::pin(async move {
                 let body: SignInEmailBody = parse_request_body(&request)?;
                 let remember_me = body.remember_me.unwrap_or(true);
+                let additional_session_fields = additional_session_create_values(context);
                 let input = SignInInput::new(body.email, body.password)
                     .remember_me(remember_me)
+                    .additional_session_fields(additional_session_fields)
                     .with_request_metadata(&request);
 
                 let auth = EmailPasswordAuth::new(
@@ -63,6 +67,7 @@ pub(super) fn sign_in_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
                     Ok(result) => result,
                     Err(error) => return auth_flow_error_response(error),
                 };
+                record_new_session(&result.session, &result.user)?;
                 let cookies =
                     auth_session_cookies(context, &result.session, &result.user, !remember_me)?;
                 json_response(
@@ -71,7 +76,7 @@ pub(super) fn sign_in_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
                         redirect: false,
                         token: result.session.token,
                         url: None,
-                        user: result.user,
+                        user: user_response_value(adapter.as_ref(), context, &result.user).await?,
                     },
                     cookies,
                 )
