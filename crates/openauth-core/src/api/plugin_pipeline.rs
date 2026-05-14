@@ -43,6 +43,23 @@ pub(super) fn run_matching_middlewares(
     Ok(None)
 }
 
+pub(super) async fn run_matching_async_middlewares(
+    context: &AuthContext,
+    request: &ApiRequest,
+    path: &str,
+) -> Result<Option<ApiResponse>, OpenAuthError> {
+    for plugin in &context.plugins {
+        for middleware in &plugin.async_middlewares {
+            if path_matches(&middleware.path, path) {
+                if let Some(response) = (middleware.handler)(context, request).await? {
+                    return Ok(Some(response));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub(super) fn run_on_response_plugins(
     context: &AuthContext,
     request: &ApiRequest,
@@ -91,6 +108,26 @@ pub(super) fn run_after_hooks(
             if hook.matcher.matches(method, path, operation_id) {
                 let PluginAfterHookAction::Continue(next_response) =
                     (hook.handler)(context, request, response)?;
+                response = next_response;
+            }
+        }
+    }
+    Ok(response)
+}
+
+pub(super) async fn run_async_after_hooks(
+    context: &AuthContext,
+    request: &ApiRequest,
+    mut response: ApiResponse,
+    method: &Method,
+    path: &str,
+    operation_id: Option<&str>,
+) -> Result<ApiResponse, OpenAuthError> {
+    for plugin in &context.plugins {
+        for hook in &plugin.hooks.async_after {
+            if hook.matcher.matches(method, path, operation_id) {
+                let PluginAfterHookAction::Continue(next_response) =
+                    (hook.handler)(context, request, response).await?;
                 response = next_response;
             }
         }

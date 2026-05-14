@@ -16,11 +16,19 @@ path = "src/lib.rs"
 
 [dependencies]
 base64.workspace = true
+data-encoding.workspace = true
+hmac.workspace = true
 http.workspace = true
+indexmap.workspace = true
 openauth-core.workspace = true
+rand.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true
 sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
 time.workspace = true
 url.workspace = true
 
