@@ -339,6 +339,92 @@ async fn before_and_after_hooks_wrap_plugin_endpoint() -> Result<(), Box<dyn std
     Ok(())
 }
 
+#[tokio::test]
+async fn async_after_hook_can_replace_plugin_endpoint_response(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin_endpoint = create_auth_endpoint(
+        "/async-after",
+        Method::GET,
+        Default::default(),
+        |_context, _request| Box::pin(async { response(StatusCode::OK, b"ORIGINAL".to_vec()) }),
+    );
+    let plugin = AuthPlugin::new("async-after")
+        .with_endpoint(plugin_endpoint)
+        .with_async_after_hook("/async-after", |_context, _request, _response| {
+            Box::pin(async {
+                response(StatusCode::ACCEPTED, b"ASYNC".to_vec())
+                    .map(PluginAfterHookAction::Continue)
+            })
+        });
+    let context = create_auth_context(OpenAuthOptions {
+        plugins: vec![plugin],
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/async-after")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(response.body(), b"ASYNC");
+    Ok(())
+}
+
+#[tokio::test]
+async fn sync_after_hook_runs_before_async_after_hook() -> Result<(), Box<dyn std::error::Error>> {
+    let plugin_endpoint = create_auth_endpoint(
+        "/ordered-after",
+        Method::GET,
+        Default::default(),
+        |_context, _request| Box::pin(async { response(StatusCode::OK, b"start".to_vec()) }),
+    );
+    let plugin = AuthPlugin::new("ordered-after")
+        .with_endpoint(plugin_endpoint)
+        .with_after_hook("/ordered-after", |_context, _request, mut response| {
+            response
+                .headers_mut()
+                .insert("x-sync-after", http::HeaderValue::from_static("1"));
+            Ok(PluginAfterHookAction::Continue(response))
+        })
+        .with_async_after_hook("/ordered-after", |_context, _request, hook_response| {
+            Box::pin(async move {
+                if hook_response.headers().get("x-sync-after").is_some() {
+                    response(StatusCode::OK, b"sync-then-async".to_vec())
+                        .map(PluginAfterHookAction::Continue)
+                } else {
+                    response(StatusCode::BAD_REQUEST, b"wrong-order".to_vec())
+                        .map(PluginAfterHookAction::Continue)
+                }
+            })
+        });
+    let context = create_auth_context(OpenAuthOptions {
+        plugins: vec![plugin],
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/ordered-after")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.body(), b"sync-then-async");
+    Ok(())
+}
+
 #[test]
 fn plugin_error_codes_are_registered_and_validated() -> Result<(), Box<dyn std::error::Error>> {
     let plugin = AuthPlugin::new("errors")

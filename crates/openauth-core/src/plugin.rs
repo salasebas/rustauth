@@ -16,8 +16,9 @@ pub use db::{
 pub use endpoint::PluginEndpoint;
 pub use error::PluginErrorCode;
 pub use hooks::{
-    PluginAfterHook, PluginAfterHookAction, PluginAfterHookHandler, PluginBeforeHook,
-    PluginBeforeHookAction, PluginBeforeHookHandler, PluginEndpointHooks, PluginHookMatcher,
+    PluginAfterHook, PluginAfterHookAction, PluginAfterHookFuture, PluginAfterHookHandler,
+    PluginAsyncAfterHook, PluginAsyncAfterHookHandler, PluginBeforeHook, PluginBeforeHookAction,
+    PluginBeforeHookHandler, PluginEndpointHooks, PluginHookMatcher,
 };
 pub use init::{PluginInitHandler, PluginInitOutput};
 pub use rate_limit::PluginRateLimitRule;
@@ -148,6 +149,24 @@ impl AuthPlugin {
             + 'static,
     {
         self.hooks.after.push(PluginAfterHook {
+            matcher: PluginHookMatcher::path(path),
+            handler: Arc::new(hook),
+        });
+        self
+    }
+
+    pub fn with_async_after_hook<F>(mut self, path: impl Into<String>, hook: F) -> Self
+    where
+        F: for<'a> Fn(
+                &'a AuthContext,
+                &'a PluginRequest,
+                PluginResponse,
+            ) -> PluginAfterHookFuture<'a>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.hooks.async_after.push(PluginAsyncAfterHook {
             matcher: PluginHookMatcher::path(path),
             handler: Arc::new(hook),
         });
