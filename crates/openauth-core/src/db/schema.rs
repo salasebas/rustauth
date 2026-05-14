@@ -232,6 +232,67 @@ impl DbSchema {
             .map(|(logical_name, table)| (logical_name.as_str(), table))
     }
 
+    pub fn insert_plugin_table(
+        &mut self,
+        logical_name: String,
+        table: DbTable,
+    ) -> Result<(), OpenAuthError> {
+        if let Some(existing) = self.tables.get(&logical_name) {
+            if existing == &table {
+                return Ok(());
+            }
+            return Err(OpenAuthError::InvalidConfig(format!(
+                "plugin schema table `{logical_name}` conflicts with an existing table"
+            )));
+        }
+        if self
+            .tables
+            .values()
+            .any(|existing| existing.name == table.name)
+        {
+            return Err(OpenAuthError::InvalidConfig(format!(
+                "plugin schema table `{logical_name}` uses existing database table `{}`",
+                table.name
+            )));
+        }
+        self.tables.insert(logical_name, table);
+        Ok(())
+    }
+
+    pub fn insert_plugin_field(
+        &mut self,
+        table: &str,
+        logical_name: String,
+        field: DbField,
+    ) -> Result<(), OpenAuthError> {
+        let (_, table_metadata) =
+            self.resolve_table_mut(table)
+                .ok_or_else(|| OpenAuthError::TableNotFound {
+                    table: table.to_owned(),
+                })?;
+
+        if let Some(existing) = table_metadata.fields.get(&logical_name) {
+            if existing == &field {
+                return Ok(());
+            }
+            return Err(OpenAuthError::InvalidConfig(format!(
+                "plugin schema field `{logical_name}` conflicts with table `{table}`"
+            )));
+        }
+        if table_metadata
+            .fields
+            .values()
+            .any(|existing| existing.name == field.name)
+        {
+            return Err(OpenAuthError::InvalidConfig(format!(
+                "plugin schema field `{logical_name}` uses existing database field `{}` on table `{table}`",
+                field.name
+            )));
+        }
+        table_metadata.fields.insert(logical_name, field);
+        Ok(())
+    }
+
     fn resolve_table(&self, table: &str) -> Option<(&str, &DbTable)> {
         self.tables
             .get_key_value(table)
@@ -242,6 +303,17 @@ impl DbSchema {
                     .find(|(_, table_metadata)| table_metadata.name == table)
                     .map(|(logical_name, table)| (logical_name.as_str(), table))
             })
+    }
+
+    fn resolve_table_mut(&mut self, table: &str) -> Option<(&str, &mut DbTable)> {
+        if self.tables.contains_key(table) {
+            let (logical_name, table_metadata) = self.tables.get_key_value_mut(table)?;
+            return Some((logical_name.as_str(), table_metadata));
+        }
+        self.tables
+            .iter_mut()
+            .find(|(_, table_metadata)| table_metadata.name == table)
+            .map(|(logical_name, table)| (logical_name.as_str(), table))
     }
 
     fn insert(&mut self, logical_name: impl Into<String>, table: DbTable) {

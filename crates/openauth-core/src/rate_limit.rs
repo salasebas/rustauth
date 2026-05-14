@@ -163,6 +163,12 @@ fn resolve_rule(
     if let Some(special_rule) = default_special_rule(path) {
         rule = special_rule;
     }
+    for plugin_rule in &context.rate_limit.plugin_rules {
+        if path_matches(&plugin_rule.path, path) {
+            rule = plugin_rule.rule.clone();
+            break;
+        }
+    }
     for custom_rule in &context.rate_limit.custom_rules {
         if path_matches(&custom_rule.path, path) {
             return Ok(custom_rule.rule.clone());

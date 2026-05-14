@@ -2,6 +2,7 @@
 
 mod adapter;
 mod factory;
+mod hooks;
 mod id;
 mod memory;
 mod models;
@@ -13,10 +14,12 @@ pub use adapter::{
     run_transaction_without_native_support, AdapterCapabilities, AdapterFuture, AdapterResult,
     Connector, Count, Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindMany, FindOne,
     JoinConfig, JoinOn, JoinOption, JoinRelation, JoinResolution, SchemaCreation, Sort,
-    SortDirection, TransactionCallback, Update, UpdateMany, Where, WhereMode, WhereOperator,
+    SortDirection, TransactionAdapter, TransactionCallback, Update, UpdateMany, Where, WhereMode,
+    WhereOperator,
 };
 pub use factory::JoinAdapter;
 pub use factory::SchemaAdapter;
+pub use hooks::HookedAdapter;
 pub use id::{IdGeneration, IdPolicy, IdValue};
 pub use memory::MemoryAdapter;
 pub use models::{Account, RateLimit, Session, User, Verification};

@@ -8,15 +8,19 @@ use openauth_core::context::create_auth_context;
 use openauth_core::cookies::Cookie;
 use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
-    auth_schema, AdapterCapabilities, AuthSchemaOptions, Count, Create, DbAdapter, DbRecord,
-    DbValue, DeleteMany, FindMany, FindOne, JoinOption, RateLimitStorage, Sort, SortDirection,
-    TableOptions, Update, Where, WhereOperator,
+    auth_schema, AdapterCapabilities, AuthSchemaOptions, Count, Create, DbAdapter, DbField,
+    DbFieldType, DbRecord, DbValue, DeleteMany, FindMany, FindOne, HookedAdapter, JoinOption,
+    RateLimitStorage, Sort, SortDirection, TableOptions, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::plugin::{
+    PluginDatabaseBeforeAction, PluginDatabaseBeforeInput, PluginDatabaseHook,
+};
 use openauth_sqlx::SqliteAdapter;
 use serde_json::Value;
 use sqlx::sqlite::SqlitePoolOptions;
+use std::sync::Mutex as StdMutex;
 use time::OffsetDateTime;
 
 async fn adapter() -> Result<SqliteAdapter, OpenAuthError> {
@@ -215,6 +219,33 @@ async fn sqlite_adapter_create_schema_is_idempotent_and_creates_rate_limit_table
 }
 
 #[tokio::test]
+async fn sqlite_adapter_run_migrations_applies_plugin_aware_schema() -> Result<(), OpenAuthError> {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .map_err(sql_error)?;
+    let adapter = SqliteAdapter::new(pool.clone());
+    let mut schema = auth_schema(AuthSchemaOptions::default());
+    schema.insert_plugin_field(
+        "user",
+        "tenant_id".to_owned(),
+        DbField::new("tenant_id", DbFieldType::String).optional(),
+    )?;
+
+    adapter.run_migrations(&schema).await?;
+
+    let tenant_column_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'tenant_id'",
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(sql_error)?;
+    assert_eq!(tenant_column_count, 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn sqlite_adapter_uses_physical_names_from_auth_schema() -> Result<(), OpenAuthError> {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -287,6 +318,121 @@ async fn sqlite_adapter_rolls_back_failed_transactions() -> Result<(), OpenAuthE
 
     assert!(result.is_err());
     assert_eq!(adapter.count(Count::new("user")).await?, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_hooked_adapter_preserves_native_transaction_rollback() -> Result<(), OpenAuthError>
+{
+    let raw = adapter().await?;
+    let events = Arc::new(StdMutex::new(Vec::<String>::new()));
+    let adapter = HookedAdapter::new(
+        Arc::new(raw.clone()) as Arc<dyn DbAdapter>,
+        vec![
+            PluginDatabaseHook::before_create("rewrite-name", |_context, mut query| {
+                if query.model == "user" {
+                    query
+                        .data
+                        .insert("name".to_owned(), DbValue::String("Hooked".to_owned()));
+                }
+                Ok(PluginDatabaseBeforeAction::Continue(
+                    PluginDatabaseBeforeInput::Create(query),
+                ))
+            }),
+            PluginDatabaseHook::after_create("after-create", {
+                let events = Arc::clone(&events);
+                move |_context, _query, _result| {
+                    events
+                        .lock()
+                        .map_err(|_| OpenAuthError::Adapter("events lock poisoned".to_owned()))?
+                        .push("after".to_owned());
+                    Ok(())
+                }
+            }),
+        ],
+    );
+
+    let result = adapter
+        .transaction(Box::new(|tx| {
+            Box::pin(async move {
+                tx.create(
+                    Create::new("user")
+                        .data("id", DbValue::String("user_hooked_rollback".to_owned()))
+                        .data("name", DbValue::String("Ada".to_owned()))
+                        .data("email", DbValue::String("rollback@example.com".to_owned()))
+                        .data("email_verified", DbValue::Boolean(false))
+                        .data("image", DbValue::Null)
+                        .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                        .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc())),
+                )
+                .await?;
+                Err(OpenAuthError::Adapter("force rollback".to_owned()))
+            })
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(raw.count(Count::new("user")).await?, 0);
+    assert!(events
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("events lock poisoned".to_owned()))?
+        .is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_hooked_adapter_runs_after_hooks_after_native_transaction_commit(
+) -> Result<(), OpenAuthError> {
+    let raw = adapter().await?;
+    let events = Arc::new(StdMutex::new(Vec::<String>::new()));
+    let adapter = HookedAdapter::new(
+        Arc::new(raw.clone()) as Arc<dyn DbAdapter>,
+        vec![PluginDatabaseHook::after_create("after-create", {
+            let events = Arc::clone(&events);
+            move |_context, _query, _result| {
+                events
+                    .lock()
+                    .map_err(|_| OpenAuthError::Adapter("events lock poisoned".to_owned()))?
+                    .push("after".to_owned());
+                Ok(())
+            }
+        })],
+    );
+
+    adapter
+        .transaction(Box::new({
+            let events = Arc::clone(&events);
+            move |tx| {
+                Box::pin(async move {
+                    tx.create(
+                        Create::new("user")
+                            .data("id", DbValue::String("user_hooked_commit".to_owned()))
+                            .data("name", DbValue::String("Ada".to_owned()))
+                            .data("email", DbValue::String("commit@example.com".to_owned()))
+                            .data("email_verified", DbValue::Boolean(false))
+                            .data("image", DbValue::Null)
+                            .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                            .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc())),
+                    )
+                    .await?;
+                    assert!(events
+                        .lock()
+                        .map_err(|_| OpenAuthError::Adapter("events lock poisoned".to_owned()))?
+                        .is_empty());
+                    Ok(())
+                })
+            }
+        }))
+        .await?;
+
+    assert_eq!(raw.count(Count::new("user")).await?, 1);
+    assert_eq!(
+        events
+            .lock()
+            .map_err(|_| OpenAuthError::Adapter("events lock poisoned".to_owned()))?
+            .as_slice(),
+        ["after"]
+    );
     Ok(())
 }
 

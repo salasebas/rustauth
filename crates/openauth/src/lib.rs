@@ -29,7 +29,7 @@ pub use openauth_core::crypto::{
     symmetric_encode_jwt, symmetric_encrypt, validate_secrets, Envelope, JweSecretSource,
     SecretConfig, SecretEntry,
 };
-pub use openauth_core::db::MemoryAdapter;
+pub use openauth_core::db::{HookedAdapter, MemoryAdapter};
 pub use openauth_core::error::OpenAuthError;
 pub use openauth_core::oauth::oauth2::{
     OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
@@ -44,7 +44,13 @@ pub use openauth_core::options::{
     RateLimitStorageOption, SendVerificationEmail, SessionAdditionalField, SessionOptions,
     TelemetryOptions, TrustedOriginOptions, TrustedOriginsProvider, UserOptions, VerificationEmail,
 };
-pub use openauth_core::plugin::{AuthPlugin, PluginMiddleware, PluginRequestAction};
+pub use openauth_core::plugin::{
+    AuthPlugin, PluginAfterHook, PluginAfterHookAction, PluginBeforeHook, PluginBeforeHookAction,
+    PluginDatabaseAfterInput, PluginDatabaseBeforeAction, PluginDatabaseBeforeInput,
+    PluginDatabaseHook, PluginDatabaseHookContext, PluginDatabaseOperation, PluginEndpoint,
+    PluginEndpointHooks, PluginErrorCode, PluginHookMatcher, PluginInitOutput, PluginMiddleware,
+    PluginMigration, PluginRateLimitRule, PluginRequestAction, PluginSchemaContribution,
+};
 pub use openauth_core::session::{CreateSessionInput, DbSessionStore};
 pub use openauth_core::user::{
     CreateCredentialAccountInput, CreateUserInput, DbUserStore, UpdateUserInput, UserWithAccounts,

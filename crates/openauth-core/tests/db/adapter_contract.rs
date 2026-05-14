@@ -367,7 +367,7 @@ async fn adapter_transaction_falls_back_to_current_adapter() -> Result<(), OpenA
     let adapter: Box<dyn DbAdapter> = Box::new(FallbackAdapter);
     let observed = Arc::new(Mutex::new(None));
     let observed_for_callback = Arc::clone(&observed);
-    let callback: TransactionCallback<'_> = Box::new(move |trx: &dyn DbAdapter| {
+    let callback: TransactionCallback<'_> = Box::new(move |trx| {
         Box::pin(async move {
             let record = trx.create(Create::new("user")).await?;
             observed_for_callback
@@ -494,7 +494,7 @@ async fn adapter_transaction_can_be_overridden_by_real_adapter() -> Result<(), O
 
             Box::pin(async move {
                 let trx = TransactionHandle;
-                callback(&trx).await
+                callback(Box::new(trx)).await
             })
         }
     }
@@ -502,7 +502,7 @@ async fn adapter_transaction_can_be_overridden_by_real_adapter() -> Result<(), O
     let adapter = TransactionAdapter;
     let observed = Arc::new(Mutex::new(None));
     let observed_for_callback = Arc::clone(&observed);
-    let callback: TransactionCallback<'_> = Box::new(move |trx: &dyn DbAdapter| {
+    let callback: TransactionCallback<'_> = Box::new(move |trx| {
         Box::pin(async move {
             let record = trx.create(Create::new("user")).await?;
             observed_for_callback

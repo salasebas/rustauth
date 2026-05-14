@@ -12,6 +12,7 @@ use super::{
     JoinAdapter, SchemaCreation, SortDirection, TransactionCallback, Update, UpdateMany, Where,
     WhereMode, WhereOperator,
 };
+use crate::error::OpenAuthError;
 
 /// Async-safe in-memory adapter backed by shared state.
 #[derive(Debug, Clone, Default)]
@@ -235,6 +236,14 @@ impl DbAdapter for MemoryAdapter {
         _file: Option<&'a str>,
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         Box::pin(async { Ok(None) })
+    }
+
+    fn run_migrations<'a>(&'a self, _schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        Box::pin(async {
+            Err(OpenAuthError::InvalidConfig(
+                "MemoryAdapter does not support migrations".to_owned(),
+            ))
+        })
     }
 }
 

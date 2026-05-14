@@ -7,6 +7,7 @@ use time::OffsetDateTime;
 
 use super::schema::DbSchema;
 use crate::error::OpenAuthError;
+use std::sync::Arc;
 
 /// Result type returned by database adapters.
 pub type AdapterResult<T> = Result<T, OpenAuthError>;
@@ -14,9 +15,12 @@ pub type AdapterResult<T> = Result<T, OpenAuthError>;
 /// Boxed async result returned by database adapter methods.
 pub type AdapterFuture<'a, T> = Pin<Box<dyn Future<Output = AdapterResult<T>> + Send + 'a>>;
 
+/// Adapter handle passed to transaction callbacks.
+pub type TransactionAdapter<'tx> = Box<dyn DbAdapter + 'tx>;
+
 /// Callback executed inside an adapter transaction.
 pub type TransactionCallback<'a> =
-    Box<dyn for<'tx> FnOnce(&'tx dyn DbAdapter) -> AdapterFuture<'tx, ()> + Send + 'a>;
+    Box<dyn for<'tx> FnOnce(TransactionAdapter<'tx>) -> AdapterFuture<'tx, ()> + Send + 'a>;
 
 /// Execute a transaction callback directly when native transactions are unavailable.
 pub fn run_transaction_without_native_support<'a, A>(
@@ -26,7 +30,7 @@ pub fn run_transaction_without_native_support<'a, A>(
 where
     A: DbAdapter,
 {
-    callback(adapter)
+    callback(Box::new(adapter))
 }
 
 /// Dynamic record payload exchanged between core auth logic and adapters.
@@ -628,5 +632,196 @@ pub trait DbAdapter: Send + Sync {
         _file: Option<&'a str>,
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         Box::pin(async { Ok(None) })
+    }
+
+    fn run_migrations<'a>(&'a self, _schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        Box::pin(async {
+            Err(OpenAuthError::InvalidConfig(
+                "adapter does not support explicit migrations".to_owned(),
+            ))
+        })
+    }
+}
+
+impl<A> DbAdapter for &A
+where
+    A: DbAdapter + ?Sized,
+{
+    fn id(&self) -> &str {
+        (**self).id()
+    }
+
+    fn capabilities(&self) -> AdapterCapabilities {
+        (**self).capabilities()
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        (**self).create(query)
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        (**self).find_one(query)
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        (**self).find_many(query)
+    }
+
+    fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {
+        (**self).count(query)
+    }
+
+    fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        (**self).update(query)
+    }
+
+    fn update_many<'a>(&'a self, query: UpdateMany) -> AdapterFuture<'a, u64> {
+        (**self).update_many(query)
+    }
+
+    fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
+        (**self).delete(query)
+    }
+
+    fn delete_many<'a>(&'a self, query: DeleteMany) -> AdapterFuture<'a, u64> {
+        (**self).delete_many(query)
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        (**self).transaction(callback)
+    }
+
+    fn create_schema<'a>(
+        &'a self,
+        schema: &'a DbSchema,
+        file: Option<&'a str>,
+    ) -> AdapterFuture<'a, Option<SchemaCreation>> {
+        (**self).create_schema(schema, file)
+    }
+
+    fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        (**self).run_migrations(schema)
+    }
+}
+
+impl<A> DbAdapter for Box<A>
+where
+    A: DbAdapter + ?Sized,
+{
+    fn id(&self) -> &str {
+        (**self).id()
+    }
+
+    fn capabilities(&self) -> AdapterCapabilities {
+        (**self).capabilities()
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        (**self).create(query)
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        (**self).find_one(query)
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        (**self).find_many(query)
+    }
+
+    fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {
+        (**self).count(query)
+    }
+
+    fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        (**self).update(query)
+    }
+
+    fn update_many<'a>(&'a self, query: UpdateMany) -> AdapterFuture<'a, u64> {
+        (**self).update_many(query)
+    }
+
+    fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
+        (**self).delete(query)
+    }
+
+    fn delete_many<'a>(&'a self, query: DeleteMany) -> AdapterFuture<'a, u64> {
+        (**self).delete_many(query)
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        (**self).transaction(callback)
+    }
+
+    fn create_schema<'a>(
+        &'a self,
+        schema: &'a DbSchema,
+        file: Option<&'a str>,
+    ) -> AdapterFuture<'a, Option<SchemaCreation>> {
+        (**self).create_schema(schema, file)
+    }
+
+    fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        (**self).run_migrations(schema)
+    }
+}
+
+impl<A> DbAdapter for Arc<A>
+where
+    A: DbAdapter + ?Sized,
+{
+    fn id(&self) -> &str {
+        (**self).id()
+    }
+
+    fn capabilities(&self) -> AdapterCapabilities {
+        (**self).capabilities()
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        (**self).create(query)
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        (**self).find_one(query)
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        (**self).find_many(query)
+    }
+
+    fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {
+        (**self).count(query)
+    }
+
+    fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        (**self).update(query)
+    }
+
+    fn update_many<'a>(&'a self, query: UpdateMany) -> AdapterFuture<'a, u64> {
+        (**self).update_many(query)
+    }
+
+    fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
+        (**self).delete(query)
+    }
+
+    fn delete_many<'a>(&'a self, query: DeleteMany) -> AdapterFuture<'a, u64> {
+        (**self).delete_many(query)
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        (**self).transaction(callback)
+    }
+
+    fn create_schema<'a>(
+        &'a self,
+        schema: &'a DbSchema,
+        file: Option<&'a str>,
+    ) -> AdapterFuture<'a, Option<SchemaCreation>> {
+        (**self).create_schema(schema, file)
+    }
+
+    fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        (**self).run_migrations(schema)
     }
 }

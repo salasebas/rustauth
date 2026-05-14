@@ -4,7 +4,7 @@ use crate::auth::trusted_origins::{matches_origin_pattern, OriginMatchSettings};
 use crate::cookies::{get_cookies, AuthCookies};
 use crate::crypto::password::{hash_password, verify_password};
 use crate::crypto::{build_secret_config, parse_secrets_env, JweSecretSource, SecretConfig};
-use crate::db::DbAdapter;
+use crate::db::{auth_schema, DbAdapter, DbSchema};
 use crate::env::is_production;
 use crate::env::logger::{create_logger, Logger, LoggerOptions};
 use crate::error::OpenAuthError;
@@ -12,7 +12,7 @@ use crate::options::{
     DynamicRateLimitPathRule, OpenAuthOptions, RateLimitPathRule, RateLimitStorage,
     RateLimitStorageOption,
 };
-use crate::plugin::AuthPlugin;
+use crate::plugin::{AuthPlugin, PluginErrorCode, PluginInitOutput};
 use crate::rate_limit::MemoryRateLimitStorage;
 use http::Request;
 use openauth_oauth::oauth2::SocialOAuthProvider;
@@ -41,6 +41,10 @@ pub struct AuthContext {
     pub plugins: Vec<AuthPlugin>,
     pub adapter: Option<Arc<dyn DbAdapter>>,
     pub social_providers: BTreeMap<String, Arc<dyn SocialOAuthProvider>>,
+    pub db_schema: DbSchema,
+    pub plugin_error_codes: BTreeMap<String, PluginErrorCode>,
+    pub plugin_database_hooks: Vec<crate::plugin::PluginDatabaseHook>,
+    pub plugin_migrations: Vec<crate::plugin::PluginMigration>,
     pub logger: Logger,
 }
 
@@ -145,6 +149,7 @@ pub struct RateLimitContext {
     pub storage: RateLimitStorageOption,
     pub custom_rules: Vec<RateLimitPathRule>,
     pub dynamic_rules: Vec<DynamicRateLimitPathRule>,
+    pub plugin_rules: Vec<crate::plugin::PluginRateLimitRule>,
     pub custom_storage: Option<Arc<dyn RateLimitStorage>>,
     pub memory_storage: Arc<MemoryRateLimitStorage>,
 }
@@ -280,11 +285,12 @@ pub fn create_auth_context_with_environment_and_adapter(
         storage: options.rate_limit.storage,
         custom_rules: options.rate_limit.custom_rules.clone(),
         dynamic_rules: options.rate_limit.dynamic_rules.clone(),
+        plugin_rules: Vec::new(),
         custom_storage: options.rate_limit.custom_storage.clone(),
         memory_storage: Arc::new(MemoryRateLimitStorage::new()),
     };
 
-    Ok(AuthContext {
+    let mut context = AuthContext {
         app_name: "OpenAuth".to_owned(),
         base_url,
         base_path,
@@ -300,8 +306,14 @@ pub fn create_auth_context_with_environment_and_adapter(
         plugins: options.plugins,
         adapter,
         social_providers,
+        db_schema: auth_schema(Default::default()),
+        plugin_error_codes: BTreeMap::new(),
+        plugin_database_hooks: Vec::new(),
+        plugin_migrations: Vec::new(),
         logger,
-    })
+    };
+    initialize_plugins(&mut context)?;
+    Ok(context)
 }
 
 fn resolve_social_providers(
@@ -342,6 +354,98 @@ fn push_trusted_origin(origins: &mut Vec<String>, origin: String) {
     if !origins.iter().any(|existing| existing == &origin) {
         origins.push(origin);
     }
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if value.trim().is_empty() {
+        return;
+    }
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn initialize_plugins(context: &mut AuthContext) -> Result<(), OpenAuthError> {
+    let plugins = context.plugins.clone();
+    for plugin in plugins {
+        apply_plugin_output(
+            context,
+            &plugin.id,
+            PluginInitOutput {
+                schema: plugin.schema.clone(),
+                rate_limit: plugin.rate_limit.clone(),
+                error_codes: plugin.error_codes.clone(),
+                database_hooks: plugin.database_hooks.clone(),
+                migrations: plugin.migrations.clone(),
+                ..PluginInitOutput::default()
+            },
+        )?;
+        if let Some(init) = &plugin.init {
+            let output = init(context)?;
+            apply_plugin_output(context, &plugin.id, output)?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_plugin_output(
+    context: &mut AuthContext,
+    plugin_id: &str,
+    output: PluginInitOutput,
+) -> Result<(), OpenAuthError> {
+    for origin in output.trusted_origins {
+        push_trusted_origin(&mut context.trusted_origins, origin);
+    }
+    for path in output.disabled_paths {
+        push_unique(&mut context.disabled_paths, path);
+    }
+    for contribution in output.schema {
+        contribution.apply(&mut context.db_schema)?;
+    }
+    context.rate_limit.plugin_rules.extend(output.rate_limit);
+    for error_code in output.error_codes {
+        error_code.validate()?;
+        if let Some(existing) = context.plugin_error_codes.get(&error_code.code) {
+            if existing != &error_code {
+                return Err(OpenAuthError::InvalidConfig(format!(
+                    "plugin `{plugin_id}` tried to register conflicting error code `{}`",
+                    error_code.code
+                )));
+            }
+            continue;
+        }
+        context
+            .plugin_error_codes
+            .insert(error_code.code.clone(), error_code);
+    }
+    for hook in output.database_hooks {
+        let hook = hook.with_plugin_id(plugin_id);
+        if context
+            .plugin_database_hooks
+            .iter()
+            .any(|existing| existing.has_overlapping_phase(&hook))
+        {
+            return Err(OpenAuthError::InvalidConfig(format!(
+                "plugin `{plugin_id}` tried to register duplicate database hook `{}` for {:?}",
+                hook.name, hook.operation
+            )));
+        }
+        context.plugin_database_hooks.push(hook);
+    }
+    for migration in output.migrations {
+        if context
+            .plugin_migrations
+            .iter()
+            .any(|existing| existing.name == migration.name)
+        {
+            return Err(OpenAuthError::InvalidConfig(format!(
+                "plugin `{plugin_id}` tried to register duplicate migration `{}`",
+                migration.name
+            )));
+        }
+        context.plugin_migrations.push(migration);
+    }
+    Ok(())
 }
 
 fn origin_from_url(url: &str) -> Option<String> {

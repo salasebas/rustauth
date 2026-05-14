@@ -5,7 +5,7 @@ use openauth_core::api::{
     AuthEndpoint, AuthRouter, EndpointInfo,
 };
 use openauth_core::context::{create_auth_context, create_auth_context_with_adapter, AuthContext};
-use openauth_core::db::{auth_schema, DbAdapter, JoinAdapter};
+use openauth_core::db::{DbAdapter, HookedAdapter, JoinAdapter, SchemaCreation};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::OpenAuthOptions;
 use std::sync::Arc;
@@ -18,6 +18,7 @@ pub struct OpenAuth {
     router: AuthRouter,
     options: OpenAuthOptions,
     context: AuthContext,
+    adapter: Option<Arc<dyn DbAdapter>>,
 }
 
 impl OpenAuth {
@@ -48,6 +49,27 @@ impl OpenAuth {
     pub fn openapi_schema(&self) -> serde_json::Value {
         self.router.openapi_schema()
     }
+
+    pub async fn create_schema(
+        &self,
+        file: Option<&str>,
+    ) -> Result<Option<SchemaCreation>, OpenAuthError> {
+        let adapter = self.adapter.as_ref().ok_or_else(|| {
+            OpenAuthError::InvalidConfig(
+                "OpenAuth::create_schema requires an adapter-backed instance".to_owned(),
+            )
+        })?;
+        adapter.create_schema(&self.context.db_schema, file).await
+    }
+
+    pub async fn run_migrations(&self) -> Result<(), OpenAuthError> {
+        let adapter = self.adapter.as_ref().ok_or_else(|| {
+            OpenAuthError::InvalidConfig(
+                "OpenAuth::run_migrations requires an adapter-backed instance".to_owned(),
+            )
+        })?;
+        adapter.run_migrations(&self.context.db_schema).await
+    }
 }
 
 /// Initialize OpenAuth with the default product endpoint set.
@@ -70,15 +92,20 @@ pub fn open_auth_with_adapter_and_endpoints(
     extra_endpoints: Vec<AuthEndpoint>,
     async_endpoints: Vec<AsyncAuthEndpoint>,
 ) -> Result<OpenAuth, OpenAuthError> {
-    let adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
-        auth_schema(Default::default()),
+    let context = create_auth_context(options.clone())?;
+    let hooked_adapter: Arc<dyn DbAdapter> = Arc::new(HookedAdapter::new(
         adapter,
+        context.plugin_database_hooks.clone(),
+    ));
+    let adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
+        context.db_schema.clone(),
+        hooked_adapter,
         options.experimental.joins,
     ));
     let context = create_auth_context_with_adapter(options.clone(), Arc::clone(&adapter))?;
     let mut endpoints = core_endpoints();
     endpoints.extend(extra_endpoints);
-    let mut product_async_endpoints = core_auth_async_endpoints(adapter);
+    let mut product_async_endpoints = core_auth_async_endpoints(Arc::clone(&adapter));
     product_async_endpoints.extend(async_endpoints);
     let router =
         AuthRouter::with_async_endpoints(context.clone(), endpoints, product_async_endpoints)?;
@@ -86,6 +113,7 @@ pub fn open_auth_with_adapter_and_endpoints(
         router,
         options,
         context,
+        adapter: Some(adapter),
     })
 }
 
@@ -103,5 +131,6 @@ pub fn open_auth_with_endpoints(
         router,
         options,
         context,
+        adapter: None,
     })
 }

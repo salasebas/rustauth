@@ -4,14 +4,18 @@ use openauth::{
     open_auth_with_endpoints, AdvancedOptions, ApiErrorResponse, ApiRequest, ApiResponse,
     AsyncAuthEndpoint, AuthEndpoint, AuthEndpointOptions, AuthPlugin, BodyField, BodySchema,
     ChangeEmailOptions, CookieCacheStrategy, DeleteUserOptions, EmailVerificationOptions,
-    EndpointKind, JsonSchemaType, MemoryAdapter, OpenApiOperation, OpenAuthError, OpenAuthOptions,
-    PathParams, PluginRequestAction, ProviderOptions, RateLimitOptions, SessionAdditionalField,
-    SessionAuth, SessionOptions, SignOutResult, SocialOAuthProvider, TrustedOriginOptions,
-    UpdateUserInput, UserOptions, VerificationEmail,
+    EndpointKind, HookedAdapter, JsonSchemaType, MemoryAdapter, OpenApiOperation, OpenAuthError,
+    OpenAuthOptions, PathParams, PluginAfterHookAction, PluginBeforeHookAction,
+    PluginDatabaseAfterInput, PluginDatabaseBeforeAction, PluginDatabaseBeforeInput,
+    PluginDatabaseHook, PluginDatabaseHookContext, PluginDatabaseOperation, PluginEndpoint,
+    PluginEndpointHooks, PluginErrorCode, PluginHookMatcher, PluginInitOutput, PluginMigration,
+    PluginRateLimitRule, PluginRequestAction, PluginSchemaContribution, ProviderOptions,
+    RateLimitOptions, SessionAdditionalField, SessionAuth, SessionOptions, SignOutResult,
+    SocialOAuthProvider, TrustedOriginOptions, UpdateUserInput, UserOptions, VerificationEmail,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 #[test]
 fn openauth_crate_exposes_product_initializer() -> Result<(), Box<dyn std::error::Error>> {
@@ -116,6 +120,34 @@ fn openauth_crate_reexports_core_contract_types() {
         original_message: None,
     };
     let _plugin = AuthPlugin::new("test-plugin");
+    let _plugin_endpoint_type: Option<PluginEndpoint> = None;
+    let _plugin_init = PluginInitOutput::new();
+    let _plugin_error = PluginErrorCode::new("PLUGIN_ERROR", "Plugin error");
+    let _plugin_rate_rule =
+        PluginRateLimitRule::new("/plugin/*", openauth::RateLimitRule { window: 10, max: 1 });
+    let _plugin_schema_type: Option<PluginSchemaContribution> = None;
+    let _plugin_hooks = PluginEndpointHooks::default();
+    let _plugin_matcher = PluginHookMatcher::path("/plugin/*");
+    let _hooked_adapter_type: Option<HookedAdapter> = None;
+    let _plugin_db_operation = PluginDatabaseOperation::Create;
+    let _plugin_db_context = PluginDatabaseHookContext {
+        plugin_id: "test-plugin".to_owned(),
+        hook_name: "audit".to_owned(),
+        operation: PluginDatabaseOperation::Create,
+        model: "user".to_owned(),
+    };
+    let _plugin_db_before_input: Option<PluginDatabaseBeforeInput> = None;
+    let _plugin_db_after_input: Option<PluginDatabaseAfterInput> = None;
+    let _plugin_db_before_action =
+        PluginDatabaseBeforeAction::Cancel(OpenAuthError::Api("blocked".to_owned()));
+    let _plugin_db_hook = PluginDatabaseHook::before_create("audit", |_context, query| {
+        Ok(PluginDatabaseBeforeAction::Continue(
+            PluginDatabaseBeforeInput::Create(query),
+        ))
+    });
+    let _plugin_migration = PluginMigration::new("create_plugin_tables");
+    let _before_action_type: Option<PluginBeforeHookAction> = None;
+    let _after_action_type: Option<PluginAfterHookAction> = None;
     let _action_type: Option<PluginRequestAction> = None;
     let _trusted_origins = TrustedOriginOptions::default();
     let _rate_limit = RateLimitOptions::default();
@@ -282,6 +314,140 @@ async fn openauth_with_adapter_supports_email_password_session_flow(
         .await?;
     let body: Value = serde_json::from_slice(after.body())?;
     assert!(body.is_null());
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_with_adapter_runs_database_hooks_for_core_endpoints(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = AuthPlugin::new("profile-hook").with_database_hook(
+        PluginDatabaseHook::before_create("rewrite-user-name", |_context, mut query| {
+            if query.model == "user" {
+                query.data.insert(
+                    "name".to_owned(),
+                    openauth::db::DbValue::String("Hooked".to_owned()),
+                );
+            }
+            Ok(PluginDatabaseBeforeAction::Continue(
+                PluginDatabaseBeforeInput::Create(query),
+            ))
+        }),
+    );
+    let auth = open_auth_with_adapter(
+        OpenAuthOptions {
+            plugins: vec![plugin],
+            ..test_options()
+        },
+        Arc::new(MemoryAdapter::new()),
+    )?;
+
+    let sign_up = auth
+        .handler_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada-hooked@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(sign_up.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(sign_up.body())?;
+    assert_eq!(body["user"]["name"], "Hooked");
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_create_schema_uses_plugin_augmented_schema(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let captured_schema = Arc::new(StdMutex::new(None));
+    let adapter = SchemaCapturingAdapter {
+        captured_schema: Arc::clone(&captured_schema),
+    };
+    let plugin = AuthPlugin::new("profile-schema").with_schema(PluginSchemaContribution::field(
+        "user",
+        "tenant_id",
+        openauth::db::DbField::new("tenant_id", openauth::db::DbFieldType::String).optional(),
+    ));
+    let auth = open_auth_with_adapter(
+        OpenAuthOptions {
+            plugins: vec![plugin],
+            ..test_options()
+        },
+        Arc::new(adapter),
+    )?;
+
+    auth.create_schema(None).await?;
+
+    let schema = captured_schema
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("schema lock poisoned".to_owned()))?
+        .clone()
+        .ok_or("schema was not passed to adapter")?;
+    let user_table = schema.table("user").ok_or("user table missing")?;
+    assert!(user_table.field("tenant_id").is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_run_migrations_uses_plugin_augmented_schema_and_is_explicit(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let captured_schema = Arc::new(StdMutex::new(None));
+    let adapter = SchemaCapturingAdapter {
+        captured_schema: Arc::clone(&captured_schema),
+    };
+    let plugin = AuthPlugin::new("migration-schema").with_schema(PluginSchemaContribution::field(
+        "user",
+        "workspace_id",
+        openauth::db::DbField::new("workspace_id", openauth::db::DbFieldType::String).optional(),
+    ));
+    let auth = open_auth_with_adapter(
+        OpenAuthOptions {
+            plugins: vec![plugin],
+            ..test_options()
+        },
+        Arc::new(adapter),
+    )?;
+
+    assert!(captured_schema
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("schema lock poisoned".to_owned()))?
+        .is_none());
+
+    auth.run_migrations().await?;
+
+    let schema = captured_schema
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("schema lock poisoned".to_owned()))?
+        .clone()
+        .ok_or("migration schema was not passed to adapter")?;
+    let user_table = schema.table("user").ok_or("user table missing")?;
+    assert!(user_table.field("workspace_id").is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_create_schema_without_adapter_returns_invalid_config(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth = open_auth(test_options())?;
+
+    let result = auth.create_schema(None).await;
+
+    assert!(
+        matches!(result, Err(OpenAuthError::InvalidConfig(message)) if message.contains("requires an adapter-backed instance"))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_run_migrations_without_adapter_returns_invalid_config(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth = open_auth(test_options())?;
+
+    let result = auth.run_migrations().await;
+
+    assert!(
+        matches!(result, Err(OpenAuthError::InvalidConfig(message)) if message.contains("requires an adapter-backed instance"))
+    );
     Ok(())
 }
 
@@ -526,4 +692,102 @@ fn set_cookie_values(response: &http::Response<Vec<u8>>) -> Vec<String> {
         .iter()
         .filter_map(|value| value.to_str().ok().map(str::to_owned))
         .collect()
+}
+
+struct SchemaCapturingAdapter {
+    captured_schema: Arc<StdMutex<Option<openauth::db::DbSchema>>>,
+}
+
+impl openauth::db::DbAdapter for SchemaCapturingAdapter {
+    fn id(&self) -> &str {
+        "schema-capture"
+    }
+
+    fn capabilities(&self) -> openauth::db::AdapterCapabilities {
+        openauth::db::AdapterCapabilities::new(self.id())
+    }
+
+    fn create<'a>(
+        &'a self,
+        _query: openauth::db::Create,
+    ) -> openauth::db::AdapterFuture<'a, openauth::db::DbRecord> {
+        Box::pin(async { Ok(openauth::db::DbRecord::new()) })
+    }
+
+    fn find_one<'a>(
+        &'a self,
+        _query: openauth::db::FindOne,
+    ) -> openauth::db::AdapterFuture<'a, Option<openauth::db::DbRecord>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn find_many<'a>(
+        &'a self,
+        _query: openauth::db::FindMany,
+    ) -> openauth::db::AdapterFuture<'a, Vec<openauth::db::DbRecord>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn count<'a>(&'a self, _query: openauth::db::Count) -> openauth::db::AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn update<'a>(
+        &'a self,
+        _query: openauth::db::Update,
+    ) -> openauth::db::AdapterFuture<'a, Option<openauth::db::DbRecord>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn update_many<'a>(
+        &'a self,
+        _query: openauth::db::UpdateMany,
+    ) -> openauth::db::AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn delete<'a>(&'a self, _query: openauth::db::Delete) -> openauth::db::AdapterFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn delete_many<'a>(
+        &'a self,
+        _query: openauth::db::DeleteMany,
+    ) -> openauth::db::AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn transaction<'a>(
+        &'a self,
+        callback: openauth::db::TransactionCallback<'a>,
+    ) -> openauth::db::AdapterFuture<'a, ()> {
+        callback(Box::new(self))
+    }
+
+    fn create_schema<'a>(
+        &'a self,
+        schema: &'a openauth::db::DbSchema,
+        _file: Option<&'a str>,
+    ) -> openauth::db::AdapterFuture<'a, Option<openauth::db::SchemaCreation>> {
+        Box::pin(async move {
+            self.captured_schema
+                .lock()
+                .map_err(|_| OpenAuthError::Adapter("schema lock poisoned".to_owned()))?
+                .replace(schema.clone());
+            Ok(None)
+        })
+    }
+
+    fn run_migrations<'a>(
+        &'a self,
+        schema: &'a openauth::db::DbSchema,
+    ) -> openauth::db::AdapterFuture<'a, ()> {
+        Box::pin(async move {
+            self.captured_schema
+                .lock()
+                .map_err(|_| OpenAuthError::Adapter("schema lock poisoned".to_owned()))?
+                .replace(schema.clone());
+            Ok(())
+        })
+    }
 }

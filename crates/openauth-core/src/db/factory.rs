@@ -116,7 +116,11 @@ where
     }
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
-        callback(self)
+        let schema = self.schema.clone();
+        self.inner.transaction(Box::new(move |transaction| {
+            let adapter = SchemaAdapter::new(schema, transaction);
+            callback(Box::new(adapter))
+        }))
     }
 
     fn create_schema<'a>(
@@ -126,25 +130,34 @@ where
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         self.inner.create_schema(&self.schema, file)
     }
+
+    fn run_migrations<'a>(&'a self, _schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        self.inner.run_migrations(&self.schema)
+    }
 }
 
 /// Adapter wrapper that resolves OpenAuth join options at runtime.
 #[derive(Clone)]
-pub struct JoinAdapter {
+pub struct JoinAdapter<A = Arc<dyn DbAdapter>> {
     schema: DbSchema,
-    inner: Arc<dyn DbAdapter>,
+    inner: A,
     experimental_joins: bool,
 }
 
-impl JoinAdapter {
-    pub fn new(schema: DbSchema, inner: Arc<dyn DbAdapter>, experimental_joins: bool) -> Self {
+impl<A> JoinAdapter<A> {
+    pub fn new(schema: DbSchema, inner: A, experimental_joins: bool) -> Self {
         Self {
             schema,
             inner,
             experimental_joins,
         }
     }
+}
 
+impl<A> JoinAdapter<A>
+where
+    A: DbAdapter,
+{
     fn should_delegate_joins(&self) -> bool {
         self.experimental_joins && self.inner.capabilities().supports_joins
     }
@@ -185,7 +198,10 @@ impl JoinAdapter {
     }
 }
 
-impl std::fmt::Debug for JoinAdapter {
+impl<A> std::fmt::Debug for JoinAdapter<A>
+where
+    A: DbAdapter,
+{
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("JoinAdapter")
@@ -196,7 +212,10 @@ impl std::fmt::Debug for JoinAdapter {
     }
 }
 
-impl DbAdapter for JoinAdapter {
+impl<A> DbAdapter for JoinAdapter<A>
+where
+    A: DbAdapter,
+{
     fn id(&self) -> &str {
         self.inner.id()
     }
@@ -250,7 +269,12 @@ impl DbAdapter for JoinAdapter {
     }
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
-        self.inner.transaction(callback)
+        let schema = self.schema.clone();
+        let experimental_joins = self.experimental_joins;
+        self.inner.transaction(Box::new(move |transaction| {
+            let adapter = JoinAdapter::new(schema, transaction, experimental_joins);
+            callback(Box::new(adapter))
+        }))
     }
 
     fn create_schema<'a>(
@@ -259,6 +283,10 @@ impl DbAdapter for JoinAdapter {
         file: Option<&'a str>,
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         self.inner.create_schema(schema, file)
+    }
+
+    fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        self.inner.run_migrations(schema)
     }
 }
 
@@ -271,11 +299,14 @@ struct FallbackJoin {
     limit: usize,
 }
 
-async fn attach_joins(
-    adapter: &Arc<dyn DbAdapter>,
+async fn attach_joins<A>(
+    adapter: &A,
     records: &mut [&mut DbRecord],
     joins: &[FallbackJoin],
-) -> Result<(), OpenAuthError> {
+) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter,
+{
     for join in joins {
         for record in records.iter_mut() {
             initialize_join_value(record, join);

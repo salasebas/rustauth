@@ -11,7 +11,7 @@ use crate::auth::trusted_origins::OriginMatchSettings;
 use crate::context::request_state::run_with_request_state;
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
-use crate::plugin::PluginRequestAction;
+use crate::plugin::{PluginAfterHookAction, PluginBeforeHookAction, PluginRequestAction};
 use crate::rate_limit::{on_request_rate_limit, on_response_rate_limit, RateLimitRejection};
 use crate::utils::url::normalize_pathname;
 use std::collections::BTreeMap;
@@ -434,10 +434,11 @@ pub struct AuthRouter {
 
 impl AuthRouter {
     pub fn new(context: AuthContext, endpoints: Vec<AuthEndpoint>) -> Self {
+        let async_endpoints = plugin_async_endpoints(&context, Vec::new());
         Self {
             context,
             endpoints,
-            async_endpoints: Vec::new(),
+            async_endpoints,
         }
     }
 
@@ -445,11 +446,12 @@ impl AuthRouter {
         context: AuthContext,
         endpoints: Vec<AuthEndpoint>,
     ) -> Result<Self, OpenAuthError> {
-        validate_endpoint_conflicts(&endpoints, &[])?;
+        let async_endpoints = plugin_async_endpoints(&context, Vec::new());
+        validate_endpoint_conflicts(&endpoints, &async_endpoints)?;
         Ok(Self {
             context,
             endpoints,
-            async_endpoints: Vec::new(),
+            async_endpoints,
         })
     }
 
@@ -458,6 +460,7 @@ impl AuthRouter {
         endpoints: Vec<AuthEndpoint>,
         async_endpoints: Vec<AsyncAuthEndpoint>,
     ) -> Result<Self, OpenAuthError> {
+        let async_endpoints = plugin_async_endpoints(&context, async_endpoints);
         validate_endpoint_conflicts(&endpoints, &async_endpoints)?;
         Ok(Self {
             context,
@@ -591,7 +594,19 @@ impl AuthRouter {
         if let Some(rejection) = on_request_rate_limit(&self.context, &request)? {
             return rate_limit_response(rejection);
         }
+        request = match run_before_hooks(&self.context, request, &endpoint.method, &path, None)? {
+            PluginBeforeHookAction::Continue(request) => request,
+            PluginBeforeHookAction::Respond(response) => return Ok(response),
+        };
         let response = (endpoint.handler)(&self.context, request.clone())?;
+        let response = run_after_hooks(
+            &self.context,
+            &request,
+            response,
+            &endpoint.method,
+            &path,
+            None,
+        )?;
         on_response_rate_limit(&self.context, &request)?;
         run_on_response_plugins(&self.context, &request, response)
     }
@@ -655,13 +670,44 @@ impl AuthRouter {
             {
                 return Ok(response);
             }
+            request = match run_before_hooks(
+                &self.context,
+                request,
+                &endpoint.method,
+                &path,
+                endpoint_operation_id(endpoint),
+            )? {
+                PluginBeforeHookAction::Continue(request) => request,
+                PluginBeforeHookAction::Respond(response) => return Ok(response),
+            };
             let response = (endpoint.handler)(&self.context, request.clone()).await?;
+            let response = run_after_hooks(
+                &self.context,
+                &request,
+                response,
+                &endpoint.method,
+                &path,
+                endpoint_operation_id(endpoint),
+            )?;
             on_response_rate_limit(&self.context, &request)?;
             return run_on_response_plugins(&self.context, &request, response);
         }
         if let Some((endpoint, params)) = sync_endpoint {
             request.extensions_mut().insert(PathParams::new(params));
+            request = match run_before_hooks(&self.context, request, &endpoint.method, &path, None)?
+            {
+                PluginBeforeHookAction::Continue(request) => request,
+                PluginBeforeHookAction::Respond(response) => return Ok(response),
+            };
             let response = (endpoint.handler)(&self.context, request.clone())?;
+            let response = run_after_hooks(
+                &self.context,
+                &request,
+                response,
+                &endpoint.method,
+                &path,
+                None,
+            )?;
             on_response_rate_limit(&self.context, &request)?;
             return run_on_response_plugins(&self.context, &request, response);
         }
@@ -1268,6 +1314,66 @@ fn run_on_response_plugins(
         }
     }
     Ok(response)
+}
+
+fn run_before_hooks(
+    context: &AuthContext,
+    mut request: ApiRequest,
+    method: &Method,
+    path: &str,
+    operation_id: Option<&str>,
+) -> Result<PluginBeforeHookAction, OpenAuthError> {
+    for plugin in &context.plugins {
+        for hook in &plugin.hooks.before {
+            if hook.matcher.matches(method, path, operation_id) {
+                match (hook.handler)(context, request)? {
+                    PluginBeforeHookAction::Continue(next_request) => request = next_request,
+                    PluginBeforeHookAction::Respond(response) => {
+                        return Ok(PluginBeforeHookAction::Respond(response));
+                    }
+                }
+            }
+        }
+    }
+    Ok(PluginBeforeHookAction::Continue(request))
+}
+
+fn run_after_hooks(
+    context: &AuthContext,
+    request: &ApiRequest,
+    mut response: ApiResponse,
+    method: &Method,
+    path: &str,
+    operation_id: Option<&str>,
+) -> Result<ApiResponse, OpenAuthError> {
+    for plugin in &context.plugins {
+        for hook in &plugin.hooks.after {
+            if hook.matcher.matches(method, path, operation_id) {
+                let PluginAfterHookAction::Continue(next_response) =
+                    (hook.handler)(context, request, response)?;
+                response = next_response;
+            }
+        }
+    }
+    Ok(response)
+}
+
+fn plugin_async_endpoints(
+    context: &AuthContext,
+    mut async_endpoints: Vec<AsyncAuthEndpoint>,
+) -> Vec<AsyncAuthEndpoint> {
+    for plugin in &context.plugins {
+        async_endpoints.extend(plugin.endpoints.iter().cloned());
+    }
+    async_endpoints
+}
+
+fn endpoint_operation_id(endpoint: &AsyncAuthEndpoint) -> Option<&str> {
+    endpoint
+        .options
+        .operation_id
+        .as_deref()
+        .or_else(|| endpoint.options.openapi.as_ref()?.operation_id.as_deref())
 }
 
 fn validate_endpoint_conflicts(

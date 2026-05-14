@@ -120,11 +120,11 @@ impl DbAdapter for SqliteAdapter {
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
             let tx = self.pool.begin().await.map_err(sql_error)?;
-            let adapter = SqliteTxAdapter {
+            let adapter = Arc::new(SqliteTxAdapter {
                 schema: Arc::clone(&self.schema),
                 tx: Mutex::new(Some(tx)),
-            };
-            let result = callback(&adapter).await;
+            });
+            let result = callback(Box::new(Arc::clone(&adapter))).await;
             let mut guard = adapter.tx.lock().await;
             let Some(tx) = guard.take() else {
                 return Err(OpenAuthError::Adapter(
@@ -154,6 +154,13 @@ impl DbAdapter for SqliteAdapter {
                 .map_err(sql_error)?;
             create_schema(SqliteExecutor::Pool(&self.pool), schema).await?;
             Ok(None)
+        })
+    }
+
+    fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        Box::pin(async move {
+            self.create_schema(schema, None).await?;
+            Ok(())
         })
     }
 }
@@ -209,7 +216,7 @@ impl DbAdapter for SqliteTxAdapter<'_> {
     }
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
-        callback(self)
+        callback(Box::new(self))
     }
 }
 
