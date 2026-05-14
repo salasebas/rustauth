@@ -15,7 +15,16 @@ categories.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+http.workspace = true
 openauth-core.workspace = true
+openauth-social-providers.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true
