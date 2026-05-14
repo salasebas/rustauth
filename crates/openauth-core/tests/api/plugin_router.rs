@@ -1,6 +1,12 @@
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+
 use http::{Method, Request, StatusCode};
 use openauth_core::api::{
-    create_auth_endpoint, response, ApiRequest, ApiResponse, AuthEndpoint, AuthRouter,
+    create_auth_endpoint, response, ApiRequest, ApiResponse, AuthEndpoint, AuthEndpointOptions,
+    AuthRouter, EndpointMiddleware,
 };
 use openauth_core::context::{create_auth_context, AuthContext};
 use openauth_core::db::{DbField, DbFieldType};
@@ -110,6 +116,134 @@ fn middleware_matches_path_and_can_block_endpoint() -> Result<(), Box<dyn std::e
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(response.body(), b"BLOCKED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn async_middleware_matches_path_and_can_block_async_endpoint(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = AuthPlugin::new("async-middleware").with_async_middleware(
+        "/admin/*",
+        |_context, _request| {
+            Box::pin(async { response(StatusCode::FORBIDDEN, b"BLOCKED".to_vec()).map(Some) })
+        },
+    );
+    let context = create_auth_context(OpenAuthOptions {
+        plugins: vec![plugin],
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let async_endpoint = create_auth_endpoint(
+        "/admin/list",
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context, _request| Box::pin(async { response(StatusCode::OK, b"OK".to_vec()) }),
+    );
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), vec![async_endpoint])?;
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/admin/list")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(response.body(), b"BLOCKED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn async_middleware_ignores_non_matching_paths() -> Result<(), Box<dyn std::error::Error>> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_for_middleware = Arc::clone(&calls);
+    let plugin = AuthPlugin::new("async-middleware").with_async_middleware(
+        "/admin/*",
+        move |_context, _request| {
+            let calls = Arc::clone(&calls_for_middleware);
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                response(StatusCode::FORBIDDEN, b"BLOCKED".to_vec()).map(Some)
+            })
+        },
+    );
+    let context = create_auth_context(OpenAuthOptions {
+        plugins: vec![plugin],
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let async_endpoint = create_auth_endpoint(
+        "/account/list",
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context, _request| Box::pin(async { response(StatusCode::OK, b"OK".to_vec()) }),
+    );
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), vec![async_endpoint])?;
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/account/list")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn async_middleware_runs_before_endpoint_middleware() -> Result<(), Box<dyn std::error::Error>>
+{
+    let order = Arc::new(AtomicUsize::new(0));
+    let plugin_order = Arc::clone(&order);
+    let endpoint_order = Arc::clone(&order);
+    let plugin = AuthPlugin::new("async-middleware").with_async_middleware(
+        "/protected",
+        move |_context, _request| {
+            let plugin_order = Arc::clone(&plugin_order);
+            Box::pin(async move {
+                assert_eq!(plugin_order.fetch_add(1, Ordering::SeqCst), 0);
+                Ok(None)
+            })
+        },
+    );
+    let context = create_auth_context(OpenAuthOptions {
+        plugins: vec![plugin],
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let async_endpoint = create_auth_endpoint(
+        "/protected",
+        Method::GET,
+        AuthEndpointOptions::new().middleware(EndpointMiddleware::new(
+            move |_context, _request| {
+                let endpoint_order = Arc::clone(&endpoint_order);
+                Box::pin(async move {
+                    assert_eq!(endpoint_order.fetch_add(1, Ordering::SeqCst), 1);
+                    Ok(None)
+                })
+            },
+        )),
+        |_context, _request| Box::pin(async { response(StatusCode::OK, b"OK".to_vec()) }),
+    );
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), vec![async_endpoint])?;
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/protected")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(order.load(Ordering::SeqCst), 2);
     Ok(())
 }
 

@@ -1075,11 +1075,14 @@ dependencies = [
  "base64",
  "http",
  "openauth-core",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
+ "thiserror",
  "time",
  "tokio",
+ "url",
 ]
 
 [[package]]

@@ -43,6 +43,23 @@ pub(super) fn run_matching_middlewares(
     Ok(None)
 }
 
+pub(super) async fn run_matching_async_middlewares(
+    context: &AuthContext,
+    request: &ApiRequest,
+    path: &str,
+) -> Result<Option<ApiResponse>, OpenAuthError> {
+    for plugin in &context.plugins {
+        for middleware in &plugin.async_middlewares {
+            if path_matches(&middleware.path, path) {
+                if let Some(response) = (middleware.handler)(context, request).await? {
+                    return Ok(Some(response));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub(super) fn run_on_response_plugins(
     context: &AuthContext,
     request: &ApiRequest,

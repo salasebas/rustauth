@@ -1,5 +1,8 @@
 //! Plugin contracts for OpenAuth extensions.
 
+use std::future::Future;
+use std::pin::Pin;
+
 mod db;
 mod endpoint;
 mod error;
@@ -36,6 +39,8 @@ use std::sync::Arc;
 pub type PluginBody = Vec<u8>;
 pub type PluginRequest = Request<PluginBody>;
 pub type PluginResponse = Response<PluginBody>;
+pub type PluginMiddlewareFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Option<PluginResponse>, OpenAuthError>> + Send + 'a>>;
 pub type PluginOnRequest = Arc<
     dyn Fn(&AuthContext, PluginRequest) -> Result<PluginRequestAction, OpenAuthError> + Send + Sync,
 >;
@@ -49,6 +54,9 @@ pub type PluginMiddlewareHandler = Arc<
         + Send
         + Sync,
 >;
+pub type PluginAsyncMiddlewareHandler = Arc<
+    dyn for<'a> Fn(&'a AuthContext, &'a PluginRequest) -> PluginMiddlewareFuture<'a> + Send + Sync,
+>;
 
 #[derive(Clone)]
 pub struct AuthPlugin {
@@ -57,6 +65,7 @@ pub struct AuthPlugin {
     pub options: Option<Value>,
     pub endpoints: Vec<AsyncAuthEndpoint>,
     pub middlewares: Vec<PluginMiddleware>,
+    pub async_middlewares: Vec<PluginAsyncMiddleware>,
     pub on_request: Option<PluginOnRequest>,
     pub on_response: Option<PluginOnResponse>,
     pub init: Option<PluginInitHandler>,
@@ -77,6 +86,7 @@ impl AuthPlugin {
             options: None,
             endpoints: Vec::new(),
             middlewares: Vec::new(),
+            async_middlewares: Vec::new(),
             on_request: None,
             on_response: None,
             init: None,
@@ -210,6 +220,20 @@ impl AuthPlugin {
         self
     }
 
+    pub fn with_async_middleware<F>(mut self, path: impl Into<String>, middleware: F) -> Self
+    where
+        F: for<'a> Fn(&'a AuthContext, &'a PluginRequest) -> PluginMiddlewareFuture<'a>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.async_middlewares.push(PluginAsyncMiddleware {
+            path: path.into(),
+            handler: Arc::new(middleware),
+        });
+        self
+    }
+
     pub fn with_on_request<F>(mut self, hook: F) -> Self
     where
         F: Fn(&AuthContext, PluginRequest) -> Result<PluginRequestAction, OpenAuthError>
@@ -246,6 +270,7 @@ impl fmt::Debug for AuthPlugin {
             .field("options", &self.options)
             .field("endpoints", &self.endpoints.len())
             .field("middlewares", &self.middlewares)
+            .field("async_middlewares", &self.async_middlewares)
             .field("on_request", &self.on_request.as_ref().map(|_| "<hook>"))
             .field("on_response", &self.on_response.as_ref().map(|_| "<hook>"))
             .field("init", &self.init.as_ref().map(|_| "<init>"))
@@ -279,6 +304,22 @@ impl fmt::Debug for PluginMiddleware {
             .debug_struct("PluginMiddleware")
             .field("path", &self.path)
             .field("handler", &"<middleware>")
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+pub struct PluginAsyncMiddleware {
+    pub path: String,
+    pub handler: PluginAsyncMiddlewareHandler,
+}
+
+impl fmt::Debug for PluginAsyncMiddleware {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PluginAsyncMiddleware")
+            .field("path", &self.path)
+            .field("handler", &"<async middleware>")
             .finish()
     }
 }
