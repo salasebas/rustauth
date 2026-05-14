@@ -1,0 +1,19 @@
+# Project-local Codex defaults for OpenAuth.
+#
+# This keeps normal work inside the repository while allowing Rust/OAuth tests
+# to bind temporary localhost listeners.
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+default_permissions = "openauth-dev"
+
+[permissions.openauth-dev.filesystem]
+":project_roots" = "write"
+
+[permissions.openauth-dev.network]
+enabled = true
+mode = "limited"
+allow_local_binding = true
+
+[features]
+hooks = true
