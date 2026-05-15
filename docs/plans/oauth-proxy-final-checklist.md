@@ -10,6 +10,6 @@
 - [x] Read `user` from query or form body in callback.
 - [x] Keep OAuth proxy modules and `social.rs` within target size.
 - [x] Run focused and workspace verification.
-- [ ] Commit robustness changes.
-- [ ] Merge `feat/oauth-proxy-plugin` into local `main`.
-- [ ] Run post-merge verification on `main`.
+- [x] Commit robustness changes.
+- [x] Merge `feat/oauth-proxy-plugin` into local `main`.
+- [x] Run post-merge verification on `main`.
