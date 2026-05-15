@@ -2,16 +2,17 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::db::{DbFieldType, DbRecord, DbValue};
+use crate::db::{DbAdapter, DbFieldType, DbRecord, DbValue, FindOne, User, Where};
 use crate::error::OpenAuthError;
 use crate::options::{SessionAdditionalField, UserAdditionalField};
 
-pub(crate) trait AdditionalField {
+pub trait AdditionalField {
     fn field_type(&self) -> &DbFieldType;
     fn required(&self) -> bool;
     fn input(&self) -> bool;
     fn returned(&self) -> bool;
     fn default_value(&self) -> Option<&DbValue>;
+    fn db_name(&self) -> Option<&str>;
 }
 
 impl AdditionalField for UserAdditionalField {
@@ -33,6 +34,10 @@ impl AdditionalField for UserAdditionalField {
 
     fn default_value(&self) -> Option<&DbValue> {
         self.default_value.as_ref()
+    }
+
+    fn db_name(&self) -> Option<&str> {
+        self.db_name.as_deref()
     }
 }
 
@@ -56,9 +61,13 @@ impl AdditionalField for SessionAdditionalField {
     fn default_value(&self) -> Option<&DbValue> {
         self.default_value.as_ref()
     }
+
+    fn db_name(&self) -> Option<&str> {
+        self.db_name.as_deref()
+    }
 }
 
-pub(crate) fn create_values<F>(
+pub fn create_values<F>(
     fields: &BTreeMap<String, F>,
     body: &serde_json::Map<String, Value>,
 ) -> Result<DbRecord, AdditionalFieldError>
@@ -73,18 +82,18 @@ where
                     return Err(AdditionalFieldError::NotInput(name.clone()));
                 }
                 values.insert(
-                    name.clone(),
+                    storage_name(name, field),
                     json_to_db_value(name, field.field_type(), value)
                         .map_err(AdditionalFieldError::InvalidType)?,
                 );
             }
             None => {
                 if let Some(value) = field.default_value() {
-                    values.insert(name.clone(), value.clone());
+                    values.insert(storage_name(name, field), value.clone());
                 } else if field.required() {
                     return Err(AdditionalFieldError::MissingRequired(name.clone()));
                 } else {
-                    values.insert(name.clone(), DbValue::Null);
+                    values.insert(storage_name(name, field), DbValue::Null);
                 }
             }
         }
@@ -92,7 +101,7 @@ where
     Ok(values)
 }
 
-pub(crate) fn update_values<F>(
+pub fn update_values<F>(
     fields: &BTreeMap<String, F>,
     body: &serde_json::Map<String, Value>,
 ) -> Result<DbRecord, AdditionalFieldError>
@@ -108,7 +117,7 @@ where
             return Err(AdditionalFieldError::NotInput(name.clone()));
         }
         values.insert(
-            name.clone(),
+            storage_name(name, field),
             json_to_db_value(name, field.field_type(), value)
                 .map_err(AdditionalFieldError::InvalidType)?,
         );
@@ -116,7 +125,7 @@ where
     Ok(values)
 }
 
-pub(crate) fn insert_returned_fields<F>(
+pub fn insert_returned_fields<F>(
     object: &mut serde_json::Map<String, Value>,
     fields: &BTreeMap<String, F>,
     record: &DbRecord,
@@ -130,6 +139,7 @@ where
         }
         let value = record
             .get(name)
+            .or_else(|| field.db_name().and_then(|db_name| record.get(db_name)))
             .or_else(|| field.default_value())
             .unwrap_or(&DbValue::Null);
         object.insert(name.clone(), db_value_to_json(value)?);
@@ -137,7 +147,17 @@ where
     Ok(())
 }
 
-pub(crate) fn db_value_to_json(value: &DbValue) -> Result<Value, OpenAuthError> {
+fn storage_name<F>(logical_name: &str, field: &F) -> String
+where
+    F: AdditionalField,
+{
+    field
+        .db_name()
+        .map(str::to_owned)
+        .unwrap_or_else(|| logical_name.to_owned())
+}
+
+pub fn db_value_to_json(value: &DbValue) -> Result<Value, OpenAuthError> {
     match value {
         DbValue::String(value) => Ok(Value::String(value.clone())),
         DbValue::Number(value) => Ok(Value::Number((*value).into())),
@@ -165,7 +185,7 @@ pub(crate) fn db_value_to_json(value: &DbValue) -> Result<Value, OpenAuthError> 
     }
 }
 
-pub(crate) fn json_to_db_value(
+pub fn json_to_db_value(
     name: &str,
     field_type: &DbFieldType,
     value: &Value,
@@ -200,20 +220,46 @@ pub(crate) fn json_to_db_value(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AdditionalFieldError {
+pub enum AdditionalFieldError {
     MissingRequired(String),
     NotInput(String),
     InvalidType(String),
 }
 
 impl AdditionalFieldError {
-    pub(crate) fn message(&self) -> String {
+    pub fn message(&self) -> String {
         match self {
             Self::MissingRequired(name) => format!("missing required additional field `{name}`"),
             Self::NotInput(name) => format!("additional field `{name}` is not accepted as input"),
             Self::InvalidType(message) => message.clone(),
         }
     }
+}
+
+pub async fn user_response_value(
+    adapter: &dyn DbAdapter,
+    fields: &BTreeMap<String, UserAdditionalField>,
+    user: &User,
+) -> Result<Value, OpenAuthError> {
+    if fields.is_empty() {
+        return serde_json::to_value(user).map_err(|error| OpenAuthError::Api(error.to_string()));
+    }
+    let record = adapter
+        .find_one(
+            FindOne::new("user").where_clause(Where::new("id", DbValue::String(user.id.clone()))),
+        )
+        .await?;
+    let mut value =
+        serde_json::to_value(user).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let Some(object) = value.as_object_mut() else {
+        return Err(OpenAuthError::Api(
+            "could not serialize user as an object".to_owned(),
+        ));
+    };
+    if let Some(record) = record {
+        insert_returned_fields(object, fields, &record)?;
+    }
+    Ok(value)
 }
 
 fn db_record_to_json(record: &DbRecord) -> Result<Value, OpenAuthError> {

@@ -9,7 +9,10 @@ pub use account_linking::{
 };
 pub use errors::{missing_email_log_message, OAuthUserInfoError};
 pub use state::{
-    generate_oauth_state, parse_oauth_state, GeneratedOAuthState, OAuthStateData, OAuthStateInput,
-    OAuthStateLink,
+    generate_oauth_state, oauth_state_identifier, parse_oauth_state, GeneratedOAuthState,
+    OAuthStateData, OAuthStateInput, OAuthStateLink,
 };
 pub use tokens::{decrypt_oauth_token, set_token_util};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuthBaseUrlOverride(pub String);

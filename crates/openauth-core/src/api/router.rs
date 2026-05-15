@@ -1,7 +1,7 @@
 use http::StatusCode;
 use serde_json::{json, Value};
 
-use crate::context::request_state::run_with_request_state;
+use crate::context::request_state::{run_with_request_state, set_current_request_path};
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use crate::plugin::{PluginBeforeHookAction, PluginRequestAction};
@@ -17,8 +17,9 @@ use super::openapi::{openapi_model_schemas, openapi_operation_for_endpoint, to_o
 use super::path::{match_path_pattern, route_pathname, PathParams};
 use super::plugin_pipeline::{
     endpoint_operation_id, plugin_async_endpoints, run_after_hooks, run_async_after_hooks,
-    run_before_hooks, run_matching_async_middlewares, run_matching_middlewares,
-    run_on_request_plugins, run_on_response_plugins, validate_endpoint_conflicts,
+    run_async_before_hooks, run_before_hooks, run_matching_async_middlewares,
+    run_matching_middlewares, run_on_request_plugins, run_on_response_plugins,
+    validate_endpoint_conflicts,
 };
 use super::security::validate_request_security;
 
@@ -74,23 +75,30 @@ impl AuthRouter {
             operation_id: None,
             allowed_media_types: Vec::new(),
         });
-        let async_endpoints = self.async_endpoints.iter().map(|endpoint| EndpointInfo {
-            path: endpoint.path.clone(),
-            method: endpoint.method.clone(),
-            kind: EndpointKind::Async,
-            operation_id: endpoint
-                .options
-                .operation_id
-                .clone()
-                .or_else(|| endpoint.options.openapi.as_ref()?.operation_id.clone()),
-            allowed_media_types: endpoint.options.allowed_media_types.clone(),
-        });
+        let async_endpoints = self
+            .async_endpoints
+            .iter()
+            .filter(|endpoint| !endpoint.options.server_only)
+            .map(|endpoint| EndpointInfo {
+                path: endpoint.path.clone(),
+                method: endpoint.method.clone(),
+                kind: EndpointKind::Async,
+                operation_id: endpoint
+                    .options
+                    .operation_id
+                    .clone()
+                    .or_else(|| endpoint.options.openapi.as_ref()?.operation_id.clone()),
+                allowed_media_types: endpoint.options.allowed_media_types.clone(),
+            });
         sync_endpoints.chain(async_endpoints).collect()
     }
 
     pub fn openapi_schema(&self) -> Value {
         let mut paths = serde_json::Map::new();
         for endpoint in &self.async_endpoints {
+            if endpoint.options.server_only {
+                continue;
+            }
             let path = paths
                 .entry(to_openapi_path(&endpoint.path))
                 .or_insert_with(|| Value::Object(serde_json::Map::new()));
@@ -176,6 +184,7 @@ impl AuthRouter {
         }) else {
             if self.async_endpoints.iter().any(|endpoint| {
                 endpoint.method == *request.method()
+                    && !endpoint.options.server_only
                     && match_path_pattern(&endpoint.path, &path).is_some()
             }) {
                 return Err(OpenAuthError::Api(
@@ -263,6 +272,10 @@ impl AuthRouter {
             return rate_limit_response(rejection);
         }
         if let Some((endpoint, params)) = async_endpoint {
+            if endpoint.options.server_only {
+                return api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound);
+            }
+            set_current_request_path(path.clone())?;
             request.extensions_mut().insert(PathParams::new(params));
             if let Some(response) = validate_async_endpoint_request(endpoint, &request)? {
                 return Ok(response);
@@ -279,6 +292,18 @@ impl AuthRouter {
                 &path,
                 endpoint_operation_id(endpoint),
             )? {
+                PluginBeforeHookAction::Continue(request) => request,
+                PluginBeforeHookAction::Respond(response) => return Ok(response),
+            };
+            request = match run_async_before_hooks(
+                &self.context,
+                request,
+                &endpoint.method,
+                &path,
+                endpoint_operation_id(endpoint),
+            )
+            .await?
+            {
                 PluginBeforeHookAction::Continue(request) => request,
                 PluginBeforeHookAction::Respond(response) => return Ok(response),
             };
@@ -304,12 +329,20 @@ impl AuthRouter {
             return run_on_response_plugins(&self.context, &request, response);
         }
         if let Some((endpoint, params)) = sync_endpoint {
+            set_current_request_path(path.clone())?;
             request.extensions_mut().insert(PathParams::new(params));
             request = match run_before_hooks(&self.context, request, &endpoint.method, &path, None)?
             {
                 PluginBeforeHookAction::Continue(request) => request,
                 PluginBeforeHookAction::Respond(response) => return Ok(response),
             };
+            request =
+                match run_async_before_hooks(&self.context, request, &endpoint.method, &path, None)
+                    .await?
+                {
+                    PluginBeforeHookAction::Continue(request) => request,
+                    PluginBeforeHookAction::Respond(response) => return Ok(response),
+                };
             let response = (endpoint.handler)(&self.context, request.clone())?;
             let response = run_after_hooks(
                 &self.context,

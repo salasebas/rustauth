@@ -123,6 +123,13 @@ pub(super) fn route_pathname(
 }
 
 fn pathname_from_url(request_url: &str) -> Option<String> {
+    if request_url.starts_with('/') {
+        let path = request_url
+            .split_once('?')
+            .map_or(request_url, |(path, _)| path);
+        let path = path.split_once('#').map_or(path, |(path, _)| path);
+        return Some(path.to_owned());
+    }
     let (_, after_scheme) = request_url.split_once("://")?;
     let path_start = after_scheme.find('/')?;
     let path_with_query = &after_scheme[path_start..];

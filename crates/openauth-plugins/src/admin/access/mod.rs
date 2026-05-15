@@ -1,1 +1,0 @@
-//! Admin access helpers placeholder.

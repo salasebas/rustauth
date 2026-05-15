@@ -31,6 +31,7 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
         sign_up::sign_up_email_endpoint(Arc::clone(&adapter)),
         sign_in::sign_in_email_endpoint(Arc::clone(&adapter)),
         social::sign_in_social_endpoint(Arc::clone(&adapter)),
+        social::sign_in_oauth2_endpoint(Arc::clone(&adapter)),
         social::callback_oauth_endpoint(Method::GET, Arc::clone(&adapter)),
         social::callback_oauth_endpoint(Method::POST, Arc::clone(&adapter)),
         social::link_social_endpoint(Arc::clone(&adapter)),

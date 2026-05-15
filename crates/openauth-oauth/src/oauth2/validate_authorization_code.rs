@@ -82,9 +82,7 @@ pub fn create_authorization_code_request(
     }
     apply_client_authentication(&mut request, &input.options, input.authentication, false)?;
     for (key, value) in input.additional_params {
-        if !request.has_body(&key) {
-            request.push_body(key, value);
-        }
+        request.set_body(key, value);
     }
     Ok(request)
 }

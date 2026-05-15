@@ -14,9 +14,12 @@ mod user;
 pub use account::{AccountLinkingOptions, AccountOptions, OAuthStateStoreStrategy};
 pub use advanced::{AdvancedOptions, CookieAttributesOverride, IpAddressOptions};
 pub use cookies::{CookieCacheOptions, CookieCacheStrategy, CookieConfig};
-pub use email_verification::{EmailVerificationOptions, SendVerificationEmail, VerificationEmail};
+pub use email_verification::{
+    AfterEmailVerification, BeforeEmailVerification, EmailVerificationCallbackPayload,
+    EmailVerificationOptions, SendVerificationEmail, VerificationEmail,
+};
 pub use origins::{TrustedOriginOptions, TrustedOriginsProvider};
-pub use password::PasswordOptions;
+pub use password::{OnPasswordReset, PasswordOptions, PasswordResetPayload};
 pub use rate_limit::{
     DynamicRateLimitPathRule, RateLimitOptions, RateLimitPathRule, RateLimitRecord, RateLimitRule,
     RateLimitRuleProvider, RateLimitStorage, RateLimitStorageOption,

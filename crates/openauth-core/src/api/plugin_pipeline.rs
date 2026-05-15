@@ -95,6 +95,28 @@ pub(super) fn run_before_hooks(
     Ok(PluginBeforeHookAction::Continue(request))
 }
 
+pub(super) async fn run_async_before_hooks(
+    context: &AuthContext,
+    mut request: ApiRequest,
+    method: &Method,
+    path: &str,
+    operation_id: Option<&str>,
+) -> Result<PluginBeforeHookAction, OpenAuthError> {
+    for plugin in &context.plugins {
+        for hook in &plugin.hooks.async_before {
+            if hook.matcher.matches(method, path, operation_id) {
+                match (hook.handler)(context, request).await? {
+                    PluginBeforeHookAction::Continue(next_request) => request = next_request,
+                    PluginBeforeHookAction::Respond(response) => {
+                        return Ok(PluginBeforeHookAction::Respond(response));
+                    }
+                }
+            }
+        }
+    }
+    Ok(PluginBeforeHookAction::Continue(request))
+}
+
 pub(super) fn run_after_hooks(
     context: &AuthContext,
     request: &ApiRequest,

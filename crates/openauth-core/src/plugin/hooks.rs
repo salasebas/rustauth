@@ -17,8 +17,12 @@ pub type PluginAfterHookHandler = Arc<
         + Send
         + Sync,
 >;
+pub type PluginBeforeHookFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<PluginBeforeHookAction, OpenAuthError>> + Send + 'a>>;
 pub type PluginAfterHookFuture<'a> =
     Pin<Box<dyn Future<Output = Result<PluginAfterHookAction, OpenAuthError>> + Send + 'a>>;
+pub type PluginAsyncBeforeHookHandler =
+    Arc<dyn for<'a> Fn(&'a AuthContext, ApiRequest) -> PluginBeforeHookFuture<'a> + Send + Sync>;
 pub type PluginAsyncAfterHookHandler = Arc<
     dyn for<'a> Fn(&'a AuthContext, &'a ApiRequest, ApiResponse) -> PluginAfterHookFuture<'a>
         + Send
@@ -117,6 +121,22 @@ impl fmt::Debug for PluginAfterHook {
 }
 
 #[derive(Clone)]
+pub struct PluginAsyncBeforeHook {
+    pub matcher: PluginHookMatcher,
+    pub handler: PluginAsyncBeforeHookHandler,
+}
+
+impl fmt::Debug for PluginAsyncBeforeHook {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PluginAsyncBeforeHook")
+            .field("matcher", &self.matcher)
+            .field("handler", &"<async-before-hook>")
+            .finish()
+    }
+}
+
+#[derive(Clone)]
 pub struct PluginAsyncAfterHook {
     pub matcher: PluginHookMatcher,
     pub handler: PluginAsyncAfterHookHandler,
@@ -136,6 +156,7 @@ impl fmt::Debug for PluginAsyncAfterHook {
 pub struct PluginEndpointHooks {
     pub before: Vec<PluginBeforeHook>,
     pub after: Vec<PluginAfterHook>,
+    pub async_before: Vec<PluginAsyncBeforeHook>,
     pub async_after: Vec<PluginAsyncAfterHook>,
 }
 
@@ -143,5 +164,13 @@ fn path_matches(pattern: &str, path: &str) -> bool {
     if let Some((prefix, suffix)) = pattern.split_once('*') {
         return path.starts_with(prefix) && path.ends_with(suffix);
     }
-    pattern == path
+    let pattern_segments = pattern.trim_matches('/').split('/').collect::<Vec<_>>();
+    let path_segments = path.trim_matches('/').split('/').collect::<Vec<_>>();
+    if pattern_segments.len() != path_segments.len() {
+        return false;
+    }
+    pattern_segments
+        .iter()
+        .zip(path_segments.iter())
+        .all(|(expected, actual)| expected.starts_with(':') || expected == actual)
 }

@@ -158,6 +158,7 @@ impl AdditionalField {
         field.input = self.input;
         field.returned = self.returned;
         field.default_value = self.default_value.clone();
+        field.db_name = self.db_name.clone();
         field
     }
 
@@ -167,6 +168,7 @@ impl AdditionalField {
         field.input = self.input;
         field.returned = self.returned;
         field.default_value = self.default_value.clone();
+        field.db_name = self.db_name.clone();
         field
     }
 }
