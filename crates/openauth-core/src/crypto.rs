@@ -15,5 +15,5 @@ pub use jwe::{
 };
 pub use symmetric::{
     build_secret_config, parse_secrets_env, symmetric_decrypt, symmetric_encrypt, validate_secrets,
-    SecretConfig, SecretEntry,
+    SecretConfig, SecretEntry, SecretSource,
 };

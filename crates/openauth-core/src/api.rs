@@ -3,7 +3,7 @@
 pub mod body;
 pub mod routes;
 
-pub(crate) mod additional_fields;
+pub mod additional_fields;
 mod endpoint;
 mod error;
 mod openapi;

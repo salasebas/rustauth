@@ -13,6 +13,7 @@ use crate::api::{
 };
 use crate::crypto::random::generate_random_string;
 use crate::db::{DbAdapter, User};
+use crate::options::PasswordResetPayload;
 use crate::session::{CreateSessionInput, DbSessionStore};
 use crate::user::{CreateCredentialAccountInput, DbUserStore};
 use crate::verification::{CreateVerificationInput, DbVerificationStore};
@@ -330,6 +331,10 @@ pub(super) fn reset_password_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthE
                 }
                 let user_id = verification.value;
                 let users = DbUserStore::new(adapter.as_ref());
+                let Some(user) = users.find_user_by_id(&user_id).await? else {
+                    verifications.delete_verification(&identifier).await?;
+                    return invalid_token();
+                };
                 let new_hash = (context.password.hash)(&body.new_password)?;
                 if users
                     .update_credential_password(&user_id, &new_hash)
@@ -343,6 +348,17 @@ pub(super) fn reset_password_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthE
                         .await?;
                 }
                 verifications.delete_verification(&identifier).await?;
+                if let Some(callback) = &context.options.password.on_password_reset {
+                    callback.on_password_reset(
+                        PasswordResetPayload { user: user.clone() },
+                        Some(&request),
+                    )?;
+                }
+                if context.options.password.revoke_sessions_on_password_reset {
+                    DbSessionStore::new(adapter.as_ref())
+                        .delete_user_sessions(&user.id)
+                        .await?;
+                }
                 json_response(StatusCode::OK, &StatusBody { status: true }, Vec::new())
             })
         },

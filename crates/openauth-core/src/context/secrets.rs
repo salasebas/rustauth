@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::crypto::{JweSecretSource, SecretConfig};
+use crate::crypto::{JweSecretSource, SecretConfig, SecretSource};
 use crate::error::OpenAuthError;
 use crate::options::OpenAuthOptions;
 
@@ -38,6 +38,22 @@ impl JweSecretSource for SecretMaterial {
         match self {
             Self::Single(secret) => secret.all_jwe_secrets(),
             Self::Rotating(config) => config.all_jwe_secrets(),
+        }
+    }
+}
+
+impl SecretSource for &SecretMaterial {
+    fn encrypt_current(&self, data: &str) -> Result<String, OpenAuthError> {
+        match self {
+            SecretMaterial::Single(secret) => secret.encrypt_current(data),
+            SecretMaterial::Rotating(config) => config.encrypt_current(data),
+        }
+    }
+
+    fn decrypt_payload(&self, data: &str) -> Result<String, OpenAuthError> {
+        match self {
+            SecretMaterial::Single(secret) => secret.decrypt_payload(data),
+            SecretMaterial::Rotating(config) => config.decrypt_payload(data),
         }
     }
 }

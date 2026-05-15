@@ -15,7 +15,7 @@ use crate::api::{
 };
 use crate::crypto::jwt::{sign_jwt, verify_jwt};
 use crate::db::{DbAdapter, User};
-use crate::options::VerificationEmail;
+use crate::options::{EmailVerificationCallbackPayload, VerificationEmail};
 use crate::user::DbUserStore;
 
 #[derive(Debug, Deserialize)]
@@ -173,6 +173,14 @@ pub(super) fn verify_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                 };
 
                 if let Some(update_to) = claims.update_to {
+                    if let Some(callback) =
+                        &context.options.email_verification.before_email_verification
+                    {
+                        callback.before_email_verification(
+                            EmailVerificationCallbackPayload { user: user.clone() },
+                            Some(&request),
+                        )?;
+                    }
                     let updated = users
                         .update_user_email(
                             &user.id,
@@ -181,6 +189,16 @@ pub(super) fn verify_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                         )
                         .await?
                         .unwrap_or(user);
+                    if let Some(callback) =
+                        &context.options.email_verification.after_email_verification
+                    {
+                        callback.after_email_verification(
+                            EmailVerificationCallbackPayload {
+                                user: updated.clone(),
+                            },
+                            Some(&request),
+                        )?;
+                    }
                     return json_response(
                         StatusCode::OK,
                         &VerifyEmailResponse {
@@ -191,8 +209,28 @@ pub(super) fn verify_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                     );
                 }
 
-                if !user.email_verified {
-                    users.update_user_email_verified(&user.id, true).await?;
+                if let Some(callback) =
+                    &context.options.email_verification.before_email_verification
+                {
+                    callback.before_email_verification(
+                        EmailVerificationCallbackPayload { user: user.clone() },
+                        Some(&request),
+                    )?;
+                }
+                let updated = if !user.email_verified {
+                    users
+                        .update_user_email_verified(&user.id, true)
+                        .await?
+                        .unwrap_or(user)
+                } else {
+                    user
+                };
+                if let Some(callback) = &context.options.email_verification.after_email_verification
+                {
+                    callback.after_email_verification(
+                        EmailVerificationCallbackPayload { user: updated },
+                        Some(&request),
+                    )?;
                 }
                 json_response(
                     StatusCode::OK,
