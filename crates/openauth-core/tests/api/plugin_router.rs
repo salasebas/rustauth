@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 use http::{Method, Request, StatusCode};
@@ -8,12 +8,13 @@ use openauth_core::api::{
     create_auth_endpoint, response, ApiRequest, ApiResponse, AuthEndpoint, AuthEndpointOptions,
     AuthRouter, EndpointMiddleware,
 };
-use openauth_core::context::{create_auth_context, AuthContext};
-use openauth_core::db::{DbField, DbFieldType};
+use openauth_core::context::{create_auth_context, create_auth_context_with_adapter, AuthContext};
+use openauth_core::db::{Create, DbField, DbFieldType, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{OpenAuthOptions, RateLimitOptions, RateLimitPathRule, RateLimitRule};
 use openauth_core::plugin::{
-    AuthPlugin, PluginAfterHookAction, PluginBeforeHookAction, PluginErrorCode, PluginInitOutput,
+    AuthPlugin, PluginAfterHookAction, PluginBeforeHookAction, PluginDatabaseBeforeAction,
+    PluginDatabaseBeforeInput, PluginDatabaseHook, PluginErrorCode, PluginInitOutput,
     PluginRateLimitRule, PluginRequestAction, PluginSchemaContribution,
 };
 
@@ -556,6 +557,86 @@ async fn sync_after_hook_runs_before_async_after_hook() -> Result<(), Box<dyn st
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.body(), b"sync-then-async");
+    Ok(())
+}
+
+#[tokio::test]
+async fn database_hook_context_receives_async_request_path(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let captured_path = Arc::new(Mutex::new(None::<String>));
+    let plugin_endpoint = create_auth_endpoint(
+        "/hooked-db",
+        Method::POST,
+        Default::default(),
+        |_context, _request| {
+            Box::pin(async move {
+                let adapter = _context.adapter().ok_or_else(|| {
+                    OpenAuthError::Api("missing adapter in test endpoint".to_owned())
+                })?;
+                adapter
+                    .create(
+                        Create::new("user")
+                            .data("id", DbValue::String("path_user".to_owned()))
+                            .data("name", DbValue::String("Path User".to_owned()))
+                            .data("email", DbValue::String("path@example.com".to_owned()))
+                            .data("email_verified", DbValue::Boolean(false))
+                            .data("image", DbValue::Null)
+                            .data(
+                                "created_at",
+                                DbValue::Timestamp(time::OffsetDateTime::now_utc()),
+                            )
+                            .data(
+                                "updated_at",
+                                DbValue::Timestamp(time::OffsetDateTime::now_utc()),
+                            )
+                            .force_allow_id(),
+                    )
+                    .await?;
+                response(StatusCode::OK, b"OK".to_vec())
+            })
+        },
+    );
+    let plugin = AuthPlugin::new("path-plugin")
+        .with_endpoint(plugin_endpoint)
+        .with_database_hook(PluginDatabaseHook::before_create("capture-path", {
+            let captured_path = Arc::clone(&captured_path);
+            move |context, query| {
+                *captured_path
+                    .lock()
+                    .map_err(|_| OpenAuthError::Api("captured path mutex poisoned".to_owned()))? =
+                    context.request_path.clone();
+                Ok(PluginDatabaseBeforeAction::Continue(
+                    PluginDatabaseBeforeInput::Create(query),
+                ))
+            }
+        }));
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            plugins: vec![plugin],
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            ..OpenAuthOptions::default()
+        },
+        Arc::new(MemoryAdapter::new()),
+    )?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::POST)
+                .uri("http://localhost:3000/api/auth/hooked-db")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        captured_path
+            .lock()
+            .map_err(|_| "mutex poisoned")?
+            .as_deref(),
+        Some("/hooked-db")
+    );
     Ok(())
 }
 

@@ -1,7 +1,19 @@
 //! Database plugin hooks and migration metadata.
 
+mod errors;
+mod handler;
+mod migration;
+
 use std::fmt;
 use std::sync::Arc;
+
+pub use handler::{
+    PluginDatabaseAfterHookFuture, PluginDatabaseAfterHookHandler, PluginDatabaseBeforeHookFuture,
+    PluginDatabaseBeforeHookHandler, PluginDatabaseHookContext,
+};
+pub use migration::PluginMigration;
+
+use errors::{mismatched_after_input, mismatched_before_input};
 
 use crate::db::{Create, DbRecord, Delete, DeleteMany, Update, UpdateMany};
 use crate::error::OpenAuthError;
@@ -109,30 +121,6 @@ impl PluginDatabaseAfterInput {
     }
 }
 
-/// Runtime metadata passed to executable database hooks.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PluginDatabaseHookContext {
-    pub plugin_id: String,
-    pub hook_name: String,
-    pub operation: PluginDatabaseOperation,
-    pub model: String,
-}
-
-pub type PluginDatabaseBeforeHookHandler = Arc<
-    dyn Fn(
-            &PluginDatabaseHookContext,
-            PluginDatabaseBeforeInput,
-        ) -> Result<PluginDatabaseBeforeAction, OpenAuthError>
-        + Send
-        + Sync,
->;
-
-pub type PluginDatabaseAfterHookHandler = Arc<
-    dyn Fn(&PluginDatabaseHookContext, &PluginDatabaseAfterInput) -> Result<(), OpenAuthError>
-        + Send
-        + Sync,
->;
-
 /// Executable database hook registered by a plugin.
 #[derive(Clone)]
 pub struct PluginDatabaseHook {
@@ -151,9 +139,35 @@ impl PluginDatabaseHook {
     ) -> Self
     where
         F: Fn(
-                &PluginDatabaseHookContext,
+                &PluginDatabaseHookContext<'_>,
                 PluginDatabaseBeforeInput,
             ) -> Result<PluginDatabaseBeforeAction, OpenAuthError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self {
+            name: name.into(),
+            operation,
+            before: Some(Arc::new(move |context, input| {
+                let result = handler(&context, input);
+                Box::pin(async move { result })
+            })),
+            after: None,
+            plugin_id: None,
+        }
+    }
+
+    pub fn before_async<F>(
+        name: impl Into<String>,
+        operation: PluginDatabaseOperation,
+        handler: F,
+    ) -> Self
+    where
+        F: for<'a> Fn(
+                PluginDatabaseHookContext<'a>,
+                PluginDatabaseBeforeInput,
+            ) -> PluginDatabaseBeforeHookFuture<'a>
             + Send
             + Sync
             + 'static,
@@ -169,7 +183,36 @@ impl PluginDatabaseHook {
 
     pub fn after<F>(name: impl Into<String>, operation: PluginDatabaseOperation, handler: F) -> Self
     where
-        F: Fn(&PluginDatabaseHookContext, &PluginDatabaseAfterInput) -> Result<(), OpenAuthError>
+        F: Fn(
+                &PluginDatabaseHookContext<'_>,
+                &PluginDatabaseAfterInput,
+            ) -> Result<(), OpenAuthError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self {
+            name: name.into(),
+            operation,
+            before: None,
+            after: Some(Arc::new(move |context, input| {
+                let result = handler(&context, &input);
+                Box::pin(async move { result })
+            })),
+            plugin_id: None,
+        }
+    }
+
+    pub fn after_async<F>(
+        name: impl Into<String>,
+        operation: PluginDatabaseOperation,
+        handler: F,
+    ) -> Self
+    where
+        F: for<'a> Fn(
+                PluginDatabaseHookContext<'a>,
+                PluginDatabaseAfterInput,
+            ) -> PluginDatabaseAfterHookFuture<'a>
             + Send
             + Sync
             + 'static,
@@ -186,7 +229,7 @@ impl PluginDatabaseHook {
     pub fn before_create<F>(name: impl Into<String>, handler: F) -> Self
     where
         F: Fn(
-                &PluginDatabaseHookContext,
+                &PluginDatabaseHookContext<'_>,
                 Create,
             ) -> Result<PluginDatabaseBeforeAction, OpenAuthError>
             + Send
@@ -203,10 +246,29 @@ impl PluginDatabaseHook {
         )
     }
 
+    pub fn before_create_async<F>(name: impl Into<String>, handler: F) -> Self
+    where
+        F: for<'a> Fn(PluginDatabaseHookContext<'a>, Create) -> PluginDatabaseBeforeHookFuture<'a>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::before_async(
+            name,
+            PluginDatabaseOperation::Create,
+            move |context, input| match input {
+                PluginDatabaseBeforeInput::Create(query) => handler(context, query),
+                other => Box::pin(async move {
+                    mismatched_before_input(PluginDatabaseOperation::Create, other)
+                }),
+            },
+        )
+    }
+
     pub fn before_update<F>(name: impl Into<String>, handler: F) -> Self
     where
         F: Fn(
-                &PluginDatabaseHookContext,
+                &PluginDatabaseHookContext<'_>,
                 Update,
             ) -> Result<PluginDatabaseBeforeAction, OpenAuthError>
             + Send
@@ -226,7 +288,7 @@ impl PluginDatabaseHook {
     pub fn before_update_many<F>(name: impl Into<String>, handler: F) -> Self
     where
         F: Fn(
-                &PluginDatabaseHookContext,
+                &PluginDatabaseHookContext<'_>,
                 UpdateMany,
             ) -> Result<PluginDatabaseBeforeAction, OpenAuthError>
             + Send
@@ -246,7 +308,7 @@ impl PluginDatabaseHook {
     pub fn before_delete<F>(name: impl Into<String>, handler: F) -> Self
     where
         F: Fn(
-                &PluginDatabaseHookContext,
+                &PluginDatabaseHookContext<'_>,
                 Delete,
                 Vec<DbRecord>,
             ) -> Result<PluginDatabaseBeforeAction, OpenAuthError>
@@ -269,7 +331,7 @@ impl PluginDatabaseHook {
     pub fn before_delete_many<F>(name: impl Into<String>, handler: F) -> Self
     where
         F: Fn(
-                &PluginDatabaseHookContext,
+                &PluginDatabaseHookContext<'_>,
                 DeleteMany,
                 Vec<DbRecord>,
             ) -> Result<PluginDatabaseBeforeAction, OpenAuthError>
@@ -291,7 +353,7 @@ impl PluginDatabaseHook {
 
     pub fn after_create<F>(name: impl Into<String>, handler: F) -> Self
     where
-        F: Fn(&PluginDatabaseHookContext, &Create, &DbRecord) -> Result<(), OpenAuthError>
+        F: Fn(&PluginDatabaseHookContext<'_>, &Create, &DbRecord) -> Result<(), OpenAuthError>
             + Send
             + Sync
             + 'static,
@@ -310,7 +372,11 @@ impl PluginDatabaseHook {
 
     pub fn after_update<F>(name: impl Into<String>, handler: F) -> Self
     where
-        F: Fn(&PluginDatabaseHookContext, &Update, &Option<DbRecord>) -> Result<(), OpenAuthError>
+        F: Fn(
+                &PluginDatabaseHookContext<'_>,
+                &Update,
+                &Option<DbRecord>,
+            ) -> Result<(), OpenAuthError>
             + Send
             + Sync
             + 'static,
@@ -329,7 +395,7 @@ impl PluginDatabaseHook {
 
     pub fn after_update_many<F>(name: impl Into<String>, handler: F) -> Self
     where
-        F: Fn(&PluginDatabaseHookContext, &UpdateMany, u64) -> Result<(), OpenAuthError>
+        F: Fn(&PluginDatabaseHookContext<'_>, &UpdateMany, u64) -> Result<(), OpenAuthError>
             + Send
             + Sync
             + 'static,
@@ -348,7 +414,7 @@ impl PluginDatabaseHook {
 
     pub fn after_delete<F>(name: impl Into<String>, handler: F) -> Self
     where
-        F: Fn(&PluginDatabaseHookContext, &Delete, &[DbRecord]) -> Result<(), OpenAuthError>
+        F: Fn(&PluginDatabaseHookContext<'_>, &Delete, &[DbRecord]) -> Result<(), OpenAuthError>
             + Send
             + Sync
             + 'static,
@@ -368,7 +434,7 @@ impl PluginDatabaseHook {
     pub fn after_delete_many<F>(name: impl Into<String>, handler: F) -> Self
     where
         F: Fn(
-                &PluginDatabaseHookContext,
+                &PluginDatabaseHookContext<'_>,
                 &DeleteMany,
                 &[DbRecord],
                 u64,
@@ -418,37 +484,5 @@ impl fmt::Debug for PluginDatabaseHook {
             .field("after", &self.after.as_ref().map(|_| "<after>"))
             .field("plugin_id", &self.plugin_id)
             .finish()
-    }
-}
-
-fn mismatched_before_input(
-    expected: PluginDatabaseOperation,
-    actual: PluginDatabaseBeforeInput,
-) -> Result<PluginDatabaseBeforeAction, OpenAuthError> {
-    Err(OpenAuthError::InvalidConfig(format!(
-        "database before hook expected {expected:?} input but received {:?}",
-        actual.operation()
-    )))
-}
-
-fn mismatched_after_input(
-    expected: PluginDatabaseOperation,
-    actual: &PluginDatabaseAfterInput,
-) -> Result<(), OpenAuthError> {
-    Err(OpenAuthError::InvalidConfig(format!(
-        "database after hook expected {expected:?} input but received {:?}",
-        actual.operation()
-    )))
-}
-
-/// Plugin migration metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PluginMigration {
-    pub name: String,
-}
-
-impl PluginMigration {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
     }
 }

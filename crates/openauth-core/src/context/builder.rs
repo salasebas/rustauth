@@ -6,7 +6,7 @@ use openauth_oauth::oauth2::SocialOAuthProvider;
 use crate::cookies::get_cookies;
 use crate::crypto::password::{hash_password, verify_password};
 use crate::crypto::{build_secret_config, parse_secrets_env};
-use crate::db::{auth_schema, DbAdapter};
+use crate::db::{auth_schema, DbAdapter, HookedAdapter};
 use crate::env::is_production;
 use crate::env::logger::{create_logger, LoggerOptions};
 use crate::error::OpenAuthError;
@@ -135,6 +135,14 @@ pub fn create_auth_context_with_environment_and_adapter(
         logger,
     };
     initialize_plugins(&mut context)?;
+    if !context.plugin_database_hooks.is_empty() {
+        if let Some(adapter) = context.adapter.clone() {
+            context.adapter = Some(Arc::new(HookedAdapter::new(
+                adapter,
+                context.plugin_database_hooks.clone(),
+            )));
+        }
+    }
     Ok(context)
 }
 
