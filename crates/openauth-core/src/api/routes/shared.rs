@@ -150,7 +150,7 @@ pub(super) fn additional_session_create_values(context: &AuthContext) -> DbRecor
         .iter()
         .map(|(name, field)| {
             (
-                name.clone(),
+                field.db_name.clone().unwrap_or_else(|| name.clone()),
                 field.default_value.clone().unwrap_or(DbValue::Null),
             )
         })

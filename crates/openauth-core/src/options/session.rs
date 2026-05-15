@@ -22,6 +22,7 @@ pub struct SessionAdditionalField {
     pub input: bool,
     pub returned: bool,
     pub default_value: Option<DbValue>,
+    pub db_name: Option<String>,
 }
 
 impl SessionAdditionalField {
@@ -32,6 +33,7 @@ impl SessionAdditionalField {
             input: true,
             returned: true,
             default_value: None,
+            db_name: None,
         }
     }
 
@@ -56,6 +58,12 @@ impl SessionAdditionalField {
     #[must_use]
     pub fn default_value(mut self, value: DbValue) -> Self {
         self.default_value = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub fn db_name(mut self, db_name: impl Into<String>) -> Self {
+        self.db_name = Some(db_name.into());
         self
     }
 }
