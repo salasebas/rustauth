@@ -6,6 +6,7 @@ use super::{
     AdapterCapabilities, AdapterFuture, Count, Create, DbAdapter, DbRecord, Delete, DeleteMany,
     FindMany, FindOne, SchemaCreation, TransactionCallback, Update, UpdateMany,
 };
+use crate::context::request_state::current_request_path;
 use crate::db::DbSchema;
 use crate::error::OpenAuthError;
 use crate::plugin::{
@@ -44,12 +45,6 @@ impl<A> HookedAdapter<A> {
             hooks,
             after_queue: Some(after_queue),
         }
-    }
-}
-
-impl HookedAdapter<Arc<dyn DbAdapter>> {
-    pub fn inner(&self) -> Arc<dyn DbAdapter> {
-        Arc::clone(&self.inner)
     }
 }
 
@@ -139,7 +134,7 @@ where
                 }))
                 .await?;
             if should_run_after_hooks {
-                after_queue.run(self.hooks.as_slice())?;
+                after_queue.run(self.hooks.as_slice(), &self.inner).await?;
             }
             Ok(())
         })
@@ -172,7 +167,10 @@ impl AfterHookQueue {
         Ok(())
     }
 
-    fn run(&self, hooks: &[PluginDatabaseHook]) -> Result<(), OpenAuthError> {
+    async fn run<A>(&self, hooks: &[PluginDatabaseHook], adapter: &A) -> Result<(), OpenAuthError>
+    where
+        A: DbAdapter,
+    {
         let inputs = {
             let mut guard = self
                 .inputs
@@ -181,7 +179,7 @@ impl AfterHookQueue {
             std::mem::take(&mut *guard)
         };
         for input in inputs {
-            run_after_hooks(hooks, &input)?;
+            run_after_hooks(hooks, input, adapter).await?;
         }
         Ok(())
     }
@@ -197,16 +195,21 @@ where
     A: DbAdapter,
 {
     Box::pin(async move {
-        let query =
-            match run_before_hooks(hooks.as_slice(), PluginDatabaseBeforeInput::Create(query))? {
-                PluginDatabaseBeforeInput::Create(query) => query,
-                other => {
-                    return Err(mismatched_continue_input(
-                        PluginDatabaseOperation::Create,
-                        other,
-                    ))
-                }
-            };
+        let query = match run_before_hooks(
+            hooks.as_slice(),
+            PluginDatabaseBeforeInput::Create(query),
+            inner,
+        )
+        .await?
+        {
+            PluginDatabaseBeforeInput::Create(query) => query,
+            other => {
+                return Err(mismatched_continue_input(
+                    PluginDatabaseOperation::Create,
+                    other,
+                ))
+            }
+        };
         let result = inner.create(query.clone()).await?;
         run_or_queue_after_hooks(
             after_queue.as_ref(),
@@ -215,7 +218,9 @@ where
                 query,
                 result: result.clone(),
             },
-        )?;
+            inner,
+        )
+        .await?;
         Ok(result)
     })
 }
@@ -230,16 +235,21 @@ where
     A: DbAdapter,
 {
     Box::pin(async move {
-        let query =
-            match run_before_hooks(hooks.as_slice(), PluginDatabaseBeforeInput::Update(query))? {
-                PluginDatabaseBeforeInput::Update(query) => query,
-                other => {
-                    return Err(mismatched_continue_input(
-                        PluginDatabaseOperation::Update,
-                        other,
-                    ))
-                }
-            };
+        let query = match run_before_hooks(
+            hooks.as_slice(),
+            PluginDatabaseBeforeInput::Update(query),
+            inner,
+        )
+        .await?
+        {
+            PluginDatabaseBeforeInput::Update(query) => query,
+            other => {
+                return Err(mismatched_continue_input(
+                    PluginDatabaseOperation::Update,
+                    other,
+                ))
+            }
+        };
         let result = inner.update(query.clone()).await?;
         run_or_queue_after_hooks(
             after_queue.as_ref(),
@@ -248,7 +258,9 @@ where
                 query,
                 result: result.clone(),
             },
-        )?;
+            inner,
+        )
+        .await?;
         Ok(result)
     })
 }
@@ -266,7 +278,10 @@ where
         let query = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::UpdateMany(query),
-        )? {
+            inner,
+        )
+        .await?
+        {
             PluginDatabaseBeforeInput::UpdateMany(query) => query,
             other => {
                 return Err(mismatched_continue_input(
@@ -280,7 +295,9 @@ where
             after_queue.as_ref(),
             hooks.as_slice(),
             PluginDatabaseAfterInput::UpdateMany { query, result },
-        )?;
+            inner,
+        )
+        .await?;
         Ok(result)
     })
 }
@@ -305,7 +322,10 @@ where
         let (query, snapshots) = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::Delete { query, snapshots },
-        )? {
+            inner,
+        )
+        .await?
+        {
             PluginDatabaseBeforeInput::Delete { query, snapshots } => (query, snapshots),
             other => {
                 return Err(mismatched_continue_input(
@@ -319,7 +339,9 @@ where
             after_queue.as_ref(),
             hooks.as_slice(),
             PluginDatabaseAfterInput::Delete { query, snapshots },
-        )?;
+            inner,
+        )
+        .await?;
         Ok(())
     })
 }
@@ -344,7 +366,10 @@ where
         let (query, snapshots) = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::DeleteMany { query, snapshots },
-        )? {
+            inner,
+        )
+        .await?
+        {
             PluginDatabaseBeforeInput::DeleteMany { query, snapshots } => (query, snapshots),
             other => {
                 return Err(mismatched_continue_input(
@@ -362,7 +387,9 @@ where
                 snapshots,
                 result,
             },
-        )?;
+            inner,
+        )
+        .await?;
         Ok(result)
     })
 }
@@ -382,17 +409,22 @@ where
     inner.find_many(query).await.unwrap_or_default()
 }
 
-fn run_before_hooks(
+async fn run_before_hooks<A>(
     hooks: &[PluginDatabaseHook],
     mut input: PluginDatabaseBeforeInput,
-) -> Result<PluginDatabaseBeforeInput, OpenAuthError> {
+    adapter: &A,
+) -> Result<PluginDatabaseBeforeInput, OpenAuthError>
+where
+    A: DbAdapter,
+{
     let operation = input.operation();
     for hook in hooks.iter().filter(|hook| hook.operation == operation) {
         let Some(handler) = &hook.before else {
             continue;
         };
-        let context = hook_context(hook, operation, input.model());
-        input = match handler(&context, input)? {
+        let model = input.model().to_owned();
+        let context = hook_context(hook, operation, &model, adapter);
+        input = match handler(context, input).await? {
             PluginDatabaseBeforeAction::Continue(next) => next,
             PluginDatabaseBeforeAction::Cancel(error) => return Err(error),
         };
@@ -403,43 +435,57 @@ fn run_before_hooks(
     Ok(input)
 }
 
-fn run_after_hooks(
+async fn run_after_hooks<A>(
     hooks: &[PluginDatabaseHook],
-    input: &PluginDatabaseAfterInput,
-) -> Result<(), OpenAuthError> {
+    input: PluginDatabaseAfterInput,
+    adapter: &A,
+) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter,
+{
     let operation = input.operation();
     for hook in hooks.iter().filter(|hook| hook.operation == operation) {
         let Some(handler) = &hook.after else {
             continue;
         };
-        let context = hook_context(hook, operation, input.model());
-        handler(&context, input)?;
+        let context = hook_context(hook, operation, input.model(), adapter);
+        handler(context, input.clone()).await?;
     }
     Ok(())
 }
 
-fn run_or_queue_after_hooks(
+async fn run_or_queue_after_hooks<A>(
     queue: Option<&AfterHookQueue>,
     hooks: &[PluginDatabaseHook],
     input: PluginDatabaseAfterInput,
-) -> Result<(), OpenAuthError> {
+    adapter: &A,
+) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter,
+{
     if let Some(queue) = queue {
         queue.push(input)
     } else {
-        run_after_hooks(hooks, &input)
+        run_after_hooks(hooks, input, adapter).await
     }
 }
 
-fn hook_context(
+fn hook_context<'a, A>(
     hook: &PluginDatabaseHook,
     operation: PluginDatabaseOperation,
     model: &str,
-) -> PluginDatabaseHookContext {
+    adapter: &'a A,
+) -> PluginDatabaseHookContext<'a>
+where
+    A: DbAdapter + 'a,
+{
     PluginDatabaseHookContext {
         plugin_id: hook.plugin_id().unwrap_or_default().to_owned(),
         hook_name: hook.name.clone(),
         operation,
         model: model.to_owned(),
+        adapter,
+        request_path: current_request_path().ok().flatten(),
     }
 }
 

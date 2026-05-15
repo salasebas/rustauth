@@ -146,6 +146,28 @@ async fn hooked_adapter_before_create_can_modify_data() -> Result<(), OpenAuthEr
 }
 
 #[tokio::test]
+async fn hooked_adapter_context_has_no_request_path_outside_request_scope(
+) -> Result<(), OpenAuthError> {
+    let inner = CapturingAdapter::default();
+    let adapter = HookedAdapter::new(
+        Arc::new(inner.clone()),
+        vec![PluginDatabaseHook::before_create(
+            "capture-empty-path",
+            |context, query| {
+                assert_eq!(context.request_path, None);
+                Ok(PluginDatabaseBeforeAction::Continue(
+                    PluginDatabaseBeforeInput::Create(query),
+                ))
+            },
+        )],
+    );
+    adapter
+        .create(Create::new("user").data("name", DbValue::String("Ada".to_owned())))
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn hooked_adapter_before_update_and_update_many_can_modify_data() -> Result<(), OpenAuthError>
 {
     let inner = CapturingAdapter::default();

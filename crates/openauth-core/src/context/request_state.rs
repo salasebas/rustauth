@@ -98,6 +98,7 @@ where
 
 static CURRENT_SESSION_USER: OnceLock<RequestState<Option<Value>>> = OnceLock::new();
 static CURRENT_NEW_SESSION: OnceLock<RequestState<Option<NewSession>>> = OnceLock::new();
+static CURRENT_REQUEST_PATH: OnceLock<RequestState<Option<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewSession {
@@ -107,6 +108,10 @@ pub struct NewSession {
 
 fn current_session_user_state() -> &'static RequestState<Option<Value>> {
     CURRENT_SESSION_USER.get_or_init(|| define_request_state(|| None))
+}
+
+fn current_request_path_state() -> &'static RequestState<Option<String>> {
+    CURRENT_REQUEST_PATH.get_or_init(|| define_request_state(|| None))
 }
 
 /// Store the current session user JSON for after-response hooks in this request.
@@ -129,6 +134,16 @@ pub fn set_current_new_session(session: Session, user: User) -> Result<(), OpenA
 
 pub fn current_new_session() -> Result<Option<NewSession>, OpenAuthError> {
     current_new_session_state().get()
+}
+
+/// Store the normalized endpoint path for hooks running in this request.
+pub fn set_current_request_path(path: impl Into<String>) -> Result<(), OpenAuthError> {
+    current_request_path_state().set(Some(path.into()))
+}
+
+/// Read the normalized endpoint path for this request, when available.
+pub fn current_request_path() -> Result<Option<String>, OpenAuthError> {
+    current_request_path_state().get()
 }
 
 /// Run a future inside a fresh request state scope.
