@@ -1,15 +1,18 @@
 use std::sync::{Arc, Mutex};
 
 use http::{header, Method, Request, StatusCode};
-use openauth_core::db::{DbFieldType, DbValue};
+use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
+use openauth_core::context::create_auth_context_with_adapter;
+use openauth_core::db::{DbAdapter, DbFieldType, DbValue, MemoryAdapter, Update, Where};
 use openauth_core::options::{
-    CookieCacheOptions, OpenAuthOptions, RateLimitOptions, SessionOptions,
+    AdvancedOptions, CookieCacheOptions, OpenAuthOptions, RateLimitOptions, SessionOptions,
+    TrustedOriginOptions,
 };
 use openauth_plugins::additional_fields::{
     additional_fields, AdditionalField, AdditionalFieldsOptions,
 };
 use openauth_plugins::magic_link::{
-    MagicLinkEmail, MagicLinkFuture, MagicLinkOptions, MagicLinkSendContext,
+    magic_link, MagicLinkEmail, MagicLinkFuture, MagicLinkOptions, MagicLinkSendContext,
 };
 
 use super::support::{
@@ -26,6 +29,25 @@ async fn error_callback_preserves_query_params_when_appending_error(
     let response = get(
         &router,
         "/api/auth/magic-link/verify?token=missing&errorCallbackURL=http%3A%2F%2Flocalhost%3A3000%2Ferror-page%3Ffoo%3Dbar",
+    )
+    .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        location(&response),
+        Some("http://localhost:3000/error-page?foo=bar&error=INVALID_TOKEN")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn error_callback_replaces_existing_error_param() -> Result<(), Box<dyn std::error::Error>> {
+    let sent = sent_messages();
+    let (router, _adapter) = build_router(sent.clone(), MagicLinkOptions::new(sender(sent)))?;
+
+    let response = get(
+        &router,
+        "/api/auth/magic-link/verify?token=missing&errorCallbackURL=http%3A%2F%2Flocalhost%3A3000%2Ferror-page%3Ffoo%3Dbar%26error%3Dold",
     )
     .await?;
 
@@ -175,6 +197,178 @@ async fn verify_returns_returned_additional_user_fields() -> Result<(), Box<dyn 
     .await?;
 
     assert_eq!(json_body(&response)?["user"]["plan"], "pro");
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_returns_persisted_additional_user_fields() -> Result<(), Box<dyn std::error::Error>>
+{
+    let sent = sent_messages();
+    let field = AdditionalField::new(DbFieldType::String)
+        .optional()
+        .default_value(DbValue::String("free".to_owned()));
+    let plugin = additional_fields(AdditionalFieldsOptions::new().user_field("plan", field));
+    let (router, adapter) = build_router_with_plugins(
+        MagicLinkOptions::new(sender(sent.clone())),
+        vec![plugin],
+        OpenAuthOptions::default(),
+    )?;
+
+    post_json(
+        &router,
+        "/api/auth/sign-in/magic-link",
+        r#"{"email":"member@example.com","name":"Member"}"#,
+    )
+    .await?;
+    let token = last_message(&sent)?.token;
+    let response = get(
+        &router,
+        &format!("/api/auth/magic-link/verify?token={token}"),
+    )
+    .await?;
+    assert_eq!(json_body(&response)?["user"]["plan"], "free");
+
+    adapter
+        .update(
+            Update::new("user")
+                .where_clause(Where::new(
+                    "email",
+                    DbValue::String("member@example.com".to_owned()),
+                ))
+                .data("plan", DbValue::String("enterprise".to_owned())),
+        )
+        .await?;
+    post_json(
+        &router,
+        "/api/auth/sign-in/magic-link",
+        r#"{"email":"member@example.com"}"#,
+    )
+    .await?;
+    let token = last_message(&sent)?.token;
+    let response = get(
+        &router,
+        &format!("/api/auth/magic-link/verify?token={token}"),
+    )
+    .await?;
+
+    assert_eq!(json_body(&response)?["user"]["plan"], "enterprise");
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_returns_returned_additional_session_fields(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sent = sent_messages();
+    let field = AdditionalField::new(DbFieldType::String)
+        .optional()
+        .default_value(DbValue::String("magic".to_owned()));
+    let plugin =
+        additional_fields(AdditionalFieldsOptions::new().session_field("loginKind", field));
+    let (router, adapter) = build_router_with_plugins(
+        MagicLinkOptions::new(sender(sent.clone())),
+        vec![plugin],
+        OpenAuthOptions::default(),
+    )?;
+    seed_user(&adapter, "user_1", "Ada", "ada@example.com", true).await?;
+
+    post_json(
+        &router,
+        "/api/auth/sign-in/magic-link",
+        r#"{"email":"ada@example.com"}"#,
+    )
+    .await?;
+    let token = last_message(&sent)?.token;
+    let response = get(
+        &router,
+        &format!("/api/auth/magic-link/verify?token={token}"),
+    )
+    .await?;
+    let sessions = adapter.records("session").await;
+
+    assert_eq!(json_body(&response)?["session"]["loginKind"], "magic");
+    assert_eq!(
+        sessions.first().and_then(|record| record.get("loginKind")),
+        Some(&DbValue::String("magic".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_persists_request_metadata_on_session() -> Result<(), Box<dyn std::error::Error>> {
+    let sent = sent_messages();
+    let (router, adapter) =
+        build_router(sent.clone(), MagicLinkOptions::new(sender(sent.clone())))?;
+    seed_user(&adapter, "user_1", "Ada", "ada@example.com", true).await?;
+
+    post_json(
+        &router,
+        "/api/auth/sign-in/magic-link",
+        r#"{"email":"ada@example.com"}"#,
+    )
+    .await?;
+    let token = last_message(&sent)?.token;
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(format!(
+            "http://localhost:3000/api/auth/magic-link/verify?token={token}"
+        ))
+        .header(header::USER_AGENT, "MagicLinkTest/1.0")
+        .header("x-forwarded-for", "203.0.113.7, 10.0.0.1")
+        .body(Vec::new())?;
+    let response = router.handle_async(request).await?;
+    let sessions = adapter.records("session").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        sessions.first().and_then(|record| record.get("ip_address")),
+        Some(&DbValue::String("203.0.113.7".to_owned()))
+    );
+    assert_eq!(
+        sessions.first().and_then(|record| record.get("user_agent")),
+        Some(&DbValue::String("MagicLinkTest/1.0".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_in_rejects_untrusted_callback_urls() -> Result<(), Box<dyn std::error::Error>> {
+    let sent = sent_messages();
+    let adapter = Arc::new(MemoryAdapter::new());
+    let plugin = magic_link(MagicLinkOptions::new(sender(sent)));
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000".to_owned()),
+            trusted_origins: TrustedOriginOptions::Static(vec!["http://localhost:3000".to_owned()]),
+            secret: Some(SECRET.to_owned()),
+            advanced: AdvancedOptions {
+                disable_csrf_check: true,
+                disable_origin_check: false,
+                ..AdvancedOptions::default()
+            },
+            plugins: vec![plugin],
+            rate_limit: RateLimitOptions {
+                enabled: Some(false),
+                ..RateLimitOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+        adapter.clone(),
+    )?;
+    let router = AuthRouter::with_async_endpoints(
+        context,
+        Vec::new(),
+        core_auth_async_endpoints(adapter.clone()),
+    )?;
+
+    let response = post_json(
+        &router,
+        "/api/auth/sign-in/magic-link",
+        r#"{"email":"ada@example.com","callbackURL":"http://evil.example"}"#,
+    )
+    .await?;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(json_body(&response)?["code"], "INVALID_CALLBACK_URL");
     Ok(())
 }
 
