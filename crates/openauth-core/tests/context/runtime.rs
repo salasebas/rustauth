@@ -40,6 +40,7 @@ fn create_auth_context_applies_session_and_password_options(
         password: PasswordOptions {
             min_password_length: 12,
             max_password_length: 256,
+            ..PasswordOptions::default()
         },
         ..OpenAuthOptions::default()
     })?;

@@ -95,7 +95,7 @@ pub async fn generate_oauth_state(
                 .map_err(|error| OpenAuthError::Crypto(error.to_string()))?;
             DbVerificationStore::new(adapter)
                 .create_verification(CreateVerificationInput::new(
-                    state_identifier(&state),
+                    oauth_state_identifier(&state),
                     json,
                     data.expires_at,
                 ))
@@ -122,7 +122,7 @@ pub async fn parse_oauth_state(
                 OpenAuthError::Adapter("database OAuth state requires an adapter".to_owned())
             })?;
             let verifications = DbVerificationStore::new(adapter);
-            let identifier = state_identifier(state);
+            let identifier = oauth_state_identifier(state);
             let verification = verifications
                 .find_verification(&identifier)
                 .await?
@@ -141,6 +141,6 @@ pub async fn parse_oauth_state(
     Ok(data)
 }
 
-fn state_identifier(state: &str) -> String {
+pub fn oauth_state_identifier(state: &str) -> String {
     format!("oauth-state-{state}")
 }

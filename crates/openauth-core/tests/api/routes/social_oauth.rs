@@ -37,6 +37,36 @@ async fn sign_in_social_returns_authorization_url_and_location_header(
 }
 
 #[tokio::test]
+async fn sign_in_oauth2_returns_authorization_url_and_location_header(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/oauth2",
+            r#"{"provider":"github","callbackURL":"/dashboard"}"#,
+            None,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["redirect"], true);
+    assert!(body["url"].as_str().unwrap_or_default().contains("state="));
+    assert!(response.headers().contains_key(header::LOCATION));
+    Ok(())
+}
+
+#[tokio::test]
 async fn callback_oauth_creates_user_account_session_and_redirects(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());

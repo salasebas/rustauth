@@ -1,6 +1,6 @@
 use openauth_core::context::request_state::{
-    current_new_session, define_request_state, has_request_state, run_with_request_state,
-    set_current_new_session,
+    current_new_session, current_session, define_request_state, has_request_state,
+    run_with_request_state, set_current_new_session, set_current_session,
 };
 use openauth_core::db::{Session, User};
 use openauth_core::error::OpenAuthError;
@@ -88,28 +88,7 @@ async fn current_new_session_defaults_to_none_inside_scope() -> Result<(), OpenA
 
 #[tokio::test]
 async fn current_new_session_can_be_set_inside_scope() -> Result<(), OpenAuthError> {
-    let now = OffsetDateTime::now_utc();
-    let session = Session {
-        id: "session_1".to_owned(),
-        user_id: "user_1".to_owned(),
-        expires_at: now + Duration::days(7),
-        token: "token_1".to_owned(),
-        ip_address: None,
-        user_agent: None,
-        created_at: now,
-        updated_at: now,
-    };
-    let user = User {
-        id: "user_1".to_owned(),
-        name: "Ada".to_owned(),
-        email: "ada@example.com".to_owned(),
-        email_verified: true,
-        image: None,
-        username: None,
-        display_username: None,
-        created_at: now,
-        updated_at: now,
-    };
+    let (session, user) = test_session_user();
 
     run_with_request_state(async {
         set_current_new_session(session.clone(), user.clone())?;
@@ -119,4 +98,81 @@ async fn current_new_session_can_be_set_inside_scope() -> Result<(), OpenAuthErr
         Ok(())
     })
     .await
+}
+
+#[tokio::test]
+async fn current_session_defaults_to_none_inside_scope() -> Result<(), OpenAuthError> {
+    run_with_request_state(async {
+        assert!(current_session()?.is_none());
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn current_session_can_be_set_inside_scope() -> Result<(), OpenAuthError> {
+    let (session, user) = test_session_user();
+
+    run_with_request_state(async {
+        set_current_session(session.clone(), user.clone())?;
+        let current = current_session()?.ok_or(OpenAuthError::RequestStateMissing)?;
+        assert_eq!(current.session, session);
+        assert_eq!(current.user, user);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn current_session_is_isolated_between_concurrent_scopes() -> Result<(), OpenAuthError> {
+    let (first_session, first_user) = test_session_user_with_id("first");
+    let (second_session, second_user) = test_session_user_with_id("second");
+
+    let first = run_with_request_state(async {
+        set_current_session(first_session.clone(), first_user)?;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        Ok::<_, OpenAuthError>(current_session()?.map(|current| current.session.id))
+    });
+    let second = run_with_request_state(async {
+        set_current_session(second_session.clone(), second_user)?;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        Ok::<_, OpenAuthError>(current_session()?.map(|current| current.session.id))
+    });
+
+    let (first, second) = tokio::join!(first, second);
+
+    assert_eq!(first?, Some("session_first".to_owned()));
+    assert_eq!(second?, Some("session_second".to_owned()));
+    Ok(())
+}
+
+fn test_session_user() -> (Session, User) {
+    test_session_user_with_id("1")
+}
+
+fn test_session_user_with_id(id: &str) -> (Session, User) {
+    let now = OffsetDateTime::now_utc();
+    (
+        Session {
+            id: format!("session_{id}"),
+            user_id: format!("user_{id}"),
+            expires_at: now + Duration::days(7),
+            token: format!("token_{id}"),
+            ip_address: None,
+            user_agent: None,
+            created_at: now,
+            updated_at: now,
+        },
+        User {
+            id: format!("user_{id}"),
+            name: "Ada".to_owned(),
+            email: format!("ada-{id}@example.com"),
+            email_verified: true,
+            image: None,
+            username: None,
+            display_username: None,
+            created_at: now,
+            updated_at: now,
+        },
+    )
 }

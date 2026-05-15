@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
 use crate::context::AuthContext;
@@ -15,7 +16,7 @@ use super::tokens::set_token_util;
 
 const ACCOUNT_COOKIE_SALT: &str = "better-auth-account";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OAuthUserInfo {
     pub id: String,
     pub name: String,
@@ -24,7 +25,7 @@ pub struct OAuthUserInfo {
     pub email_verified: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OAuthAccountInput {
     pub provider_id: String,
     pub account_id: String,

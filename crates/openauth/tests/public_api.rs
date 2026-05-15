@@ -66,6 +66,21 @@ fn openauth_crate_reexports_plugins_package_behind_feature() {
     assert!(openauth::plugins::PLUGIN_IDS.contains(&"generic-oauth"));
 }
 
+#[cfg(feature = "plugins")]
+#[test]
+fn public_api_openauth_plugins_reexport_exposes_siwe_constructor(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = openauth::plugins::siwe::siwe(openauth::plugins::siwe::SiweOptions::new(
+        "example.com",
+        || async { Ok("nonce".to_owned()) },
+        |_args: openauth::plugins::siwe::SiweVerifyMessageArgs| async { Ok(true) },
+    ))?;
+
+    assert_eq!(plugin.id, "siwe");
+    assert_eq!(plugin.endpoints.len(), 2);
+    Ok(())
+}
+
 #[test]
 fn openauth_crate_accepts_social_oauth_runtime_providers() {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(
@@ -138,12 +153,15 @@ fn openauth_crate_reexports_core_contract_types() {
     let _plugin_hooks = PluginEndpointHooks::default();
     let _plugin_matcher = PluginHookMatcher::path("/plugin/*");
     let _hooked_adapter_type: Option<HookedAdapter> = None;
+    let memory_adapter = MemoryAdapter::new();
     let _plugin_db_operation = PluginDatabaseOperation::Create;
     let _plugin_db_context = PluginDatabaseHookContext {
         plugin_id: "test-plugin".to_owned(),
         hook_name: "audit".to_owned(),
         operation: PluginDatabaseOperation::Create,
         model: "user".to_owned(),
+        adapter: &memory_adapter,
+        request_path: None,
     };
     let _plugin_db_before_input: Option<PluginDatabaseBeforeInput> = None;
     let _plugin_db_after_input: Option<PluginDatabaseAfterInput> = None;

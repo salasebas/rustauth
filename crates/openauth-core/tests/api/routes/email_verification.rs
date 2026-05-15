@@ -1,7 +1,11 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use openauth_core::crypto::jwt::sign_jwt;
-use openauth_core::options::{EmailVerificationOptions, SendVerificationEmail, VerificationEmail};
+use openauth_core::options::{
+    AfterEmailVerification, BeforeEmailVerification, EmailVerificationCallbackPayload,
+    EmailVerificationOptions, SendVerificationEmail, VerificationEmail,
+};
 use serde_json::json;
 
 use super::*;
@@ -9,6 +13,90 @@ use super::*;
 #[derive(Default)]
 struct CapturingVerificationSender {
     sent: StdMutex<Vec<VerificationEmail>>,
+}
+
+struct CountBefore(Arc<AtomicUsize>);
+
+impl BeforeEmailVerification for CountBefore {
+    fn before_email_verification(
+        &self,
+        _payload: EmailVerificationCallbackPayload,
+        _request: Option<&Request<Vec<u8>>>,
+    ) -> Result<(), OpenAuthError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+struct CountAfter(Arc<AtomicUsize>);
+
+impl AfterEmailVerification for CountAfter {
+    fn after_email_verification(
+        &self,
+        _payload: EmailVerificationCallbackPayload,
+        _request: Option<&Request<Vec<u8>>>,
+    ) -> Result<(), OpenAuthError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn verify_email_route_invokes_before_and_after_callbacks(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let sender = Arc::new(CapturingVerificationSender::default());
+    let before = Arc::new(AtomicUsize::new(0));
+    let after = Arc::new(AtomicUsize::new(0));
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .insert_user(User {
+            email_verified: false,
+            ..user(now)
+        })
+        .await;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            email_verification: EmailVerificationOptions {
+                send_verification_email: Some(sender.clone()),
+                before_email_verification: Some(Arc::new(CountBefore(Arc::clone(&before)))),
+                after_email_verification: Some(Arc::new(CountAfter(Arc::clone(&after)))),
+                ..EmailVerificationOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/send-verification-email",
+            r#"{"email":"ada@example.com"}"#,
+            None,
+        )?)
+        .await?;
+    let token = sender
+        .sent
+        .lock()
+        .map_err(|_| OpenAuthError::Api("sender lock poisoned".to_owned()))?
+        .last()
+        .ok_or("missing verification email")?
+        .token
+        .clone();
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/verify-email?token={token}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(before.load(Ordering::SeqCst), 1);
+    assert_eq!(after.load(Ordering::SeqCst), 1);
+    Ok(())
 }
 
 impl SendVerificationEmail for CapturingVerificationSender {
