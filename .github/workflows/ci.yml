@@ -34,5 +34,12 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      - name: Start database services
+        run: docker compose up -d --wait postgres mysql
+
       - name: Test
         run: cargo test --workspace --all-features
+
+      - name: Stop database services
+        if: always()
+        run: docker compose down -v

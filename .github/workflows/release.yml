@@ -44,8 +44,15 @@ jobs:
       - name: Verify lints
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      - name: Start database services
+        run: docker compose up -d --wait postgres mysql
+
       - name: Verify tests
         run: cargo test --workspace --all-features
+
+      - name: Stop database services
+        if: always()
+        run: docker compose down -v
 
       - name: Publish crates
         env:
