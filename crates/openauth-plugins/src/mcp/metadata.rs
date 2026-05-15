@@ -1,40 +1,10 @@
 use http::{Method, StatusCode};
 use openauth_core::api::{create_auth_endpoint, AsyncAuthEndpoint, AuthEndpointOptions};
 use openauth_core::context::AuthContext;
-use serde::Serialize;
+use serde_json::{json, Value};
 
 use super::shared::{json_response, with_cors};
 use super::ResolvedMcpOptions;
-
-#[derive(Debug, Serialize)]
-struct AuthorizationServerMetadata {
-    issuer: String,
-    authorization_endpoint: String,
-    token_endpoint: String,
-    userinfo_endpoint: String,
-    jwks_uri: String,
-    registration_endpoint: String,
-    scopes_supported: Vec<String>,
-    response_types_supported: Vec<&'static str>,
-    response_modes_supported: Vec<&'static str>,
-    grant_types_supported: Vec<&'static str>,
-    acr_values_supported: Vec<&'static str>,
-    subject_types_supported: Vec<&'static str>,
-    id_token_signing_alg_values_supported: Vec<&'static str>,
-    token_endpoint_auth_methods_supported: Vec<&'static str>,
-    code_challenge_methods_supported: Vec<&'static str>,
-    claims_supported: Vec<&'static str>,
-}
-
-#[derive(Debug, Serialize)]
-struct ProtectedResourceMetadata {
-    resource: String,
-    authorization_servers: Vec<String>,
-    jwks_uri: String,
-    scopes_supported: Vec<String>,
-    bearer_methods_supported: Vec<&'static str>,
-    resource_signing_alg_values_supported: Vec<&'static str>,
-}
 
 pub fn authorization_server_endpoint(options: ResolvedMcpOptions) -> AsyncAuthEndpoint {
     create_auth_endpoint(
@@ -66,36 +36,33 @@ pub fn protected_resource_endpoint(options: ResolvedMcpOptions) -> AsyncAuthEndp
     )
 }
 
-fn authorization_server_metadata(
-    context: &AuthContext,
-    options: &ResolvedMcpOptions,
-) -> AuthorizationServerMetadata {
+fn authorization_server_metadata(context: &AuthContext, options: &ResolvedMcpOptions) -> Value {
     let issuer = context.base_url.clone();
     let base = auth_base_url(context);
-    AuthorizationServerMetadata {
-        issuer,
-        authorization_endpoint: format!("{base}/mcp/authorize"),
-        token_endpoint: format!("{base}/mcp/token"),
-        userinfo_endpoint: format!("{base}/mcp/userinfo"),
-        jwks_uri: format!("{base}/mcp/jwks"),
-        registration_endpoint: format!("{base}/mcp/register"),
-        scopes_supported: options.scopes.clone(),
-        response_types_supported: vec!["code"],
-        response_modes_supported: vec!["query"],
-        grant_types_supported: vec!["authorization_code", "refresh_token"],
-        acr_values_supported: vec![
+    let mut metadata = json!({
+        "issuer": issuer,
+        "authorization_endpoint": format!("{base}/mcp/authorize"),
+        "token_endpoint": format!("{base}/mcp/token"),
+        "userinfo_endpoint": format!("{base}/mcp/userinfo"),
+        "jwks_uri": format!("{base}/mcp/jwks"),
+        "registration_endpoint": format!("{base}/mcp/register"),
+        "scopes_supported": options.scopes,
+        "response_types_supported": ["code"],
+        "response_modes_supported": ["query"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "acr_values_supported": [
             "urn:mace:incommon:iap:silver",
             "urn:mace:incommon:iap:bronze",
         ],
-        subject_types_supported: vec!["public"],
-        id_token_signing_alg_values_supported: vec!["HS256", "none"],
-        token_endpoint_auth_methods_supported: vec![
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["HS256", "none"],
+        "token_endpoint_auth_methods_supported": [
             "client_secret_basic",
             "client_secret_post",
             "none",
         ],
-        code_challenge_methods_supported: vec!["S256"],
-        claims_supported: vec![
+        "code_challenge_methods_supported": ["S256"],
+        "claims_supported": [
             "sub",
             "iss",
             "aud",
@@ -107,22 +74,32 @@ fn authorization_server_metadata(
             "email_verified",
             "name",
         ],
-    }
+    });
+    merge_metadata(&mut metadata, &options.metadata.authorization_server);
+    metadata
 }
 
-fn protected_resource_metadata(
-    context: &AuthContext,
-    options: &ResolvedMcpOptions,
-) -> ProtectedResourceMetadata {
+fn protected_resource_metadata(context: &AuthContext, options: &ResolvedMcpOptions) -> Value {
     let origin = origin_from_base_url(&context.base_url);
     let base = auth_base_url(context);
-    ProtectedResourceMetadata {
-        resource: options.resource.clone().unwrap_or_else(|| origin.clone()),
-        authorization_servers: vec![origin],
-        jwks_uri: format!("{base}/mcp/jwks"),
-        scopes_supported: options.scopes.clone(),
-        bearer_methods_supported: vec!["header"],
-        resource_signing_alg_values_supported: vec!["HS256", "none"],
+    let mut metadata = json!({
+        "resource": options.resource.clone().unwrap_or_else(|| origin.clone()),
+        "authorization_servers": [origin],
+        "jwks_uri": format!("{base}/mcp/jwks"),
+        "scopes_supported": options.scopes,
+        "bearer_methods_supported": ["header"],
+        "resource_signing_alg_values_supported": ["HS256", "none"],
+    });
+    merge_metadata(&mut metadata, &options.metadata.protected_resource);
+    metadata
+}
+
+fn merge_metadata(metadata: &mut Value, overrides: &serde_json::Map<String, Value>) {
+    let Some(object) = metadata.as_object_mut() else {
+        return;
+    };
+    for (key, value) in overrides {
+        object.insert(key.clone(), value.clone());
     }
 }
 

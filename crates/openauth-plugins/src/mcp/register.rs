@@ -9,9 +9,15 @@ use time::OffsetDateTime;
 use super::shared::{
     adapter, current_session, json_response, oauth_error, random_token, with_cors,
 };
-use super::{ResolvedMcpOptions, TokenEndpointAuthMethod};
+use super::{
+    McpClientIdGenerator, McpClientSecretGenerator, ResolvedMcpOptions, TokenEndpointAuthMethod,
+};
 
-pub fn register_endpoint(_options: ResolvedMcpOptions) -> AsyncAuthEndpoint {
+pub fn register_endpoint(
+    _options: ResolvedMcpOptions,
+    client_id_generator: Option<McpClientIdGenerator>,
+    client_secret_generator: Option<McpClientSecretGenerator>,
+) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/mcp/register",
         Method::POST,
@@ -19,6 +25,8 @@ pub fn register_endpoint(_options: ResolvedMcpOptions) -> AsyncAuthEndpoint {
             .operation_id("registerMcpClient")
             .allowed_media_types(["application/json"]),
         move |context, request| {
+            let client_id_generator = client_id_generator.clone();
+            let client_secret_generator = client_secret_generator.clone();
             Box::pin(async move {
                 let adapter = adapter(context)?;
                 let body: Value = parse_request_body(&request)?;
@@ -27,6 +35,42 @@ pub fn register_endpoint(_options: ResolvedMcpOptions) -> AsyncAuthEndpoint {
                 let response_types = string_array(&body, "response_types")
                     .unwrap_or_else(|| vec!["code".to_owned()]);
                 let redirect_uris = string_array(&body, "redirect_uris").unwrap_or_default();
+                if let Some(invalid) = redirect_uris
+                    .iter()
+                    .find(|redirect_uri| !is_valid_redirect_uri(redirect_uri))
+                {
+                    return oauth_error(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_redirect_uri",
+                        &format!("Invalid redirect URI: {invalid}"),
+                    );
+                }
+                if let Some(invalid) = grant_types.iter().find(|grant| !is_allowed_grant(grant)) {
+                    return oauth_error(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_client_metadata",
+                        &format!("Unsupported grant type: {invalid}"),
+                    );
+                }
+                if let Some(invalid) = response_types
+                    .iter()
+                    .find(|response| !is_allowed_response_type(response))
+                {
+                    return oauth_error(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_client_metadata",
+                        &format!("Unsupported response type: {invalid}"),
+                    );
+                }
+                if let Some(method) = string_value(&body, "token_endpoint_auth_method") {
+                    if token_endpoint_auth_method(&method).is_none() {
+                        return oauth_error(
+                            StatusCode::BAD_REQUEST,
+                            "invalid_client_metadata",
+                            &format!("Unsupported token endpoint auth method: {method}"),
+                        );
+                    }
+                }
 
                 if requires_redirect_uri(&grant_types) && redirect_uris.is_empty() {
                     return oauth_error(
@@ -63,14 +107,28 @@ pub fn register_endpoint(_options: ResolvedMcpOptions) -> AsyncAuthEndpoint {
                 } else {
                     "web"
                 };
-                let client_id = random_token();
-                let client_secret = (client_type != "public").then(random_token);
+                let client_id = client_id_generator
+                    .as_ref()
+                    .map(|generator| generator())
+                    .unwrap_or_else(random_token);
+                let client_secret = (client_type != "public").then(|| {
+                    client_secret_generator
+                        .as_ref()
+                        .map(|generator| generator())
+                        .unwrap_or_else(random_token)
+                });
                 let now = OffsetDateTime::now_utc();
 
                 adapter
                     .create(
                         Create::new("oauthApplication")
-                            .data("name", nullable_string(&body, "client_name"))
+                            .data(
+                                "name",
+                                DbValue::String(
+                                    string_value(&body, "client_name")
+                                        .unwrap_or_else(|| client_id.clone()),
+                                ),
+                            )
                             .data("icon", nullable_string(&body, "logo_uri"))
                             .data("metadata", metadata_string(&body))
                             .data("clientId", DbValue::String(client_id.clone()))
@@ -146,10 +204,54 @@ fn requires_redirect_uri(grant_types: &[String]) -> bool {
 }
 
 fn auth_method(body: &Value) -> TokenEndpointAuthMethod {
-    match string_value(body, "token_endpoint_auth_method").as_deref() {
-        Some("none") => TokenEndpointAuthMethod::None,
-        Some("client_secret_post") => TokenEndpointAuthMethod::ClientSecretPost,
-        _ => TokenEndpointAuthMethod::ClientSecretBasic,
+    string_value(body, "token_endpoint_auth_method")
+        .and_then(|method| token_endpoint_auth_method(&method))
+        .unwrap_or(TokenEndpointAuthMethod::ClientSecretBasic)
+}
+
+fn token_endpoint_auth_method(method: &str) -> Option<TokenEndpointAuthMethod> {
+    match method {
+        "none" => Some(TokenEndpointAuthMethod::None),
+        "client_secret_basic" => Some(TokenEndpointAuthMethod::ClientSecretBasic),
+        "client_secret_post" => Some(TokenEndpointAuthMethod::ClientSecretPost),
+        _ => None,
+    }
+}
+
+fn is_allowed_grant(grant: &str) -> bool {
+    matches!(
+        grant,
+        "authorization_code"
+            | "implicit"
+            | "password"
+            | "client_credentials"
+            | "refresh_token"
+            | "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            | "urn:ietf:params:oauth:grant-type:saml2-bearer"
+    )
+}
+
+fn is_allowed_response_type(response_type: &str) -> bool {
+    matches!(response_type, "code" | "token")
+}
+
+fn is_valid_redirect_uri(redirect_uri: &str) -> bool {
+    if redirect_uri.trim().is_empty() {
+        return false;
+    }
+    let Ok(url) = url::Url::parse(redirect_uri) else {
+        return false;
+    };
+    if url.has_authority() && url.fragment().is_none() {
+        match url.scheme() {
+            "https" => true,
+            "http" => url
+                .host_str()
+                .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "::1")),
+            _ => false,
+        }
+    } else {
+        false
     }
 }
 
