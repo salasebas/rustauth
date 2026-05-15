@@ -12,6 +12,7 @@ use openauth_plugins::admin::{admin, AdminOptions};
 use serde_json::{json, Value};
 use time::{Duration, OffsetDateTime};
 
+mod access_control;
 mod openapi;
 mod parity;
 mod permissions;

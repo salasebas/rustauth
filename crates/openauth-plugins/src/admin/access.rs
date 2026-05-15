@@ -1,4 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+
+use crate::access::{
+    create_access_control, request as access_request, role as access_role, statements,
+    AccessControl, AccessError, Role as AccessRole, Statements,
+};
 
 use super::options::AdminOptions;
 
@@ -6,25 +11,32 @@ pub type PermissionMap = BTreeMap<String, Vec<String>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Role {
-    permissions: BTreeMap<String, BTreeSet<String>>,
+    access_role: AccessRole,
 }
 
 impl Role {
     pub fn new(permissions: PermissionMap) -> Self {
-        Self {
-            permissions: permissions
-                .into_iter()
-                .map(|(resource, actions)| (resource, actions.into_iter().collect()))
-                .collect(),
-        }
+        let permissions = permissions
+            .into_iter()
+            .map(|(resource, actions)| (resource, actions.into_iter().collect()))
+            .collect::<Statements>();
+        let access_role = access_role(permissions);
+
+        Self { access_role }
     }
 
     pub fn allows(&self, requested: &PermissionMap) -> bool {
-        requested.iter().all(|(resource, actions)| {
-            self.permissions
-                .get(resource)
-                .is_some_and(|allowed| actions.iter().all(|action| allowed.contains(action)))
-        })
+        if requested.is_empty() {
+            return true;
+        }
+
+        self.access_role
+            .authorize_all(access_request(
+                requested
+                    .iter()
+                    .map(|(resource, actions)| (resource.clone(), actions.clone())),
+            ))
+            .is_ok()
     }
 }
 
@@ -60,6 +72,31 @@ pub fn default_roles() -> BTreeMap<String, Role> {
     roles.insert("admin".to_owned(), admin_role());
     roles.insert("user".to_owned(), Role::new(PermissionMap::new()));
     roles
+}
+
+pub fn default_statements() -> Statements {
+    statements([
+        (
+            "user",
+            vec![
+                "create",
+                "list",
+                "set-role",
+                "ban",
+                "impersonate",
+                "impersonate-admins",
+                "delete",
+                "set-password",
+                "get",
+                "update",
+            ],
+        ),
+        ("session", vec!["list", "revoke", "delete"]),
+    ])
+}
+
+pub fn default_access_control() -> Result<AccessControl, AccessError> {
+    create_access_control(default_statements())
 }
 
 fn admin_role() -> Role {

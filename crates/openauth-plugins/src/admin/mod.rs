@@ -26,7 +26,10 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 pub mod access_control {
-    pub use super::access::{default_roles, has_permission, PermissionMap, Role};
+    pub use super::access::{
+        default_access_control, default_roles, default_statements, has_permission, PermissionMap,
+        Role,
+    };
 }
 
 pub const UPSTREAM_PLUGIN_ID: &str = "admin";
