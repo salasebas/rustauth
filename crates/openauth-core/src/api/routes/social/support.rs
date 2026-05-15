@@ -1,5 +1,5 @@
 use http::{header, HeaderValue, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::api::{
@@ -14,6 +14,79 @@ use crate::error::OpenAuthError;
 struct SocialRedirectBody {
     url: String,
     redirect: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct SocialSignInBody {
+    pub provider: String,
+    #[serde(default, alias = "callbackURL")]
+    pub callback_url: Option<String>,
+    #[serde(default, alias = "errorCallbackURL")]
+    pub error_callback_url: Option<String>,
+    #[serde(default, alias = "newUserCallbackURL")]
+    pub new_user_callback_url: Option<String>,
+    #[serde(default, alias = "disableRedirect")]
+    pub disable_redirect: bool,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default, alias = "loginHint")]
+    pub login_hint: Option<String>,
+    #[serde(default, alias = "requestSignUp")]
+    pub request_sign_up: bool,
+    #[serde(default, alias = "additionalData")]
+    pub additional_data: Option<Value>,
+    #[serde(default, alias = "idToken")]
+    pub id_token: Option<IdTokenBody>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct LinkSocialBody {
+    pub provider: String,
+    #[serde(default, alias = "callbackURL")]
+    pub callback_url: Option<String>,
+    #[serde(default, alias = "errorCallbackURL")]
+    pub error_callback_url: Option<String>,
+    #[serde(default, alias = "disableRedirect")]
+    pub disable_redirect: bool,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default, alias = "requestSignUp")]
+    pub request_sign_up: bool,
+    #[serde(default, alias = "additionalData")]
+    pub additional_data: Option<Value>,
+    #[serde(default, alias = "idToken")]
+    pub id_token: Option<IdTokenBody>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct IdTokenBody {
+    pub token: String,
+    #[serde(default)]
+    pub nonce: Option<String>,
+    #[serde(default, alias = "accessToken")]
+    pub access_token: Option<String>,
+    #[serde(default, alias = "refreshToken")]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default)]
+    pub user: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct SocialSessionBody {
+    pub redirect: bool,
+    pub token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub user: crate::db::User,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct LinkStatusBody {
+    pub url: String,
+    pub redirect: bool,
+    pub status: bool,
 }
 
 pub(super) fn path_param<'a>(

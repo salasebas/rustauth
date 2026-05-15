@@ -1,7 +1,6 @@
 mod support;
 
 use http::{Method, StatusCode};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -28,93 +27,42 @@ use openauth_oauth::oauth2::{
 use support::{
     body_string, link_social_body_schema, oauth_user_info_error, path_param, percent_encode,
     redirect, redirect_json_response, redirect_uri, redirect_with_error,
-    social_sign_in_body_schema,
+    social_sign_in_body_schema, IdTokenBody, LinkSocialBody, LinkStatusBody, SocialSessionBody,
+    SocialSignInBody,
 };
 
-#[derive(Debug, Deserialize)]
-struct SocialSignInBody {
-    provider: String,
-    #[serde(default, alias = "callbackURL")]
-    callback_url: Option<String>,
-    #[serde(default, alias = "errorCallbackURL")]
-    error_callback_url: Option<String>,
-    #[serde(default, alias = "newUserCallbackURL")]
-    new_user_callback_url: Option<String>,
-    #[serde(default, alias = "disableRedirect")]
-    disable_redirect: bool,
-    #[serde(default)]
-    scopes: Vec<String>,
-    #[serde(default, alias = "loginHint")]
-    login_hint: Option<String>,
-    #[serde(default, alias = "requestSignUp")]
-    request_sign_up: bool,
-    #[serde(default, alias = "additionalData")]
-    additional_data: Option<Value>,
-    #[serde(default, alias = "idToken")]
-    id_token: Option<IdTokenBody>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LinkSocialBody {
-    provider: String,
-    #[serde(default, alias = "callbackURL")]
-    callback_url: Option<String>,
-    #[serde(default, alias = "errorCallbackURL")]
-    error_callback_url: Option<String>,
-    #[serde(default, alias = "disableRedirect")]
-    disable_redirect: bool,
-    #[serde(default)]
-    scopes: Vec<String>,
-    #[serde(default, alias = "requestSignUp")]
-    request_sign_up: bool,
-    #[serde(default, alias = "additionalData")]
-    additional_data: Option<Value>,
-    #[serde(default, alias = "idToken")]
-    id_token: Option<IdTokenBody>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct IdTokenBody {
-    token: String,
-    #[serde(default)]
-    nonce: Option<String>,
-    #[serde(default, alias = "accessToken")]
-    access_token: Option<String>,
-    #[serde(default, alias = "refreshToken")]
-    refresh_token: Option<String>,
-    #[serde(default)]
-    scopes: Vec<String>,
-    #[serde(default)]
-    user: Option<Value>,
-}
-
-#[derive(Debug, Serialize)]
-struct SocialSessionBody {
-    redirect: bool,
-    token: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
-    user: crate::db::User,
-}
-
-#[derive(Debug, Serialize)]
-struct LinkStatusBody {
-    url: String,
-    redirect: bool,
-    status: bool,
-}
-
 pub(super) fn sign_in_social_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
-    create_auth_endpoint(
+    sign_in_oauth_endpoint(
         "/sign-in/social",
+        "socialSignIn",
+        "Sign in with a social provider",
+        adapter,
+    )
+}
+
+pub(super) fn sign_in_oauth2_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
+    sign_in_oauth_endpoint(
+        "/sign-in/oauth2",
+        "oauth2SignIn",
+        "Sign in with an OAuth2 provider",
+        adapter,
+    )
+}
+
+fn sign_in_oauth_endpoint(
+    path: &'static str,
+    operation_id: &'static str,
+    description: &'static str,
+    adapter: Arc<dyn DbAdapter>,
+) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        path,
         Method::POST,
         AuthEndpointOptions::new()
-            .operation_id("socialSignIn")
+            .operation_id(operation_id)
             .allowed_media_types(["application/x-www-form-urlencoded", "application/json"])
             .body_schema(social_sign_in_body_schema())
-            .openapi(
-                OpenApiOperation::new("socialSignIn").description("Sign in with a social provider"),
-            ),
+            .openapi(OpenApiOperation::new(operation_id).description(description)),
         move |context, request| {
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {

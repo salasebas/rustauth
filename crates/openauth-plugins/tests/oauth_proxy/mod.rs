@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
@@ -15,6 +16,7 @@ use openauth_oauth::oauth2::{
 };
 use openauth_plugins::oauth_proxy::{oauth_proxy, OAuthProxyOptions};
 use serde_json::Value;
+use tokio::sync::Mutex;
 use url::Url;
 
 const SECRET: &str = "test-secret-123456789012345678901234";
@@ -65,6 +67,95 @@ async fn cross_origin_callback_redirects_to_preview_with_profile(
     assert!(location.starts_with("http://preview.example.com/api/auth/oauth-proxy-callback"));
     assert!(query_value(location, "profile").is_some());
     assert_eq!(adapter.count(Count::new("user")).await?, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_url_sets_production_redirect_uri() -> Result<(), Box<dyn std::error::Error>> {
+    let _env = TestEnv::set([("OPENAUTH_URL", "https://login.example.com")]).await;
+    let router = router(
+        Arc::new(MemoryAdapter::default()),
+        "http://preview.example.com/api/auth",
+        OAuthProxyOptions::new(),
+    )?;
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "http://preview.example.com/api/auth/sign-in/social",
+            r#"{"provider":"google","callbackURL":"/dashboard"}"#,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(sign_in.body())?;
+    let provider_url = body["url"].as_str().ok_or("missing provider url")?;
+
+    assert_eq!(
+        query_value(provider_url, "redirect_uri").as_deref(),
+        Some("https://login.example.com/api/auth/callback/google")
+    );
+    assert!(query_value(provider_url, "state").is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth2_sign_in_route_uses_oauth_proxy() -> Result<(), Box<dyn std::error::Error>> {
+    let router = router(
+        Arc::new(MemoryAdapter::default()),
+        "https://login.example.com/api/auth",
+        OAuthProxyOptions::new().current_url("http://preview.example.com"),
+    )?;
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "http://preview.example.com/api/auth/sign-in/oauth2",
+            r#"{"provider":"google","callbackURL":"/dashboard"}"#,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(sign_in.body())?;
+    let provider_url = body["url"].as_str().ok_or("missing provider url")?;
+
+    assert_eq!(
+        query_value(provider_url, "redirect_uri").as_deref(),
+        Some("https://login.example.com/api/auth/callback/google")
+    );
+    assert!(query_value(provider_url, "state").is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn vendor_env_sets_current_preview_callback() -> Result<(), Box<dyn std::error::Error>> {
+    let _env = TestEnv::set([
+        ("OPENAUTH_URL", "https://login.example.com"),
+        ("VERCEL_URL", "preview.example.com"),
+    ])
+    .await;
+    let router = router(
+        Arc::new(MemoryAdapter::default()),
+        "https://fallback.example.com/api/auth",
+        OAuthProxyOptions::new(),
+    )?;
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/social",
+            r#"{"provider":"google","callbackURL":"/dashboard"}"#,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(sign_in.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("https://login.example.com/api/auth/callback/google?code=ok&state={state}"),
+            "",
+        )?)
+        .await?;
+    let location = location(&callback)?;
+
+    assert!(location.starts_with("https://preview.example.com/api/auth/oauth-proxy-callback"));
     Ok(())
 }
 
@@ -635,6 +726,58 @@ fn query_value(url: &str, key: &str) -> Option<String> {
 
 fn url_encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+struct TestEnv {
+    _guard: tokio::sync::MutexGuard<'static, ()>,
+    previous: Vec<(&'static str, Option<String>)>,
+}
+
+impl TestEnv {
+    async fn set(values: impl IntoIterator<Item = (&'static str, &'static str)>) -> Self {
+        let guard = env_lock().lock().await;
+        let keys = [
+            "OPENAUTH_URL",
+            "VERCEL_URL",
+            "NETLIFY_URL",
+            "RENDER_URL",
+            "AWS_LAMBDA_FUNCTION_URL",
+            "AWS_FUNCTION_URL",
+            "GOOGLE_CLOUD_FUNCTION_URL",
+            "AZURE_FUNCTION_URL",
+            "FUNCTIONS_CUSTOMHANDLER_PORT",
+        ];
+        let previous = keys
+            .into_iter()
+            .map(|key| (key, std::env::var(key).ok()))
+            .collect::<Vec<_>>();
+        for key in keys {
+            std::env::remove_var(key);
+        }
+        for (key, value) in values {
+            std::env::set_var(key, value);
+        }
+        Self {
+            _guard: guard,
+            previous,
+        }
+    }
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        for (key, value) in &self.previous {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
+fn env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
 }
 
 fn passthrough_payload_json() -> Value {

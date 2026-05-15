@@ -19,6 +19,8 @@ pub fn oauth_proxy(options: OAuthProxyOptions) -> AuthPlugin {
         .with_endpoint(endpoint::oauth_proxy_callback_endpoint(options.clone()))
         .with_async_before_hook("/sign-in/social", hooks::before_sign_in(options.clone()))
         .with_async_after_hook("/sign-in/social", hooks::after_sign_in(options.clone()))
+        .with_async_before_hook("/sign-in/oauth2", hooks::before_sign_in(options.clone()))
+        .with_async_after_hook("/sign-in/oauth2", hooks::after_sign_in(options.clone()))
         .with_async_before_hook("/callback/:id", hooks::before_callback(options.clone()))
         .with_after_hook("/callback/:id", hooks::after_callback(options))
 }

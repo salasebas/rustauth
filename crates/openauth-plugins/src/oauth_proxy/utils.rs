@@ -37,7 +37,7 @@ pub(crate) fn production_url(context: &AuthContext, options: &OAuthProxyOptions)
     let value = options
         .production_url
         .clone()
-        .or_else(|| std::env::var("BETTER_AUTH_URL").ok())
+        .or_else(|| std::env::var("OPENAUTH_URL").ok())
         .or_else(|| (!context.base_url.is_empty()).then(|| context.base_url.clone()))?;
     Url::parse(&value).ok()
 }
