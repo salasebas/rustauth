@@ -1083,6 +1083,7 @@ dependencies = [
  "hmac",
  "http",
  "indexmap",
+ "josekit",
  "openauth-core",
  "rand 0.8.6",
  "reqwest",

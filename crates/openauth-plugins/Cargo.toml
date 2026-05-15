@@ -20,6 +20,7 @@ data-encoding.workspace = true
 hmac.workspace = true
 http.workspace = true
 indexmap.workspace = true
+josekit.workspace = true
 openauth-core.workspace = true
 rand.workspace = true
 reqwest.workspace = true
