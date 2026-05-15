@@ -1,7 +1,7 @@
 use http::StatusCode;
 use serde_json::{json, Value};
 
-use crate::context::request_state::run_with_request_state;
+use crate::context::request_state::{run_with_request_state, set_current_request_path};
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use crate::plugin::{PluginBeforeHookAction, PluginRequestAction};
@@ -274,6 +274,7 @@ impl AuthRouter {
             if endpoint.options.server_only {
                 return api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound);
             }
+            set_current_request_path(path.clone())?;
             request.extensions_mut().insert(PathParams::new(params));
             if let Some(response) = validate_async_endpoint_request(endpoint, &request)? {
                 return Ok(response);
@@ -315,6 +316,7 @@ impl AuthRouter {
             return run_on_response_plugins(&self.context, &request, response);
         }
         if let Some((endpoint, params)) = sync_endpoint {
+            set_current_request_path(path.clone())?;
             request.extensions_mut().insert(PathParams::new(params));
             request = match run_before_hooks(&self.context, request, &endpoint.method, &path, None)?
             {

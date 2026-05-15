@@ -6,5 +6,5 @@
 - [x] Keep JWT implementation and tests split into focused files below the review-size threshold.
 - [x] Add final parity tests for server-only endpoints, request state, explicit verification options, malformed key cases, remote URL local signing, RSA modulus validation, custom adapter JWKS creation, and wrong-secret decrypt failures.
 - [x] Run final validation commands.
-- [ ] Split into core and plugin commits.
-- [ ] Merge latest local `main`.
+- [x] Split into core and plugin commits.
+- [x] Merge latest local `main`.
