@@ -37,6 +37,15 @@ impl CaptureSender {
     pub fn count(&self) -> usize {
         self.sent.lock().expect("capture sender lock").len()
     }
+
+    pub fn otps(&self) -> Vec<String> {
+        self.sent
+            .lock()
+            .expect("capture sender lock")
+            .iter()
+            .map(|payload| payload.otp.clone())
+            .collect()
+    }
 }
 
 impl openauth_plugins::email_otp::SendEmailOtp for CaptureSender {

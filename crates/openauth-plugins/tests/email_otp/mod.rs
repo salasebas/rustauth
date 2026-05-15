@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 mod additional_fields;
+mod callbacks;
 mod common;
 mod hooks;
 mod server;
@@ -61,6 +62,36 @@ async fn send_verification_otp_creates_verification_and_calls_sender() {
             .await
             .is_some()
     );
+}
+
+#[tokio::test]
+async fn disable_sign_up_silently_skips_sender_for_missing_sign_in_user() {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let sender = CaptureSender::default();
+    let router = router(
+        adapter,
+        sender.clone(),
+        EmailOtpOptions {
+            disable_sign_up: true,
+            ..EmailOtpOptions::default()
+        },
+    )
+    .unwrap();
+
+    let response = router
+        .handle_async(
+            json_request(
+                "/email-otp/send-verification-otp",
+                r#"{"email":"missing@example.com","type":"sign-in"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(sender.count(), 0);
 }
 
 #[tokio::test]
