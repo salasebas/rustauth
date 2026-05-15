@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/sebastiansala/openauth"
@@ -36,11 +36,11 @@ indexmap = { version = "2", features = ["serde"] }
 josekit = "0.10"
 hkdf = "0.12"
 data-encoding = "2"
-openauth-core = { path = "crates/openauth-core", version = "0.0.2" }
-openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.2" }
-openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.2" }
-openauth-social-providers = { path = "crates/openauth-social-providers", version = "0.0.2" }
-openauth-telemetry = { path = "crates/openauth-telemetry", version = "0.0.2" }
+openauth-core = { path = "crates/openauth-core", version = "0.0.3" }
+openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.3" }
+openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.3" }
+openauth-social-providers = { path = "crates/openauth-social-providers", version = "0.0.3" }
+openauth-telemetry = { path = "crates/openauth-telemetry", version = "0.0.3" }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 scrypt = "0.11"
