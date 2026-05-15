@@ -3,8 +3,9 @@ use std::sync::Arc;
 use http::StatusCode;
 use openauth_core::api::{parse_request_body, ApiRequest};
 use openauth_core::context::AuthContext;
-use openauth_core::crypto::password::hash_password;
 use openauth_core::db::DbAdapter;
+use openauth_core::options::PasswordResetPayload;
+use openauth_core::session::DbSessionStore;
 use openauth_core::user::{CreateCredentialAccountInput, DbUserStore};
 use openauth_core::verification::DbVerificationStore;
 use serde::Deserialize;
@@ -44,7 +45,7 @@ pub(super) fn request_password_reset<'a>(
         let otp = resolve_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &email,
             EmailOtpType::ForgetPassword,
             &identifier,
@@ -102,7 +103,7 @@ pub(super) fn reset_password<'a>(
         if let Some(response) = verify_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &otp::identifier(EmailOtpType::ForgetPassword, &email),
             &body.otp,
             true,
@@ -115,7 +116,7 @@ pub(super) fn reset_password<'a>(
         let Some(user) = users.find_user_by_email(&email).await? else {
             return response::error(StatusCode::BAD_REQUEST, "USER_NOT_FOUND", "User not found");
         };
-        let password_hash = hash_password(&body.password)?;
+        let password_hash = (context.password.hash)(&body.password)?;
         if users.find_credential_account(&user.id).await?.is_some() {
             users
                 .update_credential_password(&user.id, &password_hash)
@@ -128,8 +129,22 @@ pub(super) fn reset_password<'a>(
                 ))
                 .await?;
         }
-        if !user.email_verified {
-            users.update_user_email_verified(&user.id, true).await?;
+        let user = if !user.email_verified {
+            users
+                .update_user_email_verified(&user.id, true)
+                .await?
+                .unwrap_or(user)
+        } else {
+            user
+        };
+        if let Some(callback) = &context.options.password.on_password_reset {
+            callback
+                .on_password_reset(PasswordResetPayload { user: user.clone() }, Some(&request))?;
+        }
+        if context.options.password.revoke_sessions_on_password_reset {
+            DbSessionStore::new(adapter.as_ref())
+                .delete_user_sessions(&user.id)
+                .await?;
         }
         response::success()
     })

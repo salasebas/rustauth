@@ -1,14 +1,16 @@
 use std::sync::Arc;
 
 use http::StatusCode;
+use openauth_core::api::additional_fields;
 use openauth_core::api::{parse_request_body, ApiRequest};
 use openauth_core::context::AuthContext;
 use openauth_core::cookies::{set_session_cookie, CookieOptions, SessionCookieOptions};
-use openauth_core::db::{DbAdapter, DbFieldType, DbRecord, DbValue, User};
+use openauth_core::db::DbAdapter;
+use openauth_core::options::EmailVerificationCallbackPayload;
 use openauth_core::user::{CreateUserInput, DbUserStore};
 use openauth_core::verification::DbVerificationStore;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::helpers::{
     create_session, parse_type, resolve_otp, send_email, validated_email, verify_otp,
@@ -64,7 +66,7 @@ struct SignInBody {
 #[serde(rename_all = "camelCase")]
 struct TokenUserResponse {
     token: String,
-    user: User,
+    user: Value,
 }
 
 pub(super) fn send_otp<'a>(
@@ -99,7 +101,7 @@ pub(super) fn send_otp<'a>(
         let otp = resolve_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &email,
             otp_type,
             &identifier,
@@ -152,7 +154,7 @@ pub(super) fn check_otp<'a>(
         if let Some(response) = verify_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &otp::identifier(otp_type, &email),
             &body.otp,
             false,
@@ -180,7 +182,7 @@ pub(super) fn verify_email<'a>(
         if let Some(response) = verify_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &otp::identifier(EmailOtpType::EmailVerification, &email),
             &body.otp,
             true,
@@ -193,10 +195,28 @@ pub(super) fn verify_email<'a>(
         let Some(user) = users.find_user_by_email(&email).await? else {
             return response::error(StatusCode::BAD_REQUEST, "USER_NOT_FOUND", "User not found");
         };
+        if let Some(callback) = &context.options.email_verification.before_email_verification {
+            callback.before_email_verification(
+                EmailVerificationCallbackPayload { user: user.clone() },
+                Some(&request),
+            )?;
+        }
         let user = users
             .update_user_email_verified(&user.id, true)
             .await?
             .unwrap_or(user);
+        if let Some(callback) = &context.options.email_verification.after_email_verification {
+            callback.after_email_verification(
+                EmailVerificationCallbackPayload { user: user.clone() },
+                Some(&request),
+            )?;
+        }
+        let response_user = additional_fields::user_response_value(
+            adapter.as_ref(),
+            &context.options.user.additional_fields,
+            &user,
+        )
+        .await?;
         if context
             .options
             .email_verification
@@ -214,13 +234,13 @@ pub(super) fn verify_email<'a>(
             )?;
             return response::json(
                 StatusCode::OK,
-                &serde_json::json!({ "status": true, "token": session.token, "user": user }),
+                &serde_json::json!({ "status": true, "token": session.token, "user": response_user }),
                 cookies,
             );
         }
         response::json(
             StatusCode::OK,
-            &serde_json::json!({ "status": true, "token": null, "user": user }),
+            &serde_json::json!({ "status": true, "token": null, "user": response_user }),
             Vec::new(),
         )
     })
@@ -253,7 +273,7 @@ pub(super) fn sign_in<'a>(
         if let Some(response) = verify_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &otp::identifier(EmailOtpType::SignIn, &email),
             &body.otp,
             true,
@@ -281,7 +301,10 @@ pub(super) fn sign_in<'a>(
             if let Some(image) = body.image {
                 input = input.image(image);
             }
-            match create_additional_user_fields(context, body_object) {
+            match additional_fields::create_values(
+                &context.options.user.additional_fields,
+                body_object,
+            ) {
                 Ok(fields) => {
                     input = input.additional_fields(fields);
                 }
@@ -289,7 +312,7 @@ pub(super) fn sign_in<'a>(
                     return response::error(
                         StatusCode::BAD_REQUEST,
                         "INVALID_REQUEST_BODY",
-                        message,
+                        message.message(),
                     );
                 }
             }
@@ -306,75 +329,14 @@ pub(super) fn sign_in<'a>(
             StatusCode::OK,
             &TokenUserResponse {
                 token: session.token,
-                user,
+                user: additional_fields::user_response_value(
+                    adapter.as_ref(),
+                    &context.options.user.additional_fields,
+                    &user,
+                )
+                .await?,
             },
             cookies,
         )
     })
-}
-
-fn create_additional_user_fields(
-    context: &AuthContext,
-    body: &Map<String, Value>,
-) -> Result<DbRecord, String> {
-    let mut values = DbRecord::new();
-    for (name, field) in &context.options.user.additional_fields {
-        match body.get(name) {
-            Some(value) => {
-                if !field.input {
-                    return Err(format!(
-                        "additional field `{name}` is not accepted as input"
-                    ));
-                }
-                values.insert(
-                    name.clone(),
-                    json_to_db_value(name, &field.field_type, value)?,
-                );
-            }
-            None => {
-                if let Some(value) = &field.default_value {
-                    values.insert(name.clone(), value.clone());
-                } else if field.required {
-                    return Err(format!("missing required additional field `{name}`"));
-                } else {
-                    values.insert(name.clone(), DbValue::Null);
-                }
-            }
-        }
-    }
-    Ok(values)
-}
-
-fn json_to_db_value(
-    name: &str,
-    field_type: &DbFieldType,
-    value: &Value,
-) -> Result<DbValue, String> {
-    if value.is_null() {
-        return Ok(DbValue::Null);
-    }
-    match field_type {
-        DbFieldType::String => value
-            .as_str()
-            .map(|value| DbValue::String(value.to_owned())),
-        DbFieldType::Number => value.as_i64().map(DbValue::Number),
-        DbFieldType::Boolean => value.as_bool().map(DbValue::Boolean),
-        DbFieldType::Json => Some(DbValue::Json(value.clone())),
-        DbFieldType::StringArray => value.as_array().and_then(|values| {
-            values
-                .iter()
-                .map(|value| value.as_str().map(str::to_owned))
-                .collect::<Option<Vec<_>>>()
-                .map(DbValue::StringArray)
-        }),
-        DbFieldType::NumberArray => value.as_array().and_then(|values| {
-            values
-                .iter()
-                .map(Value::as_i64)
-                .collect::<Option<Vec<_>>>()
-                .map(DbValue::NumberArray)
-        }),
-        DbFieldType::Timestamp => None,
-    }
-    .ok_or_else(|| format!("invalid value for additional field `{name}`"))
 }

@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
 use http::StatusCode;
+use openauth_core::api::additional_fields;
 use openauth_core::api::{parse_request_body, ApiRequest};
 use openauth_core::context::AuthContext;
 use openauth_core::db::DbAdapter;
+use openauth_core::options::EmailVerificationCallbackPayload;
 use openauth_core::user::DbUserStore;
 use openauth_core::verification::DbVerificationStore;
 use serde::Deserialize;
@@ -69,7 +71,7 @@ pub(super) fn request_email_change<'a>(
             if let Some(response) = verify_otp(
                 adapter.as_ref(),
                 &options,
-                &context.secret,
+                &context.secret_config,
                 &otp::identifier(EmailOtpType::EmailVerification, &current_email),
                 &current_otp,
                 true,
@@ -83,7 +85,7 @@ pub(super) fn request_email_change<'a>(
         let generated = resolve_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &new_email,
             EmailOtpType::ChangeEmail,
             &identifier,
@@ -139,7 +141,7 @@ pub(super) fn change_email<'a>(
         if let Some(response) = verify_otp(
             adapter.as_ref(),
             &options,
-            &context.secret,
+            &context.secret_config,
             &otp::change_email_identifier(&current_email, &new_email),
             &body.otp,
             true,
@@ -148,13 +150,49 @@ pub(super) fn change_email<'a>(
         {
             return Ok(response);
         }
-        let updated = DbUserStore::new(adapter.as_ref())
+        let users = DbUserStore::new(adapter.as_ref());
+        let current_email = otp::normalize_email(&user.email);
+        if new_email == current_email {
+            return response::error(
+                StatusCode::BAD_REQUEST,
+                "EMAIL_IS_THE_SAME",
+                "Email is the same",
+            );
+        }
+        if users.find_user_by_email(&new_email).await?.is_some() {
+            return response::error(
+                StatusCode::BAD_REQUEST,
+                "EMAIL_ALREADY_IN_USE",
+                "Email already in use",
+            );
+        }
+        if let Some(callback) = &context.options.email_verification.before_email_verification {
+            callback.before_email_verification(
+                EmailVerificationCallbackPayload { user: user.clone() },
+                Some(&request),
+            )?;
+        }
+        let updated = users
             .update_user_email(&user.id, &new_email, true)
             .await?
             .unwrap_or(user);
+        if let Some(callback) = &context.options.email_verification.after_email_verification {
+            callback.after_email_verification(
+                EmailVerificationCallbackPayload {
+                    user: updated.clone(),
+                },
+                Some(&request),
+            )?;
+        }
+        let user = additional_fields::user_response_value(
+            adapter.as_ref(),
+            &context.options.user.additional_fields,
+            &updated,
+        )
+        .await?;
         response::json(
             StatusCode::OK,
-            &serde_json::json!({ "success": true, "user": updated }),
+            &serde_json::json!({ "success": true, "user": user }),
             Vec::new(),
         )
     })
