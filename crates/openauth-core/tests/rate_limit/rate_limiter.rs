@@ -119,6 +119,52 @@ async fn rate_limiter_keys_by_normalized_path_without_query(
 }
 
 #[tokio::test]
+async fn memory_rate_limiter_ceil_retry_after_seconds() -> Result<(), Box<dyn std::error::Error>> {
+    let context = create_auth_context(OpenAuthOptions {
+        rate_limit: RateLimitOptions {
+            enabled: Some(true),
+            window: 1,
+            max: 2,
+            ..RateLimitOptions::default()
+        },
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
+
+    for _ in 0..2 {
+        let response = router
+            .handle_async(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("http://localhost:3000/api/auth/ok")
+                    .body(Vec::new())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let denied = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/ok")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        denied
+            .headers()
+            .get("X-Retry-After")
+            .ok_or("missing retry header")?,
+        "1"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn rate_limiter_keeps_client_ips_separate() -> Result<(), Box<dyn std::error::Error>> {
     let context = create_auth_context(OpenAuthOptions {
         rate_limit: RateLimitOptions {

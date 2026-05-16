@@ -67,9 +67,9 @@
 - Modify: `crates/openauth-core/src/rate_limit.rs`
 - Test: `crates/openauth-core/tests/rate_limit/rate_limiter.rs`
 
-- [ ] Replace duration truncation with ceiling seconds for positive durations.
-- [ ] Add a focused test that a denied memory request never returns `X-Retry-After: 0`.
-- [ ] Run `cargo test -p openauth-core --test rate_limit`.
+- [x] Replace duration truncation with ceiling seconds for positive durations.
+- [x] Add a focused test that a denied memory request never returns `X-Retry-After: 0`.
+- [x] Run `cargo test -p openauth-core --test rate_limit`.
 - [ ] Commit: `fix(core): ceil memory rate limit retry seconds`.
 
 ## Task 5: Add Memory Backend Idle TTL

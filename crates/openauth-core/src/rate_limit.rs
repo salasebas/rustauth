@@ -371,7 +371,16 @@ fn denied_decision(input: &RateLimitConsumeInput, last_request: i64) -> RateLimi
 }
 
 fn duration_seconds(duration: Option<std::time::Duration>) -> u64 {
-    duration.map(|duration| duration.as_secs()).unwrap_or(0)
+    duration.map(ceil_duration_to_seconds).unwrap_or(0)
+}
+
+fn ceil_duration_to_seconds(duration: std::time::Duration) -> u64 {
+    if duration.is_zero() {
+        return 0;
+    }
+    duration
+        .as_secs()
+        .saturating_add(u64::from(duration.subsec_nanos() > 0))
 }
 
 fn ceil_millis_to_seconds(milliseconds: i64) -> u64 {
