@@ -155,6 +155,9 @@ fn rate_limit_builders_cover_distributed_and_hybrid_configuration() {
         .enabled(true)
         .window(60)
         .max(20);
+    let memory = RateLimitOptions::memory()
+        .enabled(true)
+        .memory_idle_ttl(Some(std::time::Duration::from_secs(30)));
 
     assert_eq!(database.storage, RateLimitStorageOption::Database);
     assert!(database.custom_store.is_some());
@@ -162,6 +165,10 @@ fn rate_limit_builders_cover_distributed_and_hybrid_configuration() {
     assert_eq!(database.hybrid.local_multiplier, 3);
     assert_eq!(secondary.storage, RateLimitStorageOption::SecondaryStorage);
     assert!(secondary.custom_store.is_some());
+    assert_eq!(
+        memory.memory_idle_ttl,
+        Some(std::time::Duration::from_secs(30))
+    );
 }
 
 #[tokio::test]

@@ -80,11 +80,11 @@
 - Test: `crates/openauth-core/tests/rate_limit/rate_limiter.rs`
 - Test: `crates/openauth/tests/public_api.rs`
 
-- [ ] Add `memory_idle_ttl: Option<std::time::Duration>` to `RateLimitOptions`, defaulting to a conservative value such as one hour.
-- [ ] Pass the TTL into `RateLimitContext` and `TokioMemoryRateLimitStore`.
-- [ ] Build local limiters with `tokio_rate_limit::algorithm::TokenBucket::with_ttl`.
-- [ ] Add public builder coverage for configuring the TTL.
-- [ ] Run core and public API rate limit tests.
+- [x] Add `memory_idle_ttl: Option<std::time::Duration>` to `RateLimitOptions`, defaulting to a conservative value such as one hour.
+- [x] Pass the TTL into `RateLimitContext` and `TokioMemoryRateLimitStore`.
+- [x] Build local limiters with `tokio_rate_limit::algorithm::TokenBucket::with_ttl`.
+- [x] Add public builder coverage for configuring the TTL.
+- [x] Run core and public API rate limit tests.
 - [ ] Commit: `feat(core): evict idle memory rate limit keys`.
 
 ## Task 6: Modularize Hot Files If Still Worth It

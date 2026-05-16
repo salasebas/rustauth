@@ -14,6 +14,8 @@ use crate::utils::url::normalize_pathname;
 use http::Request;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio_rate_limit::algorithm::TokenBucket;
 use tokio_rate_limit::{RateLimiter, RateLimiterConfig};
 
 pub type Body = Vec<u8>;
@@ -26,6 +28,7 @@ pub struct RateLimitRejection {
 #[derive(Default)]
 pub struct TokioMemoryRateLimitStore {
     limiters: Mutex<HashMap<(u64, u64), Arc<RateLimiter>>>,
+    idle_ttl: Option<Duration>,
 }
 
 #[deprecated(
@@ -35,7 +38,14 @@ pub type MemoryRateLimitStorage = TokioMemoryRateLimitStore;
 
 impl TokioMemoryRateLimitStore {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_idle_ttl(Some(Duration::from_secs(60 * 60)))
+    }
+
+    pub fn with_idle_ttl(idle_ttl: Option<Duration>) -> Self {
+        Self {
+            limiters: Mutex::new(HashMap::new()),
+            idle_ttl,
+        }
     }
 
     fn limiter(&self, rule: &RateLimitRule) -> Result<Arc<RateLimiter>, OpenAuthError> {
@@ -48,10 +58,18 @@ impl TokioMemoryRateLimitStore {
             return Ok(Arc::clone(limiter));
         }
         let requests_per_second = key.1.div_ceil(key.0).max(1);
-        let limiter = Arc::new(RateLimiter::new(RateLimiterConfig {
-            requests_per_second,
-            burst: key.1.max(requests_per_second),
-        }));
+        let burst = key.1.max(requests_per_second);
+        let limiter = Arc::new(match self.idle_ttl {
+            Some(idle_ttl) => RateLimiter::from_algorithm(TokenBucket::with_ttl(
+                burst,
+                requests_per_second,
+                idle_ttl,
+            )),
+            None => RateLimiter::new(RateLimiterConfig {
+                requests_per_second,
+                burst,
+            }),
+        });
         limiters.insert(key, Arc::clone(&limiter));
         Ok(limiter)
     }

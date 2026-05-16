@@ -23,6 +23,7 @@ use openauth_oauth::oauth2::SocialOAuthProvider;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub use builder::{
     create_auth_context, create_auth_context_with_adapter, create_auth_context_with_environment,
@@ -126,6 +127,7 @@ pub struct RateLimitContext {
     pub plugin_rules: Vec<crate::plugin::PluginRateLimitRule>,
     pub custom_store: Option<Arc<dyn RateLimitStore>>,
     pub hybrid: HybridRateLimitOptions,
+    pub memory_idle_ttl: Option<Duration>,
     pub memory_store: Arc<TokioMemoryRateLimitStore>,
 }
 

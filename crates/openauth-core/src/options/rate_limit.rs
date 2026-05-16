@@ -2,6 +2,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use http::Request;
 
@@ -19,6 +20,7 @@ pub struct RateLimitOptions {
     pub custom_store: Option<Arc<dyn RateLimitStore>>,
     pub custom_storage: Option<Arc<dyn RateLimitStorage>>,
     pub hybrid: HybridRateLimitOptions,
+    pub memory_idle_ttl: Option<Duration>,
 }
 
 impl Default for RateLimitOptions {
@@ -33,6 +35,7 @@ impl Default for RateLimitOptions {
             custom_store: None,
             custom_storage: None,
             hybrid: HybridRateLimitOptions::default(),
+            memory_idle_ttl: Some(Duration::from_secs(60 * 60)),
         }
     }
 }
@@ -161,6 +164,12 @@ impl RateLimitOptions {
         self.hybrid = hybrid;
         self
     }
+
+    #[must_use]
+    pub fn memory_idle_ttl(mut self, ttl: Option<Duration>) -> Self {
+        self.memory_idle_ttl = ttl;
+        self
+    }
 }
 
 impl fmt::Debug for RateLimitOptions {
@@ -182,6 +191,7 @@ impl fmt::Debug for RateLimitOptions {
                 &self.custom_storage.as_ref().map(|_| "<custom-storage>"),
             )
             .field("hybrid", &self.hybrid)
+            .field("memory_idle_ttl", &self.memory_idle_ttl)
             .finish()
     }
 }

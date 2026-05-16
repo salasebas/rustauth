@@ -116,7 +116,10 @@ pub fn create_auth_context_with_environment_and_adapter(
             })
         }),
         hybrid: options.rate_limit.hybrid.clone(),
-        memory_store: Arc::new(TokioMemoryRateLimitStore::new()),
+        memory_idle_ttl: options.rate_limit.memory_idle_ttl,
+        memory_store: Arc::new(TokioMemoryRateLimitStore::with_idle_ttl(
+            options.rate_limit.memory_idle_ttl,
+        )),
     };
 
     let schema_options = schema_options_from_auth_options(&options);
