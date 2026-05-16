@@ -135,4 +135,12 @@ pub trait SocialOAuthProvider: Send + Sync + 'static {
             )))
         })
     }
+
+    fn revoke_token(&self, token: String) -> SocialProviderFuture<'_, ()> {
+        Box::pin(async move {
+            Err(OAuthError::InvalidResponse(format!(
+                "provider does not support token revocation for token `{token}`"
+            )))
+        })
+    }
 }

@@ -4,12 +4,13 @@ use std::collections::BTreeMap;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use josekit::jwk::JwkSet;
 use openauth_oauth::oauth2::{
     authorization_code_request, create_authorization_url, refresh_access_token,
-    refresh_access_token_request, validate_authorization_code, AuthorizationCodeRequest,
-    AuthorizationUrlRequest, ClientAuthentication, ClientTokenRequest, OAuth2Tokens,
-    OAuth2UserInfo, OAuthError, OAuthFormRequest, OAuthProviderContract, ProviderOptions,
-    RefreshAccessTokenRequest,
+    refresh_access_token_request, validate_authorization_code, validate_token,
+    verify_jws_with_jwks, AuthorizationCodeRequest, AuthorizationUrlRequest, ClientAuthentication,
+    ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthFormRequest,
+    OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest, TokenValidationOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,6 +20,8 @@ pub const TWITCH_ID: &str = "twitch";
 pub const TWITCH_NAME: &str = "Twitch";
 pub const TWITCH_AUTHORIZATION_ENDPOINT: &str = "https://id.twitch.tv/oauth2/authorize";
 pub const TWITCH_TOKEN_ENDPOINT: &str = "https://id.twitch.tv/oauth2/token";
+pub const TWITCH_JWKS_ENDPOINT: &str = "https://id.twitch.tv/oauth2/keys";
+pub const TWITCH_ISSUER: &str = "https://id.twitch.tv/oauth2";
 pub const TWITCH_DEFAULT_SCOPES: &[&str] = &["user:read:email", "openid"];
 pub const TWITCH_DEFAULT_CLAIMS: &[&str] =
     &["email", "email_verified", "preferred_username", "picture"];
@@ -28,6 +31,7 @@ pub const TWITCH_DEFAULT_CLAIMS: &[&str] =
 pub struct TwitchOptions {
     pub oauth: ProviderOptions,
     pub claims: Vec<String>,
+    pub jwks_endpoint: Option<String>,
 }
 
 /// Input used to create a Twitch authorization URL.
@@ -187,6 +191,87 @@ impl TwitchProvider {
         }))
     }
 
+    pub async fn verify_id_token(
+        &self,
+        token: &str,
+        nonce: Option<&str>,
+    ) -> Result<bool, OAuthError> {
+        if self.options.oauth.disable_id_token_sign_in {
+            return Ok(false);
+        }
+        let audiences = self.client_id_audiences();
+        if audiences.is_empty() {
+            return Ok(false);
+        }
+        let jwks_endpoint = self
+            .options
+            .jwks_endpoint
+            .as_deref()
+            .unwrap_or(TWITCH_JWKS_ENDPOINT);
+        let payload = match validate_token(
+            token,
+            jwks_endpoint,
+            TokenValidationOptions {
+                audience: audiences,
+                issuer: vec![TWITCH_ISSUER.to_owned()],
+            },
+        )
+        .await
+        {
+            Ok(result) => result.payload,
+            Err(_) => return Ok(false),
+        };
+        self.valid_verified_id_token_payload(payload, nonce)
+    }
+
+    pub fn verify_id_token_with_jwk_set(
+        &self,
+        token: &str,
+        nonce: Option<&str>,
+        jwk_set: &JwkSet,
+    ) -> Result<bool, OAuthError> {
+        if self.options.oauth.disable_id_token_sign_in {
+            return Ok(false);
+        }
+        let audiences = self.client_id_audiences();
+        if audiences.is_empty() {
+            return Ok(false);
+        }
+        let result = match verify_jws_with_jwks(
+            token,
+            jwk_set,
+            &TokenValidationOptions {
+                audience: audiences,
+                issuer: vec![TWITCH_ISSUER.to_owned()],
+            },
+        ) {
+            Ok(result) => result,
+            Err(_) => return Ok(false),
+        };
+        self.valid_verified_id_token_payload(result.payload, nonce)
+    }
+
+    fn valid_verified_id_token_payload(
+        &self,
+        payload: Value,
+        nonce: Option<&str>,
+    ) -> Result<bool, OAuthError> {
+        if payload
+            .get("sub")
+            .and_then(Value::as_str)
+            .map_or(true, str::is_empty)
+        {
+            return Ok(false);
+        }
+        if let Some(expected_nonce) = nonce {
+            let actual_nonce = payload.get("nonce").and_then(Value::as_str);
+            if actual_nonce != Some(expected_nonce) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     fn scopes(&self, request_scopes: Vec<String>) -> Vec<String> {
         let mut scopes = if self.options.oauth.disable_default_scope {
             Vec::new()
@@ -209,6 +294,20 @@ impl TwitchProvider {
                 .collect()
         } else {
             self.options.claims.clone()
+        }
+    }
+
+    fn client_id_audiences(&self) -> Vec<String> {
+        match &self.options.oauth.client_id {
+            Some(openauth_oauth::oauth2::ClientId::Single(value)) if !value.is_empty() => {
+                vec![value.clone()]
+            }
+            Some(openauth_oauth::oauth2::ClientId::Multiple(values)) => values
+                .iter()
+                .filter(|value| !value.is_empty())
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
         }
     }
 }

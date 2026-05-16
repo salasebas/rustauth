@@ -1,5 +1,6 @@
 use openauth_oauth::oauth2::{
     ClientAuthentication, ClientId, OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions,
+    SocialIdTokenRequest,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -19,6 +20,16 @@ pub type GenericOAuthMapProfileFuture =
     Pin<Box<dyn Future<Output = Result<OAuth2UserInfo, OAuthError>> + Send>>;
 pub type GenericOAuthMapProfileToUser =
     Arc<dyn Fn(OAuth2UserInfo) -> GenericOAuthMapProfileFuture + Send + Sync>;
+pub type GenericOAuthRefreshAccessToken =
+    Arc<dyn Fn(String) -> GenericOAuthTokenFuture + Send + Sync>;
+pub type GenericOAuthVerifyIdTokenFuture =
+    Pin<Box<dyn Future<Output = Result<bool, OAuthError>> + Send>>;
+pub type GenericOAuthVerifyIdToken =
+    Arc<dyn Fn(SocialIdTokenRequest) -> GenericOAuthVerifyIdTokenFuture + Send + Sync>;
+pub type GenericOAuthRevokeTokenFuture =
+    Pin<Box<dyn Future<Output = Result<(), OAuthError>> + Send>>;
+pub type GenericOAuthRevokeToken =
+    Arc<dyn Fn(String) -> GenericOAuthRevokeTokenFuture + Send + Sync>;
 pub type GenericOAuthParams = BTreeMap<String, String>;
 pub type GenericOAuthParamsFuture =
     Pin<Box<dyn Future<Output = Result<GenericOAuthParams, OAuthError>> + Send>>;
@@ -106,6 +117,9 @@ pub struct GenericOAuthConfig {
     pub get_token: Option<GenericOAuthGetToken>,
     pub get_user_info: Option<GenericOAuthGetUserInfo>,
     pub map_profile_to_user: Option<GenericOAuthMapProfileToUser>,
+    pub refresh_access_token: Option<GenericOAuthRefreshAccessToken>,
+    pub verify_id_token: Option<GenericOAuthVerifyIdToken>,
+    pub revoke_token: Option<GenericOAuthRevokeToken>,
 }
 
 impl std::fmt::Debug for GenericOAuthConfig {
@@ -150,6 +164,9 @@ impl std::fmt::Debug for GenericOAuthConfig {
             .field("get_token", &self.get_token.is_some())
             .field("get_user_info", &self.get_user_info.is_some())
             .field("map_profile_to_user", &self.map_profile_to_user.is_some())
+            .field("refresh_access_token", &self.refresh_access_token.is_some())
+            .field("verify_id_token", &self.verify_id_token.is_some())
+            .field("revoke_token", &self.revoke_token.is_some())
             .finish()
     }
 }
@@ -264,6 +281,9 @@ impl Default for GenericOAuthConfig {
             get_token: None,
             get_user_info: None,
             map_profile_to_user: None,
+            refresh_access_token: None,
+            verify_id_token: None,
+            revoke_token: None,
         }
     }
 }

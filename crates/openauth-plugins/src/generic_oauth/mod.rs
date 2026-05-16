@@ -22,7 +22,8 @@ pub use config::{
     GenericOAuthConfig, GenericOAuthFlow, GenericOAuthGetToken, GenericOAuthGetUserInfo,
     GenericOAuthMapProfileToUser, GenericOAuthOptions, GenericOAuthParams,
     GenericOAuthParamsCallback, GenericOAuthParamsContext, GenericOAuthParamsFuture,
-    GenericOAuthTokenRequest,
+    GenericOAuthRefreshAccessToken, GenericOAuthRevokeToken, GenericOAuthTokenRequest,
+    GenericOAuthVerifyIdToken,
 };
 pub use errors::{
     INVALID_OAUTH_CONFIG, INVALID_OAUTH_CONFIGURATION, ISSUER_MISMATCH, ISSUER_MISSING,

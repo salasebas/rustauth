@@ -131,3 +131,70 @@ async fn provider_uses_custom_get_token_and_maps_profile() {
     assert_eq!(user.name.as_deref(), Some("Ada Lovelace"));
     assert!(user.email_verified);
 }
+
+#[tokio::test]
+async fn provider_uses_custom_refresh_verify_and_revoke_hooks() {
+    let mut config = example_config();
+    config.refresh_access_token = Some(Arc::new(|refresh_token| {
+        Box::pin(async move {
+            Ok(OAuth2Tokens {
+                access_token: Some(format!("refreshed-{refresh_token}")),
+                ..OAuth2Tokens::default()
+            })
+        })
+    }));
+    config.verify_id_token = Some(Arc::new(|request| {
+        Box::pin(async move {
+            Ok(request.token == "id-token-1" && request.nonce.as_deref() == Some("nonce-1"))
+        })
+    }));
+    config.revoke_token = Some(Arc::new(|token| {
+        Box::pin(async move {
+            if token == "token-1" {
+                Ok(())
+            } else {
+                Err(OAuthError::InvalidResponse(format!(
+                    "unexpected revoked token `{token}`"
+                )))
+            }
+        })
+    }));
+
+    let provider = provider(config);
+    let refreshed = provider
+        .refresh_access_token("refresh-1".to_owned())
+        .await
+        .expect("custom refresh hook should run");
+    let verified = provider
+        .verify_id_token(SocialIdTokenRequest {
+            token: "id-token-1".to_owned(),
+            nonce: Some("nonce-1".to_owned()),
+            ..SocialIdTokenRequest::default()
+        })
+        .await
+        .expect("custom verify hook should run");
+    provider
+        .revoke_token("token-1".to_owned())
+        .await
+        .expect("custom revoke hook should run");
+
+    assert_eq!(
+        refreshed.access_token.as_deref(),
+        Some("refreshed-refresh-1")
+    );
+    assert!(verified);
+}
+
+#[tokio::test]
+async fn provider_rejects_id_token_sign_in_without_custom_verifier() {
+    let provider = provider(example_config());
+    let verified = provider
+        .verify_id_token(SocialIdTokenRequest {
+            token: jwt_with_claims(r#"{"sub":"generic-user-1"}"#),
+            ..SocialIdTokenRequest::default()
+        })
+        .await
+        .expect("default verification should not error");
+
+    assert!(!verified);
+}

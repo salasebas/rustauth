@@ -6,14 +6,20 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use josekit::jwk::{Jwk, JwkSet};
+use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
+use josekit::jws::JwsHeader;
+use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
 use openauth_social_providers::twitch::{
     twitch, TwitchAuthorizationUrlRequest, TwitchOptions, TWITCH_AUTHORIZATION_ENDPOINT,
-    TWITCH_DEFAULT_CLAIMS, TWITCH_DEFAULT_SCOPES, TWITCH_ID, TWITCH_NAME, TWITCH_TOKEN_ENDPOINT,
+    TWITCH_DEFAULT_CLAIMS, TWITCH_DEFAULT_SCOPES, TWITCH_ID, TWITCH_ISSUER, TWITCH_NAME,
+    TWITCH_TOKEN_ENDPOINT,
 };
 use serde_json::json;
+use time::OffsetDateTime;
 
 #[test]
 fn twitch_provider_exposes_upstream_metadata() {
@@ -106,6 +112,7 @@ fn twitch_authorization_url_allows_claim_override() -> Result<(), OAuthError> {
             ..ProviderOptions::default()
         },
         claims: vec!["preferred_username".to_owned()],
+        ..TwitchOptions::default()
     });
 
     let url = provider.create_authorization_url(TwitchAuthorizationUrlRequest {
@@ -190,6 +197,132 @@ async fn twitch_get_user_info_returns_none_without_id_token() -> Result<(), OAut
     Ok(())
 }
 
+#[tokio::test]
+async fn twitch_verify_id_token_accepts_signed_token_with_expected_claims() -> Result<(), OAuthError>
+{
+    let (token, jwk) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        0,
+        true,
+    );
+    let jwks = jwks_with_keys(vec![jwk]);
+    let provider = twitch(twitch_options());
+
+    assert!(provider.verify_id_token_with_jwk_set(&token, Some("nonce-1"), &jwks)?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn twitch_verify_id_token_rejects_unsigned_invalid_claims_and_wrong_keys(
+) -> Result<(), OAuthError> {
+    let unsigned = unsigned_jwt(json!({
+        "sub": "twitch-user-1",
+        "aud": "twitch-client",
+        "iss": TWITCH_ISSUER,
+        "exp": OffsetDateTime::now_utc().unix_timestamp() + 3600
+    }));
+    let (_, jwk) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        0,
+        true,
+    );
+    let jwks = jwks_with_keys(vec![jwk]);
+    let provider = twitch(twitch_options());
+    assert!(!provider.verify_id_token_with_jwk_set(&unsigned, Some("nonce-1"), &jwks)?);
+
+    let (wrong_audience, _) = signed_twitch_id_token(
+        "other-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        0,
+        true,
+    );
+    assert!(!provider.verify_id_token_with_jwk_set(&wrong_audience, Some("nonce-1"), &jwks)?);
+
+    let (wrong_issuer, _) = signed_twitch_id_token(
+        "twitch-client",
+        "https://issuer.example",
+        Some("nonce-1"),
+        3600,
+        0,
+        true,
+    );
+    assert!(!provider.verify_id_token_with_jwk_set(&wrong_issuer, Some("nonce-1"), &jwks)?);
+
+    let (wrong_nonce, _) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        0,
+        true,
+    );
+    assert!(!provider.verify_id_token_with_jwk_set(&wrong_nonce, Some("different"), &jwks)?);
+
+    let (expired, _) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        -60,
+        0,
+        true,
+    );
+    assert!(!provider.verify_id_token_with_jwk_set(&expired, Some("nonce-1"), &jwks)?);
+
+    let (future_iat, _) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        120,
+        true,
+    );
+    assert!(!provider.verify_id_token_with_jwk_set(&future_iat, Some("nonce-1"), &jwks)?);
+
+    let (missing_kid, _) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        0,
+        false,
+    );
+    assert!(!provider.verify_id_token_with_jwk_set(&missing_kid, Some("nonce-1"), &jwks)?);
+
+    let (wrong_key_token, _) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        0,
+        true,
+    );
+    let (_, wrong_key) = signed_twitch_id_token(
+        "twitch-client",
+        TWITCH_ISSUER,
+        Some("nonce-1"),
+        3600,
+        0,
+        true,
+    );
+    let wrong_key_jwks = jwks_with_keys(vec![wrong_key]);
+    let wrong_key_provider = twitch(twitch_options());
+    assert!(!wrong_key_provider.verify_id_token_with_jwk_set(
+        &wrong_key_token,
+        Some("nonce-1"),
+        &wrong_key_jwks
+    )?);
+
+    Ok(())
+}
+
 fn twitch_options() -> TwitchOptions {
     TwitchOptions {
         oauth: ProviderOptions {
@@ -225,4 +358,77 @@ fn unsigned_jwt(claims: serde_json::Value) -> String {
     let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#);
     let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
     format!("{header}.{payload}.")
+}
+
+fn signed_twitch_id_token(
+    audience: &str,
+    issuer: &str,
+    nonce: Option<&str>,
+    expires_in_seconds: i64,
+    issued_at_offset_seconds: i64,
+    include_kid: bool,
+) -> (String, Jwk) {
+    let kid = "twitch-test-key";
+    let mut jwk = Jwk::generate_rsa_key(2048).expect("rsa key should generate");
+    jwk.set_key_id(kid);
+    jwk.set_algorithm("RS256");
+    jwk.set_key_use("sig");
+    let signer = Rs256
+        .signer_from_jwk(&jwk)
+        .expect("rsa signer should build");
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let mut payload = JwtPayload::new();
+    payload
+        .set_claim("sub", Some(json!("twitch-user-1")))
+        .expect("sub claim");
+    payload
+        .set_claim("aud", Some(json!(audience)))
+        .expect("aud claim");
+    payload
+        .set_claim("iss", Some(json!(issuer)))
+        .expect("iss claim");
+    payload
+        .set_claim("preferred_username", Some(json!("ada_streams")))
+        .expect("preferred_username claim");
+    payload
+        .set_claim("email", Some(json!("ada@example.com")))
+        .expect("email claim");
+    payload
+        .set_claim("email_verified", Some(json!(true)))
+        .expect("email_verified claim");
+    payload
+        .set_claim(
+            "picture",
+            Some(json!(
+                "https://static-cdn.jtvnw.net/jtv_user_pictures/ada.png"
+            )),
+        )
+        .expect("picture claim");
+    payload
+        .set_claim("iat", Some(json!(now + issued_at_offset_seconds)))
+        .expect("iat claim");
+    payload
+        .set_claim("exp", Some(json!(now + expires_in_seconds)))
+        .expect("exp claim");
+    if let Some(nonce) = nonce {
+        payload
+            .set_claim("nonce", Some(json!(nonce)))
+            .expect("nonce claim");
+    }
+    let mut header = JwsHeader::new();
+    header.set_algorithm("RS256");
+    if include_kid {
+        header.set_key_id(kid);
+    }
+    let token = jwt::encode_with_signer(&payload, &header, &signer).expect("token should encode");
+    let mut public_jwk = jwk.to_public_key().expect("public jwk should export");
+    public_jwk.set_key_id(kid);
+    public_jwk.set_algorithm("RS256");
+    public_jwk.set_key_use("sig");
+    (token, public_jwk)
+}
+
+fn jwks_with_keys(keys: Vec<Jwk>) -> JwkSet {
+    let bytes = json!({ "keys": keys }).to_string();
+    JwkSet::from_bytes(bytes.as_bytes()).expect("jwks should parse")
 }

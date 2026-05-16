@@ -1,10 +1,10 @@
 //! PayPal social OAuth provider.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 use openauth_oauth::oauth2::{
     authorization_code_request, create_authorization_url, get_oauth2_tokens,
     refresh_access_token_request, validate_authorization_code, AuthorizationCodeRequest,
@@ -29,6 +29,9 @@ pub const PAYPAL_LIVE_USER_INFO_ENDPOINT: &str =
     "https://api-m.paypal.com/v1/identity/oauth2/userinfo";
 
 type UserMapper = Arc<dyn Fn(&PayPalProfile) -> OAuth2UserInfo + Send + Sync>;
+type VerifyIdTokenFuture = Pin<Box<dyn Future<Output = Result<bool, OAuthError>> + Send>>;
+pub type PayPalVerifyIdToken =
+    Arc<dyn Fn(String, Option<String>) -> VerifyIdTokenFuture + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PayPalEnvironment {
@@ -43,6 +46,7 @@ pub struct PayPalOptions {
     pub environment: PayPalEnvironment,
     pub request_shipping_address: bool,
     pub map_profile_to_user: Option<UserMapper>,
+    pub verify_id_token: Option<PayPalVerifyIdToken>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -235,20 +239,17 @@ impl PayPalProvider {
     pub async fn verify_id_token(
         &self,
         token: &str,
-        _nonce: Option<&str>,
+        nonce: Option<&str>,
     ) -> Result<bool, OAuthError> {
         if self.options.oauth.disable_id_token_sign_in {
             return Ok(false);
         }
 
-        let Ok(payload) = decode_jwt_payload::<Value>(token) else {
-            return Ok(false);
-        };
+        if let Some(verify_id_token) = &self.options.verify_id_token {
+            return verify_id_token(token.to_owned(), nonce.map(str::to_owned)).await;
+        }
 
-        Ok(payload
-            .get("sub")
-            .and_then(Value::as_str)
-            .is_some_and(|subject| !subject.is_empty()))
+        Ok(false)
     }
 
     pub async fn get_user_info(
@@ -348,18 +349,4 @@ async fn post_form(
         .json::<serde_json::Value>()
         .await
         .map_err(Into::into)
-}
-
-fn decode_jwt_payload<T>(token: &str) -> Result<T, OAuthError>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    let payload = token
-        .split('.')
-        .nth(1)
-        .ok_or_else(|| OAuthError::TokenVerification("missing jwt payload".to_owned()))?;
-    let bytes = URL_SAFE_NO_PAD
-        .decode(payload)
-        .map_err(|error| OAuthError::TokenVerification(error.to_string()))?;
-    serde_json::from_slice(&bytes).map_err(|error| OAuthError::InvalidResponse(error.to_string()))
 }

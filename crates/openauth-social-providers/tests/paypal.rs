@@ -12,6 +12,7 @@ use openauth_social_providers::paypal::{
     paypal, PayPalAuthorizationUrlRequest, PayPalEnvironment, PayPalOptions, PayPalProfile,
 };
 use serde_json::json;
+use std::sync::Arc;
 
 #[test]
 fn paypal_provider_exposes_upstream_metadata_and_sandbox_endpoints() {
@@ -176,14 +177,14 @@ fn paypal_profile_maps_to_user_info() {
 }
 
 #[tokio::test]
-async fn paypal_verify_id_token_accepts_tokens_with_sub_unless_disabled() {
+async fn paypal_verify_id_token_rejects_payload_only_tokens_by_default() {
     let provider = paypal(paypal_options());
     let token = unsigned_jwt(json!({ "sub": "paypal-user-1" }));
 
-    assert!(provider
+    assert!(!provider
         .verify_id_token(&token, None)
         .await
-        .expect("token should decode"));
+        .expect("payload-only token should not error"));
 
     let provider = paypal(PayPalOptions {
         oauth: ProviderOptions {
@@ -197,6 +198,27 @@ async fn paypal_verify_id_token_accepts_tokens_with_sub_unless_disabled() {
         .verify_id_token(&token, None)
         .await
         .expect("disabled id token sign-in should be false"));
+}
+
+#[tokio::test]
+async fn paypal_verify_id_token_uses_custom_verifier_when_configured() {
+    let provider = paypal(PayPalOptions {
+        verify_id_token: Some(Arc::new(|token, nonce| {
+            Box::pin(
+                async move { Ok(token == "id-token-1" && nonce.as_deref() == Some("nonce-1")) },
+            )
+        })),
+        ..paypal_options()
+    });
+
+    assert!(provider
+        .verify_id_token("id-token-1", Some("nonce-1"))
+        .await
+        .expect("custom verifier should run"));
+    assert!(!provider
+        .verify_id_token("id-token-1", Some("wrong"))
+        .await
+        .expect("custom verifier should reject wrong nonce"));
 }
 
 #[tokio::test]

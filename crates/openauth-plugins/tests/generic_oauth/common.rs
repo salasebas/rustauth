@@ -11,7 +11,7 @@ pub(super) use openauth_core::session::{CreateSessionInput, DbSessionStore};
 pub(super) use openauth_core::user::{CreateOAuthAccountInput, CreateUserInput, DbUserStore};
 pub(super) use openauth_oauth::oauth2::{
     ClientAuthentication, OAuth2Tokens, OAuth2UserInfo, OAuthError, SocialAuthorizationCodeRequest,
-    SocialAuthorizationUrlRequest, SocialOAuthProvider,
+    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider,
 };
 pub(super) use openauth_plugins::generic_oauth::{
     auth0, generic_oauth, gumroad, hubspot, keycloak, line, microsoft_entra_id, okta, patreon,

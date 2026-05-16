@@ -197,7 +197,12 @@ impl SocialOAuthProvider for GenericOAuthProvider {
     }
 
     fn verify_id_token(&self, input: SocialIdTokenRequest) -> SocialProviderFuture<'_, bool> {
-        Box::pin(async move { Ok(user_info::decode_id_token_claims(&input.token).is_some()) })
+        Box::pin(async move {
+            if let Some(verify_id_token) = &self.config.verify_id_token {
+                return verify_id_token(input).await;
+            }
+            Ok(false)
+        })
     }
 
     fn refresh_access_token(
@@ -205,6 +210,9 @@ impl SocialOAuthProvider for GenericOAuthProvider {
         refresh_token_value: String,
     ) -> SocialProviderFuture<'_, OAuth2Tokens> {
         Box::pin(async move {
+            if let Some(refresh_access_token) = &self.config.refresh_access_token {
+                return refresh_access_token(refresh_token_value).await;
+            }
             let token_endpoint = self.token_endpoint().await?;
             refresh_access_token(ClientTokenRequest {
                 token_endpoint,
@@ -217,6 +225,17 @@ impl SocialOAuthProvider for GenericOAuthProvider {
                 },
             })
             .await
+        })
+    }
+
+    fn revoke_token(&self, token: String) -> SocialProviderFuture<'_, ()> {
+        Box::pin(async move {
+            if let Some(revoke_token) = &self.config.revoke_token {
+                return revoke_token(token).await;
+            }
+            Err(OAuthError::InvalidResponse(format!(
+                "provider does not support token revocation for token `{token}`"
+            )))
         })
     }
 }

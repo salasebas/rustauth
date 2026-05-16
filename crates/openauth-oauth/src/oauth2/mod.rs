@@ -35,8 +35,8 @@ pub use tokens::{
 pub use utils::generate_code_challenge;
 pub use validate_authorization_code::{
     authorization_code_request, create_authorization_code_request, validate_authorization_code,
-    validate_token, AuthorizationCodeRequest, ClientTokenRequest, TokenValidationOptions,
-    TokenValidationResult,
+    validate_token, verify_jws_with_jwks, AuthorizationCodeRequest, ClientTokenRequest,
+    TokenValidationOptions, TokenValidationResult,
 };
 pub use verify::{
     get_jwks, verify_access_token, verify_jws_access_token, VerifyAccessTokenOptions,

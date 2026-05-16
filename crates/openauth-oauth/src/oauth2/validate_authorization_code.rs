@@ -131,7 +131,7 @@ pub async fn validate_token(
     verify_jws_with_jwks(token, &jwk_set, &options)
 }
 
-pub(crate) fn verify_jws_with_jwks(
+pub fn verify_jws_with_jwks(
     token: &str,
     jwk_set: &JwkSet,
     options: &TokenValidationOptions,

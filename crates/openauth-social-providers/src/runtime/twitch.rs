@@ -25,8 +25,12 @@ impl_social_oauth_provider!(
             .await
             .map(|info| info.map(|info| info.user))
     },
-    verify | _provider,
-    input | { unsupported_id_token(input) },
+    verify | provider,
+    input | {
+        provider
+            .verify_id_token(&input.token, input.nonce.as_deref())
+            .await
+    },
     refresh | provider,
     refresh_token | { provider.refresh_access_token(refresh_token).await }
 );

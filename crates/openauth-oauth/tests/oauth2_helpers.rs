@@ -23,9 +23,10 @@ use openauth_oauth::oauth2::{
     generate_code_challenge, get_oauth2_tokens, get_primary_client_id, refresh_access_token,
     validate_token, verify_access_token, verify_jws_access_token, AuthorizationCodeRequest,
     AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
-    ClientCredentialsTokenRequest, ClientId, ClientTokenRequest, ProviderOptions,
-    RefreshAccessTokenRequest, TokenValidationOptions, VerifyAccessTokenOptions,
-    VerifyAccessTokenRemote,
+    ClientCredentialsTokenRequest, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo,
+    OAuthError, ProviderOptions, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
+    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
+    TokenValidationOptions, VerifyAccessTokenOptions, VerifyAccessTokenRemote,
 };
 use serde_json::json;
 use time::OffsetDateTime;
@@ -665,6 +666,159 @@ where
     }
 
     encode(&payload, &header).expect("token should sign")
+}
+
+#[tokio::test]
+async fn social_provider_default_revoke_token_returns_unsupported_error() {
+    let provider: Box<dyn SocialOAuthProvider> = Box::new(DefaultOnlySocialProvider);
+
+    let error = provider
+        .revoke_token("token-1".to_owned())
+        .await
+        .expect_err("default revoke should be unsupported");
+
+    assert_eq!(
+        error.to_string(),
+        "invalid OAuth response: provider does not support token revocation for token `token-1`"
+    );
+}
+
+#[tokio::test]
+async fn social_provider_can_override_refresh_verify_and_revoke_token() {
+    let provider = FakeSocialProvider {
+        verify_id_token: true,
+    };
+
+    let refreshed = provider
+        .refresh_access_token("refresh-1".to_owned())
+        .await
+        .expect("override should refresh");
+    let verified = provider
+        .verify_id_token(SocialIdTokenRequest {
+            token: "id-token-1".to_owned(),
+            nonce: Some("nonce-1".to_owned()),
+            ..SocialIdTokenRequest::default()
+        })
+        .await
+        .expect("override should verify");
+    provider
+        .revoke_token("token-1".to_owned())
+        .await
+        .expect("override should revoke");
+
+    assert_eq!(
+        refreshed.access_token.as_deref(),
+        Some("refreshed-refresh-1")
+    );
+    assert!(verified);
+}
+
+#[derive(Debug, Clone, Default)]
+struct FakeSocialProvider {
+    verify_id_token: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DefaultOnlySocialProvider;
+
+impl SocialOAuthProvider for DefaultOnlySocialProvider {
+    fn id(&self) -> &str {
+        "default-only"
+    }
+
+    fn name(&self) -> &str {
+        "Default Only"
+    }
+
+    fn provider_options(&self) -> ProviderOptions {
+        ProviderOptions::default()
+    }
+
+    fn create_authorization_url(
+        &self,
+        _input: SocialAuthorizationUrlRequest,
+    ) -> Result<url::Url, OAuthError> {
+        url::Url::parse("https://provider.example.com/authorize").map_err(Into::into)
+    }
+
+    fn validate_authorization_code(
+        &self,
+        _input: SocialAuthorizationCodeRequest,
+    ) -> SocialProviderFuture<'_, OAuth2Tokens> {
+        Box::pin(async { Ok(OAuth2Tokens::default()) })
+    }
+
+    fn get_user_info(
+        &self,
+        _tokens: OAuth2Tokens,
+        _provider_user: Option<serde_json::Value>,
+    ) -> SocialProviderFuture<'_, Option<OAuth2UserInfo>> {
+        Box::pin(async { Ok(None) })
+    }
+}
+
+impl SocialOAuthProvider for FakeSocialProvider {
+    fn id(&self) -> &str {
+        "fake"
+    }
+
+    fn name(&self) -> &str {
+        "Fake"
+    }
+
+    fn provider_options(&self) -> ProviderOptions {
+        ProviderOptions::default()
+    }
+
+    fn create_authorization_url(
+        &self,
+        _input: SocialAuthorizationUrlRequest,
+    ) -> Result<url::Url, OAuthError> {
+        url::Url::parse("https://provider.example.com/authorize").map_err(Into::into)
+    }
+
+    fn validate_authorization_code(
+        &self,
+        _input: SocialAuthorizationCodeRequest,
+    ) -> SocialProviderFuture<'_, OAuth2Tokens> {
+        Box::pin(async { Ok(OAuth2Tokens::default()) })
+    }
+
+    fn get_user_info(
+        &self,
+        _tokens: OAuth2Tokens,
+        _provider_user: Option<serde_json::Value>,
+    ) -> SocialProviderFuture<'_, Option<OAuth2UserInfo>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn verify_id_token(&self, _input: SocialIdTokenRequest) -> SocialProviderFuture<'_, bool> {
+        Box::pin(async move { Ok(self.verify_id_token) })
+    }
+
+    fn refresh_access_token(
+        &self,
+        refresh_token: String,
+    ) -> SocialProviderFuture<'_, OAuth2Tokens> {
+        Box::pin(async move {
+            Ok(OAuth2Tokens {
+                access_token: Some(format!("refreshed-{refresh_token}")),
+                ..OAuth2Tokens::default()
+            })
+        })
+    }
+
+    fn revoke_token(&self, token: String) -> SocialProviderFuture<'_, ()> {
+        Box::pin(async move {
+            if token == "token-1" {
+                Ok(())
+            } else {
+                Err(OAuthError::InvalidResponse(format!(
+                    "unexpected token `{token}`"
+                )))
+            }
+        })
+    }
 }
 
 struct JsonServer {
