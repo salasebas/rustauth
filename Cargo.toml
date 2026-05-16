@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/openauth",
+    "crates/openauth-axum",
     "crates/openauth-core",
     "crates/openauth-i18n",
     "crates/openauth-oauth",
@@ -33,11 +34,14 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 hex = "0.4"
 hmac = "0.12"
 http = "1"
+http-body-util = "0.1"
 indexmap = { version = "2", features = ["serde"] }
 josekit = "0.10"
 hkdf = "0.12"
 data-encoding = "2"
 openauth-core = { path = "crates/openauth-core", version = "0.0.3" }
+openauth = { path = "crates/openauth", version = "0.0.3" }
+axum = "0.8"
 openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.3" }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.3" }
 openauth-social-providers = { path = "crates/openauth-social-providers", version = "0.0.3" }

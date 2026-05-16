@@ -1,0 +1,30 @@
+[package]
+name = "openauth-axum"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/openauth-axum"
+readme = "../../README.md"
+description = "Axum integration for OpenAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+axum.workspace = true
+http-body-util.workspace = true
+openauth.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
