@@ -10,7 +10,7 @@ the project reaches a stable release.
 ## Rate Limiting
 
 OpenAuth rate limiting is route-aware and uses an async atomic consume contract.
-The default `Memory` backend is a Tokio-backed local limiter and is best for
+The default `Memory` backend is a Governor-backed local limiter and is best for
 development, tests, and single-instance deployments.
 
 ```rust
@@ -26,7 +26,7 @@ For multi-instance deployments, use a distributed `RateLimitStore` instead of
 local memory. `openauth-sqlx` provides SQLx-backed stores when the application
 already depends on a SQL database, and `openauth-redis` provides a Redis-backed
 store for higher-throughput shared enforcement. Very high traffic deployments
-can opt into hybrid mode, which runs a local Tokio prefilter before the SQLx or
+can opt into hybrid mode, which runs a local Governor prefilter before the SQLx or
 Redis store while keeping the distributed decision authoritative.
 
 ```rust

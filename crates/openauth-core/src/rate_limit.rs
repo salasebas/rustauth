@@ -11,12 +11,14 @@ use crate::utils::ip::{
     create_rate_limit_key, is_valid_ip, normalize_ip_with_options, NormalizeIpOptions,
 };
 use crate::utils::url::normalize_pathname;
+use governor::clock::Clock;
+use governor::middleware::StateInformationMiddleware;
+use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use http::Request;
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio_rate_limit::algorithm::TokenBucket;
-use tokio_rate_limit::{RateLimiter, RateLimiterConfig};
+use std::time::{Duration, Instant};
 
 pub type Body = Vec<u8>;
 
@@ -25,71 +27,103 @@ pub struct RateLimitRejection {
     pub retry_after: u64,
 }
 
+type GovernorLimiter = DefaultKeyedRateLimiter<String, StateInformationMiddleware>;
+
 #[derive(Default)]
-pub struct TokioMemoryRateLimitStore {
-    limiters: Mutex<HashMap<(u64, u64), Arc<RateLimiter>>>,
-    idle_ttl: Option<Duration>,
+pub struct GovernorMemoryRateLimitStore {
+    limiters: Mutex<HashMap<(u64, u64), Arc<GovernorLimiter>>>,
+    cleanup_interval: Option<Duration>,
+    last_cleanup: Mutex<Option<Instant>>,
 }
 
-#[deprecated(
-    note = "use TokioMemoryRateLimitStore; the legacy name now points at the async Tokio backend"
-)]
-pub type MemoryRateLimitStorage = TokioMemoryRateLimitStore;
-
-impl TokioMemoryRateLimitStore {
+impl GovernorMemoryRateLimitStore {
     pub fn new() -> Self {
-        Self::with_idle_ttl(Some(Duration::from_secs(60 * 60)))
+        Self::with_cleanup_interval(Some(Duration::from_secs(60 * 60)))
     }
 
-    pub fn with_idle_ttl(idle_ttl: Option<Duration>) -> Self {
+    pub fn with_cleanup_interval(cleanup_interval: Option<Duration>) -> Self {
         Self {
             limiters: Mutex::new(HashMap::new()),
-            idle_ttl,
+            cleanup_interval,
+            last_cleanup: Mutex::new(None),
         }
     }
 
-    fn limiter(&self, rule: &RateLimitRule) -> Result<Arc<RateLimiter>, OpenAuthError> {
+    fn limiter(&self, rule: &RateLimitRule) -> Result<Arc<GovernorLimiter>, OpenAuthError> {
+        self.cleanup_if_due()?;
+        let quota = quota(rule)?;
         let mut limiters = self
             .limiters
             .lock()
             .map_err(|_| OpenAuthError::Api("rate limit store lock poisoned".to_owned()))?;
-        let key = (rule.window.max(1), rule.max.max(1));
+        let key = (rule.window, rule.max);
         if let Some(limiter) = limiters.get(&key) {
             return Ok(Arc::clone(limiter));
         }
-        let requests_per_second = key.1.div_ceil(key.0).max(1);
-        let burst = key.1.max(requests_per_second);
-        let limiter = Arc::new(match self.idle_ttl {
-            Some(idle_ttl) => RateLimiter::from_algorithm(TokenBucket::with_ttl(
-                burst,
-                requests_per_second,
-                idle_ttl,
-            )),
-            None => RateLimiter::new(RateLimiterConfig {
-                requests_per_second,
-                burst,
-            }),
-        });
+        let limiter =
+            Arc::new(RateLimiter::keyed(quota).with_middleware::<StateInformationMiddleware>());
         limiters.insert(key, Arc::clone(&limiter));
         Ok(limiter)
     }
+
+    fn cleanup_if_due(&self) -> Result<(), OpenAuthError> {
+        let Some(interval) = self.cleanup_interval else {
+            return Ok(());
+        };
+
+        let mut last_cleanup = self
+            .last_cleanup
+            .lock()
+            .map_err(|_| OpenAuthError::Api("rate limit cleanup lock poisoned".to_owned()))?;
+        let now = Instant::now();
+        if last_cleanup
+            .as_ref()
+            .is_some_and(|last| last.elapsed() < interval)
+        {
+            return Ok(());
+        }
+        *last_cleanup = Some(now);
+        drop(last_cleanup);
+
+        let limiters = self
+            .limiters
+            .lock()
+            .map_err(|_| OpenAuthError::Api("rate limit store lock poisoned".to_owned()))?
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for limiter in limiters {
+            limiter.retain_recent();
+            limiter.shrink_to_fit();
+        }
+        Ok(())
+    }
 }
 
-impl RateLimitStore for TokioMemoryRateLimitStore {
+impl RateLimitStore for GovernorMemoryRateLimitStore {
     fn consume<'a>(&'a self, input: RateLimitConsumeInput) -> RateLimitFuture<'a> {
         Box::pin(async move {
             let limiter = self.limiter(&input.rule)?;
-            let decision = limiter
-                .check(&input.key)
-                .await
-                .map_err(|error| OpenAuthError::Api(error.to_string()))?;
-            Ok(RateLimitDecision {
-                permitted: decision.permitted,
-                retry_after: duration_seconds(decision.retry_after),
-                limit: decision.limit,
-                remaining: decision.remaining.unwrap_or(0),
-                reset_after: duration_seconds(decision.reset),
-            })
+            match limiter.check_key(&input.key) {
+                Ok(snapshot) => Ok(RateLimitDecision {
+                    permitted: true,
+                    retry_after: 0,
+                    limit: input.rule.max,
+                    remaining: u64::from(snapshot.remaining_burst_capacity()),
+                    reset_after: input.rule.window,
+                }),
+                Err(not_until) => {
+                    let retry_after =
+                        ceil_duration_to_seconds(not_until.wait_time_from(limiter.clock().now()));
+                    Ok(RateLimitDecision {
+                        permitted: false,
+                        retry_after,
+                        limit: input.rule.max,
+                        remaining: 0,
+                        reset_after: retry_after,
+                    })
+                }
+            }
         })
     }
 }
@@ -150,14 +184,14 @@ impl RateLimitStore for LegacyRateLimitStorageAdapter {
 }
 
 pub struct HybridRateLimitStore {
-    local: Arc<TokioMemoryRateLimitStore>,
+    local: Arc<GovernorMemoryRateLimitStore>,
     global: Arc<dyn RateLimitStore>,
     local_multiplier: u64,
 }
 
 impl HybridRateLimitStore {
     pub fn new(
-        local: Arc<TokioMemoryRateLimitStore>,
+        local: Arc<GovernorMemoryRateLimitStore>,
         global: Arc<dyn RateLimitStore>,
         local_multiplier: u64,
     ) -> Self {
@@ -388,10 +422,6 @@ fn denied_decision(input: &RateLimitConsumeInput, last_request: i64) -> RateLimi
     }
 }
 
-fn duration_seconds(duration: Option<std::time::Duration>) -> u64 {
-    duration.map(ceil_duration_to_seconds).unwrap_or(0)
-}
-
 fn ceil_duration_to_seconds(duration: std::time::Duration) -> u64 {
     if duration.is_zero() {
         return 0;
@@ -399,6 +429,32 @@ fn ceil_duration_to_seconds(duration: std::time::Duration) -> u64 {
     duration
         .as_secs()
         .saturating_add(u64::from(duration.subsec_nanos() > 0))
+}
+
+fn quota(rule: &RateLimitRule) -> Result<Quota, OpenAuthError> {
+    if rule.window == 0 {
+        return Err(OpenAuthError::InvalidConfig(
+            "rate limit window must be greater than zero".to_owned(),
+        ));
+    }
+    let max =
+        NonZeroU32::new(u32::try_from(rule.max).map_err(|_| {
+            OpenAuthError::InvalidConfig("rate limit max must fit in u32".to_owned())
+        })?)
+        .ok_or_else(|| {
+            OpenAuthError::InvalidConfig("rate limit max must be greater than zero".to_owned())
+        })?;
+    let mut replenish_interval = Duration::from_secs(rule.window) / max.get();
+    if replenish_interval.is_zero() {
+        replenish_interval = Duration::from_nanos(1);
+    }
+    Quota::with_period(replenish_interval)
+        .map(|quota| quota.allow_burst(max))
+        .ok_or_else(|| {
+            OpenAuthError::InvalidConfig(
+                "rate limit replenish interval must be greater than zero".to_owned(),
+            )
+        })
 }
 
 fn ceil_millis_to_seconds(milliseconds: i64) -> u64 {

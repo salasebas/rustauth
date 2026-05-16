@@ -17,7 +17,7 @@ use crate::options::{
     RateLimitStorageOption, RateLimitStore,
 };
 use crate::plugin::{AuthPlugin, PluginErrorCode};
-use crate::rate_limit::TokioMemoryRateLimitStore;
+use crate::rate_limit::GovernorMemoryRateLimitStore;
 use http::Request;
 use openauth_oauth::oauth2::SocialOAuthProvider;
 use std::collections::BTreeMap;
@@ -127,8 +127,8 @@ pub struct RateLimitContext {
     pub plugin_rules: Vec<crate::plugin::PluginRateLimitRule>,
     pub custom_store: Option<Arc<dyn RateLimitStore>>,
     pub hybrid: HybridRateLimitOptions,
-    pub memory_idle_ttl: Option<Duration>,
-    pub memory_store: Arc<TokioMemoryRateLimitStore>,
+    pub memory_cleanup_interval: Option<Duration>,
+    pub memory_store: Arc<GovernorMemoryRateLimitStore>,
 }
 
 impl AuthContext {
