@@ -1,6 +1,7 @@
 use http::{Method, StatusCode};
 use openauth_core::api::{
-    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
+    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
+    BodySchema, JsonSchemaType,
 };
 use openauth_core::db::{Create, DbValue, Delete, FindOne, Update, Where};
 use serde::Deserialize;
@@ -47,7 +48,11 @@ pub fn consent_endpoint(options: ResolvedMcpOptions) -> AsyncAuthEndpoint {
         Method::POST,
         AuthEndpointOptions::new()
             .operation_id("mcpOAuthConsent")
-            .allowed_media_types(["application/json", "application/x-www-form-urlencoded"]),
+            .allowed_media_types(["application/json", "application/x-www-form-urlencoded"])
+            .body_schema(BodySchema::object([
+                BodyField::new("accept", JsonSchemaType::Boolean),
+                BodyField::optional("consent_code", JsonSchemaType::String),
+            ])),
         move |context, request| {
             let options = options.clone();
             Box::pin(async move {

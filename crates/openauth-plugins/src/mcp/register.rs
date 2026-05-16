@@ -1,6 +1,7 @@
 use http::{header, Method, StatusCode};
 use openauth_core::api::{
-    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
+    create_auth_endpoint, json_openapi_response, parse_request_body, AsyncAuthEndpoint,
+    AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use openauth_core::db::{Create, DbValue};
 use serde_json::{json, Value};
@@ -23,7 +24,40 @@ pub fn register_endpoint(
         Method::POST,
         AuthEndpointOptions::new()
             .operation_id("registerMcpClient")
-            .allowed_media_types(["application/json"]),
+            .allowed_media_types(["application/json"])
+            .body_schema(BodySchema::object([
+                BodyField::optional("redirect_uris", JsonSchemaType::Array),
+                BodyField::optional("client_name", JsonSchemaType::String),
+                BodyField::optional("grant_types", JsonSchemaType::Array),
+                BodyField::optional("response_types", JsonSchemaType::Array),
+                BodyField::optional("token_endpoint_auth_method", JsonSchemaType::String),
+                BodyField::optional("scope", JsonSchemaType::String),
+            ]))
+            .openapi(
+                OpenApiOperation::new("registerMcpClient")
+                    .summary("Register MCP client")
+                    .description("Register an OAuth client for MCP authorization")
+                    .tag("MCP")
+                    .response(
+                        "201",
+                        json_openapi_response(
+                            "Created MCP OAuth client",
+                            json!({
+                                "type": "object",
+                                "properties": {
+                                    "client_id": { "type": "string" },
+                                    "client_secret": { "type": "string" },
+                                    "redirect_uris": {
+                                        "type": "array",
+                                        "items": { "type": "string" }
+                                    },
+                                    "token_endpoint_auth_method": { "type": "string" },
+                                },
+                                "required": ["client_id", "redirect_uris", "token_endpoint_auth_method"]
+                            }),
+                        ),
+                    ),
+            ),
         move |context, request| {
             let client_id_generator = client_id_generator.clone();
             let client_secret_generator = client_secret_generator.clone();

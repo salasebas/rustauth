@@ -32,8 +32,6 @@ mod mcp;
 mod multi_session;
 #[path = "oauth_proxy/mod.rs"]
 mod oauth_proxy;
-#[path = "oidc_provider/mod.rs"]
-mod oidc_provider;
 #[path = "one_tap/mod.rs"]
 mod one_tap;
 #[path = "one_time_token/mod.rs"]
@@ -46,15 +44,13 @@ mod organization;
 mod phone_number;
 #[path = "siwe/mod.rs"]
 mod siwe;
-#[path = "test_utils/mod.rs"]
-mod test_utils;
 #[path = "two_factor/mod.rs"]
 mod two_factor;
 #[path = "username/mod.rs"]
 mod username;
 
 #[test]
-fn plugin_ids_match_upstream_directories() {
+fn plugin_ids_expose_supported_server_plugins() {
     assert_eq!(
         openauth_plugins::PLUGIN_IDS,
         &[
@@ -75,14 +71,12 @@ fn plugin_ids_match_upstream_directories() {
             "mcp",
             "multi-session",
             "oauth-proxy",
-            "oidc-provider",
             "one-tap",
             "one-time-token",
             "open-api",
             "organization",
             "phone-number",
             "siwe",
-            "test-utils",
             "two-factor",
             "username",
         ]

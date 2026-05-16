@@ -1,6 +1,7 @@
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{
-    create_auth_endpoint, response, AuthEndpointOptions, AuthRouter, BodyField, BodySchema,
+    create_auth_endpoint, empty_openapi_response, path_param, query_param,
+    redirect_openapi_response, response, AuthEndpointOptions, AuthRouter, BodyField, BodySchema,
     EndpointMiddleware, JsonSchemaType, OpenApiOperation,
 };
 use openauth_core::context::create_auth_context;
@@ -153,6 +154,50 @@ async fn openapi_generation_matches_upstream_route_shape() -> Result<(), Box<dyn
         openapi["paths"]["/sign-out"]["post"]["responses"]["401"]["description"],
         "Unauthorized. Due to missing or invalid authentication."
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn openapi_contract_supports_summary_helpers_and_hidden_endpoints(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let visible = create_auth_endpoint(
+        "/oauth/callback/:provider",
+        Method::GET,
+        AuthEndpointOptions::new().openapi(
+            OpenApiOperation::new("oauthCallback")
+                .summary("OAuth callback")
+                .description("Handle an OAuth provider callback")
+                .parameter(path_param("provider", "OAuth provider id"))
+                .parameter(query_param("code", "Authorization code"))
+                .response("302", redirect_openapi_response("Redirect after callback")),
+        ),
+        |_context, _request| Box::pin(async move { response(StatusCode::FOUND, Vec::new()) }),
+    );
+    let hidden = create_auth_endpoint(
+        "/reference",
+        Method::GET,
+        AuthEndpointOptions::new().hide_from_openapi().openapi(
+            OpenApiOperation::new("openApiReference")
+                .summary("OpenAPI reference")
+                .description("Serve the interactive OpenAPI reference")
+                .response("200", empty_openapi_response("HTML reference")),
+        ),
+        |_context, _request| Box::pin(async move { response(StatusCode::OK, Vec::new()) }),
+    );
+    let router = router(vec![visible, hidden])?;
+
+    let openapi = router.openapi_schema();
+    let callback = &openapi["paths"]["/oauth/callback/{provider}"]["get"];
+
+    assert_eq!(callback["summary"], "OAuth callback");
+    assert_eq!(callback["parameters"][0]["name"], "provider");
+    assert_eq!(callback["parameters"][0]["in"], "path");
+    assert_eq!(callback["parameters"][1]["name"], "code");
+    assert_eq!(
+        callback["responses"]["302"]["headers"]["Location"]["schema"]["type"],
+        "string"
+    );
+    assert!(openapi["paths"]["/reference"].is_null());
     Ok(())
 }
 

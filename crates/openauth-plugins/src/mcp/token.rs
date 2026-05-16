@@ -2,7 +2,8 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use http::{header, Method, StatusCode};
 use openauth_core::api::{
-    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
+    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
+    BodySchema, JsonSchemaType,
 };
 use openauth_core::crypto::jwt::sign_jwt;
 use openauth_core::db::{Create, DbValue, Delete, FindOne, Where};
@@ -57,7 +58,16 @@ pub fn token_endpoint(
         Method::POST,
         AuthEndpointOptions::new()
             .operation_id("mcpOAuthToken")
-            .allowed_media_types(["application/json", "application/x-www-form-urlencoded"]),
+            .allowed_media_types(["application/json", "application/x-www-form-urlencoded"])
+            .body_schema(BodySchema::object([
+                BodyField::new("grant_type", JsonSchemaType::String),
+                BodyField::optional("client_id", JsonSchemaType::String),
+                BodyField::optional("client_secret", JsonSchemaType::String),
+                BodyField::optional("code", JsonSchemaType::String),
+                BodyField::optional("redirect_uri", JsonSchemaType::String),
+                BodyField::optional("code_verifier", JsonSchemaType::String),
+                BodyField::optional("refresh_token", JsonSchemaType::String),
+            ])),
         move |context, request| {
             let options = options.clone();
             let additional_id_token_claims = additional_id_token_claims.clone();

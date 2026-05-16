@@ -21,7 +21,7 @@ pub(super) fn send_otp_endpoint(
     create_auth_endpoint(
         "/two-factor/send-otp",
         Method::POST,
-        body_options(optional_trust_schema()),
+        body_options("sendTwoFactorOtp", optional_trust_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
@@ -64,7 +64,7 @@ pub(super) fn verify_otp_endpoint(
     create_auth_endpoint(
         "/two-factor/verify-otp",
         Method::POST,
-        body_options(code_schema()),
+        body_options("verifyTwoFactorCode", code_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {

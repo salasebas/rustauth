@@ -54,6 +54,7 @@ pub struct AuthEndpointOptions {
     pub middlewares: Vec<EndpointMiddleware>,
     pub openapi: Option<OpenApiOperation>,
     pub server_only: bool,
+    pub hide_from_openapi: bool,
 }
 
 impl AuthEndpointOptions {
@@ -98,6 +99,12 @@ impl AuthEndpointOptions {
     #[must_use]
     pub fn server_only(mut self) -> Self {
         self.server_only = true;
+        self
+    }
+
+    #[must_use]
+    pub fn hide_from_openapi(mut self) -> Self {
+        self.hide_from_openapi = true;
         self
     }
 }

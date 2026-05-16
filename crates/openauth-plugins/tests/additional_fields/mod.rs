@@ -64,7 +64,7 @@ fn response_cookie_header(response: &http::Response<Vec<u8>>) -> String {
 }
 
 #[test]
-fn exposes_additional_fields_placeholder() {
+fn exposes_additional_fields_plugin_id() {
     assert_eq!(
         openauth_plugins::additional_fields::UPSTREAM_PLUGIN_ID,
         "additional-fields"

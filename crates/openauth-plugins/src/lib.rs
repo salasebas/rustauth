@@ -1,8 +1,7 @@
 //! Official OpenAuth plugin module surface.
 //!
-//! These modules intentionally start as structural placeholders that mirror the
-//! Better Auth plugin inventory. Behavior should be added module by module
-//! against the upstream reference and translated into idiomatic Rust.
+//! Plugin modules are ported against the Better Auth upstream reference where
+//! the behavior belongs on the server side, then shaped as idiomatic Rust APIs.
 
 pub mod access;
 pub mod additional_fields;
@@ -21,14 +20,12 @@ pub mod magic_link;
 pub mod mcp;
 pub mod multi_session;
 pub mod oauth_proxy;
-pub mod oidc_provider;
 pub mod one_tap;
 pub mod one_time_token;
 pub mod open_api;
 pub mod organization;
 pub mod phone_number;
 pub mod siwe;
-pub mod test_utils;
 pub mod two_factor;
 pub mod username;
 
@@ -50,14 +47,12 @@ pub const PLUGIN_IDS: &[&str] = &[
     mcp::UPSTREAM_PLUGIN_ID,
     multi_session::UPSTREAM_PLUGIN_ID,
     oauth_proxy::UPSTREAM_PLUGIN_ID,
-    oidc_provider::UPSTREAM_PLUGIN_ID,
     one_tap::UPSTREAM_PLUGIN_ID,
     one_time_token::UPSTREAM_PLUGIN_ID,
     open_api::UPSTREAM_PLUGIN_ID,
     organization::UPSTREAM_PLUGIN_ID,
     phone_number::UPSTREAM_PLUGIN_ID,
     siwe::UPSTREAM_PLUGIN_ID,
-    test_utils::UPSTREAM_PLUGIN_ID,
     two_factor::UPSTREAM_PLUGIN_ID,
     username::UPSTREAM_PLUGIN_ID,
 ];

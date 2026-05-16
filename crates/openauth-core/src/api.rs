@@ -22,7 +22,10 @@ pub use endpoint::{
     EndpointKind, EndpointMiddleware, EndpointMiddlewareFuture, EndpointMiddlewareHandler,
 };
 pub use error::{api_error, response, ApiErrorCode, ApiErrorResponse};
-pub use openapi::OpenApiOperation;
+pub use openapi::{
+    build_openapi_schema, empty_openapi_response, json_openapi_response, path_param, query_param,
+    redirect_openapi_response, OpenApiOperation,
+};
 pub use path::PathParams;
 pub use response_helpers::{
     append_cookies, json_response, redirect_response, redirect_with_error_response,

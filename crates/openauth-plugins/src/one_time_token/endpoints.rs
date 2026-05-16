@@ -4,6 +4,7 @@ use http::{header, HeaderValue, Method, StatusCode};
 use openauth_core::api::{
     create_auth_endpoint, parse_request_body, ApiErrorResponse, ApiRequest, ApiResponse,
     AsyncAuthEndpoint, AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType,
+    OpenApiOperation,
 };
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::context::AuthContext;
@@ -15,6 +16,7 @@ use openauth_core::session::DbSessionStore;
 use openauth_core::user::DbUserStore;
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use time::{Duration, OffsetDateTime};
 
 use super::hashing::default_key_hasher;
@@ -40,7 +42,13 @@ pub fn generate_endpoint(options: OneTimeTokenOptions) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/one-time-token/generate",
         Method::GET,
-        AuthEndpointOptions::new().operation_id("generateOneTimeToken"),
+        AuthEndpointOptions::new()
+            .operation_id("generateOneTimeToken")
+            .openapi(
+                OpenApiOperation::new("generateOneTimeToken")
+                    .description("Generate a one-time token for the current session")
+                    .response("200", generate_openapi_response()),
+            ),
         move |context, request| {
             let options = options.clone();
             Box::pin(async move {
@@ -81,7 +89,12 @@ pub fn verify_endpoint(options: OneTimeTokenOptions) -> AsyncAuthEndpoint {
         AuthEndpointOptions::new()
             .operation_id("verifyOneTimeToken")
             .allowed_media_types(["application/json"])
-            .body_schema(verify_body_schema()),
+            .body_schema(verify_body_schema())
+            .openapi(
+                OpenApiOperation::new("verifyOneTimeToken")
+                    .description("Verify a one-time token and return its session")
+                    .response("200", verify_openapi_response()),
+            ),
         move |context, request| {
             let options = options.clone();
             Box::pin(async move {
@@ -222,6 +235,41 @@ fn verify_body_schema() -> BodySchema {
     BodySchema::object([
         BodyField::new("token", JsonSchemaType::String).description("The token to verify")
     ])
+}
+
+fn generate_openapi_response() -> serde_json::Value {
+    json!({
+        "description": "One-time token generated",
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "token": { "type": "string" }
+                    },
+                    "required": ["token"]
+                }
+            }
+        }
+    })
+}
+
+fn verify_openapi_response() -> serde_json::Value {
+    json!({
+        "description": "One-time token verified",
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "session": { "$ref": "#/components/schemas/Session" },
+                        "user": { "$ref": "#/components/schemas/User" }
+                    },
+                    "required": ["session", "user"]
+                }
+            }
+        }
+    })
 }
 
 fn json_response<T>(

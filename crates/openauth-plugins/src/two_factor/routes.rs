@@ -73,7 +73,7 @@ fn enable_endpoint(options: Arc<TwoFactorOptions>) -> openauth_core::api::AsyncA
     create_auth_endpoint(
         "/two-factor/enable",
         Method::POST,
-        body_options(password_issuer_schema()),
+        body_options("enableTwoFactor", password_issuer_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
@@ -140,7 +140,7 @@ fn disable_endpoint(options: Arc<TwoFactorOptions>) -> openauth_core::api::Async
     create_auth_endpoint(
         "/two-factor/disable",
         Method::POST,
-        body_options(password_schema()),
+        body_options("disableTwoFactor", password_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
@@ -193,7 +193,7 @@ fn get_totp_uri_endpoint(options: Arc<TwoFactorOptions>) -> openauth_core::api::
     create_auth_endpoint(
         "/two-factor/get-totp-uri",
         Method::POST,
-        body_options(password_schema()),
+        body_options("getTotpUri", password_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
@@ -249,7 +249,7 @@ fn verify_totp_endpoint(options: Arc<TwoFactorOptions>) -> openauth_core::api::A
     create_auth_endpoint(
         "/two-factor/verify-totp",
         Method::POST,
-        body_options(code_schema()),
+        body_options("verifyTotp", code_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
@@ -316,7 +316,7 @@ fn generate_backup_codes_endpoint(
     create_auth_endpoint(
         "/two-factor/generate-backup-codes",
         Method::POST,
-        body_options(password_schema()),
+        body_options("generateBackupCodes", password_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
@@ -378,7 +378,7 @@ fn verify_backup_code_endpoint(
     create_auth_endpoint(
         "/two-factor/verify-backup-code",
         Method::POST,
-        body_options(code_schema()),
+        body_options("verifyBackupCode", code_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
@@ -448,7 +448,7 @@ fn view_backup_codes_endpoint(
     create_auth_endpoint(
         "/two-factor/view-backup-codes",
         Method::POST,
-        body_options(view_backup_codes_schema()),
+        body_options("viewBackupCodes", view_backup_codes_schema()),
         move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {

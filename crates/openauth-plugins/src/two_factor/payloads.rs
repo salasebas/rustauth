@@ -54,8 +54,9 @@ pub(super) struct BackupCodesBody {
     pub(super) backup_codes: Vec<String>,
 }
 
-pub(super) fn body_options(schema: BodySchema) -> AuthEndpointOptions {
+pub(super) fn body_options(operation_id: &str, schema: BodySchema) -> AuthEndpointOptions {
     AuthEndpointOptions::new()
+        .operation_id(operation_id)
         .allowed_media_types(["application/json"])
         .body_schema(schema)
 }

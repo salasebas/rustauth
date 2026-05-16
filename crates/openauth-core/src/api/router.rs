@@ -1,5 +1,5 @@
 use http::StatusCode;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::context::request_state::{run_with_request_state, set_current_request_path};
 use crate::context::AuthContext;
@@ -13,7 +13,7 @@ use super::endpoint::{
     AsyncAuthEndpoint, AuthEndpoint, EndpointInfo, EndpointKind,
 };
 use super::error::{api_error, rate_limit_response, response, ApiErrorCode};
-use super::openapi::{openapi_model_schemas, openapi_operation_for_endpoint, to_openapi_path};
+use super::openapi::build_openapi_schema;
 use super::path::{match_path_pattern, route_pathname, PathParams};
 use super::plugin_pipeline::{
     endpoint_operation_id, plugin_async_endpoints, run_after_hooks, run_async_after_hooks,
@@ -94,64 +94,7 @@ impl AuthRouter {
     }
 
     pub fn openapi_schema(&self) -> Value {
-        let mut paths = serde_json::Map::new();
-        for endpoint in &self.async_endpoints {
-            if endpoint.options.server_only {
-                continue;
-            }
-            let path = paths
-                .entry(to_openapi_path(&endpoint.path))
-                .or_insert_with(|| Value::Object(serde_json::Map::new()));
-            let Value::Object(methods) = path else {
-                continue;
-            };
-            methods.insert(
-                endpoint.method.as_str().to_ascii_lowercase(),
-                openapi_operation_for_endpoint(endpoint),
-            );
-        }
-        json!({
-            "openapi": "3.1.1",
-            "info": {
-                "title": "OpenAuth",
-                "description": "API Reference for your OpenAuth instance",
-                "version": crate::VERSION,
-            },
-            "components": {
-                "schemas": openapi_model_schemas(),
-                "securitySchemes": {
-                    "apiKeyCookie": {
-                        "type": "apiKey",
-                        "in": "cookie",
-                        "name": "apiKeyCookie",
-                        "description": "API Key authentication via cookie",
-                    },
-                    "bearerAuth": {
-                        "type": "http",
-                        "scheme": "bearer",
-                        "description": "Bearer token authentication",
-                    },
-                },
-            },
-            "security": [
-                {
-                    "apiKeyCookie": [],
-                    "bearerAuth": [],
-                },
-            ],
-            "servers": [
-                {
-                    "url": self.context.base_url,
-                },
-            ],
-            "tags": [
-                {
-                    "name": "Default",
-                    "description": "Default endpoints that are included with OpenAuth by default. These endpoints are not part of any plugin.",
-                },
-            ],
-            "paths": paths,
-        })
+        build_openapi_schema(&self.context, &self.async_endpoints)
     }
 
     pub fn handle(&self, mut request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {

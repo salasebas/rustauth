@@ -36,7 +36,9 @@ pub fn sign_in_anonymous_endpoint(options: AnonymousOptions) -> AsyncAuthEndpoin
             .operation_id("signInAnonymous")
             .openapi(
                 OpenApiOperation::new("signInAnonymous")
+                    .summary("Sign in anonymous")
                     .description("Sign in anonymously")
+                    .tag("Anonymous")
                     .response("200", sign_in_response()),
             ),
         move |context, request| {
@@ -54,7 +56,9 @@ pub fn delete_anonymous_user_endpoint(options: AnonymousOptions) -> AsyncAuthEnd
             .operation_id("deleteAnonymousUser")
             .openapi(
                 OpenApiOperation::new("deleteAnonymousUser")
+                    .summary("Delete anonymous user")
                     .description("Delete an anonymous user")
+                    .tag("Anonymous")
                     .response("200", delete_response())
                     .response(
                         "400",

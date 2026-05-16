@@ -24,6 +24,37 @@ async fn registers_generate_and_verify_endpoints() -> Result<(), Box<dyn std::er
 }
 
 #[tokio::test]
+async fn endpoints_expose_openapi_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    let (_adapter, router) = router_with_plugin(one_time_token())?;
+    let openapi = router.openapi_schema();
+
+    assert_eq!(
+        openapi["paths"]["/one-time-token/generate"]["get"]["operationId"],
+        "generateOneTimeToken"
+    );
+    assert_eq!(
+        openapi["paths"]["/one-time-token/generate"]["get"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["properties"]["token"]["type"],
+        "string"
+    );
+    assert_eq!(
+        openapi["paths"]["/one-time-token/verify"]["post"]["operationId"],
+        "verifyOneTimeToken"
+    );
+    assert_eq!(
+        openapi["paths"]["/one-time-token/verify"]["post"]["requestBody"]["content"]
+            ["application/json"]["schema"]["properties"]["token"]["type"],
+        "string"
+    );
+    assert_eq!(
+        openapi["paths"]["/one-time-token/verify"]["post"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["properties"]["session"]["$ref"],
+        "#/components/schemas/Session"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn generated_token_verifies_once_and_sets_session_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_plugin(one_time_token())?;
