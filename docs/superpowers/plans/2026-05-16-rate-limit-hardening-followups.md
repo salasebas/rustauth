@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the public atomic `RateLimitStore` contract unchanged. Tighten backend implementations behind the existing API: core derives the database schema from rate limit options, SQLx stores carry resolved physical names, Redis no longer serializes all calls through a mutex, and memory limiting gets safer retry metadata and key eviction.
 
-**Tech Stack:** Rust 2021, Tokio, `tokio-rate-limit 0.8`, SQLx, Redis `0.32`, existing OpenAuth core options/builders/tests.
+**Tech Stack:** Rust 2021, Governor, SQLx, Redis `0.32`, existing OpenAuth core options/builders/tests.
 
 ---
 
@@ -72,7 +72,7 @@
 - [x] Run `cargo test -p openauth-core --test rate_limit`.
 - [x] Commit: `fix(core): ceil memory rate limit retry seconds`.
 
-## Task 5: Add Memory Backend Idle TTL
+## Task 5: Add Memory Backend Cleanup
 
 **Files:**
 - Modify: `crates/openauth-core/src/options/rate_limit.rs`
@@ -80,10 +80,10 @@
 - Test: `crates/openauth-core/tests/rate_limit/rate_limiter.rs`
 - Test: `crates/openauth/tests/public_api.rs`
 
-- [x] Add `memory_idle_ttl: Option<std::time::Duration>` to `RateLimitOptions`, defaulting to a conservative value such as one hour.
-- [x] Pass the TTL into `RateLimitContext` and `TokioMemoryRateLimitStore`.
-- [x] Build local limiters with `tokio_rate_limit::algorithm::TokenBucket::with_ttl`.
-- [x] Add public builder coverage for configuring the TTL.
+- [x] Add `memory_cleanup_interval: Option<std::time::Duration>` to `RateLimitOptions`, defaulting to a conservative value such as one hour.
+- [x] Pass the interval into `RateLimitContext` and `GovernorMemoryRateLimitStore`.
+- [x] Run opportunistic `governor` cleanup with `retain_recent` and `shrink_to_fit`.
+- [x] Add public builder coverage for configuring the cleanup interval.
 - [x] Run core and public API rate limit tests.
 - [x] Commit: `feat(core): evict idle memory rate limit keys`.
 

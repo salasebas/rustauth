@@ -157,7 +157,7 @@ fn rate_limit_builders_cover_distributed_and_hybrid_configuration() {
         .max(20);
     let memory = RateLimitOptions::memory()
         .enabled(true)
-        .memory_idle_ttl(Some(std::time::Duration::from_secs(30)));
+        .memory_cleanup_interval(Some(std::time::Duration::from_secs(30)));
 
     assert_eq!(database.storage, RateLimitStorageOption::Database);
     assert!(database.custom_store.is_some());
@@ -166,7 +166,7 @@ fn rate_limit_builders_cover_distributed_and_hybrid_configuration() {
     assert_eq!(secondary.storage, RateLimitStorageOption::SecondaryStorage);
     assert!(secondary.custom_store.is_some());
     assert_eq!(
-        memory.memory_idle_ttl,
+        memory.memory_cleanup_interval,
         Some(std::time::Duration::from_secs(30))
     );
 }
@@ -441,7 +441,7 @@ fn openauth_crate_reexports_core_contract_types() {
     let _email_verification = EmailVerificationOptions::default();
     let _verification_email_type: Option<VerificationEmail> = None;
     let _cookie_strategy = CookieCacheStrategy::Jwe;
-    let _memory_storage = openauth::rate_limit::TokioMemoryRateLimitStore::new();
+    let _memory_storage = openauth::rate_limit::GovernorMemoryRateLimitStore::new();
     let _session_auth_type: Option<SessionAuth<'_>> = None;
     let _update_user = UpdateUserInput::new().name("Ada").image(None);
     let _route_builder = core_auth_async_endpoints;

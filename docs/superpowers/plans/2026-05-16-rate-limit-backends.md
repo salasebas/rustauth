@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild OpenAuth rate limiting around atomic storage decisions, fast local Tokio-backed limiting, SQLx distributed limiting, Redis distributed limiting, and optional hybrid local+distributed protection.
+**Goal:** Rebuild OpenAuth rate limiting around atomic storage decisions, fast local Governor-backed limiting, SQLx distributed limiting, Redis distributed limiting, and optional hybrid local+distributed protection.
 
-**Architecture:** Keep route/rule resolution in `openauth-core`, but replace the current `get`/`set` storage contract with an atomic async consume API. Local memory uses `tokio-rate-limit`; SQLx and Redis live outside core so core does not depend on SQLx or Redis. Distributed backends are authoritative for multi-instance deployments, and hybrid mode adds a local prefilter before the distributed backend.
+**Architecture:** Keep route/rule resolution in `openauth-core`, but replace the current `get`/`set` storage contract with an atomic async consume API. Local memory uses `governor`; SQLx and Redis live outside core so core does not depend on SQLx or Redis. Distributed backends are authoritative for multi-instance deployments, and hybrid mode adds a local prefilter before the distributed backend.
 
-**Tech Stack:** Rust 2021, Tokio, `tokio-rate-limit 0.8`, existing SQLx adapters, Redis `0.32` in a new integration crate, Better Auth upstream parity for rule semantics.
+**Tech Stack:** Rust 2021, Governor, existing SQLx adapters, Redis `0.32` in a new integration crate, Better Auth upstream parity for rule semantics.
 
 **Plan file target:** `docs/superpowers/plans/2026-05-16-rate-limit-backends.md`. In Plan Mode this was not written to disk; first execution step must save this plan there.
 
@@ -18,11 +18,11 @@ The current rate limiter works for one process, but `Database` and `SecondarySto
 
 Upstream Better Auth defaults to memory, switches to secondary storage when `secondaryStorage` exists, supports database storage, and supports custom storage, but still uses `get`/`set`. OpenAuth should intentionally improve on that by using an atomic `check_and_increment`/`consume` operation.
 
-References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/tokio_rate_limit/), [tokio-rate-limit Cargo features](https://docs.rs/crate/tokio-rate-limit/latest/source/Cargo.toml), upstream Better Auth rate limiter at `upstream/better-auth/1.6.9/repository/packages/better-auth/src/api/rate-limiter/index.ts`, upstream Redis storage at `upstream/better-auth/1.6.9/repository/packages/redis-storage/src/redis-storage.ts`.
+References: [Governor docs](https://docs.rs/governor/latest/governor/), upstream Better Auth rate limiter at `upstream/better-auth/1.6.9/repository/packages/better-auth/src/api/rate-limiter/index.ts`, upstream Redis storage at `upstream/better-auth/1.6.9/repository/packages/redis-storage/src/redis-storage.ts`.
 
 ## Key Changes
 
-- Add `tokio-rate-limit = "0.8"` to workspace dependencies with default features disabled, and use it only for local in-process async limiting.
+- Add `governor = "0.10"` to workspace dependencies with default features disabled plus `std` and `dashmap`, and use it only for local in-process limiting.
 - Replace the public `RateLimitStorage` `get`/`set` contract with an atomic async store contract:
   - Input: normalized key, `RateLimitRule`, current timestamp.
   - Output: `RateLimitDecision { permitted, retry_after, limit, remaining, reset_after }`.
@@ -38,10 +38,10 @@ References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/toki
   - dynamic request-aware rules;
   - IP normalization and `ip|path` keying.
 - Add real backend resolution:
-  - `Memory`: Tokio local backend.
+  - `Memory`: Governor local backend.
   - `Database`: SQLx atomic backend, only when the app is initialized with a SQLx rate limit store.
   - `SecondaryStorage`: Redis atomic backend or another explicit atomic secondary store.
-  - `Hybrid`: optional local Tokio prefilter followed by SQLx/Redis authoritative backend.
+  - `Hybrid`: optional local Governor prefilter followed by SQLx/Redis authoritative backend.
 
 ## Implementation Tasks
 
@@ -68,9 +68,9 @@ References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/toki
 
 - [x] Add workspace dependency:
   ```toml
-  tokio-rate-limit = { version = "0.8", default-features = false }
+  governor = { version = "0.10", default-features = false, features = ["std", "dashmap"] }
   ```
-- [x] Add `tokio-rate-limit.workspace = true` to `openauth-core`.
+- [x] Add `governor.workspace = true` to `openauth-core`.
 - [x] Replace `RateLimitStorage` with an async atomic store trait using the repo's boxed-future style:
   ```rust
   pub type RateLimitFuture<'a> =
@@ -102,7 +102,7 @@ References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/toki
 - [x] Use milliseconds internally for new stores; preserve serialized `RateLimitRecord` field names for schema compatibility.
 - [x] Update tests to assert the new decision object and atomic single-call storage behavior.
 
-### Task 3: Use Tokio Local Memory Backend
+### Task 3: Use Governor Local Memory Backend
 
 **Files:**
 - Modify: `crates/openauth-core/src/rate_limit.rs`
@@ -110,20 +110,20 @@ References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/toki
 - Modify: `crates/openauth-core/src/context/builder.rs`
 - Test: `crates/openauth-core/tests/rate_limit/rate_limiter.rs`
 
-- [x] Replace the default memory backend used by async routing with a `TokioMemoryRateLimitStore`.
-- [x] Implement it as a cache of `tokio_rate_limit::RateLimiter` instances keyed by `(window, max)`, because OpenAuth supports different rules per path/plugin.
+- [x] Replace the default memory backend used by async routing with a `GovernorMemoryRateLimitStore`.
+- [x] Implement it as a cache of `governor::RateLimiter` instances keyed by `(window, max)`, because OpenAuth supports different rules per path/plugin.
 - [x] Configure each limiter as:
   - `requests_per_second = max / window`, rounded up to at least `1`;
   - `burst = max`;
   - request key remains `normalized_ip|normalized_path`.
-- [x] Map `tokio-rate-limit` decisions to `RateLimitDecision`.
+- [x] Map `governor` decisions to `RateLimitDecision`.
 - [x] Keep rule resolution unchanged.
 - [x] Add tests:
   - sign-in special rule still denies the 4th request;
   - custom wildcard rule still wins;
   - dynamic rule still wins;
   - different IPs remain isolated;
-  - async handler uses Tokio backend.
+  - async handler uses Governor backend.
 
 ### Task 4: Make Router Rate Limiting Async And Atomic
 
@@ -210,7 +210,7 @@ References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/toki
   ```
 - [x] Add `hybrid: HybridRateLimitOptions` to `RateLimitOptions`, default disabled.
 - [x] Implement `HybridRateLimitStore`:
-  - local Tokio store runs first as a prefilter;
+  - local Governor store runs first as a prefilter;
   - distributed store runs second and remains authoritative;
   - if local denies, return local denial;
   - if global denies, return global denial.
@@ -230,7 +230,7 @@ References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/toki
 
 - [x] Re-export new decision/store/input types from `openauth`.
 - [x] Document recommended modes:
-  - local/dev/single instance: `Memory` using Tokio backend;
+  - local/dev/single instance: `Memory` using Governor backend;
   - multi-instance with existing SQL DB: SQLx store;
   - high-throughput multi-instance: Redis store;
   - very high traffic: Redis or SQLx plus hybrid local prefilter.
@@ -284,8 +284,8 @@ References: [tokio-rate-limit docs](https://docs.rs/tokio-rate-limit/latest/toki
 
 ## Assumptions And Defaults
 
-- Use `tokio-rate-limit` as a dependency, not copied source.
-- Do not make Axum part of this work; `tokio-rate-limit` is used through its core API, not its Axum middleware feature.
+- Use `governor` as a dependency, not copied source.
+- Do not make Axum part of this work; `governor` is used through its core API, not framework middleware.
 - Do not add SQLx to `openauth-core`; SQLx stores live in `openauth-sqlx`.
 - Add Redis as a separate `openauth-redis` crate so users only compile Redis support when they opt in.
 - Use milliseconds for new rate limit timing because upstream Better Auth stores `lastRequest` in milliseconds.

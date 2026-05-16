@@ -7,6 +7,7 @@ use openauth_core::options::{
     RateLimitDecision, RateLimitFuture, RateLimitOptions, RateLimitPathRule, RateLimitRecord,
     RateLimitRule, RateLimitStorage, RateLimitStore,
 };
+use openauth_core::rate_limit::GovernorMemoryRateLimitStore;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -71,7 +72,7 @@ async fn rate_limiter_uses_special_sign_in_rule() -> Result<(), Box<dyn std::err
                     .headers()
                     .get("X-Retry-After")
                     .ok_or("missing retry header")?,
-                "1"
+                "4"
             );
             assert_error_body(
                 &response,
@@ -161,6 +162,39 @@ async fn memory_rate_limiter_ceil_retry_after_seconds() -> Result<(), Box<dyn st
             .ok_or("missing retry header")?,
         "1"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn governor_memory_rate_limiter_reports_remaining_capacity(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let store = GovernorMemoryRateLimitStore::new();
+    let rule = RateLimitRule { window: 10, max: 3 };
+    let key = "127.0.0.1|/ok".to_owned();
+
+    let first = store
+        .consume(RateLimitConsumeInput {
+            key: key.clone(),
+            rule: rule.clone(),
+            now_ms: 1_700_000_000_000,
+        })
+        .await?;
+    assert!(first.permitted);
+    assert_eq!(first.limit, 3);
+    assert_eq!(first.remaining, 2);
+    assert_eq!(first.retry_after, 0);
+
+    let second = store
+        .consume(RateLimitConsumeInput {
+            key,
+            rule,
+            now_ms: 1_700_000_000_001,
+        })
+        .await?;
+    assert!(second.permitted);
+    assert_eq!(second.remaining, 1);
+    assert_eq!(second.retry_after, 0);
+
     Ok(())
 }
 

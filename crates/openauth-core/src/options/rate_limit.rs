@@ -20,7 +20,7 @@ pub struct RateLimitOptions {
     pub custom_store: Option<Arc<dyn RateLimitStore>>,
     pub custom_storage: Option<Arc<dyn RateLimitStorage>>,
     pub hybrid: HybridRateLimitOptions,
-    pub memory_idle_ttl: Option<Duration>,
+    pub memory_cleanup_interval: Option<Duration>,
 }
 
 impl Default for RateLimitOptions {
@@ -35,7 +35,7 @@ impl Default for RateLimitOptions {
             custom_store: None,
             custom_storage: None,
             hybrid: HybridRateLimitOptions::default(),
-            memory_idle_ttl: Some(Duration::from_secs(60 * 60)),
+            memory_cleanup_interval: Some(Duration::from_secs(60 * 60)),
         }
     }
 }
@@ -166,8 +166,8 @@ impl RateLimitOptions {
     }
 
     #[must_use]
-    pub fn memory_idle_ttl(mut self, ttl: Option<Duration>) -> Self {
-        self.memory_idle_ttl = ttl;
+    pub fn memory_cleanup_interval(mut self, interval: Option<Duration>) -> Self {
+        self.memory_cleanup_interval = interval;
         self
     }
 }
@@ -191,7 +191,7 @@ impl fmt::Debug for RateLimitOptions {
                 &self.custom_storage.as_ref().map(|_| "<custom-storage>"),
             )
             .field("hybrid", &self.hybrid)
-            .field("memory_idle_ttl", &self.memory_idle_ttl)
+            .field("memory_cleanup_interval", &self.memory_cleanup_interval)
             .finish()
     }
 }

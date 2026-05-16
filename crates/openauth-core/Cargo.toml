@@ -21,6 +21,7 @@ hex.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
 http.workspace = true
+governor.workspace = true
 indexmap.workspace = true
 josekit.workspace = true
 openauth-oauth.workspace = true
@@ -34,7 +35,6 @@ subtle.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
-tokio-rate-limit.workspace = true
 unicode-normalization.workspace = true
 url.workspace = true
 

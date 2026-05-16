@@ -13,7 +13,7 @@ use crate::env::logger::{create_logger, LoggerOptions};
 use crate::error::OpenAuthError;
 use crate::options::RateLimitStore;
 use crate::options::{OpenAuthOptions, RateLimitStorageOption};
-use crate::rate_limit::{LegacyRateLimitStorageAdapter, TokioMemoryRateLimitStore};
+use crate::rate_limit::{GovernorMemoryRateLimitStore, LegacyRateLimitStorageAdapter};
 
 use super::origins::resolve_trusted_origins;
 use super::plugins::initialize_plugins;
@@ -116,9 +116,9 @@ pub fn create_auth_context_with_environment_and_adapter(
             })
         }),
         hybrid: options.rate_limit.hybrid.clone(),
-        memory_idle_ttl: options.rate_limit.memory_idle_ttl,
-        memory_store: Arc::new(TokioMemoryRateLimitStore::with_idle_ttl(
-            options.rate_limit.memory_idle_ttl,
+        memory_cleanup_interval: options.rate_limit.memory_cleanup_interval,
+        memory_store: Arc::new(GovernorMemoryRateLimitStore::with_cleanup_interval(
+            options.rate_limit.memory_cleanup_interval,
         )),
     };
 
