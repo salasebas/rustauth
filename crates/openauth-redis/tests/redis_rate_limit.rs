@@ -2,6 +2,7 @@ use openauth_core::options::{RateLimitConsumeInput, RateLimitRule, RateLimitStor
 use openauth_redis::RedisRateLimitStore;
 
 const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1:6379";
+const DEFAULT_VALKEY_URL: &str = "valkey://127.0.0.1:6380";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RedisTestTarget {
@@ -35,18 +36,28 @@ fn redis_targets_from_env(
             name: "redis",
             url: DEFAULT_REDIS_URL.to_owned(),
         });
+        targets.push(RedisTestTarget {
+            name: "valkey",
+            url: DEFAULT_VALKEY_URL.to_owned(),
+        });
     }
     targets
 }
 
 #[test]
-fn redis_targets_default_to_docker_compose_service_when_env_is_unset() {
+fn redis_targets_default_to_docker_compose_redis_and_valkey_when_env_is_unset() {
     assert_eq!(
         redis_targets_from_env(None, None),
-        vec![RedisTestTarget {
-            name: "redis",
-            url: DEFAULT_REDIS_URL.to_owned(),
-        }]
+        vec![
+            RedisTestTarget {
+                name: "redis",
+                url: DEFAULT_REDIS_URL.to_owned(),
+            },
+            RedisTestTarget {
+                name: "valkey",
+                url: DEFAULT_VALKEY_URL.to_owned(),
+            },
+        ]
     );
 }
 
