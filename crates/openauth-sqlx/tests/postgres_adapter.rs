@@ -26,10 +26,27 @@ use sqlx::postgres::PgPoolOptions;
 use time::OffsetDateTime;
 
 static TEST_ID: AtomicU64 = AtomicU64::new(0);
+const DEFAULT_POSTGRES_URL: &str = "postgres://user:password@localhost:5432/openauth";
 
 fn database_url() -> String {
-    std::env::var("OPENAUTH_TEST_POSTGRES_URL")
-        .unwrap_or_else(|_| "postgres://user:password@localhost:5432/better_auth".to_owned())
+    database_url_from_env(std::env::var("OPENAUTH_TEST_POSTGRES_URL").ok())
+}
+
+fn database_url_from_env(value: Option<String>) -> String {
+    value.unwrap_or_else(|| DEFAULT_POSTGRES_URL.to_owned())
+}
+
+#[test]
+fn database_url_defaults_to_docker_compose_postgres_when_env_is_unset() {
+    assert_eq!(database_url_from_env(None), DEFAULT_POSTGRES_URL);
+}
+
+#[test]
+fn database_url_allows_postgres_env_override() {
+    assert_eq!(
+        database_url_from_env(Some("postgres://custom.example.test/db".to_owned())),
+        "postgres://custom.example.test/db"
+    );
 }
 
 async fn adapter() -> Result<PostgresAdapter, OpenAuthError> {

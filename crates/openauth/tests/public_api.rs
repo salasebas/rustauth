@@ -23,6 +23,34 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static SQL_TEST_ID: AtomicU64 = AtomicU64::new(0);
+const DEFAULT_POSTGRES_URL: &str = "postgres://user:password@localhost:5432/openauth";
+const DEFAULT_MYSQL_URL: &str = "mysql://user:password@localhost:3306/openauth";
+
+fn postgres_url_from_env(value: Option<String>) -> String {
+    value.unwrap_or_else(|| DEFAULT_POSTGRES_URL.to_owned())
+}
+
+fn mysql_url_from_env(value: Option<String>) -> String {
+    value.unwrap_or_else(|| DEFAULT_MYSQL_URL.to_owned())
+}
+
+#[test]
+fn sql_test_urls_default_to_docker_compose_services_when_env_is_unset() {
+    assert_eq!(postgres_url_from_env(None), DEFAULT_POSTGRES_URL);
+    assert_eq!(mysql_url_from_env(None), DEFAULT_MYSQL_URL);
+}
+
+#[test]
+fn sql_test_urls_allow_env_overrides() {
+    assert_eq!(
+        postgres_url_from_env(Some("postgres://custom.example.test/db".to_owned())),
+        "postgres://custom.example.test/db"
+    );
+    assert_eq!(
+        mysql_url_from_env(Some("mysql://custom.example.test/db".to_owned())),
+        "mysql://custom.example.test/db"
+    );
+}
 
 #[test]
 fn openauth_crate_exposes_product_initializer() -> Result<(), Box<dyn std::error::Error>> {
@@ -810,8 +838,7 @@ async fn openauth_run_migrations_applies_sqlite_plugin_schema_and_http_flows(
 #[tokio::test]
 async fn openauth_run_migrations_applies_postgres_plugin_schema_and_http_flows(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let database_url = std::env::var("OPENAUTH_TEST_POSTGRES_URL")
-        .unwrap_or_else(|_| "postgres://user:password@localhost:5432/better_auth".to_owned());
+    let database_url = postgres_url_from_env(std::env::var("OPENAUTH_TEST_POSTGRES_URL").ok());
     let schema_name = unique_sql_prefix();
     let base_schema = openauth::db::auth_schema(openauth::db::AuthSchemaOptions::default());
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -886,8 +913,7 @@ async fn openauth_run_migrations_applies_postgres_plugin_schema_and_http_flows(
 #[tokio::test]
 async fn openauth_run_migrations_applies_mysql_plugin_schema_and_http_flows(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let database_url = std::env::var("OPENAUTH_TEST_MYSQL_URL")
-        .unwrap_or_else(|_| "mysql://user:password@localhost:3306/better_auth".to_owned());
+    let database_url = mysql_url_from_env(std::env::var("OPENAUTH_TEST_MYSQL_URL").ok());
     let base_schema = openauth::db::auth_schema(openauth::db::AuthSchemaOptions::default());
     let pool = sqlx::mysql::MySqlPoolOptions::new()
         .max_connections(1)

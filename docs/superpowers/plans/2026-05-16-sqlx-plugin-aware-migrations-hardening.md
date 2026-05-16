@@ -47,7 +47,7 @@
 
 - [x] Run `cargo fmt`.
 - [x] Run `cargo test -p openauth-sqlx --features sqlite`.
-- [x] Run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/better_auth cargo test -p openauth-sqlx --no-default-features --features postgres`.
+- [x] Run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/openauth cargo test -p openauth-sqlx --no-default-features --features postgres`.
 - [x] Run `cargo test -p openauth-sqlx --all-features --no-run`.
 - [x] Review the final diff for scope creep and unrelated changes.
 
@@ -64,9 +64,9 @@
 - [x] Add SQLite regression coverage for recreating a missing index on an existing indexed plugin column.
 - [x] Add Postgres regression coverage for recreating a missing index on an existing indexed plugin column.
 - [x] Run focused SQLite and Postgres checks for the new tests.
-- [x] Re-run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/better_auth cargo test -p openauth`.
+- [x] Re-run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/openauth cargo test -p openauth`.
 - [x] Re-run `cargo test -p openauth-sqlx --features sqlite`.
-- [x] Re-run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/better_auth cargo test -p openauth-sqlx --no-default-features --features postgres`.
+- [x] Re-run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/openauth cargo test -p openauth-sqlx --no-default-features --features postgres`.
 - [x] Re-run `cargo test -p openauth-sqlx --all-features --no-run`.
 
 ### Task 6: SQLx Migration Planning Phase 1
@@ -92,7 +92,7 @@
 - [x] Run `cargo fmt --check`.
 - [x] Run `cargo test -p openauth`.
 - [x] Run `cargo test -p openauth-sqlx --features sqlite`.
-- [x] Run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/better_auth cargo test -p openauth-sqlx --no-default-features --features postgres`.
+- [x] Run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/openauth cargo test -p openauth-sqlx --no-default-features --features postgres`.
 - [x] Run `cargo test -p openauth-sqlx --all-features --no-run`.
 - [x] Run `git diff --check`.
 
@@ -112,8 +112,8 @@
 - [x] Avoid MySQL destructive migrations: no drops, renames, type rewrites, `MODIFY COLUMN`, or `CHANGE COLUMN`.
 - [x] Add MySQL tests for stable `to_be_created`, plugin `to_be_added`, deferred indexes, no-op compile, type mismatch warnings, missing index repair, and plugin table FK/index creation.
 - [x] Add an OpenAuth public API test for MySQL `run_migrations()`, plugin schema, and HTTP auth flow.
-- [x] Run `OPENAUTH_TEST_MYSQL_URL=mysql://user:password@localhost:3306/better_auth cargo test -p openauth-sqlx --no-default-features --features mysql`.
-- [x] Run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/better_auth OPENAUTH_TEST_MYSQL_URL=mysql://user:password@localhost:3306/better_auth cargo test -p openauth`.
+- [x] Run `OPENAUTH_TEST_MYSQL_URL=mysql://user:password@localhost:3306/openauth cargo test -p openauth-sqlx --no-default-features --features mysql`.
+- [x] Run `OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/openauth OPENAUTH_TEST_MYSQL_URL=mysql://user:password@localhost:3306/openauth cargo test -p openauth`.
 
 ### Assumptions
 
