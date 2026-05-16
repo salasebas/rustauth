@@ -49,11 +49,13 @@ impl RouteAdapterSeed for RouteAdapter {
     }
 }
 
+mod account_tokens;
 mod change_email;
 mod change_password;
 mod delete_user;
 mod delete_user_callback;
 mod email_verification;
+mod error_page;
 mod get_session;
 mod list_accounts;
 mod list_sessions;

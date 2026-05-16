@@ -11,6 +11,7 @@ mod account;
 mod change_email;
 mod delete_user;
 mod email_verification;
+mod error;
 mod password;
 mod session;
 mod shared;
@@ -35,6 +36,7 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
         social::callback_oauth_endpoint(Method::GET, Arc::clone(&adapter)),
         social::callback_oauth_endpoint(Method::POST, Arc::clone(&adapter)),
         social::link_social_endpoint(Arc::clone(&adapter)),
+        error::error_endpoint(),
         session::get_session_endpoint(Method::GET, Arc::clone(&adapter)),
         session::get_session_endpoint(Method::POST, Arc::clone(&adapter)),
         session::list_sessions_endpoint(Arc::clone(&adapter)),
@@ -44,6 +46,9 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
         session::revoke_other_sessions_endpoint(Arc::clone(&adapter)),
         account::list_user_accounts_endpoint(Arc::clone(&adapter)),
         account::unlink_account_endpoint(Arc::clone(&adapter)),
+        account::get_access_token_endpoint(Arc::clone(&adapter)),
+        account::refresh_token_endpoint(Arc::clone(&adapter)),
+        account::account_info_endpoint(Arc::clone(&adapter)),
         update_user::update_user_endpoint(Arc::clone(&adapter)),
         change_email::change_email_endpoint(Arc::clone(&adapter)),
         email_verification::send_verification_email_endpoint(Arc::clone(&adapter)),
@@ -54,6 +59,7 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
         password::set_password_endpoint(Arc::clone(&adapter)),
         password::verify_password_endpoint(Arc::clone(&adapter)),
         password::request_password_reset_endpoint(Arc::clone(&adapter)),
+        password::reset_password_callback_endpoint(Arc::clone(&adapter)),
         password::reset_password_endpoint(Arc::clone(&adapter)),
         sign_out::sign_out_endpoint(adapter),
     ]

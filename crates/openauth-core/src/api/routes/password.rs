@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use http::{Method, StatusCode};
+use http::{header, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 
@@ -10,11 +10,12 @@ use super::shared::{
 };
 use crate::api::plugin_pipeline::run_password_validators;
 use crate::api::{
-    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
-    BodySchema, JsonSchemaType, OpenApiOperation,
+    create_auth_endpoint, parse_request_body, ApiRequest, ApiResponse, AsyncAuthEndpoint,
+    AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType, OpenApiOperation, PathParams,
 };
 use crate::crypto::random::generate_random_string;
 use crate::db::{DbAdapter, User};
+use crate::error::OpenAuthError;
 use crate::options::PasswordResetPayload;
 use crate::session::{CreateSessionInput, DbSessionStore};
 use crate::user::{CreateCredentialAccountInput, DbUserStore};
@@ -375,6 +376,57 @@ pub(super) fn reset_password_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthE
     )
 }
 
+pub(super) fn reset_password_callback_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        "/reset-password/:token",
+        Method::GET,
+        AuthEndpointOptions::new()
+            .operation_id("resetPasswordCallback")
+            .openapi(
+                OpenApiOperation::new("resetPasswordCallback")
+                    .description("Redirects the user to the callback URL with the token")
+                    .parameter(serde_json::json!({
+                        "name": "token",
+                        "in": "path",
+                        "required": true,
+                        "description": "The token to reset the password",
+                        "schema": { "type": "string" },
+                    }))
+                    .parameter(serde_json::json!({
+                        "name": "callbackURL",
+                        "in": "query",
+                        "required": true,
+                        "description": "The URL to redirect the user to reset their password",
+                        "schema": { "type": "string" },
+                    }))
+                    .response("302", super::shared::message_openapi_response("Redirect")),
+            ),
+        move |_context, request| {
+            let adapter = Arc::clone(&adapter);
+            Box::pin(async move {
+                let token = path_param(&request, "token").unwrap_or_default();
+                let callback_url = super::shared::query_param(&request, "callbackURL");
+                let Some(callback_url) = callback_url else {
+                    return redirect_with_query("/error", "error", "INVALID_TOKEN");
+                };
+                if token.is_empty() {
+                    return redirect_with_query(&callback_url, "error", "INVALID_TOKEN");
+                }
+                let identifier = format!("reset-password:{token}");
+                let verification = DbVerificationStore::new(adapter.as_ref())
+                    .find_verification(&identifier)
+                    .await?;
+                match verification {
+                    Some(verification) if verification.expires_at > OffsetDateTime::now_utc() => {
+                        redirect_with_query(&callback_url, "token", token)
+                    }
+                    _ => redirect_with_query(&callback_url, "error", "INVALID_TOKEN"),
+                }
+            })
+        },
+    )
+}
+
 fn change_password_body_schema() -> BodySchema {
     BodySchema::object([
         BodyField::new("newPassword", JsonSchemaType::String)
@@ -467,4 +519,35 @@ fn query_param(query: Option<&str>, key: &str) -> Option<String> {
         let (name, value) = pair.split_once('=')?;
         (name == key).then(|| value.replace('+', " "))
     })
+}
+
+fn path_param<'a>(request: &'a ApiRequest, name: &str) -> Option<&'a str> {
+    request
+        .extensions()
+        .get::<PathParams>()
+        .and_then(|params| params.get(name))
+}
+
+fn redirect_with_query(
+    location: &str,
+    key: &str,
+    value: &str,
+) -> Result<ApiResponse, OpenAuthError> {
+    let separator = if location.contains('?') { '&' } else { '?' };
+    redirect(&format!(
+        "{location}{separator}{key}={}",
+        percent_encode(value)
+    ))
+}
+
+fn redirect(location: &str) -> Result<ApiResponse, OpenAuthError> {
+    http::Response::builder()
+        .status(StatusCode::FOUND)
+        .header(header::LOCATION, location)
+        .body(Vec::new())
+        .map_err(|error| OpenAuthError::Api(error.to_string()))
+}
+
+fn percent_encode(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }

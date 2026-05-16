@@ -145,3 +145,66 @@ async fn reset_password_route_invokes_callback_and_revokes_sessions(
     assert!(adapter.is_empty("session").await);
     Ok(())
 }
+
+#[tokio::test]
+async fn reset_password_token_callback_redirects_with_token_or_error(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    let router = router(adapter.clone())?;
+
+    router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/request-password-reset",
+            r#"{"email":"ada@example.com"}"#,
+            None,
+        )?)
+        .await?;
+    let identifier = adapter
+        .records("verification")
+        .await
+        .into_iter()
+        .find_map(|record| string_field(&record, "identifier").ok().map(str::to_owned))
+        .ok_or("missing verification")?;
+    let token = identifier
+        .strip_prefix("reset-password:")
+        .ok_or("bad identifier")?
+        .to_owned();
+
+    let valid = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/reset-password/{token}?callbackURL=/reset"),
+            "",
+            None,
+        )?)
+        .await?;
+    let invalid = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/reset-password/missing?callbackURL=/reset",
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(valid.status(), StatusCode::FOUND);
+    assert_eq!(
+        valid
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|h| h.to_str().ok()),
+        Some(format!("/reset?token={token}").as_str())
+    );
+    assert_eq!(invalid.status(), StatusCode::FOUND);
+    assert_eq!(
+        invalid
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|h| h.to_str().ok()),
+        Some("/reset?error=INVALID_TOKEN")
+    );
+    Ok(())
+}
