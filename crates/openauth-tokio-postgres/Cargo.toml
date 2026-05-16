@@ -1,0 +1,29 @@
+[package]
+name = "openauth-tokio-postgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/openauth-tokio-postgres"
+readme = "../../README.md"
+description = "tokio-postgres database adapter for OpenAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+openauth-core.workspace = true
+serde_json.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio.workspace = true
+tokio-postgres.workspace = true
+
+[dev-dependencies]
+http.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

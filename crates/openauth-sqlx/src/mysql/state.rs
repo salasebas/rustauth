@@ -1,22 +1,15 @@
 use openauth_core::db::{
-    Count, Create, DbRecord, DbSchema, Delete, DeleteMany, FindMany, FindOne, SortDirection,
-    Update, UpdateMany,
+    AdapterFuture, Count, Create, DbField, DbRecord, DbSchema, DbValue, Delete, DeleteMany,
+    FindMany, FindOne, SqlAdapterRunner, SqlDialect, SqlExecutor, SqlParam, SqlRowReader,
+    SqlStatement, Update, UpdateMany,
 };
 use openauth_core::error::OpenAuthError;
 use sqlx::mysql::{MySqlArguments, MySqlRow};
 use sqlx::{MySql, MySqlPool, Transaction};
 
 use super::errors::{inactive_transaction, sql_error};
-use super::joins::{
-    base_alias, internal_base_selection, join_alias, join_field_alias, joined_rows,
-    resolve_field_from_selection, resolve_native_joins,
-};
-use super::query::{bind_value, where_sql};
-use super::row::{row_record, row_value_at};
-use super::support::{
-    quote_identifier, resolve_field, resolve_table, resolve_table_with_logical, select_fields,
-    select_record,
-};
+use super::query::bind_param;
+use super::row::row_value_at;
 
 pub(super) struct MySqlState<'a, 'tx> {
     pub(super) schema: &'a DbSchema,
@@ -29,284 +22,43 @@ pub(super) enum MySqlExecutor<'a, 'tx> {
 }
 
 impl MySqlState<'_, '_> {
-    pub(super) async fn create(mut self, query: Create) -> Result<DbRecord, OpenAuthError> {
-        let table = resolve_table(self.schema, &query.model)?;
-        let mut columns = Vec::new();
-        let mut values = Vec::new();
-        let mut args = MySqlArguments::default();
-
-        for (field, value) in &query.data {
-            let (_, metadata) = resolve_field(table, field)?;
-            columns.push(quote_identifier(&metadata.name)?);
-            values.push("?".to_owned());
-            bind_value(&mut args, metadata, value)?;
-        }
-
-        let sql = format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            quote_identifier(&table.name)?,
-            columns.join(", "),
-            values.join(", ")
-        );
-        self.execute(sql, args).await?;
-        Ok(select_record(query.data, &query.select))
+    pub(super) async fn create(self, query: Create) -> Result<DbRecord, OpenAuthError> {
+        runner(self).create(query).await
     }
 
-    pub(super) async fn find_one(
-        self,
-        mut query: FindOne,
-    ) -> Result<Option<DbRecord>, OpenAuthError> {
-        let mut find_many = FindMany::new(query.model);
-        find_many.where_clauses = std::mem::take(&mut query.where_clauses);
-        find_many.limit = Some(1);
-        find_many.select = query.select;
-        find_many.joins = query.joins;
-        Ok(self.find_many(find_many).await?.into_iter().next())
+    pub(super) async fn find_one(self, query: FindOne) -> Result<Option<DbRecord>, OpenAuthError> {
+        runner(self).find_one(query).await
     }
 
-    pub(super) async fn find_many(
-        mut self,
-        query: FindMany,
-    ) -> Result<Vec<DbRecord>, OpenAuthError> {
-        if !query.joins.is_empty() {
-            return self.find_many_with_joins(query).await;
-        }
-        let table = resolve_table(self.schema, &query.model)?;
-        let selection = select_fields(table, &query.select)?;
-        let mut args = MySqlArguments::default();
-        let where_sql = where_sql(table, &query.where_clauses, &mut args)?;
-        let mut sql = format!(
-            "SELECT {} FROM {}{}",
-            selection
-                .iter()
-                .map(|(_, field)| quote_identifier(&field.name))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", "),
-            quote_identifier(&table.name)?,
-            where_sql
-        );
-
-        if let Some(sort) = query.sort_by {
-            let (_, field) = resolve_field(table, &sort.field)?;
-            let direction = match sort.direction {
-                SortDirection::Asc => "ASC",
-                SortDirection::Desc => "DESC",
-            };
-            sql.push_str(" ORDER BY ");
-            sql.push_str(&quote_identifier(&field.name)?);
-            sql.push(' ');
-            sql.push_str(direction);
-        }
-        if let Some(limit) = query.limit {
-            sql.push_str(" LIMIT ");
-            sql.push_str(&limit.to_string());
-        }
-        if let Some(offset) = query.offset {
-            sql.push_str(" OFFSET ");
-            sql.push_str(&offset.to_string());
-        }
-
-        let rows = self.fetch_all(sql, args).await?;
-        rows.iter()
-            .map(|row| row_record(row, &selection))
-            .collect::<Result<Vec<_>, _>>()
+    pub(super) async fn find_many(self, query: FindMany) -> Result<Vec<DbRecord>, OpenAuthError> {
+        runner(self).find_many(query).await
     }
 
-    async fn find_many_with_joins(
-        mut self,
-        query: FindMany,
-    ) -> Result<Vec<DbRecord>, OpenAuthError> {
-        let (base_logical, table) = resolve_table_with_logical(self.schema, &query.model)?;
-        let joins = resolve_native_joins(self.schema, base_logical, table, &query.joins, 100)?;
-        let base_selection = internal_base_selection(table, &query.select, &joins)?;
-        let base_id_alias = "__base_id";
-        let mut args = MySqlArguments::default();
-        let where_sql = where_sql(table, &query.where_clauses, &mut args)?;
-        let base_columns = base_selection
-            .iter()
-            .map(|(_, field)| quote_identifier(&field.name))
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut base_sql = format!(
-            "SELECT {} FROM {}{}",
-            base_columns.join(", "),
-            quote_identifier(&table.name)?,
-            where_sql
-        );
-
-        if let Some(sort) = &query.sort_by {
-            let (_, field) = resolve_field(table, &sort.field)?;
-            let direction = match sort.direction {
-                SortDirection::Asc => "ASC",
-                SortDirection::Desc => "DESC",
-            };
-            base_sql.push_str(" ORDER BY ");
-            base_sql.push_str(&quote_identifier(&field.name)?);
-            base_sql.push(' ');
-            base_sql.push_str(direction);
-        }
-        if let Some(limit) = query.limit {
-            base_sql.push_str(" LIMIT ");
-            base_sql.push_str(&limit.to_string());
-        }
-        if let Some(offset) = query.offset {
-            base_sql.push_str(" OFFSET ");
-            base_sql.push_str(&offset.to_string());
-        }
-
-        let mut selects = vec![format!(
-            "{}.{} AS {}",
-            quote_identifier("base")?,
-            quote_identifier(&resolve_field_from_selection(&base_selection, "id")?.name)?,
-            quote_identifier(base_id_alias)?
-        )];
-        for (index, (_, field)) in base_selection.iter().enumerate() {
-            selects.push(format!(
-                "{}.{} AS {}",
-                quote_identifier("base")?,
-                quote_identifier(&field.name)?,
-                quote_identifier(&base_alias(index))?
-            ));
-        }
-        for (join_index, join) in joins.iter().enumerate() {
-            for (field_index, (_, field)) in join.selection.iter().enumerate() {
-                selects.push(format!(
-                    "{}.{} AS {}",
-                    quote_identifier(&join_alias(join_index))?,
-                    quote_identifier(&field.name)?,
-                    quote_identifier(&join_field_alias(join_index, field_index))?
-                ));
-            }
-        }
-
-        let mut sql = format!(
-            "SELECT {} FROM ({}) AS {}",
-            selects.join(", "),
-            base_sql,
-            quote_identifier("base")?
-        );
-        for (index, join) in joins.iter().enumerate() {
-            sql.push_str(" LEFT JOIN ");
-            sql.push_str(&quote_identifier(&join.table.name)?);
-            sql.push_str(" AS ");
-            sql.push_str(&quote_identifier(&join_alias(index))?);
-            sql.push_str(" ON ");
-            sql.push_str(&quote_identifier(&join_alias(index))?);
-            sql.push('.');
-            sql.push_str(&quote_identifier(&join.to)?);
-            sql.push_str(" = ");
-            sql.push_str(&quote_identifier("base")?);
-            sql.push('.');
-            sql.push_str(&quote_identifier(&join.from)?);
-        }
-
-        let rows = self.fetch_all(sql, args).await?;
-        joined_rows(&rows, &base_selection, &query.select, &joins, row_value_at)
+    pub(super) async fn count(self, query: Count) -> Result<u64, OpenAuthError> {
+        runner(self).count(query).await
     }
 
-    pub(super) async fn count(mut self, query: Count) -> Result<u64, OpenAuthError> {
-        let table = resolve_table(self.schema, &query.model)?;
-        let mut args = MySqlArguments::default();
-        let where_sql = where_sql(table, &query.where_clauses, &mut args)?;
-        let sql = format!(
-            "SELECT COUNT(*) FROM {}{}",
-            quote_identifier(&table.name)?,
-            where_sql
-        );
-        let count: i64 = self.fetch_scalar(sql, args).await?;
-        u64::try_from(count)
-            .map_err(|_| OpenAuthError::Adapter("mysql returned a negative count".to_owned()))
+    pub(super) async fn update(self, query: Update) -> Result<Option<DbRecord>, OpenAuthError> {
+        runner(self).update(query).await
     }
 
-    pub(super) async fn update(mut self, query: Update) -> Result<Option<DbRecord>, OpenAuthError> {
-        let table = resolve_table(self.schema, &query.model)?;
-        if query.data.is_empty() {
-            return Ok(None);
-        }
-        let selection = select_fields(table, &[])?;
-        let mut select_args = MySqlArguments::default();
-        let select_where_sql = where_sql(table, &query.where_clauses, &mut select_args)?;
-        let select_sql = format!(
-            "SELECT {} FROM {}{} LIMIT 1",
-            selection
-                .iter()
-                .map(|(_, field)| quote_identifier(&field.name))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", "),
-            quote_identifier(&table.name)?,
-            select_where_sql
-        );
-        let Some(row) = self.fetch_optional(select_sql, select_args).await? else {
-            return Ok(None);
-        };
-        let mut record = row_record(&row, &selection)?;
-
-        let mut update_args = MySqlArguments::default();
-        let mut assignments = Vec::new();
-        for (field, value) in &query.data {
-            let (_, metadata) = resolve_field(table, field)?;
-            assignments.push(format!("{} = ?", quote_identifier(&metadata.name)?));
-            bind_value(&mut update_args, metadata, value)?;
-            record.insert(field.clone(), value.clone());
-        }
-        let update_where = where_sql(table, &query.where_clauses, &mut update_args)?;
-        let sql = format!(
-            "UPDATE {} SET {}{} LIMIT 1",
-            quote_identifier(&table.name)?,
-            assignments.join(", "),
-            update_where
-        );
-        self.execute(sql, update_args).await?;
-        Ok(Some(record))
+    pub(super) async fn update_many(self, query: UpdateMany) -> Result<u64, OpenAuthError> {
+        runner(self).update_many(query).await
     }
 
-    pub(super) async fn update_many(mut self, query: UpdateMany) -> Result<u64, OpenAuthError> {
-        let table = resolve_table(self.schema, &query.model)?;
-        if query.data.is_empty() {
-            return Ok(0);
-        }
-        let mut args = MySqlArguments::default();
-        let mut assignments = Vec::new();
-        for (field, value) in &query.data {
-            let (_, metadata) = resolve_field(table, field)?;
-            assignments.push(format!("{} = ?", quote_identifier(&metadata.name)?));
-            bind_value(&mut args, metadata, value)?;
-        }
-        let where_sql = where_sql(table, &query.where_clauses, &mut args)?;
-        let sql = format!(
-            "UPDATE {} SET {}{}",
-            quote_identifier(&table.name)?,
-            assignments.join(", "),
-            where_sql
-        );
-        self.execute(sql, args).await
+    pub(super) async fn delete(self, query: Delete) -> Result<(), OpenAuthError> {
+        runner(self).delete(query).await
     }
 
-    pub(super) async fn delete(mut self, query: Delete) -> Result<(), OpenAuthError> {
-        let table = resolve_table(self.schema, &query.model)?;
-        let mut args = MySqlArguments::default();
-        let where_sql = where_sql(table, &query.where_clauses, &mut args)?;
-        let sql = format!(
-            "DELETE FROM {}{} LIMIT 1",
-            quote_identifier(&table.name)?,
-            where_sql
-        );
-        self.execute(sql, args).await?;
-        Ok(())
+    pub(super) async fn delete_many(self, query: DeleteMany) -> Result<u64, OpenAuthError> {
+        runner(self).delete_many(query).await
     }
 
-    pub(super) async fn delete_many(mut self, query: DeleteMany) -> Result<u64, OpenAuthError> {
-        let table = resolve_table(self.schema, &query.model)?;
-        let mut args = MySqlArguments::default();
-        let where_sql = where_sql(table, &query.where_clauses, &mut args)?;
-        let sql = format!(
-            "DELETE FROM {}{}",
-            quote_identifier(&table.name)?,
-            where_sql
-        );
-        self.execute(sql, args).await
-    }
-
-    async fn execute(&mut self, sql: String, args: MySqlArguments) -> Result<u64, OpenAuthError> {
+    async fn execute_sql(
+        &mut self,
+        sql: String,
+        args: MySqlArguments,
+    ) -> Result<u64, OpenAuthError> {
         match &mut self.executor {
             MySqlExecutor::Pool(pool) => sqlx::query_with(&sql, args)
                 .execute(*pool)
@@ -324,7 +76,7 @@ impl MySqlState<'_, '_> {
         }
     }
 
-    async fn fetch_all(
+    async fn fetch_all_sql(
         &mut self,
         sql: String,
         args: MySqlArguments,
@@ -344,7 +96,7 @@ impl MySqlState<'_, '_> {
         }
     }
 
-    async fn fetch_optional(
+    async fn fetch_optional_sql(
         &mut self,
         sql: String,
         args: MySqlArguments,
@@ -364,7 +116,7 @@ impl MySqlState<'_, '_> {
         }
     }
 
-    async fn fetch_scalar(
+    async fn fetch_scalar_sql(
         &mut self,
         sql: String,
         args: MySqlArguments,
@@ -383,4 +135,66 @@ impl MySqlState<'_, '_> {
             }
         }
     }
+}
+
+impl SqlExecutor for MySqlState<'_, '_> {
+    type Row = MySqlRow;
+
+    fn execute<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, u64> {
+        Box::pin(async move {
+            let args = mysql_args(&statement.params)?;
+            self.execute_sql(statement.sql, args).await
+        })
+    }
+
+    fn fetch_all<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, Vec<Self::Row>> {
+        Box::pin(async move {
+            let args = mysql_args(&statement.params)?;
+            self.fetch_all_sql(statement.sql, args).await
+        })
+    }
+
+    fn fetch_optional<'a>(
+        &'a mut self,
+        statement: SqlStatement,
+    ) -> AdapterFuture<'a, Option<Self::Row>> {
+        Box::pin(async move {
+            let args = mysql_args(&statement.params)?;
+            self.fetch_optional_sql(statement.sql, args).await
+        })
+    }
+
+    fn fetch_scalar_i64<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, i64> {
+        Box::pin(async move {
+            let args = mysql_args(&statement.params)?;
+            self.fetch_scalar_sql(statement.sql, args).await
+        })
+    }
+}
+
+struct MySqlRowReader;
+
+impl SqlRowReader<MySqlRow> for MySqlRowReader {
+    fn value_at(
+        &self,
+        row: &MySqlRow,
+        field: &DbField,
+        alias: &str,
+    ) -> Result<DbValue, OpenAuthError> {
+        row_value_at(row, field, alias)
+    }
+}
+
+fn runner<'a, 'tx>(
+    state: MySqlState<'a, 'tx>,
+) -> SqlAdapterRunner<'a, MySqlState<'a, 'tx>, MySqlRowReader> {
+    SqlAdapterRunner::new(SqlDialect::MySql, state.schema, state, MySqlRowReader)
+}
+
+fn mysql_args(params: &[SqlParam]) -> Result<MySqlArguments, OpenAuthError> {
+    let mut args = MySqlArguments::default();
+    for param in params {
+        bind_param(&mut args, param)?;
+    }
+    Ok(args)
 }

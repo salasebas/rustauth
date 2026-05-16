@@ -1,13 +1,12 @@
-use openauth_core::db::{DbField, DbFieldType, DbSchema, OnDelete};
+use openauth_core::db::{
+    plan_schema_migration, DbSchema, SqlColumnSnapshot, SqlDialect, SqlSchemaSnapshot,
+};
 use openauth_core::error::OpenAuthError;
 
 use super::errors::{inactive_transaction, sql_error};
 use super::state::MySqlExecutor;
-use super::support::{quote_identifier, sanitize_identifier};
-use crate::migration::{
-    ColumnToAdd, IndexToCreate, MigrationStatement, MigrationStatementKind, SchemaMigrationPlan,
-    SchemaMigrationWarning, TableToCreate,
-};
+use super::support::sanitize_identifier;
+use crate::migration::SchemaMigrationPlan;
 
 pub(super) async fn plan_migrations(
     mut executor: MySqlExecutor<'_, '_>,
@@ -28,71 +27,43 @@ async fn build_migration_plan(
     executor: &mut MySqlExecutor<'_, '_>,
     schema: &DbSchema,
 ) -> Result<SchemaMigrationPlan, OpenAuthError> {
-    let mut plan = SchemaMigrationPlan::default();
+    let snapshot = load_schema_snapshot(executor, schema).await?;
+    plan_schema_migration(SqlDialect::MySql, schema, &snapshot)
+}
+
+async fn load_schema_snapshot(
+    executor: &mut MySqlExecutor<'_, '_>,
+    schema: &DbSchema,
+) -> Result<SqlSchemaSnapshot, OpenAuthError> {
+    let mut snapshot = SqlSchemaSnapshot::default();
     let mut tables = schema.tables().collect::<Vec<_>>();
     tables.sort_by_key(|(_, table)| table.order.unwrap_or(u16::MAX));
 
-    for (table_logical_name, table) in &tables {
+    for (_, table) in &tables {
         if table_exists(executor, &table.name).await? {
-            for (logical_name, field) in &table.fields {
+            snapshot = snapshot.with_table(&table.name);
+            for (_, field) in &table.fields {
                 if let Some(actual_type) = column_type(executor, &table.name, &field.name).await? {
-                    if !mysql_type_matches(&actual_type, field) {
-                        plan.warnings
-                            .push(SchemaMigrationWarning::ColumnTypeMismatch {
-                                table_name: table.name.clone(),
-                                column_name: field.name.clone(),
-                                expected: mysql_type(logical_name, field),
-                                actual: actual_type,
-                            });
-                    }
-                } else {
-                    plan.to_be_added.push(ColumnToAdd {
-                        table_logical_name: (*table_logical_name).to_owned(),
-                        table_name: table.name.clone(),
-                        field_logical_name: logical_name.clone(),
-                        column_name: field.name.clone(),
-                    });
-                    plan.statements.push(MigrationStatement {
-                        kind: MigrationStatementKind::AddColumn,
-                        sql: add_column_statement(&table.name, logical_name, field)?,
-                    });
+                    snapshot = snapshot.with_column(
+                        &table.name,
+                        SqlColumnSnapshot::new(&field.name, actual_type),
+                    );
                 }
             }
-        } else {
-            plan.to_be_created.push(TableToCreate {
-                logical_name: (*table_logical_name).to_owned(),
-                table_name: table.name.clone(),
-            });
-            plan.statements.push(MigrationStatement {
-                kind: MigrationStatementKind::CreateTable,
-                sql: create_table_statement(table)?,
-            });
         }
-    }
 
-    for (table_logical_name, table) in tables {
         for (logical_name, field) in &table.fields {
             if field.index && !field.unique {
                 let index_name = format!("idx_{}_{}", table.name, logical_name);
                 let index_name = sanitize_identifier(&index_name)?;
-                if !index_exists(executor, &table.name, &index_name).await? {
-                    plan.indexes_to_be_created.push(IndexToCreate {
-                        table_logical_name: table_logical_name.to_owned(),
-                        table_name: table.name.clone(),
-                        field_logical_name: logical_name.clone(),
-                        column_name: field.name.clone(),
-                        index_name: index_name.clone(),
-                    });
-                    plan.statements.push(MigrationStatement {
-                        kind: MigrationStatementKind::CreateIndex,
-                        sql: create_index_statement(&table.name, &field.name, &index_name)?,
-                    });
+                if index_exists(executor, &table.name, &index_name).await? {
+                    snapshot = snapshot.with_index(&table.name, index_name);
                 }
             }
         }
     }
 
-    Ok(plan)
+    Ok(snapshot)
 }
 
 pub(super) async fn execute_migration_plan(
@@ -206,117 +177,4 @@ pub(super) async fn execute_schema_sql(
         }
     }
     Ok(())
-}
-
-fn create_table_statement(table: &openauth_core::db::DbTable) -> Result<String, OpenAuthError> {
-    let mut columns = Vec::new();
-    for (logical_name, field) in &table.fields {
-        columns.push(column_definition(logical_name, field)?);
-    }
-    Ok(format!(
-        "CREATE TABLE IF NOT EXISTS {} ({}) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-        quote_identifier(&table.name)?,
-        columns.join(", ")
-    ))
-}
-
-fn add_column_statement(
-    table: &str,
-    logical_name: &str,
-    field: &DbField,
-) -> Result<String, OpenAuthError> {
-    Ok(format!(
-        "ALTER TABLE {} ADD COLUMN {}",
-        quote_identifier(table)?,
-        column_definition(logical_name, field)?,
-    ))
-}
-
-fn create_index_statement(table: &str, column: &str, index: &str) -> Result<String, OpenAuthError> {
-    Ok(format!(
-        "CREATE INDEX {} ON {} ({})",
-        quote_identifier(index)?,
-        quote_identifier(table)?,
-        quote_identifier(column)?,
-    ))
-}
-
-pub(super) fn column_definition(
-    logical_name: &str,
-    field: &DbField,
-) -> Result<String, OpenAuthError> {
-    let mut parts = vec![
-        quote_identifier(&field.name)?,
-        mysql_type(logical_name, field),
-    ];
-    if logical_name == "id" || field.name == "id" {
-        parts.push("PRIMARY KEY".to_owned());
-    } else {
-        if field.required {
-            parts.push("NOT NULL".to_owned());
-        }
-        if field.unique {
-            parts.push("UNIQUE".to_owned());
-        }
-    }
-    if let Some(foreign_key) = &field.foreign_key {
-        parts.push(format!(
-            "REFERENCES {} ({})",
-            quote_identifier(&foreign_key.table)?,
-            quote_identifier(&foreign_key.field)?
-        ));
-        parts.push(on_delete_sql(foreign_key.on_delete).to_owned());
-    }
-    Ok(parts.join(" "))
-}
-
-pub(super) fn mysql_type(logical_name: &str, field: &DbField) -> String {
-    match field.field_type {
-        DbFieldType::String if logical_name == "id" || field.unique || field.index => {
-            "VARCHAR(255)".to_owned()
-        }
-        DbFieldType::String => "TEXT".to_owned(),
-        DbFieldType::Number => "BIGINT".to_owned(),
-        DbFieldType::Boolean => "BOOLEAN".to_owned(),
-        DbFieldType::Timestamp => "DATETIME(6)".to_owned(),
-        DbFieldType::Json | DbFieldType::StringArray | DbFieldType::NumberArray => {
-            "JSON".to_owned()
-        }
-    }
-}
-
-fn mysql_type_matches(actual: &str, field: &DbField) -> bool {
-    let actual = normalized_type(actual);
-    match field.field_type {
-        DbFieldType::String => matches!(actual.as_str(), "varchar" | "text" | "uuid"),
-        DbFieldType::Number => matches!(
-            actual.as_str(),
-            "integer" | "int" | "bigint" | "smallint" | "decimal" | "float" | "double"
-        ),
-        DbFieldType::Boolean => matches!(actual.as_str(), "boolean" | "tinyint"),
-        DbFieldType::Timestamp => matches!(actual.as_str(), "timestamp" | "datetime" | "date"),
-        DbFieldType::Json | DbFieldType::StringArray | DbFieldType::NumberArray => {
-            actual.as_str() == "json"
-        }
-    }
-}
-
-fn normalized_type(value: &str) -> String {
-    value
-        .trim()
-        .split_once('(')
-        .map(|(prefix, _)| prefix)
-        .unwrap_or(value)
-        .trim()
-        .to_ascii_lowercase()
-}
-
-pub(super) fn on_delete_sql(on_delete: OnDelete) -> &'static str {
-    match on_delete {
-        OnDelete::NoAction => "ON DELETE NO ACTION",
-        OnDelete::Restrict => "ON DELETE RESTRICT",
-        OnDelete::Cascade => "ON DELETE CASCADE",
-        OnDelete::SetNull => "ON DELETE SET NULL",
-        OnDelete::SetDefault => "ON DELETE SET DEFAULT",
-    }
 }

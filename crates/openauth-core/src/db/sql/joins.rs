@@ -1,24 +1,21 @@
-use indexmap::IndexMap;
-use openauth_core::db::{DbField, DbRecord, DbSchema, DbTable, DbValue, JoinRelation};
-use openauth_core::error::OpenAuthError;
+use super::*;
 
-use super::support::{resolve_field, resolve_table_with_logical, select_fields};
-
-pub(super) struct NativeJoin<'a> {
-    pub(super) model: String,
-    pub(super) table: &'a DbTable,
-    pub(super) selection: Vec<(&'a str, &'a DbField)>,
-    pub(super) from: String,
-    pub(super) to: String,
-    pub(super) relation: JoinRelation,
-    pub(super) limit: usize,
+#[derive(Debug, Clone)]
+pub struct NativeJoin<'a> {
+    pub model: String,
+    pub table: &'a DbTable,
+    pub selection: Vec<(&'a str, &'a DbField)>,
+    pub from: String,
+    pub to: String,
+    pub relation: JoinRelation,
+    pub limit: usize,
 }
 
-pub(super) fn resolve_native_joins<'a>(
+pub fn resolve_native_joins<'a>(
     schema: &'a DbSchema,
     base_model: &str,
     base_table: &'a DbTable,
-    joins: &IndexMap<String, openauth_core::db::JoinOption>,
+    joins: &IndexMap<String, JoinOption>,
     default_limit: usize,
 ) -> Result<Vec<NativeJoin<'a>>, OpenAuthError> {
     let mut resolved = Vec::new();
@@ -84,9 +81,9 @@ pub(super) fn resolve_native_joins<'a>(
     Ok(resolved)
 }
 
-pub(super) fn internal_base_selection<'a>(
+pub fn internal_base_selection<'a>(
     table: &'a DbTable,
-    select: &'a [String],
+    select: &[String],
     joins: &[NativeJoin<'_>],
 ) -> Result<Vec<(&'a str, &'a DbField)>, OpenAuthError> {
     let mut selection = select_fields(table, select)?;
@@ -97,22 +94,7 @@ pub(super) fn internal_base_selection<'a>(
     Ok(selection)
 }
 
-pub(super) fn add_internal_field<'a>(
-    table: &'a DbTable,
-    selection: &mut Vec<(&'a str, &'a DbField)>,
-    field: &str,
-) -> Result<(), OpenAuthError> {
-    let resolved = resolve_field(table, field)?;
-    if !selection
-        .iter()
-        .any(|(_, existing)| existing.name == resolved.1.name)
-    {
-        selection.push(resolved);
-    }
-    Ok(())
-}
-
-pub(super) fn joined_rows<Row, F>(
+pub fn joined_rows<Row, F>(
     rows: &[Row],
     base_selection: &[(&str, &DbField)],
     output_select: &[String],
@@ -183,7 +165,34 @@ where
     Ok(records)
 }
 
-pub(super) fn joined_record<Row, F>(
+pub fn base_alias(index: usize) -> String {
+    format!("__base_{index}")
+}
+
+pub fn join_alias(index: usize) -> String {
+    format!("__join_{index}")
+}
+
+pub fn join_field_alias(join_index: usize, field_index: usize) -> String {
+    format!("__join_{join_index}_{field_index}")
+}
+
+fn add_internal_field<'a>(
+    table: &'a DbTable,
+    selection: &mut Vec<(&'a str, &'a DbField)>,
+    field: &str,
+) -> Result<(), OpenAuthError> {
+    let resolved = resolve_field(table, field)?;
+    if !selection
+        .iter()
+        .any(|(_, existing)| existing.name == resolved.1.name)
+    {
+        selection.push(resolved);
+    }
+    Ok(())
+}
+
+fn joined_record<Row, F>(
     row: &Row,
     join_index: usize,
     join: &NativeJoin<'_>,
@@ -206,7 +215,7 @@ where
     }
 }
 
-pub(super) fn contains_record(records: &[DbRecord], candidate: &DbRecord) -> bool {
+fn contains_record(records: &[DbRecord], candidate: &DbRecord) -> bool {
     let candidate_id = candidate.get("id").and_then(db_value_key);
     records.iter().any(|record| {
         if let Some(candidate_id) = &candidate_id {
@@ -217,22 +226,7 @@ pub(super) fn contains_record(records: &[DbRecord], candidate: &DbRecord) -> boo
     })
 }
 
-pub(super) fn resolve_field_from_selection<'a>(
-    selection: &'a [(&str, &'a DbField)],
-    field: &str,
-) -> Result<&'a DbField, OpenAuthError> {
-    selection
-        .iter()
-        .find_map(|(logical_name, metadata)| {
-            (*logical_name == field || metadata.name == field).then_some(*metadata)
-        })
-        .ok_or_else(|| OpenAuthError::FieldNotFound {
-            table: "joined base selection".to_owned(),
-            field: field.to_owned(),
-        })
-}
-
-pub(super) fn foreign_keys_to_table<'a>(
+fn foreign_keys_to_table<'a>(
     table: &'a DbTable,
     target_table: &str,
 ) -> Vec<(&'a str, &'a DbField)> {
@@ -249,22 +243,10 @@ pub(super) fn foreign_keys_to_table<'a>(
         .collect()
 }
 
-pub(super) fn db_value_key(value: &DbValue) -> Option<String> {
+fn db_value_key(value: &DbValue) -> Option<String> {
     match value {
         DbValue::String(value) => Some(value.clone()),
         DbValue::Number(value) => Some(value.to_string()),
         _ => None,
     }
-}
-
-pub(super) fn base_alias(index: usize) -> String {
-    format!("__base_{index}")
-}
-
-pub(super) fn join_alias(index: usize) -> String {
-    format!("__join_{index}")
-}
-
-pub(super) fn join_field_alias(join_index: usize, field_index: usize) -> String {
-    format!("__join_{join_index}_{field_index}")
 }

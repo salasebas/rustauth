@@ -68,12 +68,18 @@ pub use openauth_core::{
     utils, verification,
 };
 pub use openauth_core::{oauth, social_providers};
+#[cfg(feature = "deadpool-postgres")]
+pub use openauth_deadpool_postgres as deadpool_postgres;
 #[cfg(feature = "plugins")]
 pub use openauth_plugins as plugins;
+#[cfg(feature = "sqlx")]
+pub use openauth_sqlx as sqlx;
 pub use openauth_telemetry::{
     create_telemetry, get_telemetry_auth_config, TelemetryContext, TelemetryEvent,
     TelemetryPublisher, TelemetryTestHooks,
 };
+#[cfg(feature = "tokio-postgres")]
+pub use openauth_tokio_postgres as tokio_postgres;
 
 /// Current crate version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

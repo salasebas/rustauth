@@ -1,4 +1,4 @@
-//! Compatibility re-exports for SQL migration planning types.
+//! Migration compatibility re-exports for deadpool-postgres adapters.
 
 pub use openauth_core::db::{
     ColumnToAdd, IndexToCreate, MigrationStatement, MigrationStatementKind, SchemaMigrationPlan,

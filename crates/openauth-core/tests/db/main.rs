@@ -6,5 +6,6 @@ mod memory_adapter;
 mod output;
 mod schema;
 mod session_store;
+mod sql;
 mod user_store;
 mod verification_store;

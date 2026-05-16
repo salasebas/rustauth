@@ -8,6 +8,7 @@ mod memory;
 mod models;
 mod output;
 mod schema;
+pub mod sql;
 mod transform;
 
 pub use adapter::{
@@ -27,6 +28,17 @@ pub use output::filter_output_fields;
 pub use schema::{
     auth_schema, AuthSchemaOptions, DbField, DbFieldType, DbSchema, DbTable, ForeignKey, OnDelete,
     RateLimitStorage, TableOptions,
+};
+pub use sql::{
+    consume_sql_rate_limit_record, count_statement, create_statement, delete_many_statement,
+    delete_one_statement, execute_schema_migration_plan, find_many_statement,
+    find_many_with_joins_statement, find_one_statement, plan_schema_migration,
+    rate_limit_consume_statements, update_many_statement, update_one_plan, ColumnToAdd,
+    DeleteOneStrategy, IndexToCreate, MigrationStatement, MigrationStatementKind,
+    SchemaMigrationPlan, SchemaMigrationWarning, SqlAdapterRunner, SqlColumnSnapshot,
+    SqlDeleteOnePlan, SqlDialect, SqlExecutor, SqlFragment, SqlJoinReadStatement, SqlParam,
+    SqlRateLimitNames, SqlRateLimitPlan, SqlReadStatement, SqlRowReader, SqlSchemaSnapshot,
+    SqlSelectedField, SqlStatement, SqlUpdateOnePlan, TableToCreate,
 };
 pub use transform::{
     resolve_join_options, transform_count_query, transform_count_query_with_capabilities,

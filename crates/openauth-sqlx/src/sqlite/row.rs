@@ -1,5 +1,4 @@
-use indexmap::IndexMap;
-use openauth_core::db::{DbField, DbFieldType, DbRecord, DbValue};
+use openauth_core::db::{DbField, DbFieldType, DbValue};
 use openauth_core::error::OpenAuthError;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
@@ -7,22 +6,6 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::errors::{json_error, sql_error, time_error};
-
-pub(super) fn row_record(
-    row: &SqliteRow,
-    selection: &[(&str, &DbField)],
-) -> Result<DbRecord, OpenAuthError> {
-    selection
-        .iter()
-        .map(|(logical_name, field)| {
-            row_value(row, field).map(|value| ((*logical_name).to_owned(), value))
-        })
-        .collect::<Result<IndexMap<_, _>, _>>()
-}
-
-pub(super) fn row_value(row: &SqliteRow, field: &DbField) -> Result<DbValue, OpenAuthError> {
-    row_value_at(row, field, field.name.as_str())
-}
 
 pub(super) fn row_value_at(
     row: &SqliteRow,

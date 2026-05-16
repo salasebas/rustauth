@@ -16,6 +16,8 @@ members = [
     "crates/openauth-sso",
     "crates/openauth-stripe",
     "crates/openauth-telemetry",
+    "crates/openauth-deadpool-postgres",
+    "crates/openauth-tokio-postgres",
 ]
 
 [workspace.package]
@@ -41,6 +43,7 @@ indexmap = { version = "2", features = ["serde"] }
 josekit = "0.10"
 hkdf = "0.12"
 data-encoding = "2"
+deadpool-postgres = "0.14.1"
 openauth-core = { path = "crates/openauth-core", version = "0.0.3" }
 openauth = { path = "crates/openauth", version = "0.0.3" }
 axum = "0.8"
@@ -49,6 +52,8 @@ openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.3" }
 openauth-social-providers = { path = "crates/openauth-social-providers", version = "0.0.3" }
 openauth-sqlx = { path = "crates/openauth-sqlx", version = "0.0.3" }
 openauth-telemetry = { path = "crates/openauth-telemetry", version = "0.0.3" }
+openauth-deadpool-postgres = { path = "crates/openauth-deadpool-postgres", version = "0.0.3" }
+openauth-tokio-postgres = { path = "crates/openauth-tokio-postgres", version = "0.0.3" }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 scrypt = "0.11"
@@ -62,6 +67,7 @@ subtle = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["serde"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-postgres = { version = "0.7.17", features = ["with-serde_json-1", "with-time-0_3"] }
 unicode-normalization = "0.1"
 url = "2"
 

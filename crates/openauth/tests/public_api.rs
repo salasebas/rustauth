@@ -331,6 +331,32 @@ fn openauth_crate_reexports_oauth_and_social_provider_packages() {
     assert!(openauth::social_providers::PROVIDER_IDS.contains(&"github"));
 }
 
+#[cfg(feature = "sqlx")]
+#[test]
+fn openauth_crate_reexports_sqlx_adapter_package_behind_feature() {
+    let _kind = openauth::sqlx::migration::MigrationStatementKind::CreateTable;
+}
+
+#[cfg(feature = "sqlx-sqlite")]
+#[test]
+fn openauth_crate_reexports_sqlx_sqlite_adapter_behind_feature() {
+    let type_name = std::any::type_name::<openauth::sqlx::SqliteAdapter>();
+
+    assert!(type_name.contains("SqliteAdapter"));
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[test]
+fn openauth_crate_reexports_tokio_postgres_adapter_package_behind_feature() {
+    let _constructor = openauth::tokio_postgres::TokioPostgresAdapter::connect;
+}
+
+#[cfg(feature = "deadpool-postgres")]
+#[test]
+fn openauth_crate_reexports_deadpool_postgres_adapter_package_behind_feature() {
+    let _constructor = openauth::deadpool_postgres::DeadpoolPostgresAdapter::connect;
+}
+
 #[cfg(feature = "plugins")]
 #[test]
 fn openauth_crate_reexports_plugins_package_behind_feature() {
