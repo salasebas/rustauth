@@ -63,18 +63,23 @@ jobs:
           version="$(cargo metadata --no-deps --format-version 1 | jq -r '.workspace_members[0] as $first | .packages[] | select(.id == $first) | .version')"
           crates=(
             openauth-oauth
+            openauth-scim
+            openauth-sso
+            openauth-stripe
             openauth-social-providers
             openauth-core
             openauth-i18n
-            openauth-oauth-provider
             openauth-plugins
-            openauth-scim
             openauth-sqlx
-            openauth-sso
-            openauth-stripe
             openauth-telemetry
+            openauth-tokio-postgres
+            openauth-deadpool-postgres
+            openauth-passkey
             openauth-fred
+            openauth-redis
+            openauth-oauth-provider
             openauth
+            openauth-axum
           )
 
           crate_version_exists() {
