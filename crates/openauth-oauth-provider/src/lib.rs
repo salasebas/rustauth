@@ -1,152 +1,93 @@
 //! OAuth 2.1 and OpenID Connect provider support for OpenAuth.
 //!
-//! This crate models the Better Auth `oauth-provider` package as a separate
-//! OpenAuth extension. It is intentionally separate from `openauth-oauth`,
-//! which is for OAuth client primitives and social sign-in provider support.
+//! This crate ports the server-side Better Auth `oauth-provider` behavior into
+//! idiomatic Rust. It is intentionally separate from `openauth-oauth`, which
+//! contains OAuth client and social-provider primitives.
+
+mod authorize;
+mod client;
+mod consent;
+mod endpoints;
+mod error;
+mod metadata;
+mod models;
+mod options;
+mod schema;
+mod token;
+mod utils;
+
+pub mod mcp;
+
+pub use authorize::{decide_authorize, AuthorizeDecision};
+pub use client::{
+    check_oauth_client, oauth_to_schema, schema_to_oauth, CreateOAuthClientInput, OAuthClient,
+};
+pub use consent::{
+    delete_consent, find_consent, has_granted_scopes, upsert_consent, ConsentGrantInput,
+};
+pub use error::OAuthProviderError;
+pub use metadata::{auth_server_metadata, oidc_server_metadata};
+pub use models::{OAuthAccessToken, OAuthConsent, OAuthRefreshToken, SchemaClient};
+pub use options::{
+    GrantType, OAuthProviderConfigError, OAuthProviderOptions, OAuthProviderPlugin,
+    ResolvedOAuthProviderOptions, SecretStorage, TokenEndpointAuthMethod,
+};
+pub use schema::{
+    oauth_provider_schema, OAUTH_ACCESS_TOKEN_MODEL, OAUTH_CLIENT_MODEL, OAUTH_CONSENT_MODEL,
+    OAUTH_REFRESH_TOKEN_MODEL,
+};
+pub use token::{
+    create_client_credentials_token, decode_refresh_token, store_client_secret, store_token,
+    verify_client_secret, TokenResponse,
+};
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
-use openauth_core::plugin::AuthPlugin;
-use thiserror::Error;
+use openauth_core::options::RateLimitRule;
+use openauth_core::plugin::{AuthPlugin, PluginRateLimitRule};
 
-/// Supported token endpoint grant types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum GrantType {
-    AuthorizationCode,
-    ClientCredentials,
-    RefreshToken,
-}
-
-/// Storage strategy for OAuth provider secrets and tokens.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SecretStorage {
-    /// Choose the upstream default from the JWT plugin setting.
-    Auto,
-    /// Store only a hash of the value.
-    Hashed,
-    /// Store an encrypted value.
-    Encrypted,
-}
-
-/// User-facing OAuth provider plugin options.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OAuthProviderOptions {
-    pub scopes: Vec<String>,
-    pub client_registration_default_scopes: Vec<String>,
-    pub client_registration_allowed_scopes: Vec<String>,
-    pub grant_types: Vec<GrantType>,
-    pub login_page: String,
-    pub consent_page: String,
-    pub code_expires_in: u64,
-    pub access_token_expires_in: u64,
-    pub m2m_access_token_expires_in: u64,
-    pub id_token_expires_in: u64,
-    pub refresh_token_expires_in: u64,
-    pub allow_unauthenticated_client_registration: bool,
-    pub allow_dynamic_client_registration: bool,
-    pub disable_jwt_plugin: bool,
-    pub store_client_secret: SecretStorage,
-    pub store_tokens: SecretStorage,
-    pub pairwise_secret: Option<String>,
-    pub advertised_scopes_supported: Vec<String>,
-}
-
-impl Default for OAuthProviderOptions {
-    fn default() -> Self {
-        Self {
-            scopes: Vec::new(),
-            client_registration_default_scopes: Vec::new(),
-            client_registration_allowed_scopes: Vec::new(),
-            grant_types: Vec::new(),
-            login_page: String::new(),
-            consent_page: String::new(),
-            code_expires_in: 600,
-            access_token_expires_in: 3600,
-            m2m_access_token_expires_in: 3600,
-            id_token_expires_in: 36000,
-            refresh_token_expires_in: 2_592_000,
-            allow_unauthenticated_client_registration: false,
-            allow_dynamic_client_registration: false,
-            disable_jwt_plugin: false,
-            store_client_secret: SecretStorage::Auto,
-            store_tokens: SecretStorage::Hashed,
-            pairwise_secret: None,
-            advertised_scopes_supported: Vec::new(),
-        }
-    }
-}
-
-/// Fully resolved OAuth provider options after upstream-compatible defaults.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedOAuthProviderOptions {
-    pub scopes: Vec<String>,
-    pub claims: Vec<String>,
-    pub client_registration_allowed_scopes: Vec<String>,
-    pub grant_types: Vec<GrantType>,
-    pub login_page: String,
-    pub consent_page: String,
-    pub code_expires_in: u64,
-    pub access_token_expires_in: u64,
-    pub m2m_access_token_expires_in: u64,
-    pub id_token_expires_in: u64,
-    pub refresh_token_expires_in: u64,
-    pub allow_unauthenticated_client_registration: bool,
-    pub allow_dynamic_client_registration: bool,
-    pub disable_jwt_plugin: bool,
-    pub store_client_secret: SecretStorage,
-    pub store_tokens: SecretStorage,
-    pub pairwise_secret: Option<String>,
-    pub advertised_scopes_supported: Vec<String>,
-}
-
-/// OAuth provider extension returned by [`oauth_provider`].
-#[derive(Debug, Clone)]
-pub struct OAuthProviderPlugin {
-    pub id: String,
-    pub version: String,
-    pub options: ResolvedOAuthProviderOptions,
-    auth_plugin: AuthPlugin,
-}
-
-impl OAuthProviderPlugin {
-    /// Convert this typed extension into the generic OpenAuth plugin contract.
-    pub fn into_auth_plugin(self) -> AuthPlugin {
-        self.auth_plugin
-    }
-
-    /// Borrow the generic OpenAuth plugin contract.
-    pub fn as_auth_plugin(&self) -> &AuthPlugin {
-        &self.auth_plugin
-    }
-}
-
-/// OAuth provider configuration errors.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum OAuthProviderConfigError {
-    #[error("login_page is required")]
-    MissingLoginPage,
-    #[error("consent_page is required")]
-    MissingConsentPage,
-    #[error("clientRegistrationAllowedScope {0} not found in scopes")]
-    UnknownClientRegistrationScope(String),
-    #[error("advertisedMetadata.scopes_supported {0} not found in scopes")]
-    UnknownAdvertisedScope(String),
-    #[error(
-        "pairwiseSecret must be at least 32 characters long for adequate HMAC-SHA256 security"
-    )]
-    PairwiseSecretTooShort,
-    #[error("refresh_token grant requires authorization_code grant")]
-    RefreshTokenRequiresAuthorizationCode,
-    #[error("unable to store hashed secrets because id tokens will be signed with secret")]
-    HashedClientSecretsRequireJwtPlugin,
-    #[error("encryption method not recommended, please use 'hashed' or the 'hash' function")]
-    EncryptedClientSecretsWithJwtPlugin,
-}
+/// Current crate version.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build the OAuth provider extension.
 pub fn oauth_provider(
     options: OAuthProviderOptions,
 ) -> Result<OAuthProviderPlugin, OAuthProviderConfigError> {
+    let resolved = resolve_options(options)?;
+    let shared = Arc::new(resolved.clone());
+    let mut auth_plugin = AuthPlugin::new("oauth-provider").with_version(VERSION);
+
+    if !resolved.disable_jwt_plugin {
+        let jwt_plugin = openauth_plugins::jwt::jwt()
+            .map_err(|error| OAuthProviderConfigError::JwtPlugin(error.to_string()))?;
+        auth_plugin.schema.extend(jwt_plugin.schema);
+        auth_plugin.endpoints.extend(jwt_plugin.endpoints);
+        auth_plugin.migrations.extend(jwt_plugin.migrations);
+        auth_plugin.database_hooks.extend(jwt_plugin.database_hooks);
+    }
+
+    for contribution in oauth_provider_schema() {
+        auth_plugin = auth_plugin.with_schema(contribution);
+    }
+    for endpoint in endpoints::oauth_provider_endpoints(Arc::clone(&shared)) {
+        auth_plugin = auth_plugin.with_endpoint(endpoint);
+    }
+    for rule in rate_limit_rules() {
+        auth_plugin = auth_plugin.with_rate_limit(rule);
+    }
+
+    Ok(OAuthProviderPlugin {
+        id: "oauth-provider".to_owned(),
+        version: VERSION.to_owned(),
+        options: resolved,
+        auth_plugin,
+    })
+}
+
+fn resolve_options(
+    options: OAuthProviderOptions,
+) -> Result<ResolvedOAuthProviderOptions, OAuthProviderConfigError> {
     if options.login_page.is_empty() {
         return Err(OAuthProviderConfigError::MissingLoginPage);
     }
@@ -203,7 +144,7 @@ pub fn oauth_provider(
 
     let store_client_secret =
         resolve_client_secret_storage(options.store_client_secret, options.disable_jwt_plugin)?;
-    let resolved = ResolvedOAuthProviderOptions {
+    Ok(ResolvedOAuthProviderOptions {
         claims: claims_for_scopes(&scope_set),
         scopes,
         client_registration_allowed_scopes,
@@ -223,13 +164,7 @@ pub fn oauth_provider(
         store_tokens: options.store_tokens,
         pairwise_secret: options.pairwise_secret,
         advertised_scopes_supported: options.advertised_scopes_supported,
-    };
-
-    Ok(OAuthProviderPlugin {
-        id: "oauth-provider".to_owned(),
-        version: env!("CARGO_PKG_VERSION").to_owned(),
-        options: resolved,
-        auth_plugin: AuthPlugin::new("oauth-provider").with_version(env!("CARGO_PKG_VERSION")),
+        valid_audiences: options.valid_audiences,
     })
 }
 
@@ -298,5 +233,16 @@ fn resolve_client_secret_storage(
     }
 }
 
-/// Current crate version.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+fn rate_limit_rules() -> Vec<PluginRateLimitRule> {
+    [
+        ("/oauth2/token", 60, 20),
+        ("/oauth2/authorize", 60, 30),
+        ("/oauth2/introspect", 60, 100),
+        ("/oauth2/revoke", 60, 30),
+        ("/oauth2/register", 60, 5),
+        ("/oauth2/userinfo", 60, 60),
+    ]
+    .into_iter()
+    .map(|(path, window, max)| PluginRateLimitRule::new(path, RateLimitRule { window, max }))
+    .collect()
+}

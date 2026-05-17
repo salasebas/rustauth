@@ -1786,8 +1786,23 @@ dependencies = [
 name = "openauth-oauth-provider"
 version = "0.0.3"
 dependencies = [
+ "base64 0.22.1",
+ "data-encoding",
+ "hmac 0.12.1",
+ "http",
+ "indexmap",
+ "josekit",
  "openauth-core",
+ "openauth-plugins",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "url",
 ]
 
 [[package]]
