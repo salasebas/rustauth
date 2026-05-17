@@ -138,6 +138,8 @@ pub fn create_auth_context_with_environment_and_adapter(
         disabled_paths: options.disabled_paths,
         plugins: options.plugins,
         adapter,
+        secondary_storage: options.secondary_storage.clone(),
+        background_tasks: options.advanced.background_tasks.clone(),
         social_providers,
         db_schema: auth_schema(schema_options),
         plugin_error_codes: BTreeMap::new(),

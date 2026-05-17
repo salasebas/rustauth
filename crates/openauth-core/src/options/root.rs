@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use openauth_oauth::oauth2::SocialOAuthProvider;
 
+use super::storage::SecondaryStorage;
 use crate::crypto::SecretEntry;
 use crate::plugin::AuthPlugin;
 
@@ -75,6 +76,7 @@ pub struct OpenAuthOptions {
     pub account: AccountOptions,
     pub advanced: AdvancedOptions,
     pub rate_limit: RateLimitOptions,
+    pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
     pub plugins: Vec<AuthPlugin>,
     pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
     pub production: bool,
@@ -180,6 +182,12 @@ impl OpenAuthOptions {
     }
 
     #[must_use]
+    pub fn secondary_storage(mut self, storage: Arc<dyn SecondaryStorage>) -> Self {
+        self.secondary_storage = Some(storage);
+        self
+    }
+
+    #[must_use]
     pub fn plugin(mut self, plugin: AuthPlugin) -> Self {
         self.plugins.push(plugin);
         self
@@ -245,6 +253,13 @@ impl fmt::Debug for OpenAuthOptions {
             .field("account", &self.account)
             .field("advanced", &self.advanced)
             .field("rate_limit", &self.rate_limit)
+            .field(
+                "secondary_storage",
+                &self
+                    .secondary_storage
+                    .as_ref()
+                    .map(|_| "<secondary-storage>"),
+            )
             .field("plugins", &self.plugins)
             .field(
                 "social_providers",

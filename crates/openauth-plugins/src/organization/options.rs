@@ -123,6 +123,7 @@ impl OrganizationOptions {
                 "enabled": self.dynamic_access_control.enabled,
                 "maximumRolesPerOrganization": self.dynamic_access_control.maximum_roles_per_organization,
             },
+            "customRoles": self.custom_roles,
         })
     }
 }

@@ -35,6 +35,10 @@ pub enum OrganizationPermission {
     AcRead,
     AcUpdate,
     AcDelete,
+    ApiKeyCreate,
+    ApiKeyRead,
+    ApiKeyUpdate,
+    ApiKeyDelete,
 }
 
 impl OrganizationPermission {
@@ -54,6 +58,10 @@ impl OrganizationPermission {
             Self::AcRead => ("ac", "read"),
             Self::AcUpdate => ("ac", "update"),
             Self::AcDelete => ("ac", "delete"),
+            Self::ApiKeyCreate => ("apiKey", "create"),
+            Self::ApiKeyRead => ("apiKey", "read"),
+            Self::ApiKeyUpdate => ("apiKey", "update"),
+            Self::ApiKeyDelete => ("apiKey", "delete"),
         }
     }
 }
@@ -101,6 +109,11 @@ pub(crate) fn permission_value_has_permission(
     let (resource, action) = required.resource_action();
     permission
         .get(resource)
+        .or_else(|| {
+            (resource == "apiKey")
+                .then(|| permission.get("api_key"))
+                .flatten()
+        })
         .and_then(serde_json::Value::as_array)
         .map(|actions| actions.iter().any(|value| value.as_str() == Some(action)))
         .unwrap_or(false)

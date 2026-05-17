@@ -1,9 +1,19 @@
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use crate::utils::ip::Ipv6Subnet;
 
 use super::cookies::CookieConfig;
 
 /// Advanced configuration.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub type BackgroundTaskFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+
+pub trait BackgroundTaskRunner: Send + Sync + 'static {
+    fn spawn(&self, task: BackgroundTaskFuture);
+}
+
+#[derive(Clone, Default)]
 pub struct AdvancedOptions {
     pub use_secure_cookies: Option<bool>,
     pub cookie_prefix: Option<String>,
@@ -13,6 +23,7 @@ pub struct AdvancedOptions {
     pub disable_origin_check: bool,
     pub skip_trailing_slashes: bool,
     pub ip_address: IpAddressOptions,
+    pub background_tasks: Option<Arc<dyn BackgroundTaskRunner>>,
 }
 
 impl AdvancedOptions {
@@ -70,6 +81,32 @@ impl AdvancedOptions {
     pub fn ip_address(mut self, ip_address: IpAddressOptions) -> Self {
         self.ip_address = ip_address;
         self
+    }
+
+    #[must_use]
+    pub fn background_tasks(mut self, runner: Arc<dyn BackgroundTaskRunner>) -> Self {
+        self.background_tasks = Some(runner);
+        self
+    }
+}
+
+impl std::fmt::Debug for AdvancedOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AdvancedOptions")
+            .field("use_secure_cookies", &self.use_secure_cookies)
+            .field("cookie_prefix", &self.cookie_prefix)
+            .field("cross_subdomain_cookies", &self.cross_subdomain_cookies)
+            .field("default_cookie_attributes", &self.default_cookie_attributes)
+            .field("disable_csrf_check", &self.disable_csrf_check)
+            .field("disable_origin_check", &self.disable_origin_check)
+            .field("skip_trailing_slashes", &self.skip_trailing_slashes)
+            .field("ip_address", &self.ip_address)
+            .field(
+                "background_tasks",
+                &self.background_tasks.as_ref().map(|_| "<background-tasks>"),
+            )
+            .finish()
     }
 }
 

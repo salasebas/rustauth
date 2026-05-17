@@ -429,7 +429,7 @@ fn valid_permission(permission: &serde_json::Value) -> bool {
     object.iter().all(|(resource, actions)| {
         matches!(
             resource.as_str(),
-            "organization" | "member" | "invitation" | "team" | "ac"
+            "organization" | "member" | "invitation" | "team" | "ac" | "apiKey" | "api_key"
         ) && actions
             .as_array()
             .is_some_and(|actions| actions.iter().all(serde_json::Value::is_string))

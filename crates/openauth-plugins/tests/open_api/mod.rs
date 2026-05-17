@@ -7,6 +7,7 @@ use openauth_core::db::MemoryAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 use openauth_plugins::anonymous::{anonymous, AnonymousOptions};
+use openauth_plugins::api_key::api_key;
 use openauth_plugins::email_otp::{email_otp, EmailOtpOptions};
 use openauth_plugins::generic_oauth::{generic_oauth, GenericOAuthConfig, GenericOAuthOptions};
 use openauth_plugins::jwt::jwt;
@@ -47,6 +48,7 @@ async fn generate_schema_endpoint_returns_core_and_plugin_paths(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let router = router(vec![
         open_api(OpenApiOptions::default()),
+        api_key(),
         anonymous(AnonymousOptions::default()),
     ])?;
 
@@ -68,6 +70,10 @@ async fn generate_schema_endpoint_returns_core_and_plugin_paths(
     assert_eq!(
         body["paths"]["/open-api/generate-schema"]["get"]["operationId"],
         "generateOpenAPISchema"
+    );
+    assert_eq!(
+        body["paths"]["/api-key/create"]["post"]["operationId"],
+        "createApiKey"
     );
     assert!(body["paths"]["/reference"].is_null());
     Ok(())
@@ -102,6 +108,7 @@ async fn generated_schema_audits_all_server_plugin_endpoints(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = router(vec![
         open_api(OpenApiOptions::default()),
+        api_key(),
         anonymous(AnonymousOptions::default()),
         username(),
         multi_session(),

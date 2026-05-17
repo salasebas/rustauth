@@ -237,6 +237,36 @@ async fn create_auth_endpoint_validates_body_schema_before_handler(
 }
 
 #[tokio::test]
+async fn create_auth_endpoint_allows_null_for_optional_body_fields(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let endpoint = create_auth_endpoint(
+        "/sign-up/email",
+        Method::POST,
+        AuthEndpointOptions::new()
+            .allowed_media_types(["application/json"])
+            .body_schema(sign_up_body_schema()),
+        |_context, _request| Box::pin(async move { response(StatusCode::OK, Vec::new()) }),
+    );
+    let router = router(vec![endpoint])?;
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::POST)
+                .uri("http://localhost:3000/api/auth/sign-up/email")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(
+                    br#"{"name":"Ada","email":"ada@example.com","password":"secret123","image":null}"#
+                        .to_vec(),
+                )?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
 async fn create_auth_endpoint_runs_endpoint_middleware_before_handler(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let endpoint = create_auth_endpoint(

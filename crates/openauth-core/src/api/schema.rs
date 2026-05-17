@@ -86,6 +86,9 @@ impl BodySchema {
                 }
                 continue;
             };
+            if !field.required && value.is_null() {
+                continue;
+            }
             if !json_type_matches(value, field.schema_type) {
                 return Err(format!(
                     "field `{}` must be {}",

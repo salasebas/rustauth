@@ -13,8 +13,8 @@ use crate::db::{DbAdapter, DbSchema};
 use crate::env::logger::Logger;
 use crate::error::OpenAuthError;
 use crate::options::{
-    DynamicRateLimitPathRule, HybridRateLimitOptions, OpenAuthOptions, RateLimitPathRule,
-    RateLimitStorageOption, RateLimitStore,
+    BackgroundTaskFuture, BackgroundTaskRunner, DynamicRateLimitPathRule, HybridRateLimitOptions,
+    OpenAuthOptions, RateLimitPathRule, RateLimitStorageOption, RateLimitStore, SecondaryStorage,
 };
 use crate::plugin::{AuthPlugin, PluginErrorCode};
 use crate::rate_limit::GovernorMemoryRateLimitStore;
@@ -49,6 +49,8 @@ pub struct AuthContext {
     pub disabled_paths: Vec<String>,
     pub plugins: Vec<AuthPlugin>,
     pub adapter: Option<Arc<dyn DbAdapter>>,
+    pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
+    pub background_tasks: Option<Arc<dyn BackgroundTaskRunner>>,
     pub social_providers: BTreeMap<String, Arc<dyn SocialOAuthProvider>>,
     pub db_schema: DbSchema,
     pub plugin_error_codes: BTreeMap<String, PluginErrorCode>,
@@ -128,6 +130,18 @@ pub struct RateLimitContext {
 impl AuthContext {
     pub fn adapter(&self) -> Option<Arc<dyn DbAdapter>> {
         self.adapter.clone()
+    }
+
+    pub fn secondary_storage(&self) -> Option<Arc<dyn SecondaryStorage>> {
+        self.secondary_storage.clone()
+    }
+
+    pub fn run_background_task(&self, task: BackgroundTaskFuture) -> bool {
+        let Some(runner) = &self.background_tasks else {
+            return false;
+        };
+        runner.spawn(task);
+        true
     }
 
     pub fn social_provider(&self, id: &str) -> Option<Arc<dyn SocialOAuthProvider>> {

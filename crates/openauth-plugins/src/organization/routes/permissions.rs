@@ -124,6 +124,10 @@ fn resolve_permission(resource: &str, action: &str) -> Option<OrganizationPermis
         ("ac", "read") => Some(OrganizationPermission::AcRead),
         ("ac", "update") => Some(OrganizationPermission::AcUpdate),
         ("ac", "delete") => Some(OrganizationPermission::AcDelete),
+        ("apiKey" | "api_key", "create") => Some(OrganizationPermission::ApiKeyCreate),
+        ("apiKey" | "api_key", "read") => Some(OrganizationPermission::ApiKeyRead),
+        ("apiKey" | "api_key", "update") => Some(OrganizationPermission::ApiKeyUpdate),
+        ("apiKey" | "api_key", "delete") => Some(OrganizationPermission::ApiKeyDelete),
         _ => None,
     }
 }

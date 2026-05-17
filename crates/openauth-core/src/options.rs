@@ -9,10 +9,14 @@ mod password;
 mod rate_limit;
 mod root;
 mod session;
+mod storage;
 mod user;
 
 pub use account::{AccountLinkingOptions, AccountOptions, OAuthStateStoreStrategy};
-pub use advanced::{AdvancedOptions, CookieAttributesOverride, IpAddressOptions};
+pub use advanced::{
+    AdvancedOptions, BackgroundTaskFuture, BackgroundTaskRunner, CookieAttributesOverride,
+    IpAddressOptions,
+};
 pub use cookies::{CookieCacheOptions, CookieCacheStrategy, CookieConfig};
 pub use email_verification::{
     AfterEmailVerification, BeforeEmailVerification, EmailVerificationCallbackPayload,
@@ -27,4 +31,5 @@ pub use rate_limit::{
 };
 pub use root::{ExperimentalOptions, OpenAuthOptions, TelemetryOptions};
 pub use session::{SessionAdditionalField, SessionOptions};
+pub use storage::{SecondaryStorage, SecondaryStorageFuture};
 pub use user::{ChangeEmailOptions, DeleteUserOptions, UserAdditionalField, UserOptions};

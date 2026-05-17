@@ -36,13 +36,14 @@ pub use openauth_core::oauth::oauth2::{
     SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
 };
 pub use openauth_core::options::{
-    AccountLinkingOptions, AccountOptions, AdvancedOptions, ChangeEmailOptions,
-    CookieAttributesOverride, CookieCacheOptions, CookieCacheStrategy, CookieConfig,
-    DeleteUserOptions, DynamicRateLimitPathRule, EmailVerificationOptions, ExperimentalOptions,
-    HybridRateLimitOptions, IpAddressOptions, OAuthStateStoreStrategy, OpenAuthOptions,
-    PasswordOptions, RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitOptions,
-    RateLimitPathRule, RateLimitRecord, RateLimitRule, RateLimitRuleProvider, RateLimitStorage,
-    RateLimitStorageOption, RateLimitStore, SendVerificationEmail, SessionAdditionalField,
+    AccountLinkingOptions, AccountOptions, AdvancedOptions, BackgroundTaskFuture,
+    BackgroundTaskRunner, ChangeEmailOptions, CookieAttributesOverride, CookieCacheOptions,
+    CookieCacheStrategy, CookieConfig, DeleteUserOptions, DynamicRateLimitPathRule,
+    EmailVerificationOptions, ExperimentalOptions, HybridRateLimitOptions, IpAddressOptions,
+    OAuthStateStoreStrategy, OpenAuthOptions, PasswordOptions, RateLimitConsumeInput,
+    RateLimitDecision, RateLimitFuture, RateLimitOptions, RateLimitPathRule, RateLimitRecord,
+    RateLimitRule, RateLimitRuleProvider, RateLimitStorage, RateLimitStorageOption, RateLimitStore,
+    SecondaryStorage, SecondaryStorageFuture, SendVerificationEmail, SessionAdditionalField,
     SessionOptions, TelemetryOptions, TrustedOriginOptions, TrustedOriginsProvider,
     UserAdditionalField, UserOptions, VerificationEmail,
 };

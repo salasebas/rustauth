@@ -13,6 +13,7 @@ pub fn default_statements() -> Statements {
         ("invitation", vec!["create", "cancel"]),
         ("team", vec!["create", "update", "delete"]),
         ("ac", vec!["create", "read", "update", "delete"]),
+        ("apiKey", vec!["create", "read", "update", "delete"]),
     ])
 }
 
@@ -29,6 +30,7 @@ pub fn admin_role() -> Result<Role, AccessError> {
         ("member", vec!["create", "update", "delete"]),
         ("team", vec!["create", "update", "delete"]),
         ("ac", vec!["create", "read", "update", "delete"]),
+        ("apiKey", vec!["create", "read", "update", "delete"]),
     ]))
 }
 
@@ -40,6 +42,7 @@ pub fn owner_role() -> Result<Role, AccessError> {
         ("invitation", vec!["create", "cancel"]),
         ("team", vec!["create", "update", "delete"]),
         ("ac", vec!["create", "read", "update", "delete"]),
+        ("apiKey", vec!["create", "read", "update", "delete"]),
     ]))
 }
 
@@ -51,6 +54,7 @@ pub fn member_role() -> Result<Role, AccessError> {
         ("invitation", Vec::<&str>::new()),
         ("team", Vec::<&str>::new()),
         ("ac", vec!["read"]),
+        ("apiKey", Vec::<&str>::new()),
     ]))
 }
 

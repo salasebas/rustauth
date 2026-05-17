@@ -7,6 +7,7 @@ pub mod access;
 pub mod additional_fields;
 pub mod admin;
 pub mod anonymous;
+pub mod api_key;
 pub mod bearer;
 pub mod captcha;
 pub mod custom_session;
@@ -34,6 +35,7 @@ pub const PLUGIN_IDS: &[&str] = &[
     additional_fields::UPSTREAM_PLUGIN_ID,
     admin::UPSTREAM_PLUGIN_ID,
     anonymous::UPSTREAM_PLUGIN_ID,
+    api_key::UPSTREAM_PLUGIN_ID,
     bearer::UPSTREAM_PLUGIN_ID,
     captcha::UPSTREAM_PLUGIN_ID,
     custom_session::UPSTREAM_PLUGIN_ID,

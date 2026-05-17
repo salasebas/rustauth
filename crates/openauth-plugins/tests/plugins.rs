@@ -6,6 +6,8 @@ mod additional_fields;
 mod admin;
 #[path = "anonymous/mod.rs"]
 mod anonymous;
+#[path = "api_key/mod.rs"]
+mod api_key;
 #[path = "bearer/mod.rs"]
 mod bearer;
 #[path = "captcha/mod.rs"]
@@ -58,6 +60,7 @@ fn plugin_ids_expose_supported_server_plugins() {
             "additional-fields",
             "admin",
             "anonymous",
+            "api-key",
             "bearer",
             "captcha",
             "custom-session",
