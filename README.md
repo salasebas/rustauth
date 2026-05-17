@@ -24,7 +24,10 @@ let auth = OpenAuth::builder()
 
 For multi-instance deployments, use a distributed `RateLimitStore` instead of
 local memory. `openauth-sqlx` provides SQLx-backed stores when the application
-already depends on a SQL database, and `openauth-redis` provides a Redis/Valkey
+already depends on a SQL database. For Postgres without SQLx,
+`openauth-deadpool-postgres` is the recommended pooled production adapter, while
+`openauth-tokio-postgres` is the minimal no-pool adapter for applications that
+already own a `tokio_postgres::Client`. `openauth-redis` provides a Redis/Valkey
 store for higher-throughput shared enforcement. `openauth-fred` provides the
 same rate-limit storage contract for projects that prefer the `fred` client.
 Both Redis crates use RESP-compatible servers, Lua scripting for the atomic

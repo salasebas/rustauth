@@ -8,8 +8,8 @@ use openauth_core::context::create_auth_context;
 use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
     auth_schema, AuthSchemaOptions, Count, Create, DbAdapter, DbField, DbFieldType, DbRecord,
-    DbSchema, DbValue, DeleteMany, FindMany, FindOne, JoinOption, RateLimitStorage, Sort,
-    SortDirection, TableOptions, Update, Where, WhereOperator,
+    DbSchema, DbValue, DeleteMany, FindMany, FindOne, JoinAdapter, JoinOption, RateLimitStorage,
+    Sort, SortDirection, TableOptions, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -328,6 +328,94 @@ async fn deadpool_postgres_adapter_rolls_back_failed_transactions() -> Result<()
 }
 
 #[tokio::test]
+async fn deadpool_postgres_adapter_commits_successful_transactions() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    adapter
+        .transaction(Box::new(|tx| {
+            Box::pin(async move {
+                seed_user(
+                    tx.as_ref(),
+                    "user_1",
+                    "ada@example.com",
+                    OffsetDateTime::now_utc(),
+                )
+                .await
+            })
+        }))
+        .await?;
+
+    assert_eq!(adapter.count(Count::new("user")).await?, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_rejects_nested_transactions() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    let result = adapter
+        .transaction(Box::new(|tx| {
+            Box::pin(async move {
+                tx.transaction(Box::new(|_| Box::pin(async { Ok(()) })))
+                    .await
+            })
+        }))
+        .await;
+
+    let Err(error) = result else {
+        return Err(OpenAuthError::Adapter(
+            "nested transaction unexpectedly succeeded".to_owned(),
+        ));
+    };
+    assert!(error.to_string().contains("nested"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_transaction_multi_join_uses_fallback() -> Result<(), OpenAuthError> {
+    let schema = test_schema();
+    let adapter =
+        DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
+    adapter.create_schema(&schema, None).await?;
+
+    adapter
+        .transaction(Box::new(move |tx| {
+            let schema = schema.clone();
+            Box::pin(async move {
+                seed_user(
+                    tx.as_ref(),
+                    "user_1",
+                    "ada@example.com",
+                    OffsetDateTime::now_utc(),
+                )
+                .await?;
+                seed_account(tx.as_ref(), "account_1", "user_1").await?;
+                seed_session(tx.as_ref(), "session_1", "user_1").await?;
+
+                let joined = JoinAdapter::new(schema, tx, true)
+                    .find_many(
+                        FindMany::new("user")
+                            .join("account", JoinOption::enabled())
+                            .join("session", JoinOption::enabled()),
+                    )
+                    .await?;
+                let user = joined
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| OpenAuthError::Adapter("missing joined user".to_owned()))?;
+                assert!(matches!(
+                    user.get("account"),
+                    Some(DbValue::RecordArray(accounts)) if accounts.len() == 1
+                ));
+                assert!(matches!(
+                    user.get("session"),
+                    Some(DbValue::RecordArray(sessions)) if sessions.len() == 1
+                ));
+                Ok(())
+            })
+        }))
+        .await
+}
+
+#[tokio::test]
 async fn deadpool_postgres_rate_limit_store_is_atomic_and_uses_physical_names(
 ) -> Result<(), OpenAuthError> {
     let schema = test_schema();
@@ -582,11 +670,10 @@ where
     Ok(())
 }
 
-async fn seed_account(
-    adapter: &DeadpoolPostgresAdapter,
-    id: &str,
-    user_id: &str,
-) -> Result<(), OpenAuthError> {
+async fn seed_account<A>(adapter: &A, id: &str, user_id: &str) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter + ?Sized,
+{
     let now = OffsetDateTime::now_utc();
     adapter
         .create(
@@ -609,11 +696,10 @@ async fn seed_account(
     Ok(())
 }
 
-async fn seed_session(
-    adapter: &DeadpoolPostgresAdapter,
-    id: &str,
-    user_id: &str,
-) -> Result<(), OpenAuthError> {
+async fn seed_session<A>(adapter: &A, id: &str, user_id: &str) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter + ?Sized,
+{
     let now = OffsetDateTime::now_utc();
     adapter
         .create(

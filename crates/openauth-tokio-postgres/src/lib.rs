@@ -11,7 +11,6 @@ pub mod migration;
 mod query;
 mod row;
 mod schema;
-mod state;
 
 use std::fmt;
 use std::sync::Arc;
@@ -28,12 +27,11 @@ use openauth_core::options::{
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 
-use self::driver::{consume_postgres_rate_limit_in_tx, postgres_rate_limit_plan};
+use self::driver::{consume_postgres_rate_limit_in_tx, postgres_rate_limit_plan, PostgresSqlState};
 use self::errors::postgres_error;
 use self::schema::{
     create_schema, execute_migration_plan, plan_migrations as plan_schema_migrations,
 };
-use self::state::TokioPostgresState;
 
 #[derive(Clone)]
 pub struct TokioPostgresAdapter {
@@ -112,18 +110,14 @@ impl TokioPostgresAdapter {
 
     async fn run_with_state<T>(
         &self,
-        f: impl for<'a> FnOnce(TokioPostgresState<'a>) -> AdapterFuture<'a, T> + Send,
+        f: impl for<'a> FnOnce(PostgresSqlState<'a>) -> AdapterFuture<'a, T> + Send,
     ) -> Result<T, OpenAuthError>
     where
         T: Send + 'static,
     {
         let _gate = self.tx_gate.lock().await;
         let client = self.client.lock().await;
-        f(TokioPostgresState {
-            schema: &self.schema,
-            client,
-        })
-        .await
+        f(PostgresSqlState::new(self.schema.as_ref(), &client)).await
     }
 }
 
@@ -290,17 +284,13 @@ struct TokioPostgresTxAdapter {
 impl TokioPostgresTxAdapter {
     async fn run_with_state<T>(
         &self,
-        f: impl for<'a> FnOnce(TokioPostgresState<'a>) -> AdapterFuture<'a, T> + Send,
+        f: impl for<'a> FnOnce(PostgresSqlState<'a>) -> AdapterFuture<'a, T> + Send,
     ) -> Result<T, OpenAuthError>
     where
         T: Send + 'static,
     {
         let client = self.client.lock().await;
-        f(TokioPostgresState {
-            schema: &self.schema,
-            client,
-        })
-        .await
+        f(PostgresSqlState::new(self.schema.as_ref(), &client)).await
     }
 }
 
@@ -314,7 +304,6 @@ impl DbAdapter for TokioPostgresTxAdapter {
             .named("tokio-postgres transaction")
             .with_json()
             .with_arrays()
-            .with_joins()
             .with_transactions()
     }
 

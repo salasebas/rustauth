@@ -12,20 +12,18 @@ use std::sync::Arc;
 use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use openauth_core::db::{
     auth_schema, AdapterCapabilities, AdapterFuture, AuthSchemaOptions, Count, Create, DbAdapter,
-    DbField, DbRecord, DbSchema, DbValue, Delete, DeleteMany, FindMany, FindOne, JoinAdapter,
-    SchemaCreation, SqlAdapterRunner, SqlDialect, SqlExecutor, SqlRateLimitNames, SqlRowReader,
-    SqlStatement, TransactionCallback, Update, UpdateMany,
+    DbRecord, DbSchema, Delete, DeleteMany, FindMany, FindOne, JoinAdapter, SchemaCreation,
+    SqlRateLimitNames, TransactionCallback, Update, UpdateMany,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitStore,
 };
 use openauth_tokio_postgres::driver::{
-    consume_postgres_rate_limit_in_tx, param_refs, postgres_error, postgres_params,
-    postgres_rate_limit_plan, row_value_at,
+    consume_postgres_rate_limit_in_tx, postgres_error, postgres_rate_limit_plan, PostgresSqlState,
 };
 use tokio::sync::Mutex;
-use tokio_postgres::{Client, NoTls, Row};
+use tokio_postgres::{Client, NoTls};
 
 const DEFAULT_POOL_MAX_SIZE: usize = 16;
 
@@ -116,16 +114,16 @@ impl DeadpoolPostgresAdapter {
 
     async fn run_with_state<T>(
         &self,
-        f: impl for<'a> FnOnce(DeadpoolPostgresState<'a>) -> AdapterFuture<'a, T> + Send,
+        f: impl for<'a> FnOnce(PostgresSqlState<'a>) -> AdapterFuture<'a, T> + Send,
     ) -> Result<T, OpenAuthError>
     where
         T: Send + 'static,
     {
         let client = self.pool.get().await.map_err(deadpool_error)?;
-        f(DeadpoolPostgresState {
-            schema: &self.schema,
-            client: pg_client(&client),
-        })
+        f(PostgresSqlState::new(
+            self.schema.as_ref(),
+            pg_client(&client),
+        ))
         .await
     }
 }
@@ -288,16 +286,16 @@ struct DeadpoolPostgresTxAdapter {
 impl DeadpoolPostgresTxAdapter {
     async fn run_with_state<T>(
         &self,
-        f: impl for<'a> FnOnce(DeadpoolPostgresState<'a>) -> AdapterFuture<'a, T> + Send,
+        f: impl for<'a> FnOnce(PostgresSqlState<'a>) -> AdapterFuture<'a, T> + Send,
     ) -> Result<T, OpenAuthError>
     where
         T: Send + 'static,
     {
         let client = self.client.lock().await;
-        f(DeadpoolPostgresState {
-            schema: &self.schema,
-            client: pg_client(&client),
-        })
+        f(PostgresSqlState::new(
+            self.schema.as_ref(),
+            pg_client(&client),
+        ))
         .await
     }
 }
@@ -312,7 +310,6 @@ impl DbAdapter for DeadpoolPostgresTxAdapter {
             .named("deadpool-postgres transaction")
             .with_json()
             .with_arrays()
-            .with_joins()
             .with_transactions()
     }
 
@@ -379,117 +376,6 @@ impl DbAdapter for DeadpoolPostgresTxAdapter {
             ))
         })
     }
-}
-
-struct DeadpoolPostgresState<'a> {
-    schema: &'a DbSchema,
-    client: &'a Client,
-}
-
-impl DeadpoolPostgresState<'_> {
-    async fn create(self, query: Create) -> Result<DbRecord, OpenAuthError> {
-        runner(self).create(query).await
-    }
-
-    async fn find_one(self, query: FindOne) -> Result<Option<DbRecord>, OpenAuthError> {
-        runner(self).find_one(query).await
-    }
-
-    async fn find_many(self, query: FindMany) -> Result<Vec<DbRecord>, OpenAuthError> {
-        runner(self).find_many(query).await
-    }
-
-    async fn count(self, query: Count) -> Result<u64, OpenAuthError> {
-        runner(self).count(query).await
-    }
-
-    async fn update(self, query: Update) -> Result<Option<DbRecord>, OpenAuthError> {
-        runner(self).update(query).await
-    }
-
-    async fn update_many(self, query: UpdateMany) -> Result<u64, OpenAuthError> {
-        runner(self).update_many(query).await
-    }
-
-    async fn delete(self, query: Delete) -> Result<(), OpenAuthError> {
-        runner(self).delete(query).await
-    }
-
-    async fn delete_many(self, query: DeleteMany) -> Result<u64, OpenAuthError> {
-        runner(self).delete_many(query).await
-    }
-}
-
-impl SqlExecutor for DeadpoolPostgresState<'_> {
-    type Row = Row;
-
-    fn execute<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, u64> {
-        Box::pin(async move {
-            let values = postgres_params(&statement.params)?;
-            let params = param_refs(&values);
-            self.client
-                .execute(&statement.sql, &params)
-                .await
-                .map_err(postgres_error)
-        })
-    }
-
-    fn fetch_all<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, Vec<Self::Row>> {
-        Box::pin(async move {
-            let values = postgres_params(&statement.params)?;
-            let params = param_refs(&values);
-            self.client
-                .query(&statement.sql, &params)
-                .await
-                .map_err(postgres_error)
-        })
-    }
-
-    fn fetch_optional<'a>(
-        &'a mut self,
-        statement: SqlStatement,
-    ) -> AdapterFuture<'a, Option<Self::Row>> {
-        Box::pin(async move {
-            let values = postgres_params(&statement.params)?;
-            let params = param_refs(&values);
-            self.client
-                .query_opt(&statement.sql, &params)
-                .await
-                .map_err(postgres_error)
-        })
-    }
-
-    fn fetch_scalar_i64<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, i64> {
-        Box::pin(async move {
-            let values = postgres_params(&statement.params)?;
-            let params = param_refs(&values);
-            let row = self
-                .client
-                .query_one(&statement.sql, &params)
-                .await
-                .map_err(postgres_error)?;
-            Ok(row.get::<_, i64>(0))
-        })
-    }
-}
-
-struct DeadpoolPostgresRowReader;
-
-impl SqlRowReader<Row> for DeadpoolPostgresRowReader {
-    fn value_at(&self, row: &Row, field: &DbField, alias: &str) -> Result<DbValue, OpenAuthError> {
-        row_value_at(row, field, alias)
-    }
-}
-
-fn runner<'a>(
-    state: DeadpoolPostgresState<'a>,
-) -> SqlAdapterRunner<'a, DeadpoolPostgresState<'a>, DeadpoolPostgresRowReader> {
-    SqlAdapterRunner::new(
-        SqlDialect::Postgres,
-        state.schema,
-        state,
-        DeadpoolPostgresRowReader,
-    )
 }
 
 async fn consume_deadpool_rate_limit(

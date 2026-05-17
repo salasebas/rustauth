@@ -50,7 +50,7 @@ axum = "0.8"
 openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.3" }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.3" }
 openauth-social-providers = { path = "crates/openauth-social-providers", version = "0.0.3" }
-openauth-sqlx = { path = "crates/openauth-sqlx", version = "0.0.3" }
+openauth-sqlx = { path = "crates/openauth-sqlx", version = "0.0.3", default-features = false }
 openauth-telemetry = { path = "crates/openauth-telemetry", version = "0.0.3" }
 openauth-deadpool-postgres = { path = "crates/openauth-deadpool-postgres", version = "0.0.3" }
 openauth-tokio-postgres = { path = "crates/openauth-tokio-postgres", version = "0.0.3" }

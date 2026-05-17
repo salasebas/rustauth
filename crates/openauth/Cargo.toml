@@ -19,7 +19,7 @@ http.workspace = true
 openauth-core.workspace = true
 openauth-deadpool-postgres = { workspace = true, optional = true }
 openauth-plugins = { workspace = true, optional = true }
-openauth-sqlx = { workspace = true, optional = true }
+openauth-sqlx = { workspace = true, default-features = false, optional = true }
 openauth-telemetry.workspace = true
 openauth-tokio-postgres = { workspace = true, optional = true }
 serde_json.workspace = true
