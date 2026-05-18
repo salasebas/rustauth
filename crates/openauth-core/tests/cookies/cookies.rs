@@ -8,7 +8,7 @@ use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 fn get_cookies_uses_default_names_and_attributes() -> Result<(), Box<dyn std::error::Error>> {
     let cookies = get_cookies(&OpenAuthOptions::default())?;
 
-    assert_eq!(cookies.session_token.name, "better-auth.session_token");
+    assert_eq!(cookies.session_token.name, "open-auth.session_token");
     assert_eq!(cookies.session_token.attributes.path.as_deref(), Some("/"));
     assert_eq!(cookies.session_token.attributes.http_only, Some(true));
     assert_eq!(
@@ -118,15 +118,15 @@ fn to_cookie_options_converts_parsed_attributes() -> Result<(), Box<dyn std::err
 #[test]
 fn strip_secure_cookie_prefix_removes_secure_prefix() {
     assert_eq!(
-        strip_secure_cookie_prefix("__Secure-better-auth.session_token"),
-        "better-auth.session_token"
+        strip_secure_cookie_prefix("__Secure-open-auth.session_token"),
+        "open-auth.session_token"
     );
 }
 
 #[test]
 fn get_session_cookie_reads_default_and_secure_cookie_names() {
-    let plain = get_session_cookie("better-auth.session_token=plain", None, None);
-    let secure = get_session_cookie("__Secure-better-auth.session_token=secure", None, None);
+    let plain = get_session_cookie("open-auth.session_token=plain", None, None);
+    let secure = get_session_cookie("__Secure-open-auth.session_token=secure", None, None);
 
     assert_eq!(plain.as_deref(), Some("plain"));
     assert_eq!(secure.as_deref(), Some("secure"));

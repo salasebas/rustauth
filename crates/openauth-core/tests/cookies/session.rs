@@ -22,7 +22,7 @@ fn set_session_cookie_signs_session_token() -> Result<(), Box<dyn std::error::Er
         SessionCookieOptions::default(),
     )?;
 
-    assert_eq!(set[0].name, "better-auth.session_token");
+    assert_eq!(set[0].name, "open-auth.session_token");
     assert_ne!(set[0].value, "session-token");
     assert!(set[0].value.starts_with("session-token."));
     Ok(())
@@ -45,11 +45,11 @@ fn set_session_cookie_omits_max_age_when_dont_remember_is_true(
 
     let session_cookie = set
         .iter()
-        .find(|cookie| cookie.name == "better-auth.session_token")
+        .find(|cookie| cookie.name == "open-auth.session_token")
         .ok_or("session cookie")?;
     let remember_cookie = set
         .iter()
-        .find(|cookie| cookie.name == "better-auth.dont_remember")
+        .find(|cookie| cookie.name == "open-auth.dont_remember")
         .ok_or("remember cookie")?;
 
     assert_eq!(session_cookie.attributes.max_age, None);
@@ -64,28 +64,28 @@ fn delete_session_cookie_expires_session_cookies_and_chunks(
 
     let expired = delete_session_cookie(
         &cookies,
-        "better-auth.session_data.0=abc; better-auth.session_data.1=def; better-auth.account_data.0=ghi; better-auth.account_data.1=jkl",
+        "open-auth.session_data.0=abc; open-auth.session_data.1=def; open-auth.account_data.0=ghi; open-auth.account_data.1=jkl",
         false,
     );
 
     assert!(expired
         .iter()
-        .any(|cookie| cookie.name == "better-auth.session_token"));
+        .any(|cookie| cookie.name == "open-auth.session_token"));
     assert!(expired
         .iter()
-        .any(|cookie| cookie.name == "better-auth.session_data"));
+        .any(|cookie| cookie.name == "open-auth.session_data"));
     assert!(expired
         .iter()
-        .any(|cookie| cookie.name == "better-auth.session_data.0"));
+        .any(|cookie| cookie.name == "open-auth.session_data.0"));
     assert!(expired
         .iter()
-        .any(|cookie| cookie.name == "better-auth.account_data"));
+        .any(|cookie| cookie.name == "open-auth.account_data"));
     assert!(expired
         .iter()
-        .any(|cookie| cookie.name == "better-auth.account_data.0"));
+        .any(|cookie| cookie.name == "open-auth.account_data.0"));
     assert!(expired
         .iter()
-        .any(|cookie| cookie.name == "better-auth.dont_remember"));
+        .any(|cookie| cookie.name == "open-auth.dont_remember"));
     assert!(expired
         .iter()
         .all(|cookie| cookie.attributes.max_age == Some(0)));

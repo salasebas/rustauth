@@ -55,7 +55,7 @@ async fn delete_user_route_deletes_user_accounts_and_sessions_with_password(
     assert!(adapter.is_empty("session").await);
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=;")
+        .any(|cookie| cookie.starts_with("open-auth.session_token=;")
             && cookie.contains("Max-Age=0")));
     Ok(())
 }

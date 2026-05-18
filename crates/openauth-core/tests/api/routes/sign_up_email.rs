@@ -30,7 +30,7 @@ async fn sign_up_email_route_creates_session_and_sets_cookie(
     assert_eq!(adapter.len("session").await, 1);
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
     Ok(())
 }
 

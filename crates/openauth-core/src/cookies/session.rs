@@ -11,7 +11,7 @@ pub fn get_session_cookie(
     cookie_prefix: Option<&str>,
     cookie_name: Option<&str>,
 ) -> Option<String> {
-    let prefix = cookie_prefix.unwrap_or("better-auth");
+    let prefix = cookie_prefix.unwrap_or("open-auth");
     let name = cookie_name.unwrap_or("session_token");
     let full_name = format!("{prefix}.{name}");
     let legacy_name = format!("{prefix}-{name}");

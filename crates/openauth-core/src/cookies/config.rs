@@ -11,7 +11,7 @@ pub fn get_cookies(options: &OpenAuthOptions) -> Result<AuthCookies, OpenAuthErr
         .advanced
         .cookie_prefix
         .as_deref()
-        .unwrap_or("better-auth");
+        .unwrap_or("open-auth");
     let domain = resolve_domain(options)?;
     let session_max_age = options.session.expires_in.unwrap_or(60 * 60 * 24 * 7);
     let cache_max_age = options.session.cookie_cache.max_age.unwrap_or(60 * 5);
