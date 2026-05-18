@@ -3,6 +3,8 @@
 mod input;
 mod record;
 
+use std::sync::{Arc, Mutex};
+
 use time::OffsetDateTime;
 
 use crate::crypto::random::generate_random_string;
@@ -170,10 +172,33 @@ impl<'a> DbUserStore<'a> {
         user: CreateUserInput,
         mut account: CreateOAuthAccountInput,
     ) -> Result<CreateOAuthUserResult, OpenAuthError> {
-        let user = self.create_user(user).await?;
-        account.user_id = user.id.clone();
-        let account = self.link_account(account).await?;
-        Ok(CreateOAuthUserResult { user, account })
+        let result = Arc::new(Mutex::new(None));
+        let result_for_transaction = Arc::clone(&result);
+        let transaction_status = self
+            .adapter
+            .transaction(Box::new(move |transaction| {
+                Box::pin(async move {
+                    let users = DbUserStore::new(transaction.as_ref());
+                    let user = users.create_user(user).await?;
+                    account.user_id = user.id.clone();
+                    let account = users.link_account(account).await?;
+                    store_create_oauth_user_result(
+                        &result_for_transaction,
+                        CreateOAuthUserResult { user, account },
+                    )?;
+                    Ok(())
+                })
+            }))
+            .await;
+
+        match transaction_status {
+            Ok(()) => take_create_oauth_user_result(&result)?.ok_or_else(|| {
+                OpenAuthError::Adapter(
+                    "create OAuth user transaction completed without a result".to_owned(),
+                )
+            }),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn find_user_by_email(&self, email: &str) -> Result<Option<User>, OpenAuthError> {
@@ -515,4 +540,24 @@ fn optional_string(value: Option<String>) -> DbValue {
 
 fn optional_timestamp(value: Option<OffsetDateTime>) -> DbValue {
     value.map(DbValue::Timestamp).unwrap_or(DbValue::Null)
+}
+
+fn store_create_oauth_user_result(
+    result: &Mutex<Option<CreateOAuthUserResult>>,
+    value: CreateOAuthUserResult,
+) -> Result<(), OpenAuthError> {
+    let mut guard = result
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("create OAuth user result lock poisoned".to_owned()))?;
+    *guard = Some(value);
+    Ok(())
+}
+
+fn take_create_oauth_user_result(
+    result: &Mutex<Option<CreateOAuthUserResult>>,
+) -> Result<Option<CreateOAuthUserResult>, OpenAuthError> {
+    result
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("create OAuth user result lock poisoned".to_owned()))
+        .map(|mut guard| guard.take())
 }

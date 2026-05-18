@@ -13,7 +13,9 @@ pub struct User {
     pub username: Option<String>,
     #[serde(default, alias = "displayUsername")]
     pub display_username: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 
@@ -27,11 +29,15 @@ pub struct Account {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
     pub id_token: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub access_token_expires_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub refresh_token_expires_at: Option<OffsetDateTime>,
     pub scope: Option<String>,
     pub password: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 
@@ -40,11 +46,14 @@ pub struct Account {
 pub struct Session {
     pub id: String,
     pub user_id: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
     pub token: String,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 
@@ -54,8 +63,11 @@ pub struct Verification {
     pub id: String,
     pub identifier: String,
     pub value: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 

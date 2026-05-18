@@ -32,6 +32,11 @@ async fn get_session_route_returns_session_from_signed_cookie(
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["session"]["token"], "token_1");
     assert_eq!(body["user"]["id"], "user_1");
+    assert!(body["session"]["created_at"].as_str().is_some());
+    assert!(body["session"]["updated_at"].as_str().is_some());
+    assert!(body["session"]["expires_at"].as_str().is_some());
+    assert!(body["user"]["created_at"].as_str().is_some());
+    assert!(body["user"]["updated_at"].as_str().is_some());
     Ok(())
 }
 
@@ -97,7 +102,7 @@ async fn get_session_route_disable_refresh_skips_refresh_cookie(
     assert_eq!(response.status(), StatusCode::OK);
     assert!(set_cookie_values(&response)
         .iter()
-        .all(|value| !value.starts_with("better-auth.session_token=")));
+        .all(|value| !value.starts_with("open-auth.session_token=")));
     Ok(())
 }
 

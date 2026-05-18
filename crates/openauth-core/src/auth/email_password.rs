@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use time::{Duration, OffsetDateTime};
 
@@ -307,24 +308,52 @@ impl<'a> EmailPasswordAuth<'a> {
         if let Some(display_username) = input.display_username {
             create_user = create_user.display_username(display_username);
         }
-        let user = users.create_user(create_user).await?;
-        users
-            .create_credential_account(CreateCredentialAccountInput::new(
-                user.id.clone(),
-                password_hash,
-            ))
-            .await?;
-        let session = self
-            .create_session(
-                &user.id,
-                input.remember_me,
-                input.ip_address,
-                input.user_agent,
-                input.additional_session_fields,
-            )
-            .await?;
+        let result = Arc::new(Mutex::new(None));
+        let result_for_transaction = Arc::clone(&result);
+        let config = self.config.clone();
+        let transaction_status = self
+            .adapter
+            .transaction(Box::new(move |transaction| {
+                Box::pin(async move {
+                    let outcome = create_sign_up_records(SignUpRecordsInput {
+                        adapter: transaction.as_ref(),
+                        config: &config,
+                        create_user,
+                        password_hash,
+                        remember_me: input.remember_me,
+                        ip_address: input.ip_address,
+                        user_agent: input.user_agent,
+                        additional_session_fields: input.additional_session_fields,
+                    })
+                    .await;
+                    match outcome {
+                        Ok(result) => {
+                            store_sign_up_result(&result_for_transaction, Ok(result))?;
+                            Ok(())
+                        }
+                        Err(error) => {
+                            let transaction_error = OpenAuthError::Adapter(error.to_string());
+                            store_sign_up_result(&result_for_transaction, Err(error))?;
+                            Err(transaction_error)
+                        }
+                    }
+                })
+            }))
+            .await;
 
-        Ok(EmailPasswordAuthResult { user, session })
+        match transaction_status {
+            Ok(()) => match take_sign_up_result(&result)? {
+                Some(Ok(result)) => Ok(result),
+                Some(Err(error)) => Err(error),
+                None => Err(AuthFlowError::storage(OpenAuthError::Adapter(
+                    "sign-up transaction completed without a result".to_owned(),
+                ))),
+            },
+            Err(error) => match take_sign_up_result(&result)? {
+                Some(Err(auth_error)) => Err(auth_error),
+                _ => Err(AuthFlowError::storage(error)),
+            },
+        }
     }
 
     pub async fn sign_in(
@@ -364,15 +393,16 @@ impl<'a> EmailPasswordAuth<'a> {
         if self.config.require_email_verification && !user_with_accounts.user.email_verified {
             return Err(AuthFlowError::new(AuthFlowErrorCode::EmailNotVerified));
         }
-        let session = self
-            .create_session(
-                &user_with_accounts.user.id,
-                input.remember_me,
-                input.ip_address,
-                input.user_agent,
-                input.additional_session_fields,
-            )
-            .await?;
+        let session = create_session_record(
+            self.adapter,
+            &self.config,
+            &user_with_accounts.user.id,
+            input.remember_me,
+            input.ip_address,
+            input.user_agent,
+            input.additional_session_fields,
+        )
+        .await?;
 
         Ok(EmailPasswordAuthResult {
             user: user_with_accounts.user,
@@ -393,37 +423,98 @@ impl<'a> EmailPasswordAuth<'a> {
         }
         Ok(())
     }
+}
 
-    async fn create_session(
-        &self,
-        user_id: &str,
-        remember_me: bool,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-        additional_fields: DbRecord,
-    ) -> Result<Session, AuthFlowError> {
-        let expires_in = if remember_me {
-            self.config.session_expires_in
-        } else {
-            self.config.dont_remember_session_expires_in
-        };
-        let seconds = i64::try_from(expires_in)
-            .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))?;
-        let expires_at = OffsetDateTime::now_utc() + Duration::seconds(seconds);
-        let mut input =
-            CreateSessionInput::new(user_id, expires_at).additional_fields(additional_fields);
-        if let Some(ip_address) = ip_address {
-            input = input.ip_address(ip_address);
-        }
-        if let Some(user_agent) = user_agent {
-            input = input.user_agent(user_agent);
-        }
+struct SignUpRecordsInput<'a> {
+    adapter: &'a dyn DbAdapter,
+    config: &'a EmailPasswordConfig,
+    create_user: CreateUserInput,
+    password_hash: String,
+    remember_me: bool,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+    additional_session_fields: DbRecord,
+}
 
-        DbSessionStore::new(self.adapter)
-            .create_session(input)
-            .await
-            .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))
+async fn create_sign_up_records(
+    input: SignUpRecordsInput<'_>,
+) -> Result<EmailPasswordAuthResult, AuthFlowError> {
+    let users = DbUserStore::new(input.adapter);
+    let user = users.create_user(input.create_user).await?;
+    users
+        .create_credential_account(CreateCredentialAccountInput::new(
+            user.id.clone(),
+            input.password_hash,
+        ))
+        .await?;
+    let session = create_session_record(
+        input.adapter,
+        input.config,
+        &user.id,
+        input.remember_me,
+        input.ip_address,
+        input.user_agent,
+        input.additional_session_fields,
+    )
+    .await?;
+
+    Ok(EmailPasswordAuthResult { user, session })
+}
+
+async fn create_session_record(
+    adapter: &dyn DbAdapter,
+    config: &EmailPasswordConfig,
+    user_id: &str,
+    remember_me: bool,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+    additional_fields: DbRecord,
+) -> Result<Session, AuthFlowError> {
+    let expires_in = if remember_me {
+        config.session_expires_in
+    } else {
+        config.dont_remember_session_expires_in
+    };
+    let seconds = i64::try_from(expires_in)
+        .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))?;
+    let expires_at = OffsetDateTime::now_utc() + Duration::seconds(seconds);
+    let mut input =
+        CreateSessionInput::new(user_id, expires_at).additional_fields(additional_fields);
+    if let Some(ip_address) = ip_address {
+        input = input.ip_address(ip_address);
     }
+    if let Some(user_agent) = user_agent {
+        input = input.user_agent(user_agent);
+    }
+
+    DbSessionStore::new(adapter)
+        .create_session(input)
+        .await
+        .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))
+}
+
+fn store_sign_up_result(
+    result: &Mutex<Option<Result<EmailPasswordAuthResult, AuthFlowError>>>,
+    value: Result<EmailPasswordAuthResult, AuthFlowError>,
+) -> Result<(), OpenAuthError> {
+    let mut guard = result
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("sign-up result lock poisoned".to_owned()))?;
+    *guard = Some(value);
+    Ok(())
+}
+
+fn take_sign_up_result(
+    result: &Mutex<Option<Result<EmailPasswordAuthResult, AuthFlowError>>>,
+) -> Result<Option<Result<EmailPasswordAuthResult, AuthFlowError>>, AuthFlowError> {
+    result
+        .lock()
+        .map_err(|_| {
+            AuthFlowError::storage(OpenAuthError::Adapter(
+                "sign-up result lock poisoned".to_owned(),
+            ))
+        })
+        .map(|mut guard| guard.take())
 }
 
 fn validate_email(email: &str) -> Result<(), AuthFlowError> {

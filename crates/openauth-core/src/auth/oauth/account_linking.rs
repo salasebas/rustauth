@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use time::{Duration, OffsetDateTime};
 
 use crate::context::AuthContext;
@@ -54,6 +55,13 @@ pub struct OAuthSessionUser {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct CreatedOAuthSessionUser {
+    session: Session,
+    user: User,
+    account: Account,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandleOAuthUserInfoResult {
     pub data: Option<OAuthSessionUser>,
     pub error: Option<OAuthUserInfoError>,
@@ -78,6 +86,7 @@ pub async fn handle_oauth_user_info(
     let mut user = db_user.as_ref().map(|lookup| lookup.user.clone());
     let account_cookie;
     let is_register = user.is_none();
+    let mut created_session = None;
 
     if let Some(lookup) = db_user {
         let linked_account = lookup.linked_account.or_else(|| {
@@ -135,24 +144,32 @@ pub async fn handle_oauth_user_info(
         if let Some(image) = input.user_info.image.clone() {
             user_input = user_input.image(image);
         }
-        let created = users
-            .create_oauth_user(user_input, account_input(context, &input.account, "")?)
-            .await
-            .map_err(|_| OpenAuthError::Adapter("unable to create OAuth user".to_owned()))?;
+        let created = create_oauth_session_user(
+            context,
+            adapter,
+            user_input,
+            account_input(context, &input.account, "")?,
+        )
+        .await?;
         account_cookie = Some(created.account);
+        created_session = Some(created.session);
         user = Some(created.user);
     }
 
     let Some(user) = user else {
         return Ok(result_error(OAuthUserInfoError::UnableToCreateUser, false));
     };
-    let session = DbSessionStore::new(adapter)
-        .create_session(CreateSessionInput::new(
-            &user.id,
-            OffsetDateTime::now_utc() + Duration::seconds(context.session_config.expires_in as i64),
-        ))
-        .await
-        .map_err(|_| OpenAuthError::Adapter("unable to create OAuth session".to_owned()))?;
+    let session = match created_session {
+        Some(session) => session,
+        None => DbSessionStore::new(adapter)
+            .create_session(CreateSessionInput::new(
+                &user.id,
+                OffsetDateTime::now_utc()
+                    + Duration::seconds(context.session_config.expires_in as i64),
+            ))
+            .await
+            .map_err(|_| OpenAuthError::Adapter("unable to create OAuth session".to_owned()))?,
+    };
     let cookies = if context.options.account.store_account_cookie {
         account_cookie
             .as_ref()
@@ -168,6 +185,77 @@ pub async fn handle_oauth_user_info(
         is_register,
         cookies,
     })
+}
+
+async fn create_oauth_session_user(
+    context: &AuthContext,
+    adapter: &dyn DbAdapter,
+    user_input: CreateUserInput,
+    account_input: CreateOAuthAccountInput,
+) -> Result<CreatedOAuthSessionUser, OpenAuthError> {
+    let result = Arc::new(Mutex::new(None));
+    let result_for_transaction = Arc::clone(&result);
+    let expires_in = context.session_config.expires_in;
+    let transaction_status = adapter
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                let users = DbUserStore::new(transaction.as_ref());
+                let created = users
+                    .create_oauth_user(user_input, account_input)
+                    .await
+                    .map_err(|_| {
+                        OpenAuthError::Adapter("unable to create OAuth user".to_owned())
+                    })?;
+                let session = DbSessionStore::new(transaction.as_ref())
+                    .create_session(CreateSessionInput::new(
+                        &created.user.id,
+                        OffsetDateTime::now_utc() + Duration::seconds(expires_in as i64),
+                    ))
+                    .await
+                    .map_err(|_| {
+                        OpenAuthError::Adapter("unable to create OAuth session".to_owned())
+                    })?;
+                store_created_oauth_session_user(
+                    &result_for_transaction,
+                    CreatedOAuthSessionUser {
+                        session,
+                        user: created.user,
+                        account: created.account,
+                    },
+                )?;
+                Ok(())
+            })
+        }))
+        .await;
+
+    match transaction_status {
+        Ok(()) => take_created_oauth_session_user(&result)?.ok_or_else(|| {
+            OpenAuthError::Adapter(
+                "create OAuth session transaction completed without a result".to_owned(),
+            )
+        }),
+        Err(error) => Err(error),
+    }
+}
+
+fn store_created_oauth_session_user(
+    result: &Mutex<Option<CreatedOAuthSessionUser>>,
+    value: CreatedOAuthSessionUser,
+) -> Result<(), OpenAuthError> {
+    let mut guard = result.lock().map_err(|_| {
+        OpenAuthError::Adapter("create OAuth session result lock poisoned".to_owned())
+    })?;
+    *guard = Some(value);
+    Ok(())
+}
+
+fn take_created_oauth_session_user(
+    result: &Mutex<Option<CreatedOAuthSessionUser>>,
+) -> Result<Option<CreatedOAuthSessionUser>, OpenAuthError> {
+    result
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("create OAuth session result lock poisoned".to_owned()))
+        .map(|mut guard| guard.take())
 }
 
 fn can_implicitly_link(context: &AuthContext, input: &HandleOAuthUserInfoInput) -> bool {

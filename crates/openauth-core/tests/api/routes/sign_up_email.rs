@@ -31,6 +31,8 @@ async fn sign_up_email_route_creates_session_and_sets_cookie(
     assert!(set_cookie_values(&response)
         .iter()
         .any(|cookie| cookie.starts_with("open-auth.session_token=")));
+    assert!(body["user"]["created_at"].as_str().is_some());
+    assert!(body["user"]["updated_at"].as_str().is_some());
     Ok(())
 }
 

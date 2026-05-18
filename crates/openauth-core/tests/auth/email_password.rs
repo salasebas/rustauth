@@ -17,9 +17,30 @@ struct AuthAdapter {
     users: Mutex<HashMap<String, DbRecord>>,
     accounts: Mutex<HashMap<String, DbRecord>>,
     sessions: Mutex<HashMap<String, DbRecord>>,
+    transaction_calls: Mutex<usize>,
+    fail_account_create: bool,
+}
+
+#[derive(Default)]
+struct AuthTransactionState {
+    users: Mutex<HashMap<String, DbRecord>>,
+    accounts: Mutex<HashMap<String, DbRecord>>,
+    sessions: Mutex<HashMap<String, DbRecord>>,
+}
+
+struct AuthTransactionAdapter<'a> {
+    parent: &'a AuthAdapter,
+    state: std::sync::Arc<AuthTransactionState>,
 }
 
 impl AuthAdapter {
+    fn failing_account_creates() -> Self {
+        Self {
+            fail_account_create: true,
+            ..Self::default()
+        }
+    }
+
     async fn insert_user(&self, user: User) {
         self.users
             .lock()
@@ -49,6 +70,9 @@ impl DbAdapter for AuthAdapter {
                     Ok(query.data)
                 }
                 "account" => {
+                    if self.fail_account_create {
+                        return Err(OpenAuthError::Adapter("account create failed".to_owned()));
+                    }
                     let id = string_field(&query.data, "id")?.to_owned();
                     self.accounts.lock().await.insert(id, query.data.clone());
                     Ok(query.data)
@@ -133,6 +157,104 @@ impl DbAdapter for AuthAdapter {
     }
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        Box::pin(async move {
+            *self.transaction_calls.lock().await += 1;
+            let state = std::sync::Arc::new(AuthTransactionState::default());
+            let transaction = AuthTransactionAdapter {
+                parent: self,
+                state: std::sync::Arc::clone(&state),
+            };
+            callback(Box::new(transaction)).await?;
+
+            let mut users = self.users.lock().await;
+            users.extend(state.users.lock().await.clone());
+            drop(users);
+
+            let mut accounts = self.accounts.lock().await;
+            accounts.extend(state.accounts.lock().await.clone());
+            drop(accounts);
+
+            let mut sessions = self.sessions.lock().await;
+            sessions.extend(state.sessions.lock().await.clone());
+            Ok(())
+        })
+    }
+}
+
+impl DbAdapter for AuthTransactionAdapter<'_> {
+    fn id(&self) -> &str {
+        "auth-memory-transaction"
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        Box::pin(async move {
+            match query.model.as_str() {
+                "user" => {
+                    let email = string_field(&query.data, "email")?.to_owned();
+                    self.state
+                        .users
+                        .lock()
+                        .await
+                        .insert(email, query.data.clone());
+                    Ok(query.data)
+                }
+                "account" => {
+                    if self.parent.fail_account_create {
+                        return Err(OpenAuthError::Adapter("account create failed".to_owned()));
+                    }
+                    let id = string_field(&query.data, "id")?.to_owned();
+                    self.state
+                        .accounts
+                        .lock()
+                        .await
+                        .insert(id, query.data.clone());
+                    Ok(query.data)
+                }
+                "session" => {
+                    let token = string_field(&query.data, "token")?.to_owned();
+                    self.state
+                        .sessions
+                        .lock()
+                        .await
+                        .insert(token, query.data.clone());
+                    Ok(query.data)
+                }
+                model => Err(OpenAuthError::Adapter(format!(
+                    "unexpected create model `{model}`"
+                ))),
+            }
+        })
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        self.parent.find_one(query)
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        self.parent.find_many(query)
+    }
+
+    fn count<'a>(&'a self, _query: Count) -> AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn update<'a>(&'a self, _query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn update_many<'a>(&'a self, _query: UpdateMany) -> AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn delete<'a>(&'a self, _query: Delete) -> AdapterFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn delete_many<'a>(&'a self, _query: DeleteMany) -> AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
         run_transaction_without_native_support(self, callback)
     }
 }
@@ -180,6 +302,27 @@ async fn sign_up_rejects_duplicate_email() -> Result<(), Box<dyn std::error::Err
         error.as_ref().map(|error| error.code()),
         Some(AuthFlowErrorCode::UserAlreadyExists)
     );
+    assert!(adapter.sessions.lock().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_up_rolls_back_user_when_account_create_fails(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = AuthAdapter::failing_account_creates();
+    let error =
+        EmailPasswordAuth::new(&adapter, config(), fake_hash_password, fake_verify_password)
+            .sign_up(SignUpInput::new("Ada", "ada@example.com", "secret123"))
+            .await
+            .err();
+
+    assert_eq!(
+        error.as_ref().map(|error| error.code()),
+        Some(AuthFlowErrorCode::StorageError)
+    );
+    assert_eq!(*adapter.transaction_calls.lock().await, 1);
+    assert!(adapter.users.lock().await.is_empty());
+    assert!(adapter.accounts.lock().await.is_empty());
     assert!(adapter.sessions.lock().await.is_empty());
     Ok(())
 }

@@ -6,7 +6,9 @@ use openauth_core::db::{
     UpdateMany, User, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
-use openauth_core::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
+use openauth_core::user::{
+    CreateCredentialAccountInput, CreateOAuthAccountInput, CreateUserInput, DbUserStore,
+};
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
 
@@ -16,9 +18,29 @@ struct InMemoryUserAdapter {
     accounts: Mutex<HashMap<String, DbRecord>>,
     creates: Mutex<Vec<Create>>,
     find_many: Mutex<Vec<FindMany>>,
+    transaction_calls: Mutex<usize>,
+    fail_account_create: bool,
+}
+
+#[derive(Default)]
+struct InMemoryTransactionState {
+    users: Mutex<HashMap<String, DbRecord>>,
+    accounts: Mutex<HashMap<String, DbRecord>>,
+}
+
+struct InMemoryTransactionAdapter<'a> {
+    parent: &'a InMemoryUserAdapter,
+    state: std::sync::Arc<InMemoryTransactionState>,
 }
 
 impl InMemoryUserAdapter {
+    fn failing_account_creates() -> Self {
+        Self {
+            fail_account_create: true,
+            ..Self::default()
+        }
+    }
+
     async fn insert_user(&self, user: User) {
         self.users
             .lock()
@@ -49,6 +71,9 @@ impl DbAdapter for InMemoryUserAdapter {
                     Ok(query.data)
                 }
                 "account" => {
+                    if self.fail_account_create {
+                        return Err(OpenAuthError::Adapter("account create failed".to_owned()));
+                    }
                     let id = string_field(&query.data, "id")?.to_owned();
                     self.accounts.lock().await.insert(id, query.data.clone());
                     Ok(query.data)
@@ -110,6 +135,92 @@ impl DbAdapter for InMemoryUserAdapter {
                 ))),
             }
         })
+    }
+
+    fn count<'a>(&'a self, _query: Count) -> AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn update<'a>(&'a self, _query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn update_many<'a>(&'a self, _query: UpdateMany) -> AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn delete<'a>(&'a self, _query: Delete) -> AdapterFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn delete_many<'a>(&'a self, _query: DeleteMany) -> AdapterFuture<'a, u64> {
+        Box::pin(async { Ok(0) })
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        Box::pin(async move {
+            *self.transaction_calls.lock().await += 1;
+            let state = std::sync::Arc::new(InMemoryTransactionState::default());
+            let transaction = InMemoryTransactionAdapter {
+                parent: self,
+                state: std::sync::Arc::clone(&state),
+            };
+            callback(Box::new(transaction)).await?;
+
+            let mut users = self.users.lock().await;
+            users.extend(state.users.lock().await.clone());
+            drop(users);
+
+            let mut accounts = self.accounts.lock().await;
+            accounts.extend(state.accounts.lock().await.clone());
+            Ok(())
+        })
+    }
+}
+
+impl DbAdapter for InMemoryTransactionAdapter<'_> {
+    fn id(&self) -> &str {
+        "memory-user-transaction"
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        Box::pin(async move {
+            self.parent.creates.lock().await.push(query.clone());
+            match query.model.as_str() {
+                "user" => {
+                    let email = string_field(&query.data, "email")?.to_owned();
+                    self.state
+                        .users
+                        .lock()
+                        .await
+                        .insert(email, query.data.clone());
+                    Ok(query.data)
+                }
+                "account" => {
+                    if self.parent.fail_account_create {
+                        return Err(OpenAuthError::Adapter("account create failed".to_owned()));
+                    }
+                    let id = string_field(&query.data, "id")?.to_owned();
+                    self.state
+                        .accounts
+                        .lock()
+                        .await
+                        .insert(id, query.data.clone());
+                    Ok(query.data)
+                }
+                model => Err(OpenAuthError::Adapter(format!(
+                    "unexpected create model `{model}`"
+                ))),
+            }
+        })
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        self.parent.find_one(query)
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        self.parent.find_many(query)
     }
 
     fn count<'a>(&'a self, _query: Count) -> AdapterFuture<'a, u64> {
@@ -215,6 +326,38 @@ async fn db_user_store_creates_credential_account() -> Result<(), OpenAuthError>
     assert_eq!(account.account_id, "user_1");
     assert_eq!(account.provider_id, "credential");
     assert_eq!(account.password.as_deref(), Some("salt:hash"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn db_user_store_rolls_back_oauth_user_when_account_create_fails() -> Result<(), OpenAuthError>
+{
+    let adapter = InMemoryUserAdapter::failing_account_creates();
+    let store = DbUserStore::new(&adapter);
+
+    let error = store
+        .create_oauth_user(
+            CreateUserInput::new("Ada Lovelace", "ada@example.com").id("user_1"),
+            CreateOAuthAccountInput {
+                id: Some("account_1".to_owned()),
+                provider_id: "github".to_owned(),
+                account_id: "github_1".to_owned(),
+                user_id: String::new(),
+                access_token: None,
+                refresh_token: None,
+                id_token: None,
+                access_token_expires_at: None,
+                refresh_token_expires_at: None,
+                scope: None,
+            },
+        )
+        .await
+        .err();
+
+    assert!(error.is_some());
+    assert_eq!(*adapter.transaction_calls.lock().await, 1);
+    assert!(adapter.users.lock().await.is_empty());
+    assert!(adapter.accounts.lock().await.is_empty());
     Ok(())
 }
 
