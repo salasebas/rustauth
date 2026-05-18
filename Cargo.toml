@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/openauth",
     "crates/openauth-axum",
+    "crates/openauth-cli",
     "crates/openauth-core",
     "crates/openauth-i18n",
     "crates/openauth-oauth",
@@ -48,6 +49,11 @@ deadpool-postgres = "0.14.1"
 openauth-core = { path = "crates/openauth-core", version = "0.0.4" }
 openauth = { path = "crates/openauth", version = "0.0.4" }
 axum = "0.8"
+camino = { version = "1.1", features = ["serde1"] }
+cargo_metadata = "0.19"
+clap = { version = "4.5", features = ["derive", "env"] }
+clap_complete = "4.5"
+inquire = "0.7"
 openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.4" }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.4" }
 openauth-passkey = { path = "crates/openauth-passkey", version = "0.0.4" }
@@ -67,8 +73,9 @@ sha3 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "time", "json"] }
 subtle = "2"
 thiserror = "2"
-time = { version = "0.3", features = ["serde"] }
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "sync", "time"] }
+toml_edit = { version = "0.22", features = ["serde"] }
 tokio-postgres = { version = "0.7.17", features = ["with-serde_json-1", "with-time-0_3"] }
 unicode-normalization = "0.1"
 url = "2"

@@ -1,0 +1,76 @@
+[package]
+name = "openauth-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/openauth-cli"
+readme = "../../README.md"
+description = "Command-line tools for OpenAuth."
+keywords.workspace = true
+categories.workspace = true
+publish = true
+
+[[bin]]
+name = "openauth"
+path = "src/bin/openauth.rs"
+
+[[bin]]
+name = "cargo-openauth"
+path = "src/bin/cargo-openauth.rs"
+
+[[bin]]
+name = "open-auth"
+path = "src/bin/open-auth.rs"
+
+[[bin]]
+name = "cargo-open-auth"
+path = "src/bin/cargo-open-auth.rs"
+
+[[bin]]
+name = "better-auth"
+path = "src/bin/better-auth.rs"
+
+[[bin]]
+name = "cargo-better-auth"
+path = "src/bin/cargo-better-auth.rs"
+
+[[bin]]
+name = "betterauth"
+path = "src/bin/betterauth.rs"
+
+[[bin]]
+name = "cargo-betterauth"
+path = "src/bin/cargo-betterauth.rs"
+
+[dependencies]
+base64.workspace = true
+camino.workspace = true
+cargo_metadata.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+hex.workspace = true
+inquire.workspace = true
+openauth.workspace = true
+openauth-core.workspace = true
+openauth-plugins.workspace = true
+openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+toml_edit.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+
+[lints]
+workspace = true

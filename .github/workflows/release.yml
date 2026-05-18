@@ -80,6 +80,7 @@ jobs:
             openauth
             openauth-fred
             openauth-axum
+            openauth-cli
           )
 
           crate_version_exists() {
