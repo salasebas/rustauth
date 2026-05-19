@@ -71,6 +71,7 @@ async fn handle_callback(
             disable_sign_up: payload.disable_sign_up,
             override_user_info: false,
             is_trusted_provider: true,
+            require_trusted_provider_for_implicit_link: false,
         },
     )
     .await?;

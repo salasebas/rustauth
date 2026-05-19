@@ -236,6 +236,7 @@ pub(crate) fn before_callback(
                     email,
                     image: user_info.image,
                     email_verified: user_info.email_verified,
+                    raw_attributes: None,
                 },
                 account: OAuthAccountInput {
                     provider_id: provider.id().to_owned(),

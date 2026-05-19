@@ -303,6 +303,7 @@ async fn callback_get(
                 || config.disable_sign_up,
             override_user_info: config.override_user_info,
             is_trusted_provider: true,
+            require_trusted_provider_for_implicit_link: false,
         },
     )
     .await?;

@@ -55,6 +55,7 @@ pub struct AuthEndpointOptions {
     pub openapi: Option<OpenApiOperation>,
     pub server_only: bool,
     pub hide_from_openapi: bool,
+    pub bypass_origin_security: bool,
 }
 
 impl AuthEndpointOptions {
@@ -105,6 +106,12 @@ impl AuthEndpointOptions {
     #[must_use]
     pub fn hide_from_openapi(mut self) -> Self {
         self.hide_from_openapi = true;
+        self
+    }
+
+    #[must_use]
+    pub fn bypass_origin_security(mut self) -> Self {
+        self.bypass_origin_security = true;
         self
     }
 }

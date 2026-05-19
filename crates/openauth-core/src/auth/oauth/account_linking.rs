@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use time::{Duration, OffsetDateTime};
 
 use crate::context::AuthContext;
@@ -23,6 +24,7 @@ pub struct OAuthUserInfo {
     pub email: String,
     pub image: Option<String>,
     pub email_verified: bool,
+    pub raw_attributes: Option<Value>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +47,7 @@ pub struct HandleOAuthUserInfoInput {
     pub disable_sign_up: bool,
     pub override_user_info: bool,
     pub is_trusted_provider: bool,
+    pub require_trusted_provider_for_implicit_link: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +183,9 @@ fn can_implicitly_link(context: &AuthContext, input: &HandleOAuthUserInfoInput) 
             .trusted_providers
             .iter()
             .any(|provider| provider == &input.account.provider_id);
+    if input.require_trusted_provider_for_implicit_link {
+        return trusted;
+    }
     trusted || input.user_info.email_verified
 }
 

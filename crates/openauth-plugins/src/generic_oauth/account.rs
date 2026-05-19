@@ -98,6 +98,7 @@ pub(super) fn normalize_user_info(info: &OAuth2UserInfo) -> Result<OAuthUserInfo
         email,
         image: info.image.clone(),
         email_verified: info.email_verified,
+        raw_attributes: None,
     })
 }
 

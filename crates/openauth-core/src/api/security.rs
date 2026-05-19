@@ -11,7 +11,12 @@ use super::error::{api_error, ApiErrorCode};
 pub(super) fn validate_request_security(
     context: &AuthContext,
     request: &ApiRequest,
+    bypass_origin_security: bool,
 ) -> Result<Option<ApiResponse>, OpenAuthError> {
+    if bypass_origin_security {
+        return Ok(None);
+    }
+
     if matches!(
         *request.method(),
         Method::GET | Method::HEAD | Method::OPTIONS

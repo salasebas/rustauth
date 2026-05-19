@@ -14,8 +14,38 @@ categories.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+saml-signed = ["dep:samael", "samael/xmlsec", "dep:openssl"]
+
 [dependencies]
+base64.workspace = true
+flate2.workspace = true
+hex.workspace = true
+hickory-resolver.workspace = true
+http.workspace = true
+indexmap.workspace = true
+openauth-core.workspace = true
+openidconnect.workspace = true
+openssl = { version = "0.10.79", optional = true }
+publicsuffix2.workspace = true
+quick-xml.workspace = true
+reqwest.workspace = true
+samael = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
 tokio.workspace = true
+url.workspace = true
+x509-parser.workspace = true
+
+[dev-dependencies]
+josekit.workspace = true
+openauth-sqlx = { workspace = true, features = ["sqlite"] }
+sqlx = { workspace = true, features = ["sqlite"] }
 
 [lints]
 workspace = true

@@ -21,6 +21,7 @@ openauth-deadpool-postgres = { workspace = true, optional = true }
 openauth-passkey = { workspace = true, optional = true }
 openauth-plugins = { workspace = true, optional = true }
 openauth-sqlx = { workspace = true, default-features = false, optional = true }
+openauth-sso = { workspace = true, optional = true }
 openauth-telemetry.workspace = true
 openauth-tokio-postgres = { workspace = true, optional = true }
 serde_json.workspace = true
@@ -35,6 +36,7 @@ sqlx = ["dep:openauth-sqlx"]
 sqlx-mysql = ["sqlx", "openauth-sqlx/mysql"]
 sqlx-postgres = ["sqlx", "openauth-sqlx/postgres"]
 sqlx-sqlite = ["sqlx", "openauth-sqlx/sqlite"]
+sso = ["dep:openauth-sso"]
 tokio-postgres = ["dep:openauth-tokio-postgres"]
 
 [dev-dependencies]

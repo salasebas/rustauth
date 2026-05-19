@@ -316,6 +316,7 @@ async fn callback_get(
                 || provider.provider_options().disable_sign_up,
             override_user_info: provider.provider_options().override_user_info_on_sign_in,
             is_trusted_provider: true,
+            require_trusted_provider_for_implicit_link: false,
         },
     )
     .await?;
@@ -508,6 +509,7 @@ fn normalize_user_info(info: &OAuth2UserInfo) -> Result<OAuthUserInfo, OpenAuthE
         email,
         image: info.image.clone(),
         email_verified: info.email_verified,
+        raw_attributes: None,
     })
 }
 

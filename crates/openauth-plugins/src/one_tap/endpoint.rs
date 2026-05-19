@@ -184,6 +184,7 @@ fn normalize_user_info(info: &OAuth2UserInfo) -> Option<OAuthUserInfo> {
         email,
         image: info.image.clone(),
         email_verified: info.email_verified,
+        raw_attributes: None,
     })
 }
 

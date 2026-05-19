@@ -78,6 +78,8 @@ pub use openauth_passkey as passkey;
 pub use openauth_plugins as plugins;
 #[cfg(feature = "sqlx")]
 pub use openauth_sqlx as sqlx;
+#[cfg(feature = "sso")]
+pub use openauth_sso as sso;
 pub use openauth_telemetry::{
     create_telemetry, get_telemetry_auth_config, TelemetryContext, TelemetryEvent,
     TelemetryPublisher, TelemetryTestHooks,

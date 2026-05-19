@@ -112,7 +112,7 @@ impl AuthRouter {
             PluginRequestAction::Continue(request) => request,
             PluginRequestAction::Respond(response) => return Ok(response),
         };
-        if let Some(rejection) = validate_request_security(&self.context, &request)? {
+        if let Some(rejection) = validate_request_security(&self.context, &request, false)? {
             return Ok(rejection);
         }
         let path = route_pathname(
@@ -182,9 +182,6 @@ impl AuthRouter {
             PluginRequestAction::Continue(request) => request,
             PluginRequestAction::Respond(response) => return Ok(response),
         };
-        if let Some(rejection) = validate_request_security(&self.context, &request)? {
-            return Ok(rejection);
-        }
         let path = route_pathname(
             &request.uri().to_string(),
             &self.context.base_path,
@@ -200,6 +197,14 @@ impl AuthRouter {
                 .then(|| match_path_pattern(&endpoint.path, &path).map(|params| (endpoint, params)))
                 .flatten()
         });
+        let bypass_origin_security = async_endpoint.as_ref().is_some_and(|(endpoint, _)| {
+            !endpoint.options.server_only && endpoint.options.bypass_origin_security
+        });
+        if let Some(rejection) =
+            validate_request_security(&self.context, &request, bypass_origin_security)?
+        {
+            return Ok(rejection);
+        }
         if async_endpoint.is_none() && sync_endpoint.is_none() {
             return api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound);
         }

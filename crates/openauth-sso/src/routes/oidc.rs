@@ -1,0 +1,454 @@
+use std::sync::Arc;
+
+use http::Method;
+use openauth_core::api::{
+    create_auth_endpoint, session_cookies, ApiRequest, AsyncAuthEndpoint, AuthEndpointOptions,
+    OpenApiOperation,
+};
+use openauth_core::auth::oauth::{
+    handle_oauth_user_info, parse_oauth_state, HandleOAuthUserInfoInput, OAuthAccountInput,
+    OAuthUserInfo,
+};
+use openauth_core::context::AuthContext;
+use openauth_core::oauth::oauth2::{
+    validate_authorization_code, validate_token, AuthorizationCodeRequest, ClientAuthentication,
+    ClientId, ClientTokenRequest, OAuth2Tokens, ProviderOptions, TokenValidationOptions,
+};
+use serde_json::Value;
+
+use crate::linking::{
+    assign_organization_from_provider, provider_matches_email_domain, provision_sso_user,
+    NormalizedSsoProfile,
+};
+use crate::oidc::discovery::{
+    discover_oidc_config_with_origin_validator, PartialOidcDiscoveryConfig,
+};
+use crate::oidc::flow::oidc_redirect_uri;
+use crate::options::{OidcConfig, OidcMapping, SsoOptions, TokenEndpointAuthentication};
+use crate::store::SsoProviderStore;
+use crate::utils;
+
+use super::support::{
+    path_param, query_param, redirect, redirect_with_cookies, redirect_with_error,
+};
+
+pub(super) fn callback_endpoint(options: Arc<SsoOptions>, path: &'static str) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        path,
+        Method::GET,
+        AuthEndpointOptions::new()
+            .operation_id("handleSSOCallback")
+            .openapi(OpenApiOperation::new("handleSSOCallback").tag("SSO")),
+        move |context, request| {
+            let options = Arc::clone(&options);
+            Box::pin(async move { callback(context, &options, request).await })
+        },
+    )
+}
+
+async fn callback(
+    context: &AuthContext,
+    options: &SsoOptions,
+    request: ApiRequest,
+) -> Result<openauth_core::api::ApiResponse, openauth_core::error::OpenAuthError> {
+    let default_error_url = format!("{}/error", context.base_url.trim_end_matches('/'));
+    let Some(state) = query_param(&request, "state") else {
+        return redirect(&default_error_url);
+    };
+    let Some(adapter) = context.adapter.as_deref() else {
+        return redirect_with_error(&default_error_url, "invalid_state");
+    };
+    let state_data = match parse_oauth_state(context, Some(adapter), &state).await {
+        Ok(data) => data,
+        Err(_) => return redirect_with_error(&default_error_url, "invalid_state"),
+    };
+    let error_url = state_data
+        .error_url
+        .as_deref()
+        .unwrap_or(&default_error_url);
+    let error_url = utils::safe_redirect_url(context, error_url).unwrap_or(default_error_url);
+    if let Some(error) = query_param(&request, "error") {
+        return redirect_with_error(&error_url, &error);
+    }
+    if query_param(&request, "code").is_none() {
+        return redirect_with_error(&error_url, "no_code");
+    }
+    let code = query_param(&request, "code").unwrap_or_default();
+
+    let Some(provider) = callback_provider(context, options, &request, &state_data).await? else {
+        return redirect_with_error(&error_url, "provider_not_found");
+    };
+    let Some(config) = provider
+        .oidc_config
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<OidcConfig>(value).ok())
+    else {
+        return redirect_with_error(&error_url, "oidc_provider_not_configured");
+    };
+    let config = match ensure_runtime_oidc_config(
+        context,
+        &request,
+        &provider.issuer,
+        config,
+        OidcRuntimeRequirement::Callback,
+    )
+    .await
+    {
+        Ok(config) => config,
+        Err(error) => return redirect_with_error(&error_url, error.code()),
+    };
+    let Some(token_endpoint) = config.token_endpoint.clone() else {
+        return redirect_with_error(&error_url, "invalid_oidc_config");
+    };
+    let tokens = match validate_authorization_code(ClientTokenRequest {
+        token_endpoint,
+        request: AuthorizationCodeRequest {
+            code,
+            redirect_uri: oidc_redirect_uri(&context.base_url, &provider.provider_id, options),
+            options: ProviderOptions {
+                client_id: Some(ClientId::Single(config.client_id.clone())),
+                client_secret: Some(config.client_secret.expose_secret().to_owned()),
+                ..ProviderOptions::default()
+            },
+            code_verifier: config.pkce.then_some(state_data.code_verifier.clone()),
+            authentication: oidc_client_authentication(&config),
+            ..AuthorizationCodeRequest::default()
+        },
+    })
+    .await
+    {
+        Ok(tokens) => tokens,
+        Err(_) => return redirect_with_error(&error_url, "invalid_code"),
+    };
+    let id_token_payload = match validate_oidc_id_token(&tokens, &config, &provider.issuer).await {
+        Ok(payload) => payload,
+        Err(_) => return redirect_with_error(&error_url, "invalid_id_token"),
+    };
+
+    let user_info = if let Some(user_info_endpoint) = config.user_info_endpoint.as_deref() {
+        match fetch_oidc_user_info(user_info_endpoint, &tokens, config.mapping.as_ref()).await {
+            Ok(user_info) => user_info,
+            Err(_) => return redirect_with_error(&error_url, "unable_to_get_user_info"),
+        }
+    } else if let Some(payload) = id_token_payload.as_ref() {
+        match oauth_user_info_from_json(payload, config.mapping.as_ref()) {
+            Ok(user_info) => user_info,
+            Err(_) => return redirect_with_error(&error_url, "unable_to_get_user_info"),
+        }
+    } else {
+        return redirect_with_error(&error_url, "unable_to_get_user_info");
+    };
+    if !provider_matches_email_domain(&provider, &user_info.email) {
+        return redirect_with_error(&error_url, "invalid_email_domain");
+    }
+
+    let result = handle_oauth_user_info(
+        context,
+        adapter,
+        HandleOAuthUserInfoInput {
+            user_info: user_info.clone(),
+            account: oidc_account(&provider.provider_id, &user_info, &tokens),
+            callback_url: Some(state_data.callback_url.clone()),
+            disable_sign_up: options.disable_implicit_sign_up && !state_data.request_sign_up,
+            override_user_info: config.override_user_info,
+            is_trusted_provider: is_trusted_sso_provider(options, &provider, &user_info),
+            require_trusted_provider_for_implicit_link: true,
+        },
+    )
+    .await?;
+    let Some(data) = result.data else {
+        return redirect_with_error(&error_url, "oauth_sign_in_failed");
+    };
+    let profile = NormalizedSsoProfile {
+        provider_type: "oidc".to_owned(),
+        provider_id: provider.provider_id.clone(),
+        account_id: user_info.id.clone(),
+        email: user_info.email.clone(),
+        email_verified: user_info.email_verified,
+        name: Some(user_info.name.clone()),
+        image: user_info.image.clone(),
+        raw_attributes: user_info.raw_attributes.clone(),
+        token_data: Some(tokens.clone()),
+    };
+    provision_sso_user(
+        options,
+        &data.user,
+        &profile,
+        &provider,
+        Some(tokens.clone()),
+        result.is_register,
+    )
+    .await?;
+    assign_organization_from_provider(
+        context,
+        adapter,
+        &options.organization_provisioning,
+        &data.user,
+        &profile,
+        &provider,
+        Some(tokens.clone()),
+    )
+    .await?;
+    let cookies = session_cookies(context, &data.session, &data.user, false)?;
+    let target_url = if result.is_register {
+        state_data
+            .new_user_url
+            .as_deref()
+            .unwrap_or(&state_data.callback_url)
+    } else {
+        &state_data.callback_url
+    };
+    let target_url =
+        utils::safe_redirect_url(context, target_url).unwrap_or_else(|| context.base_url.clone());
+    redirect_with_cookies(&target_url, cookies)
+}
+
+fn is_trusted_sso_provider(
+    options: &SsoOptions,
+    provider: &crate::SsoProviderRecord,
+    user_info: &OAuthUserInfo,
+) -> bool {
+    (options.trust_email_verified && user_info.email_verified)
+        || (provider.domain_verified.unwrap_or(false)
+            && provider_matches_email_domain(provider, &user_info.email))
+}
+
+async fn callback_provider(
+    context: &AuthContext,
+    options: &SsoOptions,
+    request: &ApiRequest,
+    state_data: &openauth_core::auth::oauth::OAuthStateData,
+) -> Result<Option<crate::SsoProviderRecord>, openauth_core::error::OpenAuthError> {
+    let provider_id = path_param(request, "providerId").or_else(|| {
+        state_data
+            .additional_data
+            .get("ssoProviderId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    });
+    let Some(provider_id) = provider_id else {
+        return Ok(None);
+    };
+    if let Some(provider) = super::sign_in::default_sso_by_provider_id(options, &provider_id)? {
+        return Ok(Some(provider));
+    }
+    let Some(adapter) = context.adapter.as_deref() else {
+        return Ok(None);
+    };
+    SsoProviderStore::new(adapter)
+        .find_by_provider_id(&provider_id)
+        .await
+}
+
+fn oidc_client_authentication(config: &OidcConfig) -> ClientAuthentication {
+    match config.token_endpoint_authentication {
+        Some(TokenEndpointAuthentication::ClientSecretBasic) => ClientAuthentication::Basic,
+        Some(TokenEndpointAuthentication::ClientSecretPost) | None => ClientAuthentication::Post,
+    }
+}
+
+async fn validate_oidc_id_token(
+    tokens: &OAuth2Tokens,
+    config: &OidcConfig,
+    provider_issuer: &str,
+) -> Result<Option<Value>, openauth_core::error::OpenAuthError> {
+    let Some(id_token) = tokens.id_token.as_deref() else {
+        return Ok(None);
+    };
+    let Some(jwks_endpoint) = config.jwks_endpoint.as_deref() else {
+        return Err(openauth_core::error::OpenAuthError::OAuth(
+            "missing OIDC JWKS endpoint".to_owned(),
+        ));
+    };
+    let mut issuers = vec![provider_issuer.to_owned()];
+    if config.issuer != provider_issuer {
+        issuers.push(config.issuer.clone());
+    }
+    validate_token(
+        id_token,
+        jwks_endpoint,
+        TokenValidationOptions {
+            audience: vec![config.client_id.clone()],
+            issuer: issuers,
+        },
+    )
+    .await
+    .map(|result| Some(result.payload))
+    .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))
+}
+
+async fn fetch_oidc_user_info(
+    endpoint: &str,
+    tokens: &OAuth2Tokens,
+    mapping: Option<&OidcMapping>,
+) -> Result<OAuthUserInfo, openauth_core::error::OpenAuthError> {
+    let access_token = tokens.access_token.as_deref().ok_or_else(|| {
+        openauth_core::error::OpenAuthError::Api("missing access token".to_owned())
+    })?;
+    let value = reqwest::Client::new()
+        .get(endpoint)
+        .bearer_auth(access_token)
+        .header("accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?
+        .json::<Value>()
+        .await
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
+
+    oauth_user_info_from_json(&value, mapping)
+}
+
+fn oauth_user_info_from_json(
+    value: &Value,
+    mapping: Option<&OidcMapping>,
+) -> Result<OAuthUserInfo, openauth_core::error::OpenAuthError> {
+    let id_key = mapping
+        .and_then(|mapping| mapping.id.as_deref())
+        .unwrap_or("sub");
+    let email_key = mapping
+        .and_then(|mapping| mapping.email.as_deref())
+        .unwrap_or("email");
+    let name_key = mapping
+        .and_then(|mapping| mapping.name.as_deref())
+        .unwrap_or("name");
+    let image_key = mapping
+        .and_then(|mapping| mapping.image.as_deref())
+        .unwrap_or("picture");
+    let email_verified_key = mapping
+        .and_then(|mapping| mapping.email_verified.as_deref())
+        .unwrap_or("email_verified");
+
+    let id = json_string(value, id_key)
+        .or_else(|| json_string(value, email_key))
+        .ok_or_else(|| {
+            openauth_core::error::OpenAuthError::Api("missing OIDC user id".to_owned())
+        })?;
+    let email = json_string(value, email_key)
+        .ok_or_else(|| openauth_core::error::OpenAuthError::Api("missing OIDC email".to_owned()))?;
+    let name = json_string(value, name_key).unwrap_or_else(|| email.clone());
+    let image = json_string(value, image_key);
+    let email_verified = value
+        .get(email_verified_key)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    Ok(OAuthUserInfo {
+        id,
+        name,
+        email,
+        image,
+        email_verified,
+        raw_attributes: mapped_extra_fields(
+            value,
+            mapping.and_then(|mapping| mapping.extra_fields.as_ref()),
+        ),
+    })
+}
+
+fn mapped_extra_fields(
+    value: &Value,
+    mapping: Option<&std::collections::BTreeMap<String, String>>,
+) -> Option<Value> {
+    let mapping = mapping?;
+    let object = mapping
+        .iter()
+        .filter_map(|(output_key, source_key)| {
+            value
+                .get(source_key)
+                .cloned()
+                .map(|value| (output_key.clone(), value))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    (!object.is_empty()).then_some(Value::Object(object))
+}
+
+pub(super) async fn ensure_runtime_oidc_config(
+    context: &AuthContext,
+    request: &ApiRequest,
+    issuer: &str,
+    config: OidcConfig,
+    requirement: OidcRuntimeRequirement,
+) -> Result<OidcConfig, crate::oidc::discovery::OidcDiscoveryError> {
+    if requirement.is_satisfied(&config) {
+        return Ok(config);
+    }
+    let hydrated = discover_oidc_config_with_origin_validator(
+        issuer,
+        (!config.discovery_endpoint.is_empty()).then_some(config.discovery_endpoint.as_str()),
+        PartialOidcDiscoveryConfig {
+            issuer: Some(config.issuer.as_str()),
+            discovery_endpoint: (!config.discovery_endpoint.is_empty())
+                .then_some(config.discovery_endpoint.as_str()),
+            authorization_endpoint: config.authorization_endpoint.as_deref(),
+            token_endpoint: config.token_endpoint.as_deref(),
+            user_info_endpoint: config.user_info_endpoint.as_deref(),
+            jwks_endpoint: config.jwks_endpoint.as_deref(),
+            token_endpoint_authentication: config.token_endpoint_authentication,
+        },
+        |url| is_trusted_oidc_url(context, request, url),
+    )
+    .await?;
+    Ok(OidcConfig {
+        issuer: hydrated.issuer,
+        pkce: config.pkce,
+        client_id: config.client_id,
+        client_secret: config.client_secret,
+        discovery_endpoint: hydrated.discovery_endpoint,
+        authorization_endpoint: Some(hydrated.authorization_endpoint),
+        token_endpoint: Some(hydrated.token_endpoint),
+        user_info_endpoint: hydrated.user_info_endpoint,
+        jwks_endpoint: Some(hydrated.jwks_endpoint),
+        token_endpoint_authentication: Some(hydrated.token_endpoint_authentication),
+        scopes: config.scopes.or(hydrated.scopes_supported),
+        mapping: config.mapping,
+        override_user_info: config.override_user_info,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OidcRuntimeRequirement {
+    SignIn,
+    Callback,
+}
+
+impl OidcRuntimeRequirement {
+    fn is_satisfied(self, config: &OidcConfig) -> bool {
+        match self {
+            Self::SignIn => config.authorization_endpoint.is_some(),
+            Self::Callback => {
+                config.token_endpoint.is_some()
+                    && (config.user_info_endpoint.is_some() || config.jwks_endpoint.is_some())
+            }
+        }
+    }
+}
+
+fn json_string(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(Value::as_str).map(str::to_owned)
+}
+
+fn oidc_account(
+    provider_id: &str,
+    user_info: &OAuthUserInfo,
+    tokens: &OAuth2Tokens,
+) -> OAuthAccountInput {
+    OAuthAccountInput {
+        provider_id: provider_id.to_owned(),
+        account_id: user_info.id.clone(),
+        access_token: tokens.access_token.clone(),
+        refresh_token: tokens.refresh_token.clone(),
+        id_token: tokens.id_token.clone(),
+        access_token_expires_at: tokens.access_token_expires_at,
+        refresh_token_expires_at: tokens.refresh_token_expires_at,
+        scope: (!tokens.scopes.is_empty()).then(|| tokens.scopes.join(",")),
+    }
+}
+
+pub(super) fn is_trusted_oidc_url(context: &AuthContext, request: &ApiRequest, url: &str) -> bool {
+    context
+        .is_trusted_origin_for_request(url, None, Some(request))
+        .unwrap_or(false)
+}
