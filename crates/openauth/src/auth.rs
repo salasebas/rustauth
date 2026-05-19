@@ -22,38 +22,55 @@ pub struct OpenAuth {
 }
 
 impl OpenAuth {
+    /// Start an [`OpenAuthBuilder`] using default [`OpenAuthOptions`].
     pub fn builder() -> OpenAuthBuilder {
         OpenAuthBuilder::new()
     }
 
+    /// Handle a request through the synchronous endpoint router.
+    ///
+    /// This is useful for endpoint sets that do not require async database or
+    /// network work. Most adapter-backed applications should use
+    /// [`OpenAuth::handler_async`].
     pub fn handler(&self, request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
         self.router.handle(request)
     }
 
+    /// Handle a request through the async endpoint router.
     pub async fn handler_async(&self, request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
         self.router.handle_async(request).await
     }
 
+    /// Return the effective options used to build this instance.
     pub fn options(&self) -> &OpenAuthOptions {
         &self.options
     }
 
+    /// Return the initialized authentication context.
     pub fn context(&self) -> &AuthContext {
         &self.context
     }
 
+    /// Return the underlying router.
     pub fn router(&self) -> &AuthRouter {
         &self.router
     }
 
+    /// Return metadata for all registered endpoints.
     pub fn endpoint_registry(&self) -> Vec<EndpointInfo> {
         self.router.endpoint_registry()
     }
 
+    /// Generate the OpenAPI schema for the registered endpoint surface.
     pub fn openapi_schema(&self) -> serde_json::Value {
         self.router.openapi_schema()
     }
 
+    /// Create the database schema for this instance.
+    ///
+    /// Returns an error when the instance was created without an adapter.
+    /// When `file` is provided, adapter implementations may write migration
+    /// SQL to that path and return adapter-specific creation metadata.
     pub async fn create_schema(
         &self,
         file: Option<&str>,
@@ -66,6 +83,9 @@ impl OpenAuth {
         adapter.create_schema(&self.context.db_schema, file).await
     }
 
+    /// Run adapter migrations for the configured core and plugin schema.
+    ///
+    /// Returns an error when the instance was created without an adapter.
     pub async fn run_migrations(&self) -> Result<(), OpenAuthError> {
         let adapter = self.adapter.as_ref().ok_or_else(|| {
             OpenAuthError::InvalidConfig(
@@ -76,6 +96,10 @@ impl OpenAuth {
     }
 }
 
+/// Builder for constructing an [`OpenAuth`] instance.
+///
+/// The builder mirrors common [`OpenAuthOptions`] setters and can also attach
+/// database adapters, plugins, social providers, and custom endpoints.
 #[derive(Default)]
 pub struct OpenAuthBuilder {
     options: OpenAuthOptions,
@@ -85,83 +109,97 @@ pub struct OpenAuthBuilder {
 }
 
 impl OpenAuthBuilder {
+    /// Create a builder with default options and no adapter.
     pub fn new() -> Self {
         Self::default()
     }
 
     #[must_use]
+    /// Replace all options used by the builder.
     pub fn options(mut self, options: OpenAuthOptions) -> Self {
         self.options = options;
         self
     }
 
     #[must_use]
+    /// Set the public base URL used for redirects, cookies, and generated URLs.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.options = self.options.base_url(base_url);
         self
     }
 
     #[must_use]
+    /// Set the URL path prefix for auth endpoints.
     pub fn base_path(mut self, base_path: impl Into<String>) -> Self {
         self.options = self.options.base_path(base_path);
         self
     }
 
     #[must_use]
+    /// Set the primary application secret.
     pub fn secret(mut self, secret: impl Into<String>) -> Self {
         self.options = self.options.secret(secret);
         self
     }
 
     #[must_use]
+    /// Replace rate limit configuration.
     pub fn rate_limit(mut self, rate_limit: openauth_core::options::RateLimitOptions) -> Self {
         self.options = self.options.rate_limit(rate_limit);
         self
     }
 
     #[must_use]
+    /// Replace session configuration.
     pub fn session(mut self, session: openauth_core::options::SessionOptions) -> Self {
         self.options = self.options.session(session);
         self
     }
 
     #[must_use]
+    /// Replace user model and lifecycle configuration.
     pub fn user(mut self, user: openauth_core::options::UserOptions) -> Self {
         self.options = self.options.user(user);
         self
     }
 
     #[must_use]
+    /// Replace password authentication configuration.
     pub fn password(mut self, password: openauth_core::options::PasswordOptions) -> Self {
         self.options = self.options.password(password);
         self
     }
 
     #[must_use]
+    /// Replace account linking and account model configuration.
     pub fn account(mut self, account: openauth_core::options::AccountOptions) -> Self {
         self.options = self.options.account(account);
         self
     }
 
     #[must_use]
+    /// Replace advanced runtime configuration.
     pub fn advanced(mut self, advanced: openauth_core::options::AdvancedOptions) -> Self {
         self.options = self.options.advanced(advanced);
         self
     }
 
     #[must_use]
+    /// Enable or disable production-mode behavior.
     pub fn production(mut self, production: bool) -> Self {
         self.options = self.options.production(production);
         self
     }
 
     #[must_use]
+    /// Register an OpenAuth plugin.
     pub fn plugin(mut self, plugin: openauth_core::plugin::AuthPlugin) -> Self {
         self.options = self.options.plugin(plugin);
         self
     }
 
     #[must_use]
+    /// Register a social OAuth provider.
     pub fn social_provider<P>(mut self, provider: P) -> Self
     where
         P: openauth_core::oauth::oauth2::SocialOAuthProvider,
@@ -171,6 +209,7 @@ impl OpenAuthBuilder {
     }
 
     #[must_use]
+    /// Attach a database adapter by value.
     pub fn adapter<A>(mut self, adapter: A) -> Self
     where
         A: DbAdapter + 'static,
@@ -180,35 +219,41 @@ impl OpenAuthBuilder {
     }
 
     #[must_use]
+    /// Attach a shared database adapter.
     pub fn adapter_arc(mut self, adapter: Arc<dyn DbAdapter>) -> Self {
         self.adapter = Some(adapter);
         self
     }
 
     #[must_use]
+    /// Add one synchronous endpoint to the router.
     pub fn endpoint(mut self, endpoint: AuthEndpoint) -> Self {
         self.extra_endpoints.push(endpoint);
         self
     }
 
     #[must_use]
+    /// Add multiple synchronous endpoints to the router.
     pub fn endpoints(mut self, endpoints: Vec<AuthEndpoint>) -> Self {
         self.extra_endpoints.extend(endpoints);
         self
     }
 
     #[must_use]
+    /// Add one async endpoint to the router.
     pub fn async_endpoint(mut self, endpoint: AsyncAuthEndpoint) -> Self {
         self.async_endpoints.push(endpoint);
         self
     }
 
     #[must_use]
+    /// Add multiple async endpoints to the router.
     pub fn async_endpoints(mut self, endpoints: Vec<AsyncAuthEndpoint>) -> Self {
         self.async_endpoints.extend(endpoints);
         self
     }
 
+    /// Build the configured [`OpenAuth`] instance.
     pub fn build(self) -> Result<OpenAuth, OpenAuthError> {
         if let Some(adapter) = self.adapter {
             open_auth_with_adapter_and_endpoints(
