@@ -285,7 +285,7 @@ async fn fetch_oidc_user_info(
     let access_token = tokens.access_token.as_deref().ok_or_else(|| {
         openauth_core::error::OpenAuthError::Api("missing access token".to_owned())
     })?;
-    let value = reqwest::Client::new()
+    let value = utils::http_client()
         .get(endpoint)
         .bearer_auth(access_token)
         .header("accept", "application/json")

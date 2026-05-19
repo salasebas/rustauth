@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use base64::Engine;
 use openauth_core::api::{json_response, ApiResponse};
 use openauth_core::auth::trusted_origins::OriginMatchSettings;
@@ -9,6 +11,8 @@ use subtle::ConstantTimeEq;
 use time::format_description::well_known::Rfc3339;
 use x509_parser::prelude::{FromDer, X509Certificate};
 use x509_parser::public_key::PublicKey;
+
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CertificateMetadata {
@@ -71,6 +75,10 @@ pub fn json<T: Serialize>(
     body: &T,
 ) -> Result<ApiResponse, OpenAuthError> {
     json_response(status, body, Vec::new())
+}
+
+pub(crate) fn http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(reqwest::Client::new)
 }
 
 pub fn safe_redirect_url(context: &AuthContext, value: &str) -> Option<String> {

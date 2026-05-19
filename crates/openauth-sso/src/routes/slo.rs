@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use http::{header, Method};
 use openauth_core::api::{
-    create_auth_endpoint, json_response, parse_request_body, serialize_cookie, AsyncAuthEndpoint,
-    AuthEndpointOptions, OpenApiOperation,
+    create_auth_endpoint, json_response, parse_request_body, serialize_cookie, ApiRequest,
+    ApiResponse, AsyncAuthEndpoint, AuthEndpointOptions, OpenApiOperation,
 };
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::context::AuthContext;
@@ -17,19 +17,18 @@ use crate::audit;
 use crate::openapi::{saml_logout_body_schema, saml_slo_body_schema};
 use crate::options::{SamlConfig, SsoAuditEvent, SsoAuditEventKind, SsoAuditSeverity, SsoOptions};
 use crate::saml::logout::{
-    build_logout_request_binding, build_logout_response_binding, parse_post_logout_request,
-    parse_post_logout_response, parse_redirect_logout_request, parse_redirect_logout_response,
-    ParsedSamlLogoutRequest, ParsedSamlLogoutResponse, SamlLogoutBinding,
-    SamlLogoutBindingResponse, SamlLogoutRequestInput,
-};
-use crate::saml::signature::{
-    verify_redirect_logout_request, verify_redirect_logout_response, verify_signed_logout_request,
-    verify_signed_logout_response,
+    build_logout_request_binding, build_logout_response_binding, ParsedSamlLogoutRequest,
+    ParsedSamlLogoutResponse, SamlLogoutBinding, SamlLogoutBindingResponse, SamlLogoutRequestInput,
 };
 use crate::saml::state::{logout_request_key, saml_session_by_id_key, saml_session_key};
 use crate::state::SsoStateStore;
 use crate::store::{SsoProviderRecord, SsoProviderStore};
 use crate::utils;
+
+#[path = "slo/verification.rs"]
+mod verification;
+
+use verification::{parse_verified_logout_request, parse_verified_logout_response};
 
 use super::support::{
     path_param, query_param, redirect, redirect_with_cookies, redirect_with_error,
@@ -92,204 +91,123 @@ pub(super) fn endpoint(options: Arc<SsoOptions>, method: Method) -> AsyncAuthEnd
         move |context, request| {
             let options = Arc::clone(&options);
             let method = method.clone();
-            Box::pin(async move {
-                if !options.saml.enable_single_logout {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "SINGLE_LOGOUT_NOT_ENABLED"}),
-                    );
-                }
-                let Some(provider_id) = path_param(&request, "providerId") else {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "MISSING_PROVIDER_ID"}),
-                    );
-                };
-                let Some(adapter) = context.adapter.as_deref() else {
-                    return unauthorized();
-                };
-                let Some(provider) = find_saml_provider(&options, adapter, &provider_id).await?
-                else {
-                    return utils::json(
-                        http::StatusCode::NOT_FOUND,
-                        &json!({"code": "SAML_PROVIDER_NOT_FOUND"}),
-                    );
-                };
-                let Some(config) = provider
-                    .saml_config
-                    .as_deref()
-                    .and_then(|value| serde_json::from_str::<SamlConfig>(value).ok())
-                else {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "SAML_PROVIDER_NOT_CONFIGURED"}),
-                    );
-                };
-
-                let body = if method == Method::GET {
-                    SamlSloBody {
-                        saml_request: query_param(&request, "SAMLRequest"),
-                        saml_response: query_param(&request, "SAMLResponse"),
-                        relay_state: query_param(&request, "RelayState"),
-                    }
-                } else {
-                    parse_request_body::<SamlSloBody>(&request).unwrap_or_default()
-                };
-                if let Some(encoded_response) = body.saml_response {
-                    let mut parsed = if method == Method::GET {
-                        parse_redirect_logout_response(&encoded_response)
-                    } else {
-                        parse_post_logout_response(&encoded_response)
-                    }
-                    .map_err(|error| openauth_core::error::OpenAuthError::Api(error.to_string()))?;
-                    let signature_verified = if method == Method::GET {
-                        if query_param(&request, "Signature").is_some() {
-                            parsed.has_signature = true;
-                            if let Err(error) = verify_redirect_logout_response(
-                                request
-                                    .uri()
-                                    .path_and_query()
-                                    .map(|value| value.as_str())
-                                    .unwrap_or_default(),
-                                &config.cert,
-                            ) {
-                                audit::emit(
-                                    context,
-                                    &options,
-                                    SsoAuditEvent::new(
-                                        SsoAuditEventKind::SamlSignatureFailed,
-                                        SsoAuditSeverity::Warn,
-                                    )
-                                    .provider_id(provider.provider_id.clone())
-                                    .reason(error.code()),
-                                )
-                                .await;
-                                return super::saml_signature_error_response(error);
-                            }
-                            true
-                        } else {
-                            false
-                        }
-                    } else if parsed.signature.is_signed() {
-                        if let Err(error) = verify_signed_logout_response(
-                            &encoded_response,
-                            parsed.signature,
-                            &config.cert,
-                        )
-                        .await
-                        {
-                            audit::emit(
-                                context,
-                                &options,
-                                SsoAuditEvent::new(
-                                    SsoAuditEventKind::SamlSignatureFailed,
-                                    SsoAuditSeverity::Warn,
-                                )
-                                .provider_id(provider.provider_id.clone())
-                                .reason(error.code()),
-                            )
-                            .await;
-                            return super::saml_signature_error_response(error);
-                        }
-                        true
-                    } else {
-                        false
-                    };
-                    return handle_saml_logout_response(
-                        context,
-                        adapter,
-                        &options,
-                        parsed,
-                        body.relay_state.as_deref(),
-                        signature_verified,
-                    )
-                    .await;
-                }
-                let Some(encoded_request) = body.saml_request else {
-                    return redirect_with_error(
-                        &format!(
-                            "{}/sso/saml2/sp/slo/{}",
-                            context.base_url.trim_end_matches('/'),
-                            provider_id
-                        ),
-                        "missing_logout_data",
-                    );
-                };
-                let mut parsed = if method == Method::GET {
-                    parse_redirect_logout_request(&encoded_request)
-                } else {
-                    parse_post_logout_request(&encoded_request)
-                }
-                .map_err(|error| openauth_core::error::OpenAuthError::Api(error.to_string()))?;
-                let signature_verified = if method == Method::GET {
-                    if query_param(&request, "Signature").is_some() {
-                        parsed.has_signature = true;
-                        if let Err(error) = verify_redirect_logout_request(
-                            request
-                                .uri()
-                                .path_and_query()
-                                .map(|value| value.as_str())
-                                .unwrap_or_default(),
-                            &config.cert,
-                        ) {
-                            audit::emit(
-                                context,
-                                &options,
-                                SsoAuditEvent::new(
-                                    SsoAuditEventKind::SamlSignatureFailed,
-                                    SsoAuditSeverity::Warn,
-                                )
-                                .provider_id(provider.provider_id.clone())
-                                .reason(error.code()),
-                            )
-                            .await;
-                            return super::saml_signature_error_response(error);
-                        }
-                        true
-                    } else {
-                        false
-                    }
-                } else if parsed.signature.is_signed() {
-                    if let Err(error) = verify_signed_logout_request(
-                        &encoded_request,
-                        parsed.signature,
-                        &config.cert,
-                    )
-                    .await
-                    {
-                        audit::emit(
-                            context,
-                            &options,
-                            SsoAuditEvent::new(
-                                SsoAuditEventKind::SamlSignatureFailed,
-                                SsoAuditSeverity::Warn,
-                            )
-                            .provider_id(provider.provider_id.clone())
-                            .reason(error.code()),
-                        )
-                        .await;
-                        return super::saml_signature_error_response(error);
-                    }
-                    true
-                } else {
-                    false
-                };
-                handle_saml_logout_request(
-                    SamlLogoutRequestHandlerInput {
-                        context,
-                        adapter,
-                        options: &options,
-                        config: &config,
-                        provider_id: &provider_id,
-                        relay_state: body.relay_state.as_deref(),
-                        signature_verified,
-                    },
-                    parsed,
-                )
-                .await
-            })
+            Box::pin(async move { handle_slo(context, options, method, request).await })
         },
     )
+}
+
+async fn handle_slo(
+    context: &AuthContext,
+    options: Arc<SsoOptions>,
+    method: Method,
+    request: ApiRequest,
+) -> Result<ApiResponse, openauth_core::error::OpenAuthError> {
+    if !options.saml.enable_single_logout {
+        return utils::json(
+            http::StatusCode::BAD_REQUEST,
+            &json!({"code": "SINGLE_LOGOUT_NOT_ENABLED"}),
+        );
+    }
+    let Some(provider_id) = path_param(&request, "providerId") else {
+        return utils::json(
+            http::StatusCode::BAD_REQUEST,
+            &json!({"code": "MISSING_PROVIDER_ID"}),
+        );
+    };
+    let Some(adapter) = context.adapter.as_deref() else {
+        return unauthorized();
+    };
+    let Some(provider) = find_saml_provider(&options, adapter, &provider_id).await? else {
+        return utils::json(
+            http::StatusCode::NOT_FOUND,
+            &json!({"code": "SAML_PROVIDER_NOT_FOUND"}),
+        );
+    };
+    let Some(config) = provider
+        .saml_config
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<SamlConfig>(value).ok())
+    else {
+        return utils::json(
+            http::StatusCode::BAD_REQUEST,
+            &json!({"code": "SAML_PROVIDER_NOT_CONFIGURED"}),
+        );
+    };
+
+    let body = slo_body_from_request(&method, &request);
+    if let Some(encoded_response) = body.saml_response {
+        let parsed = match parse_verified_logout_response(
+            context,
+            &options,
+            &request,
+            &method,
+            &provider,
+            &config,
+            &encoded_response,
+        )
+        .await?
+        {
+            Ok(parsed) => parsed,
+            Err(response) => return Ok(response),
+        };
+        return handle_saml_logout_response(
+            context,
+            adapter,
+            &options,
+            parsed.message,
+            body.relay_state.as_deref(),
+            parsed.signature_verified,
+        )
+        .await;
+    }
+    let Some(encoded_request) = body.saml_request else {
+        return redirect_with_error(
+            &format!(
+                "{}/sso/saml2/sp/slo/{}",
+                context.base_url.trim_end_matches('/'),
+                provider_id
+            ),
+            "missing_logout_data",
+        );
+    };
+    let parsed = match parse_verified_logout_request(
+        context,
+        &options,
+        &request,
+        &method,
+        &provider,
+        &config,
+        &encoded_request,
+    )
+    .await?
+    {
+        Ok(parsed) => parsed,
+        Err(response) => return Ok(response),
+    };
+    handle_saml_logout_request(
+        SamlLogoutRequestHandlerInput {
+            context,
+            adapter,
+            options: &options,
+            config: &config,
+            provider_id: &provider_id,
+            relay_state: body.relay_state.as_deref(),
+            signature_verified: parsed.signature_verified,
+        },
+        parsed.message,
+    )
+    .await
+}
+
+fn slo_body_from_request(method: &Method, request: &ApiRequest) -> SamlSloBody {
+    if method == Method::GET {
+        return SamlSloBody {
+            saml_request: query_param(request, "SAMLRequest"),
+            saml_response: query_param(request, "SAMLResponse"),
+            relay_state: query_param(request, "RelayState"),
+        };
+    }
+    parse_request_body::<SamlSloBody>(request).unwrap_or_default()
 }
 
 struct SamlLogoutRequestHandlerInput<'a> {

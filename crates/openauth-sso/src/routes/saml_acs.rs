@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use http::Method;
 use openauth_core::api::{
-    create_auth_endpoint, parse_request_body, session_cookies, AsyncAuthEndpoint,
-    AuthEndpointOptions, OpenApiOperation,
+    create_auth_endpoint, parse_request_body, session_cookies, ApiRequest, ApiResponse,
+    AsyncAuthEndpoint, AuthEndpointOptions, OpenApiOperation,
 };
 use openauth_core::auth::oauth::{
     handle_oauth_user_info, HandleOAuthUserInfoInput, OAuthAccountInput, OAuthUserInfo,
@@ -22,9 +22,7 @@ use crate::openapi::saml_acs_body_schema;
 use crate::options::{
     SamlConfig, SamlMapping, SsoAuditEvent, SsoAuditEventKind, SsoAuditSeverity, SsoOptions,
 };
-use crate::saml::assertions::{
-    parse_saml_response_with_decryption, ParsedSamlResponse, ENCRYPTED_ASSERTION_UNSUPPORTED,
-};
+use crate::saml::assertions::{parse_saml_response_with_decryption_detailed, ParsedSamlResponse};
 use crate::saml::authn_request::assertion_consumer_service_url;
 use crate::saml::security::{
     validate_saml_runtime_algorithms, validate_saml_timestamp, SamlRuntimeAlgorithmPolicy,
@@ -70,362 +68,506 @@ pub(super) fn endpoint(
             .openapi(OpenApiOperation::new(operation_id).tag("SSO")),
         move |context, request| {
             let options = Arc::clone(&options);
-            Box::pin(async move {
-                let Some(provider_id) = path_param(&request, "providerId") else {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "MISSING_PROVIDER_ID"}),
-                    );
-                };
-                let body = parse_request_body::<SamlAcsBody>(&request)?;
-                let relay_state = body.relay_state.as_deref();
-                let Some(adapter) = context.adapter.as_deref() else {
-                    return utils::json(
-                        http::StatusCode::NOT_FOUND,
-                        &json!({"code": "PROVIDER_NOT_FOUND"}),
-                    );
-                };
-                let provider = if let Some(provider) =
-                    super::sign_in::default_sso_by_provider_id(&options, &provider_id)?
-                {
-                    Some(provider)
-                } else {
-                    SsoProviderStore::new(adapter)
-                        .find_by_provider_id(&provider_id)
-                        .await?
-                };
-                let Some(provider) = provider else {
-                    return utils::json(
-                        http::StatusCode::NOT_FOUND,
-                        &json!({"code": "PROVIDER_NOT_FOUND"}),
-                    );
-                };
-                let Some(config) = provider
-                    .saml_config
-                    .as_deref()
-                    .and_then(|value| serde_json::from_str::<SamlConfig>(value).ok())
-                else {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "INVALID_SAML_CONFIG"}),
-                    );
-                };
-                let mut authn_record = None;
-                let state_store = SsoStateStore::new(context, adapter);
-                if options.saml.enable_in_response_to_validation {
-                    if let Some(relay_state) = relay_state.filter(|value| !value.is_empty()) {
-                        let identifier = authn_request_key(relay_state);
-                        let Some(state) = state_store.find(&identifier).await? else {
-                            return utils::json(
-                                http::StatusCode::BAD_REQUEST,
-                                &json!({"code": "UNKNOWN_AUTHN_REQUEST"}),
-                            );
-                        };
-                        authn_record =
-                            serde_json::from_str::<super::sign_in::SamlAuthnRequestRecord>(
-                                &state.value,
-                            )
-                            .ok();
-                    } else if !options.saml.allow_idp_initiated {
-                        return utils::json(
-                            http::StatusCode::BAD_REQUEST,
-                            &json!({"code": "MISSING_RELAY_STATE"}),
-                        );
-                    }
-                }
-
-                let saml_response = match body.saml_response {
-                    Some(saml_response) => saml_response,
-                    None => {
-                        return acs_error_response(
-                            context,
-                            &config,
-                            authn_record.as_ref(),
-                            http::StatusCode::BAD_REQUEST,
-                            "MISSING_SAML_RESPONSE",
-                        );
-                    }
-                };
-                if saml_response.len() > options.saml.max_response_size {
-                    return acs_error_response(
-                        context,
-                        &config,
-                        authn_record.as_ref(),
-                        http::StatusCode::PAYLOAD_TOO_LARGE,
-                        "SAML_RESPONSE_TOO_LARGE",
-                    );
-                }
-
-                let parsed = match parse_saml_response_with_decryption(
-                    &saml_response,
-                    config
-                        .decryption_pvk
-                        .as_ref()
-                        .map(|key| key.expose_secret()),
-                ) {
-                    Ok(parsed) => parsed,
-                    Err(error) if error.to_string().contains(ENCRYPTED_ASSERTION_UNSUPPORTED) => {
-                        return acs_error_response(
-                            context,
-                            &config,
-                            authn_record.as_ref(),
-                            http::StatusCode::BAD_REQUEST,
-                            "ENCRYPTED_SAML_ASSERTION_UNSUPPORTED",
-                        )
-                    }
-                    Err(_) => {
-                        return acs_error_response(
-                            context,
-                            &config,
-                            authn_record.as_ref(),
-                            http::StatusCode::BAD_REQUEST,
-                            "INVALID_SAML_RESPONSE",
-                        )
-                    }
-                };
-                if let Err(error) = validate_saml_runtime_algorithms(
-                    &parsed.algorithms,
-                    SamlRuntimeAlgorithmPolicy {
-                        on_deprecated: options.saml.algorithms.on_deprecated,
-                        allowed_signature_algorithms: options
-                            .saml
-                            .algorithms
-                            .allowed_signature_algorithms
-                            .as_deref(),
-                        allowed_digest_algorithms: options
-                            .saml
-                            .algorithms
-                            .allowed_digest_algorithms
-                            .as_deref(),
-                        allowed_key_encryption_algorithms: options
-                            .saml
-                            .algorithms
-                            .allowed_key_encryption_algorithms
-                            .as_deref(),
-                        allowed_data_encryption_algorithms: options
-                            .saml
-                            .algorithms
-                            .allowed_data_encryption_algorithms
-                            .as_deref(),
-                    },
-                ) {
-                    return acs_error_response(
-                        context,
-                        &config,
-                        authn_record.as_ref(),
-                        http::StatusCode::BAD_REQUEST,
-                        super::saml_runtime_algorithm_error_code(&error),
-                    );
-                }
-                let verified_signature = if parsed.signature.is_signed() {
-                    match verify_signed_saml_response(
-                        &saml_response,
-                        parsed.signature,
-                        &config.cert,
-                    )
-                    .await
-                    {
-                        Ok(signature) => Some(signature),
-                        Err(error) => {
-                            audit::emit(
-                                context,
-                                &options,
-                                SsoAuditEvent::new(
-                                    SsoAuditEventKind::SamlSignatureFailed,
-                                    SsoAuditSeverity::Warn,
-                                )
-                                .provider_id(provider.provider_id.clone())
-                                .reason(error.code()),
-                            )
-                            .await;
-                            return super::saml_signature_error_response(error);
-                        }
-                    }
-                } else {
-                    None
-                };
-                if let Err(code) = validate_parsed_saml_response(
-                    &parsed,
-                    &provider,
-                    &config,
-                    &context.base_url,
-                    &options,
-                    authn_record.as_ref(),
-                    verified_signature.as_ref(),
-                ) {
-                    return acs_error_response(
-                        context,
-                        &config,
-                        authn_record.as_ref(),
-                        http::StatusCode::BAD_REQUEST,
-                        code,
-                    );
-                }
-
-                let assertion_identifier = used_assertion_key(&parsed.assertion.id);
-                if state_store.find(&assertion_identifier).await?.is_some() {
-                    audit::emit(
-                        context,
-                        &options,
-                        SsoAuditEvent::new(
-                            SsoAuditEventKind::SamlReplayRejected,
-                            SsoAuditSeverity::Warn,
-                        )
-                        .provider_id(provider.provider_id.clone())
-                        .reason("REPLAYED_SAML_ASSERTION"),
-                    )
-                    .await;
-                    return acs_error_response(
-                        context,
-                        &config,
-                        authn_record.as_ref(),
-                        http::StatusCode::BAD_REQUEST,
-                        "REPLAYED_SAML_ASSERTION",
-                    );
-                }
-
-                let Some(user_info) = saml_user_info(&parsed, config.mapping.as_ref(), &options)
-                else {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "UNABLE_TO_EXTRACT_SAML_USER"}),
-                    );
-                };
-                if !provider_matches_email_domain(&provider, &user_info.email) {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "INVALID_EMAIL_DOMAIN"}),
-                    );
-                }
-
-                state_store
-                    .create(
-                        assertion_identifier,
-                        provider.provider_id.clone(),
-                        OffsetDateTime::now_utc() + options.saml.request_ttl,
-                    )
-                    .await?;
-                if let Some(record) = &authn_record {
-                    state_store.delete(&authn_request_key(&record.id)).await?;
-                }
-
-                let callback_url = authn_record
-                    .as_ref()
-                    .map(|record| record.callback_url.clone())
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or_else(|| context.base_url.clone());
-                let callback_url = utils::safe_redirect_url(context, &callback_url)
-                    .unwrap_or_else(|| context.base_url.clone());
-                let result = handle_oauth_user_info(
-                    context,
-                    adapter,
-                    HandleOAuthUserInfoInput {
-                        user_info: user_info.clone(),
-                        account: OAuthAccountInput {
-                            provider_id: provider.provider_id.clone(),
-                            account_id: user_info.id.clone(),
-                            access_token: None,
-                            refresh_token: None,
-                            id_token: None,
-                            access_token_expires_at: None,
-                            refresh_token_expires_at: None,
-                            scope: None,
-                        },
-                        callback_url: Some(callback_url.clone()),
-                        disable_sign_up: options.disable_implicit_sign_up
-                            && !authn_record
-                                .as_ref()
-                                .is_some_and(|record| record.request_sign_up),
-                        override_user_info: false,
-                        is_trusted_provider: is_trusted_sso_provider(
-                            options.as_ref(),
-                            &provider,
-                            &user_info,
-                        ),
-                        require_trusted_provider_for_implicit_link: true,
-                    },
-                )
-                .await?;
-                let Some(data) = result.data else {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "SAML_SIGN_IN_FAILED"}),
-                    );
-                };
-                let profile = NormalizedSsoProfile {
-                    provider_type: "saml".to_owned(),
-                    provider_id: provider.provider_id.clone(),
-                    account_id: user_info.id.clone(),
-                    email: user_info.email.clone(),
-                    email_verified: user_info.email_verified,
-                    name: Some(user_info.name.clone()),
-                    image: user_info.image.clone(),
-                    raw_attributes: user_info.raw_attributes.clone(),
-                    token_data: None,
-                };
-                provision_sso_user(
-                    options.as_ref(),
-                    &data.user,
-                    &profile,
-                    &provider,
-                    None,
-                    result.is_register,
-                )
-                .await?;
-                assign_organization_from_provider(
-                    context,
-                    adapter,
-                    &options.organization_provisioning,
-                    &data.user,
-                    &profile,
-                    &provider,
-                    None,
-                )
-                .await?;
-                if options.saml.enable_single_logout {
-                    if let Some(name_id) = &parsed.assertion.name_id {
-                        let session_key = saml_session_key(&provider.provider_id, name_id);
-                        state_store
-                            .create(
-                                session_key.clone(),
-                                serde_json::to_string(&super::slo::SamlSessionRecord {
-                                    session_id: data.session.id.clone(),
-                                    provider_id: provider.provider_id.clone(),
-                                    name_id: name_id.clone(),
-                                    session_index: parsed.assertion.session_index.clone(),
-                                })
-                                .map_err(|error| {
-                                    openauth_core::error::OpenAuthError::Api(format!(
-                                        "failed to serialize SAML session state: {error}"
-                                    ))
-                                })?,
-                                data.session.expires_at,
-                            )
-                            .await?;
-                        state_store
-                            .create(
-                                saml_session_by_id_key(&data.session.id),
-                                session_key,
-                                data.session.expires_at,
-                            )
-                            .await?;
-                    }
-                }
-                let target_url = if result.is_register {
-                    authn_record
-                        .as_ref()
-                        .and_then(|record| record.new_user_url.as_deref())
-                        .unwrap_or(&callback_url)
-                } else {
-                    &callback_url
-                };
-                let target_url = utils::safe_redirect_url(context, target_url)
-                    .unwrap_or_else(|| context.base_url.clone());
-                let cookies = session_cookies(context, &data.session, &data.user, false)?;
-                redirect_with_cookies(&target_url, cookies)
-            })
+            Box::pin(async move { handle_acs(context, Arc::clone(&options), request).await })
         },
     )
+}
+
+async fn handle_acs(
+    context: &AuthContext,
+    options: Arc<SsoOptions>,
+    request: ApiRequest,
+) -> Result<ApiResponse, openauth_core::error::OpenAuthError> {
+    let Some(provider_id) = path_param(&request, "providerId") else {
+        return utils::json(
+            http::StatusCode::BAD_REQUEST,
+            &json!({"code": "MISSING_PROVIDER_ID"}),
+        );
+    };
+    let body = parse_request_body::<SamlAcsBody>(&request)?;
+    let relay_state = body.relay_state.as_deref();
+    let Some(adapter) = context.adapter.as_deref() else {
+        return utils::json(
+            http::StatusCode::NOT_FOUND,
+            &json!({"code": "PROVIDER_NOT_FOUND"}),
+        );
+    };
+    let (provider, config) =
+        match load_saml_provider(options.as_ref(), adapter, &provider_id).await? {
+            SamlProviderLoadResult::Found(provider, config) => (*provider, *config),
+            SamlProviderLoadResult::NotFound => {
+                return utils::json(
+                    http::StatusCode::NOT_FOUND,
+                    &json!({"code": "PROVIDER_NOT_FOUND"}),
+                );
+            }
+            SamlProviderLoadResult::InvalidConfig => {
+                return utils::json(
+                    http::StatusCode::BAD_REQUEST,
+                    &json!({"code": "INVALID_SAML_CONFIG"}),
+                );
+            }
+        };
+    let state_store = SsoStateStore::new(context, adapter);
+    let authn_record = match load_authn_record(options.as_ref(), &state_store, relay_state).await? {
+        Ok(record) => record,
+        Err(response) => return Ok(response),
+    };
+    let Some(saml_response) = body.saml_response else {
+        return acs_error_response(
+            context,
+            &config,
+            authn_record.as_ref(),
+            http::StatusCode::BAD_REQUEST,
+            "MISSING_SAML_RESPONSE",
+        );
+    };
+    let parsed = match parse_and_validate_saml_response(
+        context,
+        options.as_ref(),
+        &provider,
+        &config,
+        authn_record.as_ref(),
+        &saml_response,
+    )
+    .await?
+    {
+        Ok(parsed) => parsed,
+        Err(response) => return Ok(response),
+    };
+    let user_info = match saml_user_info(&parsed, config.mapping.as_ref(), options.as_ref()) {
+        Some(user_info) => user_info,
+        None => {
+            return utils::json(
+                http::StatusCode::BAD_REQUEST,
+                &json!({"code": "UNABLE_TO_EXTRACT_SAML_USER"}),
+            );
+        }
+    };
+    if !provider_matches_email_domain(&provider, &user_info.email) {
+        return utils::json(
+            http::StatusCode::BAD_REQUEST,
+            &json!({"code": "INVALID_EMAIL_DOMAIN"}),
+        );
+    }
+
+    complete_saml_login(SamlLoginInput {
+        context,
+        adapter,
+        options: options.as_ref(),
+        state_store: &state_store,
+        provider: &provider,
+        config: &config,
+        authn_record: authn_record.as_ref(),
+        parsed: &parsed,
+        user_info,
+    })
+    .await
+}
+
+enum SamlProviderLoadResult {
+    Found(Box<crate::SsoProviderRecord>, Box<SamlConfig>),
+    NotFound,
+    InvalidConfig,
+}
+
+async fn load_saml_provider(
+    options: &SsoOptions,
+    adapter: &dyn openauth_core::db::DbAdapter,
+    provider_id: &str,
+) -> Result<SamlProviderLoadResult, openauth_core::error::OpenAuthError> {
+    let provider =
+        if let Some(provider) = super::sign_in::default_sso_by_provider_id(options, provider_id)? {
+            Some(provider)
+        } else {
+            SsoProviderStore::new(adapter)
+                .find_by_provider_id(provider_id)
+                .await?
+        };
+    let Some(provider) = provider else {
+        return Ok(SamlProviderLoadResult::NotFound);
+    };
+    let Some(config) = provider
+        .saml_config
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<SamlConfig>(value).ok())
+    else {
+        return Ok(SamlProviderLoadResult::InvalidConfig);
+    };
+    Ok(SamlProviderLoadResult::Found(
+        Box::new(provider),
+        Box::new(config),
+    ))
+}
+
+async fn load_authn_record(
+    options: &SsoOptions,
+    state_store: &SsoStateStore<'_>,
+    relay_state: Option<&str>,
+) -> Result<
+    Result<Option<super::sign_in::SamlAuthnRequestRecord>, ApiResponse>,
+    openauth_core::error::OpenAuthError,
+> {
+    if !options.saml.enable_in_response_to_validation {
+        return Ok(Ok(None));
+    }
+    if let Some(relay_state) = relay_state.filter(|value| !value.is_empty()) {
+        let identifier = authn_request_key(relay_state);
+        let Some(state) = state_store.find(&identifier).await? else {
+            return Ok(Err(utils::json(
+                http::StatusCode::BAD_REQUEST,
+                &json!({"code": "UNKNOWN_AUTHN_REQUEST"}),
+            )?));
+        };
+        return Ok(Ok(serde_json::from_str::<
+            super::sign_in::SamlAuthnRequestRecord,
+        >(&state.value)
+        .ok()));
+    }
+    if !options.saml.allow_idp_initiated {
+        return Ok(Err(utils::json(
+            http::StatusCode::BAD_REQUEST,
+            &json!({"code": "MISSING_RELAY_STATE"}),
+        )?));
+    }
+    Ok(Ok(None))
+}
+
+async fn parse_and_validate_saml_response(
+    context: &AuthContext,
+    options: &SsoOptions,
+    provider: &crate::SsoProviderRecord,
+    config: &SamlConfig,
+    authn_record: Option<&super::sign_in::SamlAuthnRequestRecord>,
+    saml_response: &str,
+) -> Result<Result<ParsedSamlResponse, ApiResponse>, openauth_core::error::OpenAuthError> {
+    if saml_response.len() > options.saml.max_response_size {
+        return Ok(Err(acs_error_response(
+            context,
+            config,
+            authn_record,
+            http::StatusCode::PAYLOAD_TOO_LARGE,
+            "SAML_RESPONSE_TOO_LARGE",
+        )?));
+    }
+
+    let parsed = match parse_saml_response_with_decryption_detailed(
+        saml_response,
+        config
+            .decryption_pvk
+            .as_ref()
+            .map(|key| key.expose_secret()),
+    ) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return Ok(Err(acs_error_response(
+                context,
+                config,
+                authn_record,
+                error.status(),
+                error.code(),
+            )?));
+        }
+    };
+    if let Err(error) = validate_saml_runtime_algorithms(
+        &parsed.algorithms,
+        SamlRuntimeAlgorithmPolicy {
+            on_deprecated: options.saml.algorithms.on_deprecated,
+            allowed_signature_algorithms: options
+                .saml
+                .algorithms
+                .allowed_signature_algorithms
+                .as_deref(),
+            allowed_digest_algorithms: options.saml.algorithms.allowed_digest_algorithms.as_deref(),
+            allowed_key_encryption_algorithms: options
+                .saml
+                .algorithms
+                .allowed_key_encryption_algorithms
+                .as_deref(),
+            allowed_data_encryption_algorithms: options
+                .saml
+                .algorithms
+                .allowed_data_encryption_algorithms
+                .as_deref(),
+        },
+    ) {
+        return Ok(Err(acs_error_response(
+            context,
+            config,
+            authn_record,
+            http::StatusCode::BAD_REQUEST,
+            super::saml_runtime_algorithm_error_code(&error),
+        )?));
+    }
+    let verified_signature =
+        match verify_saml_signature(context, options, provider, config, &parsed, saml_response)
+            .await?
+        {
+            Ok(signature) => signature,
+            Err(response) => return Ok(Err(response)),
+        };
+    if let Err(code) = validate_parsed_saml_response(
+        &parsed,
+        provider,
+        config,
+        &context.base_url,
+        options,
+        authn_record,
+        verified_signature.as_ref(),
+    ) {
+        return Ok(Err(acs_error_response(
+            context,
+            config,
+            authn_record,
+            http::StatusCode::BAD_REQUEST,
+            code,
+        )?));
+    }
+    Ok(Ok(parsed))
+}
+
+async fn verify_saml_signature(
+    context: &AuthContext,
+    options: &SsoOptions,
+    provider: &crate::SsoProviderRecord,
+    config: &SamlConfig,
+    parsed: &ParsedSamlResponse,
+    saml_response: &str,
+) -> Result<Result<Option<VerifiedSamlSignature>, ApiResponse>, openauth_core::error::OpenAuthError>
+{
+    if !parsed.signature.is_signed() {
+        return Ok(Ok(None));
+    }
+    match verify_signed_saml_response(saml_response, parsed.signature, &config.cert).await {
+        Ok(signature) => Ok(Ok(Some(signature))),
+        Err(error) => {
+            audit::emit(
+                context,
+                options,
+                SsoAuditEvent::new(
+                    SsoAuditEventKind::SamlSignatureFailed,
+                    SsoAuditSeverity::Warn,
+                )
+                .provider_id(provider.provider_id.clone())
+                .reason(error.code()),
+            )
+            .await;
+            Ok(Err(super::saml_signature_error_response(error)?))
+        }
+    }
+}
+
+struct SamlLoginInput<'a> {
+    context: &'a AuthContext,
+    adapter: &'a dyn openauth_core::db::DbAdapter,
+    options: &'a SsoOptions,
+    state_store: &'a SsoStateStore<'a>,
+    provider: &'a crate::SsoProviderRecord,
+    config: &'a SamlConfig,
+    authn_record: Option<&'a super::sign_in::SamlAuthnRequestRecord>,
+    parsed: &'a ParsedSamlResponse,
+    user_info: OAuthUserInfo,
+}
+
+async fn complete_saml_login(
+    input: SamlLoginInput<'_>,
+) -> Result<ApiResponse, openauth_core::error::OpenAuthError> {
+    let assertion_identifier = used_assertion_key(&input.parsed.assertion.id);
+    if input
+        .state_store
+        .find(&assertion_identifier)
+        .await?
+        .is_some()
+    {
+        audit::emit(
+            input.context,
+            input.options,
+            SsoAuditEvent::new(
+                SsoAuditEventKind::SamlReplayRejected,
+                SsoAuditSeverity::Warn,
+            )
+            .provider_id(input.provider.provider_id.clone())
+            .reason("REPLAYED_SAML_ASSERTION"),
+        )
+        .await;
+        return acs_error_response(
+            input.context,
+            input.config,
+            input.authn_record,
+            http::StatusCode::BAD_REQUEST,
+            "REPLAYED_SAML_ASSERTION",
+        );
+    }
+
+    input
+        .state_store
+        .create(
+            assertion_identifier,
+            input.provider.provider_id.clone(),
+            OffsetDateTime::now_utc() + input.options.saml.request_ttl,
+        )
+        .await?;
+    if let Some(record) = input.authn_record {
+        input
+            .state_store
+            .delete(&authn_request_key(&record.id))
+            .await?;
+    }
+
+    let callback_url = saml_callback_url(input.context, input.authn_record);
+    let result = handle_oauth_user_info(
+        input.context,
+        input.adapter,
+        HandleOAuthUserInfoInput {
+            user_info: input.user_info.clone(),
+            account: saml_oauth_account(input.provider, &input.user_info),
+            callback_url: Some(callback_url.clone()),
+            disable_sign_up: input.options.disable_implicit_sign_up
+                && !input
+                    .authn_record
+                    .as_ref()
+                    .is_some_and(|record| record.request_sign_up),
+            override_user_info: false,
+            is_trusted_provider: is_trusted_sso_provider(
+                input.options,
+                input.provider,
+                &input.user_info,
+            ),
+            require_trusted_provider_for_implicit_link: true,
+        },
+    )
+    .await?;
+    let Some(data) = result.data else {
+        return utils::json(
+            http::StatusCode::BAD_REQUEST,
+            &json!({"code": "SAML_SIGN_IN_FAILED"}),
+        );
+    };
+    let profile = normalized_saml_profile(input.provider, &input.user_info);
+    provision_sso_user(
+        input.options,
+        &data.user,
+        &profile,
+        input.provider,
+        None,
+        result.is_register,
+    )
+    .await?;
+    assign_organization_from_provider(
+        input.context,
+        input.adapter,
+        &input.options.organization_provisioning,
+        &data.user,
+        &profile,
+        input.provider,
+        None,
+    )
+    .await?;
+    record_saml_session_if_enabled(&input, &data.session).await?;
+
+    let target_url = saml_target_url(result.is_register, input.authn_record, &callback_url);
+    let target_url = utils::safe_redirect_url(input.context, target_url.as_str())
+        .unwrap_or_else(|| input.context.base_url.clone());
+    let cookies = session_cookies(input.context, &data.session, &data.user, false)?;
+    redirect_with_cookies(&target_url, cookies)
+}
+
+fn saml_callback_url(
+    context: &AuthContext,
+    authn_record: Option<&super::sign_in::SamlAuthnRequestRecord>,
+) -> String {
+    let callback_url = authn_record
+        .map(|record| record.callback_url.clone())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| context.base_url.clone());
+    utils::safe_redirect_url(context, &callback_url).unwrap_or_else(|| context.base_url.clone())
+}
+
+fn saml_target_url(
+    is_register: bool,
+    authn_record: Option<&super::sign_in::SamlAuthnRequestRecord>,
+    callback_url: &str,
+) -> String {
+    if is_register {
+        authn_record
+            .and_then(|record| record.new_user_url.as_deref())
+            .unwrap_or(callback_url)
+            .to_owned()
+    } else {
+        callback_url.to_owned()
+    }
+}
+
+fn saml_oauth_account(
+    provider: &crate::SsoProviderRecord,
+    user_info: &OAuthUserInfo,
+) -> OAuthAccountInput {
+    OAuthAccountInput {
+        provider_id: provider.provider_id.clone(),
+        account_id: user_info.id.clone(),
+        access_token: None,
+        refresh_token: None,
+        id_token: None,
+        access_token_expires_at: None,
+        refresh_token_expires_at: None,
+        scope: None,
+    }
+}
+
+fn normalized_saml_profile(
+    provider: &crate::SsoProviderRecord,
+    user_info: &OAuthUserInfo,
+) -> NormalizedSsoProfile {
+    NormalizedSsoProfile {
+        provider_type: "saml".to_owned(),
+        provider_id: provider.provider_id.clone(),
+        account_id: user_info.id.clone(),
+        email: user_info.email.clone(),
+        email_verified: user_info.email_verified,
+        name: Some(user_info.name.clone()),
+        image: user_info.image.clone(),
+        raw_attributes: user_info.raw_attributes.clone(),
+        token_data: None,
+    }
+}
+
+async fn record_saml_session_if_enabled(
+    input: &SamlLoginInput<'_>,
+    session: &openauth_core::db::Session,
+) -> Result<(), openauth_core::error::OpenAuthError> {
+    if !input.options.saml.enable_single_logout {
+        return Ok(());
+    }
+    let Some(name_id) = &input.parsed.assertion.name_id else {
+        return Ok(());
+    };
+    let session_key = saml_session_key(&input.provider.provider_id, name_id);
+    input
+        .state_store
+        .create(
+            session_key.clone(),
+            serde_json::to_string(&super::slo::SamlSessionRecord {
+                session_id: session.id.clone(),
+                provider_id: input.provider.provider_id.clone(),
+                name_id: name_id.clone(),
+                session_index: input.parsed.assertion.session_index.clone(),
+            })
+            .map_err(|error| {
+                openauth_core::error::OpenAuthError::Api(format!(
+                    "failed to serialize SAML session state: {error}"
+                ))
+            })?,
+            session.expires_at,
+        )
+        .await?;
+    input
+        .state_store
+        .create(
+            saml_session_by_id_key(&session.id),
+            session_key,
+            session.expires_at,
+        )
+        .await
 }
 
 pub(super) fn get_callback_endpoint() -> AsyncAuthEndpoint {

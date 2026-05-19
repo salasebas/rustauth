@@ -184,7 +184,7 @@ impl OidcDiscoveryError {
 async fn fetch_discovery_document(
     discovery_endpoint: &str,
 ) -> Result<OidcDiscoveryDocument, OidcDiscoveryError> {
-    let response = reqwest::Client::new()
+    let response = crate::utils::http_client()
         .get(discovery_endpoint)
         .header("accept", "application/json")
         .timeout(std::time::Duration::from_secs(10))

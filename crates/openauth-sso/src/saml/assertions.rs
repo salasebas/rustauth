@@ -11,6 +11,59 @@ use super::xml::{local_name, validate_saml_xml};
 
 pub const ENCRYPTED_ASSERTION_UNSUPPORTED: &str = "Encrypted SAML assertions are not supported";
 
+#[derive(Debug, thiserror::Error)]
+pub enum SamlResponseParseError {
+    #[error("Invalid base64-encoded SAML response")]
+    InvalidEncoding,
+    #[error("Invalid SAML XML: {0}")]
+    InvalidXml(String),
+    #[error("SAML response contains no assertions")]
+    MissingAssertion,
+    #[error("SAML response contains {count} assertions, expected exactly 1")]
+    UnexpectedAssertionCount { count: usize },
+    #[error("{0}")]
+    EncryptedAssertionUnsupported(&'static str),
+    #[error("SAML assertion missing ID")]
+    MissingAssertionId,
+    #[error("{0}")]
+    Decryption(#[from] SamlAssertionDecryptionError),
+}
+
+impl SamlResponseParseError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::EncryptedAssertionUnsupported(_) => "ENCRYPTED_SAML_ASSERTION_UNSUPPORTED",
+            Self::Decryption(error) => error.code(),
+            Self::MissingAssertionId => "INVALID_SAML_RESPONSE",
+            Self::MissingAssertion
+            | Self::UnexpectedAssertionCount { .. }
+            | Self::InvalidEncoding
+            | Self::InvalidXml(_) => "INVALID_SAML_RESPONSE",
+        }
+    }
+
+    pub fn status(&self) -> http::StatusCode {
+        http::StatusCode::BAD_REQUEST
+    }
+}
+
+impl From<SamlResponseParseError> for OpenAuthError {
+    fn from(error: SamlResponseParseError) -> Self {
+        match error {
+            SamlResponseParseError::Decryption(error) => {
+                OpenAuthError::Api(error.code().to_owned())
+            }
+            error => OpenAuthError::Api(error.to_string()),
+        }
+    }
+}
+
+impl From<OpenAuthError> for SamlResponseParseError {
+    fn from(error: OpenAuthError) -> Self {
+        SamlResponseParseError::InvalidXml(error.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AssertionCounts {
     pub assertions: usize,
@@ -128,264 +181,277 @@ pub fn parse_saml_response_with_decryption(
     encoded_response: &str,
     decryption_private_key: Option<&str>,
 ) -> Result<ParsedSamlResponse, OpenAuthError> {
-    let xml = decode_saml_response_xml(encoded_response)?;
-    let counts = count_assertions(&xml)?;
+    parse_saml_response_with_decryption_detailed(encoded_response, decryption_private_key)
+        .map_err(Into::into)
+}
+
+pub fn parse_saml_response_with_decryption_detailed(
+    encoded_response: &str,
+    decryption_private_key: Option<&str>,
+) -> Result<ParsedSamlResponse, SamlResponseParseError> {
+    let xml = decode_saml_response_xml_detailed(encoded_response)?;
+    let counts = count_assertions_detailed(&xml)?;
     if counts.assertions == 0 && counts.encrypted_assertions == 1 {
         let Some(private_key) = decryption_private_key else {
-            return Err(OpenAuthError::Api(
-                ENCRYPTED_ASSERTION_UNSUPPORTED.to_owned(),
+            return Err(SamlResponseParseError::EncryptedAssertionUnsupported(
+                ENCRYPTED_ASSERTION_UNSUPPORTED,
             ));
         };
-        let decrypted = decrypt_encrypted_assertion_response(&xml, private_key)
-            .map_err(encrypted_assertion_error)?;
-        return parse_saml_response_xml(&decrypted);
+        let decrypted = decrypt_encrypted_assertion_response(&xml, private_key)?;
+        return parse_saml_response_xml_detailed(&decrypted);
     }
-    parse_saml_response_xml(&xml)
+    parse_saml_response_xml_detailed(&xml)
 }
 
 fn parse_saml_response_xml(xml: &str) -> Result<ParsedSamlResponse, OpenAuthError> {
+    parse_saml_response_xml_detailed(xml).map_err(Into::into)
+}
+
+fn parse_saml_response_xml_detailed(
+    xml: &str,
+) -> Result<ParsedSamlResponse, SamlResponseParseError> {
     validate_saml_xml(xml)?;
     let algorithms = collect_saml_runtime_algorithms(xml)?;
 
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
-    let mut response_destination = None;
-    let mut response_in_response_to = None;
-    let mut response_issuer = None;
-    let mut assertion_issuer = None;
-    let mut status_code = None;
-    let mut assertion_id = None;
-    let mut name_id = None;
-    let mut conditions = None;
-    let mut subject_confirmation = None;
-    let mut attributes = BTreeMap::new();
-    let mut session_index = None;
-    let mut has_signature = false;
-    let mut signature = SamlSignatureInfo::default();
-    let mut assertion_count = 0;
-    let mut encrypted_assertion_count = 0;
-    let mut stack = Vec::new();
-    let mut current_text = String::new();
-    let mut current_attribute: Option<(String, String)> = None;
+    let mut state = SamlResponseParseState::default();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) => {
                 let name = local_name(element.name().as_ref())?;
-                apply_start(
-                    &reader,
-                    &element,
-                    &name,
-                    &stack,
-                    &mut response_destination,
-                    &mut response_in_response_to,
-                    &mut status_code,
-                    &mut assertion_id,
-                    &mut conditions,
-                    &mut subject_confirmation,
-                    &mut session_index,
-                    &mut current_attribute,
-                )?;
-                if name == "Assertion" {
-                    assertion_count += 1;
-                } else if name == "EncryptedAssertion" {
-                    encrypted_assertion_count += 1;
-                } else if name == "Signature" {
-                    has_signature = true;
-                    signature.count += 1;
-                    if stack.iter().any(|item| item == "Assertion") {
-                        signature.assertion = true;
-                    } else if stack.iter().any(|item| item == "Response") {
-                        signature.response = true;
-                    }
-                }
-                current_text.clear();
-                stack.push(name);
+                state.start(&reader, &element, name)?;
             }
             Ok(Event::Empty(element)) => {
                 let name = local_name(element.name().as_ref())?;
-                apply_start(
-                    &reader,
-                    &element,
-                    &name,
-                    &stack,
-                    &mut response_destination,
-                    &mut response_in_response_to,
-                    &mut status_code,
-                    &mut assertion_id,
-                    &mut conditions,
-                    &mut subject_confirmation,
-                    &mut session_index,
-                    &mut current_attribute,
-                )?;
-                if name == "Assertion" {
-                    assertion_count += 1;
-                } else if name == "EncryptedAssertion" {
-                    encrypted_assertion_count += 1;
-                } else if name == "Signature" {
-                    has_signature = true;
-                    signature.count += 1;
-                    if stack.iter().any(|item| item == "Assertion") {
-                        signature.assertion = true;
-                    } else if stack.iter().any(|item| item == "Response") {
-                        signature.response = true;
-                    }
-                }
+                state.empty(&reader, &element, &name)?;
             }
             Ok(Event::Text(text)) => {
-                current_text.push_str(
+                state.current_text.push_str(
                     &text
                         .unescape()
-                        .map_err(|error| OpenAuthError::Api(error.to_string()))?,
+                        .map_err(|error| SamlResponseParseError::InvalidXml(error.to_string()))?,
                 );
             }
             Ok(Event::End(element)) => {
                 let name = local_name(element.name().as_ref())?;
-                match name.as_str() {
-                    "Issuer" if stack.iter().any(|item| item == "Assertion") => {
-                        if !current_text.is_empty() {
-                            assertion_issuer = Some(current_text.clone());
-                        }
-                    }
-                    "Issuer" => {
-                        if !current_text.is_empty() {
-                            response_issuer = Some(current_text.clone());
-                        }
-                    }
-                    "NameID" => {
-                        if name_id.is_none() && !current_text.is_empty() {
-                            name_id = Some(current_text.clone());
-                        }
-                    }
-                    "AttributeValue" => {
-                        if let Some((_, value)) = &mut current_attribute {
-                            if value.is_empty() {
-                                *value = current_text.clone();
-                            }
-                        }
-                    }
-                    "Attribute" => {
-                        if let Some((key, value)) = current_attribute.take() {
-                            attributes.insert(key, value);
-                        }
-                    }
-                    _ => {}
-                }
-                current_text.clear();
-                stack.pop();
+                state.end(&name);
             }
             Ok(Event::Eof) => break,
-            Err(error) => return Err(OpenAuthError::Api(format!("Invalid SAML XML: {error}"))),
+            Err(error) => return Err(SamlResponseParseError::InvalidXml(error.to_string())),
             _ => {}
         }
     }
 
-    if assertion_count + encrypted_assertion_count != 1 {
-        return Err(OpenAuthError::Api(format!(
-            "SAML response contains {} assertions, expected exactly 1",
-            assertion_count + encrypted_assertion_count
-        )));
-    }
-    if assertion_count == 0 && encrypted_assertion_count == 1 {
-        return Err(OpenAuthError::Api(
-            ENCRYPTED_ASSERTION_UNSUPPORTED.to_owned(),
-        ));
-    }
-    let assertion_id =
-        assertion_id.ok_or_else(|| OpenAuthError::Api("SAML assertion missing ID".to_owned()))?;
-    Ok(ParsedSamlResponse {
-        response_destination,
-        response_in_response_to,
-        response_issuer,
-        status_code,
-        has_signature,
-        signature,
-        algorithms,
-        assertion: ParsedSamlAssertion {
-            id: assertion_id,
-            issuer: assertion_issuer,
-            name_id,
-            conditions,
-            subject_confirmation,
-            attributes,
-            session_index,
-        },
-    })
+    state.finish(algorithms)
 }
 
 fn decode_saml_response_xml(encoded_response: &str) -> Result<String, OpenAuthError> {
+    decode_saml_response_xml_detailed(encoded_response).map_err(Into::into)
+}
+
+fn decode_saml_response_xml_detailed(
+    encoded_response: &str,
+) -> Result<String, SamlResponseParseError> {
     let compact = encoded_response.split_whitespace().collect::<String>();
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(compact)
-        .map_err(|_| OpenAuthError::Api("Invalid base64-encoded SAML response".to_owned()))?;
-    String::from_utf8(bytes)
-        .map_err(|_| OpenAuthError::Api("Invalid base64-encoded SAML response".to_owned()))
+        .map_err(|_| SamlResponseParseError::InvalidEncoding)?;
+    String::from_utf8(bytes).map_err(|_| SamlResponseParseError::InvalidEncoding)
 }
 
-fn encrypted_assertion_error(error: SamlAssertionDecryptionError) -> OpenAuthError {
-    match error {
-        SamlAssertionDecryptionError::Unsupported => {
-            OpenAuthError::Api(ENCRYPTED_ASSERTION_UNSUPPORTED.to_owned())
-        }
-        other => OpenAuthError::Api(other.code().to_owned()),
+fn count_assertions_detailed(xml: &str) -> Result<AssertionCounts, SamlResponseParseError> {
+    count_assertions(xml).map_err(SamlResponseParseError::from)
+}
+
+#[derive(Default)]
+struct SamlResponseParseState {
+    response_destination: Option<String>,
+    response_in_response_to: Option<String>,
+    response_issuer: Option<String>,
+    assertion_issuer: Option<String>,
+    status_code: Option<String>,
+    assertion_id: Option<String>,
+    name_id: Option<String>,
+    conditions: Option<SamlConditions>,
+    subject_confirmation: Option<ParsedSubjectConfirmation>,
+    attributes: BTreeMap<String, String>,
+    session_index: Option<String>,
+    has_signature: bool,
+    signature: SamlSignatureInfo,
+    assertion_count: usize,
+    encrypted_assertion_count: usize,
+    stack: Vec<String>,
+    current_text: String,
+    current_attribute: Option<(String, String)>,
+}
+
+impl SamlResponseParseState {
+    fn start(
+        &mut self,
+        reader: &Reader<&[u8]>,
+        element: &BytesStart<'_>,
+        name: String,
+    ) -> Result<(), SamlResponseParseError> {
+        self.apply_start(reader, element, &name)?;
+        self.count_element(&name);
+        self.current_text.clear();
+        self.stack.push(name);
+        Ok(())
     }
-}
 
-#[allow(clippy::too_many_arguments)]
-fn apply_start(
-    reader: &Reader<&[u8]>,
-    element: &BytesStart<'_>,
-    name: &str,
-    stack: &[String],
-    response_destination: &mut Option<String>,
-    response_in_response_to: &mut Option<String>,
-    status_code: &mut Option<String>,
-    assertion_id: &mut Option<String>,
-    conditions: &mut Option<SamlConditions>,
-    subject_confirmation: &mut Option<ParsedSubjectConfirmation>,
-    session_index: &mut Option<String>,
-    current_attribute: &mut Option<(String, String)>,
-) -> Result<(), OpenAuthError> {
-    match name {
-        "Response" => {
-            *response_destination = attr(reader, element, "Destination")?;
-            *response_in_response_to = attr(reader, element, "InResponseTo")?;
+    fn empty(
+        &mut self,
+        reader: &Reader<&[u8]>,
+        element: &BytesStart<'_>,
+        name: &str,
+    ) -> Result<(), SamlResponseParseError> {
+        self.apply_start(reader, element, name)?;
+        self.count_element(name);
+        Ok(())
+    }
+
+    fn end(&mut self, name: &str) {
+        match name {
+            "Issuer" if self.stack_contains("Assertion") => {
+                if !self.current_text.is_empty() {
+                    self.assertion_issuer = Some(self.current_text.clone());
+                }
+            }
+            "Issuer" => {
+                if !self.current_text.is_empty() {
+                    self.response_issuer = Some(self.current_text.clone());
+                }
+            }
+            "NameID" => {
+                if self.name_id.is_none() && !self.current_text.is_empty() {
+                    self.name_id = Some(self.current_text.clone());
+                }
+            }
+            "AttributeValue" => {
+                if let Some((_, value)) = &mut self.current_attribute {
+                    if value.is_empty() {
+                        *value = self.current_text.clone();
+                    }
+                }
+            }
+            "Attribute" => {
+                if let Some((key, value)) = self.current_attribute.take() {
+                    self.attributes.insert(key, value);
+                }
+            }
+            _ => {}
         }
-        "StatusCode" => {
-            *status_code = attr(reader, element, "Value")?;
-        }
-        "Assertion" => {
-            *assertion_id = attr(reader, element, "ID")?;
-        }
-        "Conditions" if stack.iter().any(|item| item == "Assertion") => {
-            *conditions = Some(SamlConditions {
-                not_before: attr(reader, element, "NotBefore")?,
-                not_on_or_after: attr(reader, element, "NotOnOrAfter")?,
+        self.current_text.clear();
+        self.stack.pop();
+    }
+
+    fn finish(
+        self,
+        algorithms: SamlRuntimeAlgorithms,
+    ) -> Result<ParsedSamlResponse, SamlResponseParseError> {
+        let total_assertions = self.assertion_count + self.encrypted_assertion_count;
+        if total_assertions != 1 {
+            return Err(SamlResponseParseError::UnexpectedAssertionCount {
+                count: total_assertions,
             });
         }
-        "SubjectConfirmationData" => {
-            *subject_confirmation = Some(ParsedSubjectConfirmation {
-                recipient: attr(reader, element, "Recipient")?,
-                in_response_to: attr(reader, element, "InResponseTo")?,
-                conditions: Some(SamlConditions {
+        if self.assertion_count == 0 && self.encrypted_assertion_count == 1 {
+            return Err(SamlResponseParseError::EncryptedAssertionUnsupported(
+                ENCRYPTED_ASSERTION_UNSUPPORTED,
+            ));
+        }
+        let assertion_id = self
+            .assertion_id
+            .ok_or(SamlResponseParseError::MissingAssertionId)?;
+        Ok(ParsedSamlResponse {
+            response_destination: self.response_destination,
+            response_in_response_to: self.response_in_response_to,
+            response_issuer: self.response_issuer,
+            status_code: self.status_code,
+            has_signature: self.has_signature,
+            signature: self.signature,
+            algorithms,
+            assertion: ParsedSamlAssertion {
+                id: assertion_id,
+                issuer: self.assertion_issuer,
+                name_id: self.name_id,
+                conditions: self.conditions,
+                subject_confirmation: self.subject_confirmation,
+                attributes: self.attributes,
+                session_index: self.session_index,
+            },
+        })
+    }
+
+    fn apply_start(
+        &mut self,
+        reader: &Reader<&[u8]>,
+        element: &BytesStart<'_>,
+        name: &str,
+    ) -> Result<(), SamlResponseParseError> {
+        match name {
+            "Response" => {
+                self.response_destination = attr(reader, element, "Destination")?;
+                self.response_in_response_to = attr(reader, element, "InResponseTo")?;
+            }
+            "StatusCode" => {
+                self.status_code = attr(reader, element, "Value")?;
+            }
+            "Assertion" => {
+                self.assertion_id = attr(reader, element, "ID")?;
+            }
+            "Conditions" if self.stack_contains("Assertion") => {
+                self.conditions = Some(SamlConditions {
                     not_before: attr(reader, element, "NotBefore")?,
                     not_on_or_after: attr(reader, element, "NotOnOrAfter")?,
-                }),
-            });
+                });
+            }
+            "SubjectConfirmationData" => {
+                self.subject_confirmation = Some(ParsedSubjectConfirmation {
+                    recipient: attr(reader, element, "Recipient")?,
+                    in_response_to: attr(reader, element, "InResponseTo")?,
+                    conditions: Some(SamlConditions {
+                        not_before: attr(reader, element, "NotBefore")?,
+                        not_on_or_after: attr(reader, element, "NotOnOrAfter")?,
+                    }),
+                });
+            }
+            "AuthnStatement" => {
+                self.session_index = attr(reader, element, "SessionIndex")?;
+            }
+            "Attribute" => {
+                let key = attr(reader, element, "Name")?
+                    .or_else(|| attr(reader, element, "FriendlyName").ok().flatten());
+                if let Some(key) = key {
+                    self.current_attribute = Some((key, String::new()));
+                }
+            }
+            _ => {}
         }
-        "AuthnStatement" => {
-            *session_index = attr(reader, element, "SessionIndex")?;
-        }
-        "Attribute" => {
-            let key = attr(reader, element, "Name")?
-                .or_else(|| attr(reader, element, "FriendlyName").ok().flatten());
-            if let Some(key) = key {
-                *current_attribute = Some((key, String::new()));
+        Ok(())
+    }
+
+    fn count_element(&mut self, name: &str) {
+        if name == "Assertion" {
+            self.assertion_count += 1;
+        } else if name == "EncryptedAssertion" {
+            self.encrypted_assertion_count += 1;
+        } else if name == "Signature" {
+            self.has_signature = true;
+            self.signature.count += 1;
+            if self.stack_contains("Assertion") {
+                self.signature.assertion = true;
+            } else if self.stack_contains("Response") {
+                self.signature.response = true;
             }
         }
-        _ => {}
     }
-    Ok(())
+
+    fn stack_contains(&self, name: &str) -> bool {
+        self.stack.iter().any(|item| item == name)
+    }
 }
 
 fn attr(

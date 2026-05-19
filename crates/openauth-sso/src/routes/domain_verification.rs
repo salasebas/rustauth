@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use http::Method;
 use openauth_core::api::{create_auth_endpoint, parse_request_body, AsyncAuthEndpoint};
@@ -16,6 +16,8 @@ use crate::utils;
 use super::support::{authenticated_user, provider_id_options, unauthorized, ProviderIdBody};
 
 const DNS_LABEL_MAX_LENGTH: usize = 63;
+
+static DNS_RESOLVER: OnceLock<Result<hickory_resolver::TokioResolver, String>> = OnceLock::new();
 
 pub(super) fn request_endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
@@ -273,18 +275,12 @@ async fn resolve_txt_records(
     if let Some(resolver) = &options.domain_verification.txt_resolver {
         return resolver.resolve(name).await;
     }
-    let resolver = hickory_resolver::Resolver::builder_tokio()
-        .map_err(|error| {
-            openauth_core::error::OpenAuthError::Api(format!(
-                "failed to initialize DNS resolver: {error}"
-            ))
-        })?
-        .build()
-        .map_err(|error| {
-            openauth_core::error::OpenAuthError::Api(format!(
-                "failed to build DNS resolver: {error}"
-            ))
-        })?;
+    let resolver = DNS_RESOLVER
+        .get_or_init(|| {
+            build_dns_resolver().map_err(|error| format!("failed to build DNS resolver: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| openauth_core::error::OpenAuthError::Api(error.clone()))?;
     let lookup = resolver.txt_lookup(name).await.map_err(|error| {
         openauth_core::error::OpenAuthError::Api(format!("DNS TXT lookup failed: {error}"))
     })?;
@@ -301,4 +297,11 @@ async fn resolve_txt_records(
             _ => None,
         })
         .collect())
+}
+
+fn build_dns_resolver() -> Result<hickory_resolver::TokioResolver, Box<dyn std::error::Error>> {
+    hickory_resolver::Resolver::builder_tokio()
+        .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)?
+        .build()
+        .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)
 }
