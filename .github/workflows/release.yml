@@ -98,8 +98,17 @@ jobs:
             fi
 
             cargo publish -p "$crate" --dry-run
-            cargo publish -p "$crate"
-            wait_for_crate_version "$crate"
+            publish_log="$(mktemp)"
+
+            if cargo publish -p "$crate" 2>&1 | tee "$publish_log"; then
+              wait_for_crate_version "$crate"
+            elif grep -q "already exists on crates.io" "$publish_log"; then
+              echo "Skipping ${crate} ${version}; it already exists on crates.io"
+            else
+              exit 1
+            fi
+
+            rm -f "$publish_log"
           done
 
       - name: Create GitHub release
