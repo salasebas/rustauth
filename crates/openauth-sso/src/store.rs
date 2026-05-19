@@ -26,80 +26,130 @@ const SSO_PROVIDER_FIELDS: [&str; 10] = [
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Raw SSO provider record loaded from the adapter.
 pub struct SsoProviderRecord {
+    /// Database id.
     pub id: String,
+    /// Provider issuer.
     pub issuer: String,
+    /// Serialized OIDC config JSON.
     pub oidc_config: Option<String>,
+    /// Serialized SAML config JSON.
     pub saml_config: Option<String>,
+    /// Owner user id.
     pub user_id: String,
+    /// Stable provider id.
     pub provider_id: String,
+    /// Optional organization id assigned to provider users.
     pub organization_id: Option<String>,
+    /// Comma-separated provider domains.
     pub domain: String,
+    /// Domain verification state.
     pub domain_verified: Option<bool>,
+    /// Creation timestamp.
     pub created_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Provider representation returned by public read endpoints.
 pub struct SanitizedSsoProvider {
+    /// Stable provider id.
     pub provider_id: String,
+    /// Preferred provider protocol label.
     pub provider_type: String,
     #[serde(rename = "type")]
+    /// Upstream-compatible provider protocol label.
     pub upstream_type: String,
+    /// Provider issuer.
     pub issuer: String,
+    /// Provider domains.
     pub domain: String,
+    /// Optional organization id.
     pub organization_id: Option<String>,
+    /// Whether the provider domain has been verified.
     pub domain_verified: bool,
+    /// Sanitized OIDC config, if configured.
     pub oidc_config: Option<SanitizedOidcConfig>,
+    /// Sanitized SAML config, if configured.
     pub saml_config: Option<SanitizedSamlConfig>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "redirectURI")]
+    /// Shared OIDC redirect URI shown to clients.
     pub redirect_uri: Option<String>,
+    /// SAML service provider metadata URL.
     pub sp_metadata_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// OIDC provider config with secret material removed.
 pub struct SanitizedOidcConfig {
+    /// Discovery endpoint URL.
     pub discovery_endpoint: String,
+    /// Last four characters of the client id.
     pub client_id_last_four: String,
+    /// Whether PKCE is enabled.
     pub pkce: bool,
+    /// Authorization endpoint URL.
     pub authorization_endpoint: Option<String>,
+    /// Token endpoint URL.
     pub token_endpoint: Option<String>,
+    /// UserInfo endpoint URL.
     pub user_info_endpoint: Option<String>,
+    /// JWKS endpoint URL.
     pub jwks_endpoint: Option<String>,
+    /// Configured default scopes.
     pub scopes: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// SAML provider config with private key material removed.
 pub struct SanitizedSamlConfig {
+    /// IdP entry point.
     pub entry_point: String,
+    /// Callback URL.
     pub callback_url: String,
+    /// Assertion consumer service URL.
     pub acs_url: Option<String>,
+    /// Expected audience.
     pub audience: Option<String>,
+    /// Whether assertion signatures are required.
     pub want_assertions_signed: bool,
+    /// Whether outbound AuthnRequests are signed.
     pub authn_requests_signed: bool,
+    /// Requested NameID format.
     pub identifier_format: Option<String>,
+    /// Signature algorithm.
     pub signature_algorithm: Option<String>,
+    /// Digest algorithm.
     pub digest_algorithm: Option<String>,
+    /// SHA-256 fingerprint of the IdP certificate.
     pub certificate_sha256_fingerprint: String,
+    /// Certificate validity start, when parseable.
     pub certificate_not_before: Option<String>,
+    /// Certificate validity end, when parseable.
     pub certificate_not_after: Option<String>,
+    /// Certificate public key algorithm, when parseable.
     pub certificate_public_key_algorithm: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Certificate parse error, when metadata could not be extracted.
     pub certificate_error: Option<String>,
 }
 
 #[derive(Clone, Copy)]
+/// Adapter-backed store for SSO provider records.
 pub struct SsoProviderStore<'a> {
     adapter: &'a dyn DbAdapter,
 }
 
 impl<'a> SsoProviderStore<'a> {
+    /// Create a provider store over an OpenAuth adapter.
     pub fn new(adapter: &'a dyn DbAdapter) -> Self {
         Self { adapter }
     }
 
+    /// List all SSO providers.
     pub async fn list(&self) -> Result<Vec<SsoProviderRecord>, OpenAuthError> {
         self.adapter
             .find_many(FindMany::new(SSO_PROVIDER_MODEL).select(SSO_PROVIDER_FIELDS))
@@ -109,6 +159,7 @@ impl<'a> SsoProviderStore<'a> {
             .collect()
     }
 
+    /// List SSO providers owned by a user.
     pub async fn list_by_user(
         &self,
         user_id: &str,
@@ -125,6 +176,7 @@ impl<'a> SsoProviderStore<'a> {
             .collect()
     }
 
+    /// Find an SSO provider by stable provider id.
     pub async fn find_by_provider_id(
         &self,
         provider_id: &str,
@@ -140,6 +192,7 @@ impl<'a> SsoProviderStore<'a> {
             .transpose()
     }
 
+    /// Find the first SSO provider assigned to an organization.
     pub async fn find_by_organization_id(
         &self,
         organization_id: &str,
@@ -158,6 +211,7 @@ impl<'a> SsoProviderStore<'a> {
             .transpose()
     }
 
+    /// Create an SSO provider record.
     pub async fn create(
         &self,
         input: CreateSsoProviderInput,
@@ -183,6 +237,7 @@ impl<'a> SsoProviderStore<'a> {
         record_from_db(self.adapter.create(query).await?)
     }
 
+    /// Update a provider domain verification flag.
     pub async fn update_domain_verified(
         &self,
         provider_id: &str,
@@ -200,6 +255,7 @@ impl<'a> SsoProviderStore<'a> {
             .transpose()
     }
 
+    /// Partially update an SSO provider record.
     pub async fn update(
         &self,
         provider_id: &str,
@@ -235,6 +291,7 @@ impl<'a> SsoProviderStore<'a> {
             .transpose()
     }
 
+    /// Delete an SSO provider by provider id.
     pub async fn delete(&self, provider_id: &str) -> Result<(), OpenAuthError> {
         self.adapter
             .delete(Delete::new(SSO_PROVIDER_MODEL).where_clause(provider_id_where(provider_id)))
@@ -243,28 +300,45 @@ impl<'a> SsoProviderStore<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Input used to create an SSO provider record.
 pub struct CreateSsoProviderInput {
+    /// Stable provider id.
     pub provider_id: String,
+    /// Provider issuer.
     pub issuer: String,
+    /// Provider domains.
     pub domain: String,
+    /// Owner user id.
     pub user_id: String,
+    /// Optional organization id.
     pub organization_id: Option<String>,
+    /// Serialized OIDC configuration.
     pub oidc_config: Option<String>,
+    /// Serialized SAML configuration.
     pub saml_config: Option<String>,
+    /// Initial domain verification state.
     pub domain_verified: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Partial provider update input used by route handlers.
 pub struct UpdateSsoProviderInput {
+    /// Updated issuer.
     pub issuer: Option<String>,
+    /// Updated domains.
     pub domain: Option<String>,
+    /// Updated organization id.
     pub organization_id: Option<String>,
+    /// Updated serialized OIDC config; `Some(None)` clears it.
     pub oidc_config: Option<Option<String>>,
+    /// Updated serialized SAML config; `Some(None)` clears it.
     pub saml_config: Option<Option<String>>,
+    /// Updated domain verification state.
     pub domain_verified: Option<bool>,
 }
 
 impl SsoProviderRecord {
+    /// Convert the raw provider record into the public sanitized shape.
     pub fn sanitized_with_options(
         &self,
         base_url: &str,
@@ -336,6 +410,7 @@ impl SsoProviderRecord {
         }
     }
 
+    /// Convert the raw provider record into the public sanitized shape.
     pub fn sanitized(&self, base_url: &str) -> SanitizedSsoProvider {
         self.sanitized_with_options(base_url, None)
     }

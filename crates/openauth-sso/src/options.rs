@@ -22,11 +22,13 @@ type ProvisionUserFuture = Pin<Box<dyn Future<Output = Result<(), OpenAuthError>
 type AuditEventFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 #[derive(Clone)]
+/// Async resolver used to verify domain ownership through DNS TXT records.
 pub struct DnsTxtResolver {
     resolver: Arc<dyn Fn(String) -> TxtResolverFuture + Send + Sync>,
 }
 
 impl DnsTxtResolver {
+    /// Create a resolver from an async function receiving the DNS name to query.
     pub fn new<F, Fut>(resolver: F) -> Self
     where
         F: Fn(String) -> Fut + Send + Sync + 'static,
@@ -37,6 +39,7 @@ impl DnsTxtResolver {
         }
     }
 
+    /// Resolve TXT values for the provided DNS name.
     pub async fn resolve(&self, name: &str) -> Result<Vec<String>, OpenAuthError> {
         (self.resolver)(name.to_owned()).await
     }
@@ -57,11 +60,13 @@ impl PartialEq for DnsTxtResolver {
 impl Eq for DnsTxtResolver {}
 
 #[derive(Clone)]
+/// Async resolver used to compute a per-user dynamic provider limit.
 pub struct ProvidersLimitResolver {
     resolver: Arc<dyn Fn(User) -> ProvidersLimitFuture + Send + Sync>,
 }
 
 impl ProvidersLimitResolver {
+    /// Create a provider-limit resolver from an async function.
     pub fn new<F, Fut>(resolver: F) -> Self
     where
         F: Fn(User) -> Fut + Send + Sync + 'static,
@@ -72,6 +77,7 @@ impl ProvidersLimitResolver {
         }
     }
 
+    /// Resolve the maximum number of providers the user may register.
     pub async fn resolve(&self, user: User) -> Result<usize, OpenAuthError> {
         (self.resolver)(user).await
     }
@@ -92,19 +98,26 @@ impl PartialEq for ProvidersLimitResolver {
 impl Eq for ProvidersLimitResolver {}
 
 #[derive(Debug, Clone, PartialEq)]
+/// Input passed to organization role resolution after a successful SSO login.
 pub struct OrganizationRoleInput {
+    /// User created or linked by the SSO flow.
     pub user: User,
+    /// Normalized profile extracted from OIDC UserInfo or SAML attributes.
     pub profile: NormalizedSsoProfile,
+    /// SSO provider that authenticated the user.
     pub provider: SsoProviderRecord,
+    /// OAuth tokens for OIDC flows; `None` for SAML flows.
     pub token: Option<OAuth2Tokens>,
 }
 
 #[derive(Clone)]
+/// Async callback that maps an SSO login to an organization role.
 pub struct OrganizationRoleResolver {
     resolver: Arc<dyn Fn(OrganizationRoleInput) -> OrganizationRoleFuture + Send + Sync>,
 }
 
 impl OrganizationRoleResolver {
+    /// Create a role resolver from an async function.
     pub fn new<F, Fut>(resolver: F) -> Self
     where
         F: Fn(OrganizationRoleInput) -> Fut + Send + Sync + 'static,
@@ -115,6 +128,7 @@ impl OrganizationRoleResolver {
         }
     }
 
+    /// Resolve the organization role for the login.
     pub async fn resolve(&self, input: OrganizationRoleInput) -> Result<String, OpenAuthError> {
         (self.resolver)(input).await
     }
@@ -135,20 +149,28 @@ impl PartialEq for OrganizationRoleResolver {
 impl Eq for OrganizationRoleResolver {}
 
 #[derive(Debug, Clone, PartialEq)]
+/// Input passed to the `provision_user` hook.
 pub struct ProvisionUserInput {
+    /// User created or linked by the SSO flow.
     pub user: User,
+    /// Normalized identity profile from the identity provider.
     pub profile: NormalizedSsoProfile,
+    /// SSO provider that authenticated the user.
     pub provider: SsoProviderRecord,
+    /// OAuth tokens for OIDC flows; `None` for SAML flows.
     pub token: Option<OAuth2Tokens>,
+    /// Whether this login came from an explicit SSO registration request.
     pub is_register: bool,
 }
 
 #[derive(Clone)]
+/// Async hook invoked after an SSO user is created or linked.
 pub struct ProvisionUserResolver {
     resolver: Arc<dyn Fn(ProvisionUserInput) -> ProvisionUserFuture + Send + Sync>,
 }
 
 impl ProvisionUserResolver {
+    /// Create a provisioning resolver from an async function.
     pub fn new<F, Fut>(resolver: F) -> Self
     where
         F: Fn(ProvisionUserInput) -> Fut + Send + Sync + 'static,
@@ -159,6 +181,7 @@ impl ProvisionUserResolver {
         }
     }
 
+    /// Run user provisioning for the completed SSO login.
     pub async fn resolve(&self, input: ProvisionUserInput) -> Result<(), OpenAuthError> {
         (self.resolver)(input).await
     }
@@ -180,38 +203,60 @@ impl Eq for ProvisionUserResolver {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Severity level for SSO audit events.
 pub enum SsoAuditSeverity {
+    /// Informational event.
     Info,
+    /// Suspicious or recoverable condition.
     Warn,
+    /// Failed security-sensitive operation.
     Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// SSO audit event kind emitted by provider, domain, SAML, and SLO flows.
 pub enum SsoAuditEventKind {
+    /// A provider was registered.
     ProviderRegistered,
+    /// A provider was updated.
     ProviderUpdated,
+    /// A provider was deleted.
     ProviderDeleted,
+    /// A domain verification token was requested.
     DomainVerificationRequested,
+    /// Domain verification succeeded.
     DomainVerificationSucceeded,
+    /// Domain verification failed.
     DomainVerificationFailed,
+    /// A replayed SAML assertion was rejected.
     SamlReplayRejected,
+    /// SAML signature validation failed.
     SamlSignatureFailed,
+    /// A SAML SLO flow deleted a local session.
     SamlSloSessionDeleted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Audit event emitted by the SSO plugin.
 pub struct SsoAuditEvent {
+    /// Event kind.
     pub kind: SsoAuditEventKind,
+    /// Event severity.
     pub severity: SsoAuditSeverity,
+    /// Provider id related to the event, when available.
     pub provider_id: Option<String>,
+    /// User id related to the event, when available.
     pub user_id: Option<String>,
+    /// Organization id related to the event, when available.
     pub organization_id: Option<String>,
+    /// Human-readable reason or stable error code.
     pub reason: Option<String>,
 }
 
 impl SsoAuditEvent {
+    /// Create an audit event with no optional context.
     pub fn new(kind: SsoAuditEventKind, severity: SsoAuditSeverity) -> Self {
         Self {
             kind,
@@ -224,24 +269,28 @@ impl SsoAuditEvent {
     }
 
     #[must_use]
+    /// Attach a provider id to the event.
     pub fn provider_id(mut self, provider_id: impl Into<String>) -> Self {
         self.provider_id = Some(provider_id.into());
         self
     }
 
     #[must_use]
+    /// Attach a user id to the event.
     pub fn user_id(mut self, user_id: impl Into<String>) -> Self {
         self.user_id = Some(user_id.into());
         self
     }
 
     #[must_use]
+    /// Attach an organization id to the event.
     pub fn organization_id(mut self, organization_id: impl Into<String>) -> Self {
         self.organization_id = Some(organization_id.into());
         self
     }
 
     #[must_use]
+    /// Attach a reason or stable error code to the event.
     pub fn reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
         self
@@ -249,11 +298,13 @@ impl SsoAuditEvent {
 }
 
 #[derive(Clone)]
+/// Async sink for SSO audit events.
 pub struct SsoAuditEventResolver {
     resolver: Arc<dyn Fn(SsoAuditEvent) -> AuditEventFuture + Send + Sync>,
 }
 
 impl SsoAuditEventResolver {
+    /// Create an audit event sink from an async function.
     pub fn new<F, Fut>(resolver: F) -> Self
     where
         F: Fn(SsoAuditEvent) -> Fut + Send + Sync + 'static,
@@ -264,6 +315,7 @@ impl SsoAuditEventResolver {
         }
     }
 
+    /// Emit an audit event.
     pub async fn resolve(&self, event: SsoAuditEvent) {
         (self.resolver)(event).await;
     }
@@ -285,10 +337,14 @@ impl Eq for SsoAuditEventResolver {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Controls automatic organization membership assignment for SSO users.
 pub struct OrganizationProvisioningOptions {
+    /// Disable organization assignment from provider configuration.
     pub disabled: bool,
+    /// Role assigned when no custom role resolver is configured.
     pub default_role: String,
     #[serde(skip)]
+    /// Optional async resolver for per-login organization roles.
     pub get_role: Option<OrganizationRoleResolver>,
 }
 
@@ -304,18 +360,21 @@ impl Default for OrganizationProvisioningOptions {
 
 impl OrganizationProvisioningOptions {
     #[must_use]
+    /// Enable or disable organization provisioning.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
 
     #[must_use]
+    /// Set the default role assigned to provisioned organization members.
     pub fn default_role(mut self, role: impl Into<String>) -> Self {
         self.default_role = role.into();
         self
     }
 
     #[must_use]
+    /// Set a custom async role resolver.
     pub fn get_role<F, Fut>(mut self, resolver: F) -> Self
     where
         F: Fn(OrganizationRoleInput) -> Fut + Send + Sync + 'static,
@@ -325,6 +384,7 @@ impl OrganizationProvisioningOptions {
         self
     }
 
+    /// Resolve the organization role for a completed SSO login.
     pub async fn resolve_role(
         &self,
         input: OrganizationRoleInput,
@@ -338,26 +398,43 @@ impl OrganizationProvisioningOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Configuration for the OpenAuth SSO plugin.
 pub struct SsoOptions {
+    /// Logical schema model name contributed by the plugin.
     pub model_name: String,
+    /// Physical database table name for SSO providers.
     pub provider_table: String,
+    /// Static maximum number of providers a user may register.
     pub providers_limit: usize,
     #[serde(skip)]
+    /// Optional dynamic provider limit resolver.
     pub providers_limit_callback: Option<ProvidersLimitResolver>,
+    /// Domain verification settings.
     pub domain_verification: DomainVerificationOptions,
+    /// Shared OIDC redirect URI override.
     pub redirect_uri: Option<String>,
+    /// Disable implicit user creation during SSO login.
     pub disable_implicit_sign_up: bool,
+    /// Trust IdP email verification for implicit account linking.
     pub trust_email_verified: bool,
+    /// Default value for provider-level user info override behavior.
     pub default_override_user_info: bool,
     #[serde(skip)]
+    /// Optional hook for application-specific user provisioning.
     pub provision_user: Option<ProvisionUserResolver>,
+    /// Run `provision_user` for existing users on every login.
     pub provision_user_on_every_login: bool,
+    /// Organization provisioning settings.
     pub organization_provisioning: OrganizationProvisioningOptions,
+    /// SAML runtime and security settings.
     pub saml: SamlOptions,
     #[serde(skip)]
+    /// Plugin rate limit settings.
     pub rate_limit: SsoRateLimitOptions,
     #[serde(skip)]
+    /// Optional audit event sink.
     pub audit_event: Option<SsoAuditEventResolver>,
+    /// Statically configured SSO providers.
     pub default_sso: Vec<SsoProvider>,
 }
 
@@ -385,23 +462,27 @@ impl Default for SsoOptions {
 }
 
 impl SsoOptions {
+    /// Create default SSO plugin options.
     pub fn new() -> Self {
         Self::default()
     }
 
     #[must_use]
+    /// Override the physical provider table name.
     pub fn provider_table(mut self, table: impl Into<String>) -> Self {
         self.provider_table = table.into();
         self
     }
 
     #[must_use]
+    /// Set the static maximum provider count per user.
     pub fn providers_limit(mut self, limit: usize) -> Self {
         self.providers_limit = limit;
         self
     }
 
     #[must_use]
+    /// Set a dynamic provider limit callback.
     pub fn providers_limit_callback<F, Fut>(mut self, resolver: F) -> Self
     where
         F: Fn(User) -> Fut + Send + Sync + 'static,
@@ -411,6 +492,7 @@ impl SsoOptions {
         self
     }
 
+    /// Resolve the effective provider limit for a user.
     pub async fn resolve_providers_limit(&self, user: User) -> Result<usize, OpenAuthError> {
         match &self.providers_limit_callback {
             Some(resolver) => resolver.resolve(user).await,
@@ -419,12 +501,14 @@ impl SsoOptions {
     }
 
     #[must_use]
+    /// Enable or disable DNS domain verification.
     pub fn domain_verification_enabled(mut self, enabled: bool) -> Self {
         self.domain_verification.enabled = enabled;
         self
     }
 
     #[must_use]
+    /// Set a custom DNS TXT resolver for domain verification.
     pub fn domain_txt_resolver<F, Fut>(mut self, resolver: F) -> Self
     where
         F: Fn(String) -> Fut + Send + Sync + 'static,
@@ -435,12 +519,14 @@ impl SsoOptions {
     }
 
     #[must_use]
+    /// Override the OIDC redirect URI used in authorization requests.
     pub fn redirect_uri(mut self, redirect_uri: impl Into<String>) -> Self {
         self.redirect_uri = Some(redirect_uri.into());
         self
     }
 
     #[must_use]
+    /// Configure organization provisioning.
     pub fn organization_provisioning(
         mut self,
         provisioning: OrganizationProvisioningOptions,
@@ -450,6 +536,7 @@ impl SsoOptions {
     }
 
     #[must_use]
+    /// Set a user provisioning hook.
     pub fn provision_user<F, Fut>(mut self, resolver: F) -> Self
     where
         F: Fn(ProvisionUserInput) -> Fut + Send + Sync + 'static,
@@ -460,24 +547,28 @@ impl SsoOptions {
     }
 
     #[must_use]
+    /// Run the provisioning hook for existing users on every login.
     pub fn provision_user_on_every_login(mut self, enabled: bool) -> Self {
         self.provision_user_on_every_login = enabled;
         self
     }
 
     #[must_use]
+    /// Replace all SSO rate limit settings.
     pub fn rate_limit(mut self, rate_limit: SsoRateLimitOptions) -> Self {
         self.rate_limit = rate_limit;
         self
     }
 
     #[must_use]
+    /// Enable or disable SSO rate limit rule contributions.
     pub fn rate_limit_enabled(mut self, enabled: bool) -> Self {
         self.rate_limit.enabled = enabled;
         self
     }
 
     #[must_use]
+    /// Set an async audit event sink.
     pub fn audit_event<F, Fut>(mut self, resolver: F) -> Self
     where
         F: Fn(SsoAuditEvent) -> Fut + Send + Sync + 'static,
@@ -489,11 +580,17 @@ impl SsoOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Rate limit rules contributed by the SSO plugin.
 pub struct SsoRateLimitOptions {
+    /// Whether SSO rate limit rules are registered.
     pub enabled: bool,
+    /// Provider registration rate limit.
     pub registration: RateLimitRule,
+    /// Domain verification request and check rate limit.
     pub domain_verification: RateLimitRule,
+    /// OIDC callback rate limit.
     pub oidc_callback: RateLimitRule,
+    /// SAML ACS and logout rate limit.
     pub saml: RateLimitRule,
 }
 
@@ -511,11 +608,16 @@ impl Default for SsoRateLimitOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Domain verification behavior for registered SSO providers.
 pub struct DomainVerificationOptions {
+    /// Require providers to verify domains before domain matching.
     pub enabled: bool,
+    /// Prefix used in generated DNS TXT verification tokens.
     pub token_prefix: String,
+    /// Token lifetime in seconds.
     pub token_ttl_seconds: u64,
     #[serde(skip)]
+    /// Optional custom DNS TXT resolver.
     pub txt_resolver: Option<DnsTxtResolver>,
 }
 
@@ -532,18 +634,31 @@ impl Default for DomainVerificationOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Runtime and security options for SAML flows.
 pub struct SamlOptions {
+    /// Validate `InResponseTo` against stored AuthnRequest state.
     pub enable_in_response_to_validation: bool,
+    /// Allow IdP-initiated SAML responses without stored request state.
     pub allow_idp_initiated: bool,
+    /// AuthnRequest state lifetime.
     pub request_ttl: Duration,
+    /// Allowed timestamp clock skew.
     pub clock_skew: Duration,
+    /// Require SAML assertions to include timestamp conditions.
     pub require_timestamps: bool,
+    /// Maximum accepted base64 SAML response size.
     pub max_response_size: usize,
+    /// Maximum accepted IdP metadata XML size.
     pub max_metadata_size: usize,
+    /// Enable SAML single logout endpoints and session lookup state.
     pub enable_single_logout: bool,
+    /// Pending logout request lifetime.
     pub logout_request_ttl: Duration,
+    /// Require signed inbound LogoutRequest messages.
     pub want_logout_request_signed: bool,
+    /// Require signed inbound LogoutResponse messages.
     pub want_logout_response_signed: bool,
+    /// SAML algorithm validation policy.
     pub algorithms: SamlAlgorithmOptions,
 }
 
@@ -568,11 +683,17 @@ impl Default for SamlOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// SAML algorithm allow lists and deprecated algorithm behavior.
 pub struct SamlAlgorithmOptions {
+    /// How deprecated algorithms are handled.
     pub on_deprecated: DeprecatedAlgorithmBehavior,
+    /// Optional allow list for signature algorithm URIs or short names.
     pub allowed_signature_algorithms: Option<Vec<String>>,
+    /// Optional allow list for digest algorithm URIs or short names.
     pub allowed_digest_algorithms: Option<Vec<String>>,
+    /// Optional allow list for encrypted-key algorithm URIs or short names.
     pub allowed_key_encryption_algorithms: Option<Vec<String>>,
+    /// Optional allow list for encrypted-data algorithm URIs or short names.
     pub allowed_data_encryption_algorithms: Option<Vec<String>>,
 }
 
@@ -590,142 +711,224 @@ impl Default for SamlAlgorithmOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Static SSO provider definition used by `SsoOptions::default_sso`.
 pub struct SsoProvider {
+    /// Stable provider id used in API paths and sign-in requests.
     pub provider_id: String,
+    /// Provider issuer URL or identifier.
     pub issuer: String,
+    /// Comma-separated domains owned by the provider.
     pub domain: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Optional organization assigned to users authenticated by this provider.
     pub organization_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// OIDC configuration, when the provider supports OIDC.
     pub oidc_config: Option<OidcConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// SAML configuration, when the provider supports SAML.
     pub saml_config: Option<SamlConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// OIDC configuration for an SSO provider.
 pub struct OidcConfig {
+    /// OIDC issuer URL.
     pub issuer: String,
+    /// Whether authorization requests should use PKCE.
     pub pkce: bool,
+    /// OAuth/OIDC client id.
     pub client_id: String,
+    /// OAuth/OIDC client secret. Debug output is redacted.
     pub client_secret: SecretString,
+    /// OIDC discovery document URL.
     pub discovery_endpoint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Explicit authorization endpoint override.
     pub authorization_endpoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Explicit token endpoint override.
     pub token_endpoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Explicit UserInfo endpoint override.
     pub user_info_endpoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Explicit JWKS endpoint override.
     pub jwks_endpoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Token endpoint authentication method.
     pub token_endpoint_authentication: Option<TokenEndpointAuthentication>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Authorization request scopes.
     pub scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Provider claim mapping.
     pub mapping: Option<OidcMapping>,
+    /// Override existing OpenAuth user fields with mapped OIDC values on login.
     pub override_user_info: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Supported OAuth token endpoint authentication methods.
 pub enum TokenEndpointAuthentication {
+    /// Send client credentials through HTTP Basic authentication.
     ClientSecretBasic,
+    /// Send client credentials in the token request body.
     ClientSecretPost,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Mapping from OIDC claims to OpenAuth profile fields.
 pub struct OidcMapping {
+    /// Claim used as the external account id.
     pub id: Option<String>,
+    /// Claim used as email.
     pub email: Option<String>,
+    /// Claim used as email verification status.
     pub email_verified: Option<String>,
+    /// Claim used as display name.
     pub name: Option<String>,
+    /// Claim used as avatar URL.
     pub image: Option<String>,
+    /// Additional claim mappings exposed to hooks as raw attributes.
     pub extra_fields: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// SAML configuration for an SSO provider.
 pub struct SamlConfig {
+    /// Service provider issuer/entity id expected by the IdP.
     pub issuer: String,
     #[serde(default)]
+    /// IdP SSO entry point for AuthnRequest redirects.
     pub entry_point: String,
+    /// IdP signing certificate, either PEM or base64 body.
     pub cert: String,
+    /// OpenAuth callback URL used after SAML login.
     pub callback_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Explicit assertion consumer service URL.
     pub acs_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Expected SAML audience. Defaults to issuer semantics when omitted.
     pub audience: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Parsed or configured IdP metadata.
     pub idp_metadata: Option<SamlIdpMetadata>,
+    /// Service provider metadata configuration.
     pub sp_metadata: SamlSpMetadata,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Provider attribute mapping.
     pub mapping: Option<SamlMapping>,
+    /// Require valid XMLDSig over the SAML Assertion.
     pub want_assertions_signed: bool,
+    /// Sign outbound AuthnRequest messages.
     pub authn_requests_signed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Signature algorithm URI or short name for outbound signed requests.
     pub signature_algorithm: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Digest algorithm URI or short name for outbound signed requests.
     pub digest_algorithm: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// SAML NameID format requested from the IdP.
     pub identifier_format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Service provider signing private key. Debug output is redacted.
     pub private_key: Option<SecretString>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Service provider decryption private key for encrypted assertions.
     pub decryption_pvk: Option<SecretString>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Additional AuthnRequest parameters sent to the IdP.
     pub additional_params: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// IdP metadata fields accepted by SAML provider configuration.
 pub struct SamlIdpMetadata {
+    /// Raw IdP metadata XML.
     pub metadata: Option<String>,
     #[serde(alias = "entityID")]
+    /// IdP entity id.
     pub entity_id: Option<String>,
+    /// URL where metadata can be fetched.
     pub entity_url: Option<String>,
+    /// IdP redirect binding SSO URL.
     pub redirect_url: Option<String>,
+    /// IdP signing certificate.
     pub cert: Option<String>,
+    /// IdP private key field retained for upstream compatibility.
     pub private_key: Option<SecretString>,
+    /// Passphrase for `private_key`.
     pub private_key_pass: Option<SecretString>,
+    /// Whether the IdP encrypts assertions.
     pub is_assertion_encrypted: Option<bool>,
+    /// Encrypted assertion private key field retained for upstream compatibility.
     pub enc_private_key: Option<SecretString>,
+    /// Passphrase for `enc_private_key`.
     pub enc_private_key_pass: Option<SecretString>,
+    /// Single sign-on services advertised by the IdP.
     pub single_sign_on_service: Option<Vec<SamlService>>,
+    /// Single logout services advertised by the IdP.
     pub single_logout_service: Option<Vec<SamlService>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// SAML metadata service endpoint.
 pub struct SamlService {
     #[serde(rename = "Binding")]
+    /// SAML binding URI.
     pub binding: String,
     #[serde(rename = "Location")]
+    /// Service endpoint URL.
     pub location: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Service provider metadata overrides.
 pub struct SamlSpMetadata {
+    /// Raw service provider metadata XML returned as-is when configured.
     pub metadata: Option<String>,
     #[serde(alias = "entityID")]
+    /// Service provider entity id.
     pub entity_id: Option<String>,
+    /// Preferred SAML binding URI.
     pub binding: Option<String>,
+    /// Service provider signing private key.
     pub private_key: Option<SecretString>,
+    /// Passphrase for `private_key`.
     pub private_key_pass: Option<SecretString>,
+    /// Whether assertions should be encrypted for this SP.
     pub is_assertion_encrypted: Option<bool>,
+    /// Service provider decryption private key.
     pub enc_private_key: Option<SecretString>,
+    /// Passphrase for `enc_private_key`.
     pub enc_private_key_pass: Option<SecretString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Mapping from SAML attributes to OpenAuth profile fields.
 pub struct SamlMapping {
+    /// Attribute used as the external account id.
     pub id: Option<String>,
+    /// Attribute used as email.
     pub email: Option<String>,
+    /// Attribute used as email verification status.
     pub email_verified: Option<String>,
+    /// Attribute used as display name.
     pub name: Option<String>,
+    /// Attribute used as first name.
     pub first_name: Option<String>,
+    /// Attribute used as last name.
     pub last_name: Option<String>,
+    /// Additional attribute mappings exposed to hooks as raw attributes.
     pub extra_fields: Option<BTreeMap<String, String>>,
 }

@@ -1,27 +1,45 @@
 use openauth_core::plugin::PluginErrorCode;
 
+/// Provider lookup failed.
 pub const PROVIDER_NOT_FOUND: &str = "PROVIDER_NOT_FOUND";
+/// Provider registration conflicts with an existing provider id.
 pub const PROVIDER_EXISTS: &str = "PROVIDER_EXISTS";
+/// Domain verification was requested for an already verified provider.
 pub const DOMAIN_VERIFIED: &str = "DOMAIN_VERIFIED";
+/// Domain verification was attempted without a pending token.
 pub const NO_PENDING_VERIFICATION: &str = "NO_PENDING_VERIFICATION";
+/// SAML response parsing or validation failed.
 pub const SAML_INVALID_RESPONSE: &str = "SAML_INVALID_RESPONSE";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// High-level category for stable public SSO error codes.
 pub enum SsoErrorCategory {
+    /// Invalid server or provider configuration.
     Configuration,
+    /// Invalid user-controlled input.
     UserInput,
+    /// Authenticated user is not authorized for the requested action.
     Authorization,
+    /// Requested resource does not exist.
     NotFound,
+    /// Identity provider runtime failure.
     IdentityProviderRuntime,
+    /// Rejected input that may indicate an attack.
     SuspectedAttack,
+    /// Feature or protocol behavior is intentionally unsupported.
     Unsupported,
+    /// Unexpected internal failure.
     Unexpected,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Descriptor for a stable SSO error code registered by the plugin.
 pub struct SsoErrorDescriptor {
+    /// Stable public error code.
     pub code: &'static str,
+    /// Human-readable default message.
     pub message: &'static str,
+    /// Error category for logging and metrics.
     pub category: SsoErrorCategory,
 }
 
@@ -282,10 +300,12 @@ pub fn plugin_error_codes() -> Vec<PluginErrorCode> {
         .collect()
 }
 
+/// Return all SSO error descriptors known by the plugin.
 pub fn sso_error_descriptors() -> &'static [SsoErrorDescriptor] {
     ERROR_DESCRIPTORS
 }
 
+/// Look up the high-level category for a stable SSO error code.
 pub fn sso_error_category(code: &str) -> SsoErrorCategory {
     sso_error_descriptors()
         .iter()

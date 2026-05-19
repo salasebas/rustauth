@@ -15,15 +15,25 @@ use crate::store::{SsoProviderRecord, SsoProviderStore};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Normalized identity profile produced by an OIDC or SAML SSO login.
 pub struct NormalizedSsoProfile {
+    /// Provider protocol, such as `oidc` or `saml`.
     pub provider_type: String,
+    /// Stable OpenAuth SSO provider id.
     pub provider_id: String,
+    /// External account id from the identity provider.
     pub account_id: String,
+    /// Normalized email address.
     pub email: String,
+    /// Whether the identity provider marked the email as verified.
     pub email_verified: bool,
+    /// Display name, when available.
     pub name: Option<String>,
+    /// Avatar URL, when available.
     pub image: Option<String>,
+    /// Extra mapped claims or attributes requested by provider mapping.
     pub raw_attributes: Option<Value>,
+    /// OIDC token data; `None` for SAML.
     pub token_data: Option<OAuth2Tokens>,
 }
 

@@ -1,4 +1,24 @@
-//! Server-side single sign-on support for OpenAuth.
+//! Server-side enterprise single sign-on support for OpenAuth.
+//!
+//! The crate exposes an OpenAuth plugin that adds Better Auth-compatible SSO
+//! provider management, OIDC sign-in, SAML ACS, SAML metadata, domain
+//! verification, and SAML single logout endpoints.
+//!
+//! # Feature flags
+//!
+//! - `saml-signed`: enables native XMLDSig and encrypted assertion handling
+//!   through the internal SAML backend. The default build keeps native XML
+//!   security dependencies out of the dependency graph and rejects signed or
+//!   encrypted SAML messages fail-closed.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use openauth_sso::{sso, SsoOptions};
+//!
+//! let plugin = sso(SsoOptions::default());
+//! assert_eq!(plugin.id, "sso");
+//! ```
 
 mod audit;
 mod errors;
@@ -13,11 +33,15 @@ mod state;
 mod store;
 mod utils;
 
+#[doc(hidden)]
 pub mod linking;
+#[doc(hidden)]
 pub mod oidc;
+#[doc(hidden)]
 pub mod saml;
 
 pub use errors::{sso_error_category, sso_error_descriptors, SsoErrorCategory, SsoErrorDescriptor};
+pub use linking::NormalizedSsoProfile;
 pub use options::{
     DnsTxtResolver, DomainVerificationOptions, OidcConfig, OidcMapping,
     OrganizationProvisioningOptions, OrganizationRoleInput, OrganizationRoleResolver,
@@ -35,12 +59,17 @@ pub use store::{
 use openauth_core::plugin::{AuthPlugin, PluginRateLimitRule};
 use std::sync::Arc;
 
+/// Better Auth upstream plugin identifier used for endpoint and schema parity.
 pub const UPSTREAM_PLUGIN_ID: &str = "sso";
 
 /// Current crate version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build the server-side SSO plugin.
+///
+/// The returned [`AuthPlugin`] contributes
+/// the `sso_providers` schema, SSO endpoints, rate limit rules, OpenAPI
+/// metadata, and hooks for organization assignment and SAML logout cleanup.
 pub fn sso(options: SsoOptions) -> AuthPlugin {
     let options = Arc::new(options);
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID).with_version(VERSION);
