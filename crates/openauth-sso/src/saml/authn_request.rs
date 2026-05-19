@@ -106,64 +106,11 @@ fn deflate_and_encode(xml: &str) -> Result<String, SamlAuthnRequestError> {
     Ok(base64::engine::general_purpose::STANDARD.encode(compressed))
 }
 
-#[cfg(not(feature = "saml-signed"))]
 fn sign_authn_request_redirect(
     _url: Url,
     _config: &SamlConfig,
 ) -> Result<Url, SamlAuthnRequestError> {
     Err(SamlAuthnRequestError::SigningNotSupported)
-}
-
-#[cfg(feature = "saml-signed")]
-fn sign_authn_request_redirect(
-    url: Url,
-    config: &SamlConfig,
-) -> Result<Url, SamlAuthnRequestError> {
-    let private_key = config
-        .private_key
-        .as_ref()
-        .map(|secret| secret.expose_secret())
-        .or(config
-            .sp_metadata
-            .private_key
-            .as_ref()
-            .map(|secret| secret.expose_secret()))
-        .filter(|value| !value.trim().is_empty())
-        .ok_or(SamlAuthnRequestError::PrivateKeyRequired)?;
-    let private_key = private_key_from_pem(
-        private_key,
-        config
-            .sp_metadata
-            .private_key_pass
-            .as_ref()
-            .map(|secret| secret.expose_secret()),
-    )?;
-    samael::crypto::sign_url(url, &private_key).map_err(|error| {
-        SamlAuthnRequestError::Sign(format!("failed to sign SAML AuthnRequest: {error}"))
-    })
-}
-
-#[cfg(feature = "saml-signed")]
-fn private_key_from_pem(
-    private_key: &str,
-    passphrase: Option<&str>,
-) -> Result<openssl::pkey::PKey<openssl::pkey::Private>, SamlAuthnRequestError> {
-    if let Some(passphrase) = passphrase.filter(|value| !value.is_empty()) {
-        return openssl::pkey::PKey::private_key_from_pem_passphrase(
-            private_key.as_bytes(),
-            passphrase.as_bytes(),
-        )
-        .map_err(|error| SamlAuthnRequestError::InvalidPrivateKey(error.to_string()));
-    }
-
-    openssl::pkey::PKey::private_key_from_pem(private_key.as_bytes())
-        .or_else(|_| {
-            base64::engine::general_purpose::STANDARD
-                .decode(private_key.split_whitespace().collect::<String>())
-                .map_err(|_| openssl::error::ErrorStack::get())
-                .and_then(|bytes| openssl::pkey::PKey::private_key_from_der(&bytes))
-        })
-        .map_err(|error| SamlAuthnRequestError::InvalidPrivateKey(error.to_string()))
 }
 
 fn escape_xml(value: &str) -> String {

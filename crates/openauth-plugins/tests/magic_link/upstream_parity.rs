@@ -406,7 +406,7 @@ async fn verify_sets_cookie_cache_when_enabled() -> Result<(), Box<dyn std::erro
 
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_data=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_data=")));
     Ok(())
 }
 

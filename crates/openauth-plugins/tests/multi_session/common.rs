@@ -276,7 +276,7 @@ pub fn merge_cookie_headers(headers: &[&str]) -> String {
 }
 
 pub fn multi_cookie_name(token: &str) -> String {
-    format!("better-auth.session_token_multi-{}", token.to_lowercase())
+    format!("open-auth.session_token_multi-{}", token.to_lowercase())
 }
 
 pub fn signed_multi_cookie(token: &str) -> Result<String, OpenAuthError> {

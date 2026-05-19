@@ -54,7 +54,7 @@ async fn sign_in_anonymous_creates_user_session_and_cookie(
     assert_eq!(find_bool(&users[0], "is_anonymous"), Some(true));
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
     Ok(())
 }
 
@@ -89,7 +89,7 @@ async fn sign_in_anonymous_sets_cookie_cache_when_enabled() -> Result<(), Box<dy
 
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_data=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_data=")));
     Ok(())
 }
 
@@ -368,7 +368,7 @@ async fn delete_anonymous_user_deletes_user_and_expires_cookie(
     assert_eq!(adapter.len("session").await, 0);
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=; Max-Age=0")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=; Max-Age=0")));
     Ok(())
 }
 

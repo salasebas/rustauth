@@ -299,7 +299,6 @@ async fn saml_acs_rejects_encrypted_assertion_until_decryption_is_supported(
     Ok(())
 }
 
-#[cfg(not(feature = "saml-signed"))]
 #[tokio::test]
 async fn saml_acs_rejects_encrypted_assertion_with_key_without_crypto_feature(
 ) -> Result<(), Box<dyn std::error::Error>> {

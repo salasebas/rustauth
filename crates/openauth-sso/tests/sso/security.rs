@@ -1,5 +1,3 @@
-#[cfg(feature = "saml-signed")]
-use openauth_sso::saml::assertions::parse_saml_response_with_decryption;
 use openauth_sso::saml::{
     assertions::{count_assertions, parse_saml_response, validate_single_assertion},
     collect_saml_runtime_algorithms, validate_saml_config_algorithms,
@@ -124,48 +122,6 @@ fn encrypted_assertion_without_decryption_support_fails_closed(
         .to_string()
         .contains("Encrypted SAML assertions are not supported"));
     Ok(())
-}
-
-#[cfg(feature = "saml-signed")]
-#[test]
-fn encrypted_assertion_with_decryption_key_parses_as_plain_assertion(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let xml = read_samael_fixture("response_encrypted_valid.xml")?;
-    let key = read_samael_fixture("sp_private.pem")?;
-
-    let parsed = parse_saml_response_with_decryption(&encode_saml_xml(&xml), Some(&key))?;
-
-    assert_eq!(parsed.response_issuer.as_deref(), Some("saml-mock"));
-    assert!(!parsed.assertion.id.is_empty());
-    assert!(parsed.assertion.name_id.is_some() || !parsed.assertion.attributes.is_empty());
-    Ok(())
-}
-
-#[cfg(feature = "saml-signed")]
-#[test]
-fn encrypted_assertion_with_invalid_decryption_key_fails_closed(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let xml = read_samael_fixture("response_encrypted_valid.xml")?;
-    let error =
-        match parse_saml_response_with_decryption(&encode_saml_xml(&xml), Some("not a pem key")) {
-            Ok(_) => return Err("invalid decryption key should fail".into()),
-            Err(error) => error,
-        };
-
-    assert!(error.to_string().contains("SAML_DECRYPTION_KEY_INVALID"));
-    Ok(())
-}
-
-#[cfg(feature = "saml-signed")]
-fn read_samael_fixture(name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let cargo_home = std::env::var("CARGO_HOME").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-        format!("{home}/.cargo")
-    });
-    let path = std::path::Path::new(&cargo_home)
-        .join("registry/src/index.crates.io-1949cf8c6b5b557f/samael-0.0.20/test_vectors")
-        .join(name);
-    Ok(std::fs::read_to_string(path)?)
 }
 
 #[test]

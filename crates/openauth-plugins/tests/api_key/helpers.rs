@@ -111,7 +111,7 @@ pub async fn request_json(
         .get_all(header::SET_COOKIE)
         .iter()
         .filter_map(|value| value.to_str().ok())
-        .find(|value| value.starts_with("better-auth.session_token="))
+        .find(|value| value.starts_with("open-auth.session_token="))
         .and_then(|value| value.split(';').next().map(str::to_owned));
     let body = if response.body().is_empty() {
         Value::Null

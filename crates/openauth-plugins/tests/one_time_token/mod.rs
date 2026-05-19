@@ -88,7 +88,7 @@ async fn generated_token_verifies_once_and_sets_session_cookie(
     assert_eq!(verified["user"]["email"], "ada@example.com");
     assert!(set_cookie_values(&verify)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
 
     let second = router
         .handle_async(json_request(

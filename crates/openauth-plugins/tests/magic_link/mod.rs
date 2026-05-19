@@ -90,7 +90,7 @@ async fn verifies_magic_link_creates_session_and_sets_cookie(
     assert_eq!(body["user"]["email"], "ada@example.com");
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
     assert_eq!(adapter.len("session").await, 1);
     Ok(())
 }

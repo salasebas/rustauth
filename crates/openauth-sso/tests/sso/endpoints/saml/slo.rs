@@ -12,5 +12,3 @@ mod logout_response;
 mod logout_start;
 #[path = "slo/origin_and_core.rs"]
 mod origin_and_core;
-#[path = "slo/signed.rs"]
-mod signed;

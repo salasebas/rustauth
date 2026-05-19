@@ -54,7 +54,6 @@ async fn sign_in_sso_with_dual_provider_can_select_saml() -> Result<(), Box<dyn 
     Ok(())
 }
 
-#[cfg(not(feature = "saml-signed"))]
 #[tokio::test]
 async fn sign_in_sso_with_signed_saml_authn_request_fails_until_key_support_exists(
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -95,104 +94,6 @@ async fn sign_in_sso_with_signed_saml_authn_request_fails_until_key_support_exis
     assert_eq!(
         json_body(response)?["code"],
         "SAML_AUTHN_REQUEST_SIGNING_NOT_SUPPORTED"
-    );
-
-    Ok(())
-}
-
-#[cfg(feature = "saml-signed")]
-#[tokio::test]
-async fn sign_in_sso_with_signed_saml_authn_request_adds_redirect_signature(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (adapter, router) = router_with_options(SsoOptions::default())?;
-    let cookie = seed_session(&adapter).await?;
-    let idp = signed_saml_idp()?;
-    let register_body = json!({
-        "providerId": "saml-okta",
-        "issuer": "https://idp.example.com",
-        "domain": "example.com",
-        "samlConfig": {
-            "issuer": "https://app.example.com/sso/saml2/sp/metadata",
-            "entryPoint": "https://idp.example.com/saml/sso",
-            "cert": idp.cert,
-            "privateKey": idp.key_pem,
-            "callbackUrl": "https://app.example.com/sso/saml2/sp/acs/saml-okta",
-            "spMetadata": {"entityId": "https://app.example.com/saml/sp"},
-            "wantAssertionsSigned": true,
-            "authnRequestsSigned": true
-        }
-    })
-    .to_string();
-    router
-        .handle_async(json_request(
-            Method::POST,
-            "/sso/register",
-            &register_body,
-            Some(&cookie),
-        )?)
-        .await?;
-
-    let response = router
-        .handle_async(json_request(
-            Method::POST,
-            "/sign-in/sso",
-            r#"{"providerId":"saml-okta","providerType":"saml","callbackURL":"/dashboard"}"#,
-            None,
-        )?)
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response)?;
-    let url = url::Url::parse(body["url"].as_str().ok_or("missing URL")?)?;
-    assert!(url.query_pairs().any(|(key, _)| key == "SigAlg"));
-    assert!(url.query_pairs().any(|(key, _)| key == "Signature"));
-    let verifier = samael::crypto::UrlVerifier::from_x509(&idp.cert_der)?;
-    assert!(verifier.verify_signed_request_url(&url)?);
-
-    Ok(())
-}
-
-#[cfg(feature = "saml-signed")]
-#[tokio::test]
-async fn sign_in_sso_with_signed_saml_authn_request_requires_private_key(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (adapter, router) = router_with_options(SsoOptions::default())?;
-    let cookie = seed_session(&adapter).await?;
-    router
-        .handle_async(json_request(
-            Method::POST,
-            "/sso/register",
-            r#"{
-                "providerId":"saml-okta",
-                "issuer":"https://idp.example.com",
-                "domain":"example.com",
-                "samlConfig":{
-                    "issuer":"https://app.example.com/sso/saml2/sp/metadata",
-                    "entryPoint":"https://idp.example.com/saml/sso",
-                    "cert":"CERTIFICATE",
-                    "callbackUrl":"https://app.example.com/sso/saml2/sp/acs/saml-okta",
-                    "spMetadata":{"entityId":"https://app.example.com/saml/sp"},
-                    "wantAssertionsSigned":true,
-                    "authnRequestsSigned":true
-                }
-            }"#,
-            Some(&cookie),
-        )?)
-        .await?;
-
-    let response = router
-        .handle_async(json_request(
-            Method::POST,
-            "/sign-in/sso",
-            r#"{"providerId":"saml-okta","providerType":"saml","callbackURL":"/dashboard"}"#,
-            None,
-        )?)
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(
-        json_body(response)?["code"],
-        "SAML_AUTHN_REQUEST_PRIVATE_KEY_REQUIRED"
     );
 
     Ok(())

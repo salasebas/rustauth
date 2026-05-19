@@ -517,16 +517,16 @@ async fn invalid_trusted_device_cookie_is_expired_on_second_factor_challenge(
             Method::POST,
             "/api/auth/sign-in/email",
             r#"{"email":"ada@example.com","password":"password123"}"#,
-            Some("better-auth.trust_device=invalid"),
+            Some("open-auth.trust_device=invalid"),
         )?)
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["twoFactorRedirect"], true);
-    assert!(set_cookie_values(&response).iter().any(|value| value
-        .starts_with("better-auth.trust_device=;")
-        && value.contains("Max-Age=0")));
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|value| value.starts_with("open-auth.trust_device=;") && value.contains("Max-Age=0")));
     Ok(())
 }
 

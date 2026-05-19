@@ -2,13 +2,8 @@ use super::*;
 
 #[path = "helpers/oidc_server.rs"]
 mod oidc_server;
-#[cfg(feature = "saml-signed")]
-#[path = "helpers/saml_signed.rs"]
-mod saml_signed;
 
 pub(super) use oidc_server::*;
-#[cfg(feature = "saml-signed")]
-pub(super) use saml_signed::*;
 
 pub(super) async fn register_oidc_provider(
     router: &openauth_core::api::AuthRouter,
@@ -163,41 +158,6 @@ pub(super) async fn seed_saml_provider_record(
             })?),
             domain_verified: Some(true),
         })
-        .await?;
-    Ok(())
-}
-
-#[cfg(feature = "saml-signed")]
-pub(super) async fn register_saml_provider_with_cert(
-    router: &openauth_core::api::AuthRouter,
-    cookie: &str,
-    cert: &str,
-    want_assertions_signed: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    router
-        .handle_async(json_request(
-            Method::POST,
-            "/sso/register",
-            &format!(
-                r#"{{
-                "providerId":"saml-okta",
-                "issuer":"https://idp.example.com",
-                "domain":"example.com",
-                "samlConfig":{{
-                    "issuer":"https://app.example.com/sso/saml2/sp/metadata",
-                    "entryPoint":"https://idp.example.com/saml/sso",
-                    "cert":{},
-                    "callbackUrl":"https://app.example.com/sso/saml2/sp/acs/saml-okta",
-                    "spMetadata":{{"entityId":"https://app.example.com/saml/sp"}},
-                    "wantAssertionsSigned":{},
-                    "authnRequestsSigned":false
-                }}
-            }}"#,
-                serde_json::to_string(cert)?,
-                want_assertions_signed
-            ),
-            Some(cookie),
-        )?)
         .await?;
     Ok(())
 }
@@ -603,7 +563,6 @@ pub(super) fn encrypted_saml_response(
     Ok(base64::engine::general_purpose::STANDARD.encode(xml.as_bytes()))
 }
 
-#[cfg(not(feature = "saml-signed"))]
 pub(super) fn signed_marker_saml_response(
     in_response_to: &str,
     assertion_id: &str,
@@ -625,16 +584,4 @@ pub(super) fn tamper_base64_xml(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let xml = String::from_utf8(base64::engine::general_purpose::STANDARD.decode(encoded)?)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(xml.replace(from, to).as_bytes()))
-}
-
-#[cfg(feature = "saml-signed")]
-pub(super) fn samael_test_vector(name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let cargo_home = std::env::var("CARGO_HOME").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-        format!("{home}/.cargo")
-    });
-    let path = std::path::Path::new(&cargo_home)
-        .join("registry/src/index.crates.io-1949cf8c6b5b557f/samael-0.0.20/test_vectors")
-        .join(name);
-    Ok(std::fs::read_to_string(path)?)
 }

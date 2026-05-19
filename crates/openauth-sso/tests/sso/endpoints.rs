@@ -9,8 +9,6 @@ use openauth_sso::{
 };
 use serde_json::json;
 use std::io::Read;
-#[cfg(feature = "saml-signed")]
-use std::sync::atomic::{AtomicU64, Ordering};
 use time::OffsetDateTime;
 
 use super::support::{
@@ -19,9 +17,6 @@ use super::support::{
     router_with_options_and_secondary_storage, router_with_options_and_trusted_origins,
     seed_session, TestSecondaryStorage,
 };
-
-#[cfg(feature = "saml-signed")]
-static SAML_SIGNED_TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[path = "endpoints/audit.rs"]
 mod audit;

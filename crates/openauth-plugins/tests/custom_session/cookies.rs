@@ -56,10 +56,10 @@ async fn get_session_preserves_set_cookie_headers_individually(
     assert!(set_cookies.len() >= 2);
     assert!(set_cookies
         .iter()
-        .any(|value| value.starts_with("better-auth.session_token=")));
+        .any(|value| value.starts_with("open-auth.session_token=")));
     assert!(set_cookies
         .iter()
-        .any(|value| value.starts_with("better-auth.session_data=")));
+        .any(|value| value.starts_with("open-auth.session_data=")));
     assert!(set_cookies
         .iter()
         .filter(|value| value.starts_with("better-auth."))
@@ -161,14 +161,14 @@ async fn get_session_does_not_double_encode_session_token_after_refresh(
         .await?;
 
     let original_value = cookie
-        .strip_prefix("better-auth.session_token=")
+        .strip_prefix("open-auth.session_token=")
         .ok_or("unexpected session cookie name")?;
     let refreshed = set_cookie_values(&response)
         .into_iter()
-        .find(|value| value.starts_with("better-auth.session_token="))
+        .find(|value| value.starts_with("open-auth.session_token="))
         .ok_or("missing refreshed session cookie")?;
     let refreshed_value = refreshed
-        .trim_start_matches("better-auth.session_token=")
+        .trim_start_matches("open-auth.session_token=")
         .split(';')
         .next()
         .ok_or("missing refreshed value")?;
@@ -204,12 +204,15 @@ async fn get_session_null_preserves_delete_set_cookie_headers(
     let body: Value = serde_json::from_slice(response.body())?;
     assert!(body.is_null());
     let set_cookies = set_cookie_values(&response);
-    assert!(set_cookies.iter().any(
-        |value| value.starts_with("better-auth.session_token=;") && value.contains("Max-Age=0")
-    ));
-    assert!(set_cookies.iter().any(
-        |value| value.starts_with("better-auth.session_data=;") && value.contains("Max-Age=0")
-    ));
+    assert!(
+        set_cookies
+            .iter()
+            .any(|value| value.starts_with("open-auth.session_token=;")
+                && value.contains("Max-Age=0"))
+    );
+    assert!(set_cookies
+        .iter()
+        .any(|value| value.starts_with("open-auth.session_data=;") && value.contains("Max-Age=0")));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     Ok(())
 }

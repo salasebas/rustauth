@@ -4,16 +4,17 @@ Enterprise single sign-on support for OpenAuth-RS.
 
 ## Status
 
-This package is in experimental beta. SSO provider management, OIDC, SAML,
-domain verification, audit hooks, and rate-limit behavior may change before
-stable release.
+This package is in experimental beta. OIDC is the recommended path for new SSO
+integrations. SAML endpoints are compatibility scaffolding and signed or
+encrypted SAML messages currently fail closed until OpenAuth has an auditable XML
+signature backend.
 
 ## What It Provides
 
 `openauth-sso` exposes a server-side plugin for enterprise SSO. It adds SSO
-provider storage, OIDC sign-in, SAML ACS and metadata endpoints, domain
-verification, account linking helpers, organization provisioning, audit hooks,
-and SAML single logout support.
+provider storage, OIDC sign-in, SAML metadata/ACS scaffolding, domain
+verification, account linking helpers, organization provisioning, and audit
+hooks.
 
 ## Example
 
@@ -28,8 +29,8 @@ let auth = OpenAuth::builder()
     .build()?;
 ```
 
-Enable the `saml-signed` feature only when the deployment provides the required
-native XML security tooling and dependencies.
+Prefer OIDC when the IdP supports it. SAML signed/encrypted flows are not
+published as supported in this beta release.
 
 ## Links
 

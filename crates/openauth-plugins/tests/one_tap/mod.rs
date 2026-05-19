@@ -86,7 +86,7 @@ async fn callback_creates_user_account_session_and_sets_cookie(
     assert_eq!(body["user"]["email"], "ada@example.com");
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|value| value.starts_with("better-auth.session_token=")));
+        .any(|value| value.starts_with("open-auth.session_token=")));
     assert_eq!(adapter.len("user").await, 1);
     assert_eq!(adapter.len("account").await, 1);
     assert_eq!(adapter.len("session").await, 1);

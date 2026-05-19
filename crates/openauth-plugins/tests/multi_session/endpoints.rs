@@ -123,7 +123,7 @@ async fn set_active_accepts_multi_session_cookie_without_active_cookie(
     let token = response_token(&response)?;
     let cookie = cookie_header_from_response(&response)
         .split("; ")
-        .filter(|cookie| !cookie.starts_with("better-auth.session_token="))
+        .filter(|cookie| !cookie.starts_with("open-auth.session_token="))
         .collect::<Vec<_>>()
         .join("; ");
 
@@ -141,7 +141,7 @@ async fn set_active_accepts_multi_session_cookie_without_active_cookie(
     assert_eq!(body["user"]["email"], "ada@example.com");
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
     Ok(())
 }
 
@@ -341,7 +341,7 @@ async fn revoke_active_session_deletes_active_cookie_when_no_next_session(
         .await?;
 
     assert!(set_cookie_values(&response).iter().any(|cookie| {
-        cookie.starts_with("better-auth.session_token=;") && cookie.contains("Max-Age=0")
+        cookie.starts_with("open-auth.session_token=;") && cookie.contains("Max-Age=0")
     }));
     Ok(())
 }
@@ -394,13 +394,13 @@ async fn set_active_preserves_dont_remember_session_cookie(
     let cookies = set_cookie_values(&response);
     let active_cookie = cookies
         .iter()
-        .find(|cookie| cookie.starts_with("better-auth.session_token="))
+        .find(|cookie| cookie.starts_with("open-auth.session_token="))
         .ok_or("missing active session cookie")?;
 
     assert!(!active_cookie.contains("Max-Age="));
     assert!(cookies
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.dont_remember=")));
+        .any(|cookie| cookie.starts_with("open-auth.dont_remember=")));
     Ok(())
 }
 
@@ -424,7 +424,7 @@ async fn set_active_refreshes_cookie_cache_when_enabled() -> Result<(), Box<dyn 
 
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_data=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_data=")));
     Ok(())
 }
 

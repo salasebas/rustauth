@@ -220,7 +220,7 @@ async fn sign_in_email_otp_existing_user_sets_cookie() {
         .is_some_and(|token| !token.is_empty()));
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
 }
 
 #[tokio::test]
@@ -362,7 +362,7 @@ async fn verify_email_auto_signs_in_when_enabled() {
         .is_some_and(|token| !token.is_empty()));
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.starts_with("better-auth.session_token=")));
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
 }
 
 #[tokio::test]

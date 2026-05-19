@@ -4,14 +4,11 @@
 //! provider management, OIDC sign-in, SAML ACS, SAML metadata, domain
 //! verification, and SAML single logout endpoints.
 //!
-//! # Feature flags
+//! # SAML support
 //!
-//! - `saml-signed`: enables native XMLDSig and encrypted assertion handling
-//!   through the internal SAML backend. The default build keeps native XML
-//!   security dependencies out of the dependency graph and rejects signed or
-//!   encrypted SAML messages fail-closed. Signed XML validation currently uses
-//!   the system `xmlsec1` command, so deployments that enable this feature must
-//!   provide `xmlsec1`, libxml2, and OpenSSL-compatible crypto support.
+//! SAML is currently limited to compatibility scaffolding. Signed and encrypted
+//! SAML messages fail closed until OpenAuth has a dedicated, auditable XML
+//! signature backend. Prefer OIDC for new IdP integrations.
 //!
 //! # Example
 //!

@@ -69,7 +69,7 @@ async fn invalid_bearer_token_does_not_override_valid_cookie(
     let adapter = Arc::new(TestAdapter::default());
     let router = router(adapter, openauth_plugins::bearer::bearer())?;
     let tokens = sign_up_and_tokens(&router).await?;
-    let cookie = format!("better-auth.session_token={}", tokens.signed);
+    let cookie = format!("open-auth.session_token={}", tokens.signed);
 
     let response = router
         .handle_async(bearer_request(
