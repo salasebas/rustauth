@@ -570,6 +570,7 @@ fn oauth_user(id: &str, email: &str, email_verified: bool) -> OAuthUserInfo {
         email: email.to_owned(),
         image: None,
         email_verified,
+        raw_attributes: None,
     }
 }
 

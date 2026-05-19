@@ -168,6 +168,16 @@ fn passkey_feature_reexports_passkey_crate() {
     assert_eq!(plugin.id, "passkey");
 }
 
+#[cfg(feature = "sso")]
+#[test]
+fn sso_feature_reexports_sso_crate() {
+    let plugin = openauth::sso::sso(openauth::sso::SsoOptions::default());
+
+    assert_eq!(plugin.id, "sso");
+    assert_eq!(openauth::sso::UPSTREAM_PLUGIN_ID, "sso");
+    assert_eq!(plugin.version.as_deref(), Some(openauth::sso::VERSION));
+}
+
 #[test]
 fn option_builder_aliases_match_new_constructors() {
     let options = OpenAuthOptions::builder().rate_limit(
@@ -409,6 +419,7 @@ fn oauth_public_reexports_include_core_and_oauth_helpers() {
         email: "user@example.com".to_owned(),
         image: None,
         email_verified: true,
+        raw_attributes: None,
     };
 
     assert_eq!(user_info.email, "user@example.com");
