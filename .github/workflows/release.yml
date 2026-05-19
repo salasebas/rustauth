@@ -94,12 +94,12 @@ jobs:
           wait_for_crate_version() {
             local crate="$1"
 
-            for attempt in {1..20}; do
+            for attempt in {1..40}; do
               if crate_version_exists "$crate"; then
                 return 0
               fi
 
-              echo "Waiting for ${crate} ${version} to be available on crates.io (${attempt}/20)"
+              echo "Waiting for ${crate} ${version} to be available on crates.io (${attempt}/40)"
               sleep 15
             done
 
