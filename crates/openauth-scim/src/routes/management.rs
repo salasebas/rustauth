@@ -161,6 +161,9 @@ pub(super) fn list_provider_connections_endpoint(
                 };
                 let mut providers = Vec::new();
                 for provider in ScimProviderStore::new(adapter.as_ref()).list().await? {
+                    if !provider_scope_supported_for_management(context, &provider) {
+                        continue;
+                    }
                     if provider_access_allowed(
                         adapter.as_ref(),
                         &provider,
@@ -213,6 +216,13 @@ pub(super) fn get_provider_connection_endpoint(
                         "SCIM provider not found",
                     );
                 };
+                if !provider_scope_supported_for_management(context, &provider) {
+                    return json_error(
+                        StatusCode::FORBIDDEN,
+                        "FORBIDDEN",
+                        "Organization plugin is required to access this provider",
+                    );
+                }
                 if !provider_access_allowed(
                     adapter.as_ref(),
                     &provider,
@@ -270,6 +280,13 @@ pub(super) fn delete_provider_connection_endpoint(
                         "SCIM provider not found",
                     );
                 };
+                if !provider_scope_supported_for_management(context, &provider) {
+                    return json_error(
+                        StatusCode::FORBIDDEN,
+                        "FORBIDDEN",
+                        "Organization plugin is required to access this provider",
+                    );
+                }
                 if !provider_access_allowed(
                     adapter.as_ref(),
                     &provider,

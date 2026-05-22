@@ -8,6 +8,26 @@ pub(super) fn required_adapter(
         .ok_or_else(|| OpenAuthError::InvalidConfig("SCIM requires an adapter".to_owned()))
 }
 
+pub(super) fn ensure_scim_provider_scope_supported(
+    context: &openauth_core::context::AuthContext,
+    provider: &AuthenticatedScimProvider,
+) -> Result<(), ScimError> {
+    if provider.organization_id.is_some() && !context.has_plugin("organization") {
+        return Err(ScimError::bad_request(
+            "Organization plugin is required for organization-scoped SCIM providers",
+        )
+        .with_scim_type("invalidValue"));
+    }
+    Ok(())
+}
+
+pub(super) fn provider_scope_supported_for_management(
+    context: &openauth_core::context::AuthContext,
+    provider: &ScimProviderRecord,
+) -> bool {
+    provider.organization_id.is_none() || context.has_plugin("organization")
+}
+
 pub(super) async fn authenticate_scim_request(
     adapter: &dyn DbAdapter,
     secret: &str,

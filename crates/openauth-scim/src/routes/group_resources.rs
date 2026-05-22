@@ -49,6 +49,15 @@ pub(super) fn groups_require_organization() -> ScimError {
         .with_scim_type("invalidValue")
 }
 
+pub(super) fn validate_group_display_name(display_name: &str) -> Result<(), ScimError> {
+    if display_name.trim().is_empty() {
+        return Err(
+            ScimError::bad_request("displayName is required").with_scim_type("invalidValue")
+        );
+    }
+    Ok(())
+}
+
 pub(super) async fn create_team_for_group(
     adapter: &dyn DbAdapter,
     organization_id: &str,
@@ -379,7 +388,11 @@ pub(super) async fn apply_group_patch(
     Ok(())
 }
 
-async fn validate_group_member_users(
+pub(super) fn group_input_member_values(members: &[ScimGroupMemberInput]) -> Vec<String> {
+    members.iter().map(|member| member.value.clone()).collect()
+}
+
+pub(super) async fn validate_group_member_users(
     adapter: &dyn DbAdapter,
     provider_id: &str,
     organization_id: &str,

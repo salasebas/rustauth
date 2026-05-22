@@ -170,6 +170,109 @@ async fn groups_route_replaces_patches_and_deletes_team_backed_groups() {
 }
 
 #[tokio::test]
+async fn groups_put_rejects_unknown_members_without_replacing_membership() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(ScimOptions::default()).expect("router");
+    let (owner_cookie, owner_id) = session_cookie_with_user(
+        adapter.as_ref(),
+        &context,
+        "groups-put-invalid-owner@example.com",
+    )
+    .await
+    .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let user_id = create_scim_user(
+        &router,
+        &token,
+        "groups-put-existing@example.com",
+        "Existing",
+    )
+    .await;
+    let group_id = create_scim_group(
+        &router,
+        &token,
+        "PUT Unknown Members",
+        "put-unknown",
+        &[&user_id],
+    )
+    .await;
+
+    let put = router
+        .handle_async(json_request(
+            Method::PUT,
+            &format!("/scim/v2/Groups/{group_id}"),
+            r#"{"displayName":"Should Not Replace","members":[{"value":"missing-user"}]}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(put.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(put)["scimType"], "invalidValue");
+
+    let fetched = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Groups/{group_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    let body = json_body(fetched);
+    assert_eq!(body["displayName"], "PUT Unknown Members");
+    assert_eq!(body["members"].as_array().expect("members").len(), 1);
+    assert_eq!(body["members"][0]["value"], user_id);
+}
+
+#[tokio::test]
+async fn groups_put_rejects_empty_display_name_without_replacing_group() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(ScimOptions::default()).expect("router");
+    let (owner_cookie, owner_id) = session_cookie_with_user(
+        adapter.as_ref(),
+        &context,
+        "groups-put-empty-owner@example.com",
+    )
+    .await
+    .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let group_id = create_scim_group(&router, &token, "Named Group", "named-group", &[]).await;
+
+    let put = router
+        .handle_async(json_request(
+            Method::PUT,
+            &format!("/scim/v2/Groups/{group_id}"),
+            r#"{"displayName":"   ","members":[]}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(put.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(put)["scimType"], "invalidValue");
+
+    let fetched = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Groups/{group_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(json_body(fetched)["displayName"], "Named Group");
+}
+
+#[tokio::test]
 async fn groups_patch_replace_members_replaces_existing_membership() {
     let (adapter, router, context) =
         router_with_context_and_organization(ScimOptions::default()).expect("router");

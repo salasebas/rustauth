@@ -22,6 +22,9 @@ pub(super) fn search_users_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let search = parse_search_request(&request)?;
                 let mut resources = match load_user_resources(
                     adapter.as_ref(),
@@ -72,6 +75,9 @@ pub(super) fn get_user_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(user_id) = path_param(&request, "userId") else {
                     return ScimError::not_found("User not found").into_response();
                 };
@@ -126,6 +132,9 @@ pub(super) fn create_user_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let mut input: ScimUserInput = match serde_json::from_slice(request.body()) {
                     Ok(input) => input,
                     Err(error) => {
@@ -232,6 +241,9 @@ pub(super) fn put_user_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(user_id) = path_param(&request, "userId") else {
                     return ScimError::not_found("User not found").into_response();
                 };
@@ -352,6 +364,9 @@ pub(super) fn patch_user_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(user_id) = path_param(&request, "userId") else {
                     return ScimError::not_found("User not found").into_response();
                 };
@@ -465,6 +480,9 @@ pub(super) fn delete_user_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(user_id) = path_param(&request, "userId") else {
                     return ScimError::not_found("User not found").into_response();
                 };
@@ -524,6 +542,9 @@ pub(super) fn list_users_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let mut resources = match load_user_resources(
                     adapter.as_ref(),
                     &context.base_url,

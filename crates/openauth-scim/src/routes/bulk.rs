@@ -20,6 +20,9 @@ pub(super) fn bulk_endpoint(options: Arc<ScimOptions>) -> openauth_core::api::As
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 if request.body().len() > metadata::SCIM_BULK_MAX_PAYLOAD_SIZE {
                     return ScimError::bad_request("Bulk payload exceeds maxPayloadSize")
                         .with_scim_type("tooMany")
@@ -330,10 +333,25 @@ async fn execute_bulk_operation(
     }
     if method == "DELETE" {
         if let Some(user_id) = path.strip_prefix("/Users/") {
+            let Some((user, _account)) = find_scim_user(
+                adapter,
+                user_id,
+                &provider.provider_id,
+                provider.organization_id.as_deref(),
+            )
+            .await?
+            else {
+                return bulk_error_response(
+                    method,
+                    Some(path),
+                    operation.bulk_id,
+                    ScimError::not_found("User not found"),
+                );
+            };
             DbUserStore::new(adapter)
-                .delete_user_accounts(user_id)
+                .delete_user_accounts(&user.id)
                 .await?;
-            DbUserStore::new(adapter).delete_user(user_id).await?;
+            DbUserStore::new(adapter).delete_user(&user.id).await?;
             return Ok(BulkOperationResponse {
                 method,
                 path: Some(path),
@@ -347,6 +365,31 @@ async fn execute_bulk_operation(
             });
         }
         if let Some(group_id) = path.strip_prefix("/Groups/") {
+            let Some(organization_id) = provider.organization_id.as_deref() else {
+                return bulk_error_response(
+                    method,
+                    Some(path),
+                    operation.bulk_id,
+                    groups_require_organization(),
+                );
+            };
+            if load_group_resource(
+                adapter,
+                base_url,
+                &provider.provider_id,
+                organization_id,
+                group_id,
+            )
+            .await?
+            .is_none()
+            {
+                return bulk_error_response(
+                    method,
+                    Some(path),
+                    operation.bulk_id,
+                    ScimError::not_found("Group not found"),
+                );
+            }
             delete_group(adapter, &provider.provider_id, group_id).await?;
             return Ok(BulkOperationResponse {
                 method,
@@ -479,6 +522,28 @@ fn bulk_error_response(
     })
 }
 
+fn scim_error_value(error: ScimError) -> Result<(StatusCode, serde_json::Value), OpenAuthError> {
+    Ok((
+        error.status,
+        serde_json::to_value(error.body())
+            .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+    ))
+}
+
+fn invalid_bulk_data(error: serde_json::Error) -> ScimError {
+    ScimError::bad_request(format!("Invalid Bulk operation data: {error}"))
+        .with_scim_type("invalidValue")
+}
+
+fn scim_or_openauth_value(
+    error: ScimErrorOrOpenAuth,
+) -> Result<(StatusCode, serde_json::Value), OpenAuthError> {
+    match error {
+        ScimErrorOrOpenAuth::Scim(error) => scim_error_value(error),
+        ScimErrorOrOpenAuth::OpenAuth(error) => Err(error),
+    }
+}
+
 fn bulk_response_location(response: &serde_json::Value) -> Option<String> {
     response
         .get("meta")
@@ -501,8 +566,13 @@ async fn bulk_create_user(
     provider: &AuthenticatedScimProvider,
     data: serde_json::Value,
 ) -> Result<(StatusCode, serde_json::Value, Option<String>), OpenAuthError> {
-    let mut input: ScimUserInput =
-        serde_json::from_value(data).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let mut input: ScimUserInput = match serde_json::from_value(data) {
+        Ok(input) => input,
+        Err(error) => {
+            let (status, body) = scim_error_value(invalid_bulk_data(error))?;
+            return Ok((status, body, None));
+        }
+    };
     input.user_name = input.user_name.to_ascii_lowercase();
     let emails = input.emails.clone().unwrap_or_default();
     if let Err(error) = validate_emails(&emails) {
@@ -590,9 +660,22 @@ async fn bulk_create_group(
             None,
         ));
     };
-    let mut input: ScimGroupInput =
-        serde_json::from_value(data).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let mut input: ScimGroupInput = match serde_json::from_value(data) {
+        Ok(input) => input,
+        Err(error) => {
+            let (status, body) = scim_error_value(invalid_bulk_data(error))?;
+            return Ok((status, body, None));
+        }
+    };
     if let Err(error) = reject_nested_group_members(&input.members) {
+        return Ok((
+            error.status,
+            serde_json::to_value(error.body())
+                .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+            None,
+        ));
+    }
+    if let Err(error) = validate_group_display_name(&input.display_name) {
         return Ok((
             error.status,
             serde_json::to_value(error.body())
@@ -609,6 +692,17 @@ async fn bulk_create_group(
                 None,
             ));
         }
+    }
+    if let Err(error) = validate_group_member_users(
+        adapter,
+        &provider.provider_id,
+        organization_id,
+        &group_input_member_values(&input.members),
+    )
+    .await
+    {
+        let (status, body) = scim_or_openauth_value(error)?;
+        return Ok((status, body, None));
     }
     let team = create_team_for_group(adapter, organization_id, input.display_name.trim()).await?;
     create_scim_group_profile(
@@ -660,8 +754,12 @@ async fn bulk_update_user(
                 .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
         ));
     };
-    let mut input: ScimUserInput =
-        serde_json::from_value(data).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let mut input: ScimUserInput = match serde_json::from_value(data) {
+        Ok(input) => input,
+        Err(error) => {
+            return scim_error_value(invalid_bulk_data(error));
+        }
+    };
     input.user_name = input.user_name.to_ascii_lowercase();
     let emails = input.emails.clone().unwrap_or_default();
     if let Err(error) = validate_emails(&emails) {
@@ -738,14 +836,43 @@ async fn bulk_replace_group(
                 .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
         ));
     };
-    let input: ScimGroupInput =
-        serde_json::from_value(data).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    if load_group_resource(
+        adapter,
+        base_url,
+        &provider.provider_id,
+        organization_id,
+        group_id,
+    )
+    .await?
+    .is_none()
+    {
+        return scim_error_value(ScimError::not_found("Group not found"));
+    }
+    let input: ScimGroupInput = match serde_json::from_value(data) {
+        Ok(input) => input,
+        Err(error) => {
+            return scim_error_value(invalid_bulk_data(error));
+        }
+    };
     if let Err(error) = reject_nested_group_members(&input.members) {
         return Ok((
             error.status,
             serde_json::to_value(error.body())
                 .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
         ));
+    }
+    if let Err(error) = validate_group_display_name(&input.display_name) {
+        return scim_error_value(error);
+    }
+    if let Err(error) = validate_group_member_users(
+        adapter,
+        &provider.provider_id,
+        organization_id,
+        &group_input_member_values(&input.members),
+    )
+    .await
+    {
+        return scim_or_openauth_value(error);
     }
     replace_group(
         adapter,
@@ -773,8 +900,29 @@ async fn bulk_patch_group(
                 .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
         ));
     };
-    let body: PatchBody =
-        serde_json::from_value(data).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    if load_group_resource(
+        adapter,
+        base_url,
+        &provider.provider_id,
+        organization_id,
+        group_id,
+    )
+    .await?
+    .is_none()
+    {
+        return scim_error_value(ScimError::not_found("Group not found"));
+    }
+    let body: PatchBody = match serde_json::from_value(data) {
+        Ok(body) => body,
+        Err(error) => {
+            return scim_error_value(invalid_bulk_data(error));
+        }
+    };
+    if !body.schemas.iter().any(|schema| schema == PATCH_OP_SCHEMA) {
+        return scim_error_value(
+            ScimError::bad_request("Invalid schemas for PatchOp").with_scim_type("invalidValue"),
+        );
+    }
     if let Err(error) = apply_group_patch(
         adapter,
         &provider.provider_id,
@@ -784,14 +932,7 @@ async fn bulk_patch_group(
     )
     .await
     {
-        return match error {
-            ScimErrorOrOpenAuth::Scim(error) => Ok((
-                error.status,
-                serde_json::to_value(error.body())
-                    .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
-            )),
-            ScimErrorOrOpenAuth::OpenAuth(error) => Err(error),
-        };
+        return scim_or_openauth_value(error);
     }
     bulk_get_group(adapter, base_url, provider, organization_id, group_id).await
 }
@@ -818,8 +959,12 @@ async fn bulk_patch_user(
                 .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
         ));
     };
-    let body: PatchBody =
-        serde_json::from_value(data).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let body: PatchBody = match serde_json::from_value(data) {
+        Ok(body) => body,
+        Err(error) => {
+            return scim_error_value(invalid_bulk_data(error));
+        }
+    };
     if !body.schemas.iter().any(|schema| schema == PATCH_OP_SCHEMA) {
         let error =
             ScimError::bad_request("Invalid schemas for PatchOp").with_scim_type("invalidValue");

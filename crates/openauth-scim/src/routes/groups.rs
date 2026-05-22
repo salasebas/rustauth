@@ -22,6 +22,9 @@ pub(super) fn create_group_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
@@ -34,28 +37,24 @@ pub(super) fn create_group_endpoint(
                         .into_response();
                     }
                 };
-                if input.display_name.trim().is_empty() {
-                    return ScimError::bad_request("displayName is required")
-                        .with_scim_type("invalidValue")
-                        .into_response();
+                if let Err(error) = validate_group_display_name(&input.display_name) {
+                    return error.into_response();
                 }
                 if let Err(error) = reject_nested_group_members(&input.members) {
                     return error.into_response();
                 }
-                for member in &input.members {
-                    if find_scim_user(
-                        adapter.as_ref(),
-                        &member.value,
-                        &provider.provider_id,
-                        Some(organization_id),
-                    )
-                    .await?
-                    .is_none()
-                    {
-                        return ScimError::bad_request("Group member not found")
-                            .with_scim_type("invalidValue")
-                            .into_response();
-                    }
+                if let Err(error) = validate_group_display_name(&input.display_name) {
+                    return error.into_response();
+                }
+                if let Err(error) = validate_group_member_users(
+                    adapter.as_ref(),
+                    &provider.provider_id,
+                    organization_id,
+                    &group_input_member_values(&input.members),
+                )
+                .await
+                {
+                    return error.into_response();
                 }
 
                 let team = create_team_for_group(
@@ -120,6 +119,9 @@ pub(super) fn list_groups_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
@@ -180,6 +182,9 @@ pub(super) fn get_group_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
@@ -230,6 +235,9 @@ pub(super) fn put_group_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
@@ -262,6 +270,19 @@ pub(super) fn put_group_endpoint(
                     return error.into_response();
                 }
                 if let Err(error) = reject_nested_group_members(&input.members) {
+                    return error.into_response();
+                }
+                if let Err(error) = validate_group_display_name(&input.display_name) {
+                    return error.into_response();
+                }
+                if let Err(error) = validate_group_member_users(
+                    adapter.as_ref(),
+                    &provider.provider_id,
+                    organization_id,
+                    &group_input_member_values(&input.members),
+                )
+                .await
+                {
                     return error.into_response();
                 }
                 replace_group(
@@ -316,6 +337,9 @@ pub(super) fn patch_group_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
@@ -404,6 +428,9 @@ pub(super) fn delete_group_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
@@ -458,6 +485,9 @@ pub(super) fn search_groups_endpoint(
                 else {
                     return scim_auth_error(&request).into_response();
                 };
+                if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
+                    return error.into_response();
+                }
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
