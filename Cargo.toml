@@ -60,6 +60,7 @@ inquire = "0.7"
 openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.5" }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.5" }
 openauth-passkey = { path = "crates/openauth-passkey", version = "0.0.5" }
+openauth-scim = { path = "crates/openauth-scim", version = "0.0.5" }
 openauth-social-providers = { path = "crates/openauth-social-providers", version = "0.0.5" }
 openauth-sqlx = { path = "crates/openauth-sqlx", version = "0.0.5", default-features = false }
 openauth-sso = { path = "crates/openauth-sso", version = "0.0.5" }

@@ -15,7 +15,23 @@ categories.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+base64.workspace = true
+http.workspace = true
+indexmap.workspace = true
+openauth-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+time.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+openauth-deadpool-postgres.workspace = true
+openauth-plugins.workspace = true
+openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+openauth-tokio-postgres.workspace = true
+sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
 
 [lints]
 workspace = true

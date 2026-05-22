@@ -76,6 +76,8 @@ pub use openauth_deadpool_postgres as deadpool_postgres;
 pub use openauth_passkey as passkey;
 #[cfg(feature = "plugins")]
 pub use openauth_plugins as plugins;
+#[cfg(feature = "scim")]
+pub use openauth_scim as scim;
 #[cfg(feature = "sqlx")]
 pub use openauth_sqlx as sqlx;
 #[cfg(feature = "sso")]

@@ -2478,6 +2478,7 @@ dependencies = [
  "openauth-deadpool-postgres",
  "openauth-passkey",
  "openauth-plugins",
+ "openauth-scim",
  "openauth-sqlx",
  "openauth-sso",
  "openauth-telemetry",
@@ -2717,6 +2718,20 @@ dependencies = [
 name = "openauth-scim"
 version = "0.0.5"
 dependencies = [
+ "base64 0.22.1",
+ "http",
+ "indexmap 2.14.0",
+ "openauth-core",
+ "openauth-deadpool-postgres",
+ "openauth-plugins",
+ "openauth-sqlx",
+ "openauth-tokio-postgres",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "subtle",
+ "time",
  "tokio",
 ]
 
