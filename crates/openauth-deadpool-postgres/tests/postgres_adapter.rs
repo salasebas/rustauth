@@ -74,6 +74,17 @@ fn unique_prefix() -> String {
     conformance::unique_prefix("oa_dpg")
 }
 
+fn prefixed_options(prefix: &str) -> AuthSchemaOptions {
+    AuthSchemaOptions {
+        user: table_options(prefix, "users"),
+        account: table_options(prefix, "accounts"),
+        session: table_options(prefix, "sessions"),
+        verification: table_options(prefix, "verifications"),
+        rate_limit: table_options(prefix, "rate_limits"),
+        ..AuthSchemaOptions::default()
+    }
+}
+
 #[tokio::test]
 async fn deadpool_postgres_adapter_reports_public_capabilities() -> Result<(), OpenAuthError> {
     let capabilities = adapter().await?.capabilities();
@@ -103,7 +114,8 @@ async fn deadpool_postgres_adapter_plans_and_runs_migrations() -> Result<(), Ope
         .iter()
         .any(|statement| statement.kind == MigrationStatementKind::CreateTable));
     adapter.run_migrations(&schema).await?;
-    assert!(adapter.plan_migrations(&schema).await?.is_empty());
+    let second_plan = adapter.plan_migrations(&schema).await?;
+    assert!(second_plan.is_empty(), "{second_plan:#?}");
     Ok(())
 }
 
@@ -134,9 +146,8 @@ async fn deadpool_postgres_adapter_reports_missing_database_pool_errors(
 async fn deadpool_postgres_adapter_reports_additive_migration_plan() -> Result<(), OpenAuthError> {
     let prefix = unique_prefix();
     let initial = auth_schema(AuthSchemaOptions {
-        user: table_options(&prefix, "users"),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let adapter =
         DeadpoolPostgresAdapter::connect_with_schema(&database_url(), initial.clone()).await?;
@@ -148,7 +159,7 @@ async fn deadpool_postgres_adapter_reports_additive_migration_plan() -> Result<(
             DbField::new("nickname", DbFieldType::String).indexed(),
         ),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let plan = adapter.plan_migrations(&updated).await?;
 
@@ -181,7 +192,7 @@ async fn deadpool_postgres_adapter_reports_type_mismatch_and_repairs_missing_ind
             DbField::new("nickname", DbFieldType::String).indexed(),
         ),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let raw = raw_client().await?;
     raw.batch_execute(&format!(
@@ -250,7 +261,7 @@ async fn deadpool_postgres_adapter_creates_native_postgres_array_columns(
             .with_field("tags", DbField::new("tags", DbFieldType::StringArray))
             .with_field("scores", DbField::new("scores", DbFieldType::NumberArray)),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let adapter =
         DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
@@ -527,7 +538,7 @@ async fn deadpool_postgres_adapter_round_trips_json_and_array_fields() -> Result
             .with_field("tags", DbField::new("tags", DbFieldType::StringArray))
             .with_field("scores", DbField::new("scores", DbFieldType::NumberArray)),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let adapter =
         DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;

@@ -1,6 +1,6 @@
 use openauth_core::db::{
-    execute_schema_migration_plan, plan_schema_migration, AdapterFuture, DbSchema,
-    SqlColumnSnapshot, SqlDialect, SqlExecutor, SqlSchemaSnapshot, SqlStatement,
+    execute_schema_migration_plan, plan_schema_migration, AdapterFuture, DbSchema, ForeignKey,
+    OnDelete, SqlColumnSnapshot, SqlDialect, SqlExecutor, SqlSchemaSnapshot, SqlStatement,
 };
 use openauth_core::error::OpenAuthError;
 use tokio_postgres::{Client, Row};
@@ -49,10 +49,15 @@ async fn load_schema_snapshot(
             snapshot = snapshot.with_table(&table.name);
             for (_, field) in &table.fields {
                 if let Some(actual_type) = column_type(client, &table.name, &field.name).await? {
-                    snapshot = snapshot.with_column(
-                        &table.name,
-                        SqlColumnSnapshot::new(&field.name, actual_type),
-                    );
+                    let mut column = SqlColumnSnapshot::new(&field.name, actual_type);
+                    if let Some(foreign_key) = foreign_key(client, &table.name, &field.name).await?
+                    {
+                        column = column.references(foreign_key);
+                    }
+                    snapshot = snapshot.with_column(&table.name, column);
+                    if unique_column_exists(client, &table.name, &field.name).await? {
+                        snapshot = snapshot.with_unique_column(&table.name, &field.name);
+                    }
                 }
             }
         }
@@ -110,6 +115,78 @@ async fn index_exists(client: &Client, index: &str) -> Result<bool, OpenAuthErro
         .map_err(postgres_error)?
         .get::<_, i64>(0);
     Ok(count > 0)
+}
+
+async fn unique_column_exists(
+    client: &Client,
+    table: &str,
+    column: &str,
+) -> Result<bool, OpenAuthError> {
+    let count = client
+        .query_one(
+            "SELECT COUNT(*) \
+             FROM information_schema.table_constraints tc \
+             JOIN information_schema.key_column_usage kcu \
+               ON tc.constraint_schema = kcu.constraint_schema \
+              AND tc.constraint_name = kcu.constraint_name \
+              AND tc.table_name = kcu.table_name \
+             WHERE tc.constraint_schema = current_schema() \
+               AND tc.table_name = $1 \
+               AND kcu.column_name = $2 \
+               AND tc.constraint_type IN ('UNIQUE', 'PRIMARY KEY')",
+            &[&table, &column],
+        )
+        .await
+        .map_err(postgres_error)?
+        .get::<_, i64>(0);
+    Ok(count > 0)
+}
+
+async fn foreign_key(
+    client: &Client,
+    table: &str,
+    column: &str,
+) -> Result<Option<ForeignKey>, OpenAuthError> {
+    let row = client
+        .query_opt(
+            "SELECT ccu.table_name, ccu.column_name, rc.delete_rule \
+             FROM information_schema.table_constraints tc \
+             JOIN information_schema.key_column_usage kcu \
+               ON tc.constraint_schema = kcu.constraint_schema \
+              AND tc.constraint_name = kcu.constraint_name \
+              AND tc.table_name = kcu.table_name \
+             JOIN information_schema.referential_constraints rc \
+               ON tc.constraint_schema = rc.constraint_schema \
+              AND tc.constraint_name = rc.constraint_name \
+             JOIN information_schema.constraint_column_usage ccu \
+               ON rc.unique_constraint_schema = ccu.constraint_schema \
+              AND rc.unique_constraint_name = ccu.constraint_name \
+             WHERE tc.constraint_schema = current_schema() \
+               AND tc.table_name = $1 \
+               AND kcu.column_name = $2 \
+               AND tc.constraint_type = 'FOREIGN KEY'",
+            &[&table, &column],
+        )
+        .await
+        .map_err(postgres_error)?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let table = row.get::<_, String>(0);
+    let field = row.get::<_, String>(1);
+    let delete_rule = row.get::<_, String>(2);
+    Ok(Some(ForeignKey::new(
+        table,
+        field,
+        match delete_rule.as_str() {
+            "CASCADE" => OnDelete::Cascade,
+            "SET NULL" => OnDelete::SetNull,
+            "SET DEFAULT" => OnDelete::SetDefault,
+            "RESTRICT" => OnDelete::Restrict,
+            _ => OnDelete::NoAction,
+        },
+    )))
 }
 
 pub struct PostgresSchemaExecutor<'a> {

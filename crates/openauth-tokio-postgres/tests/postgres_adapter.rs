@@ -90,6 +90,17 @@ fn unique_prefix() -> String {
     conformance::unique_prefix("oa_tpg")
 }
 
+fn prefixed_options(prefix: &str) -> AuthSchemaOptions {
+    AuthSchemaOptions {
+        user: table_options(prefix, "users"),
+        account: table_options(prefix, "accounts"),
+        session: table_options(prefix, "sessions"),
+        verification: table_options(prefix, "verifications"),
+        rate_limit: table_options(prefix, "rate_limits"),
+        ..AuthSchemaOptions::default()
+    }
+}
+
 #[tokio::test]
 async fn tokio_postgres_adapter_reports_public_capabilities() -> Result<(), OpenAuthError> {
     let capabilities = adapter().await?.capabilities();
@@ -124,9 +135,8 @@ async fn tokio_postgres_adapter_plans_and_runs_migrations() -> Result<(), OpenAu
 async fn tokio_postgres_adapter_reports_additive_migration_plan() -> Result<(), OpenAuthError> {
     let prefix = unique_prefix();
     let initial = auth_schema(AuthSchemaOptions {
-        user: table_options(&prefix, "users"),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let adapter =
         TokioPostgresAdapter::connect_with_schema(&database_url(), initial.clone()).await?;
@@ -138,7 +148,7 @@ async fn tokio_postgres_adapter_reports_additive_migration_plan() -> Result<(), 
             DbField::new("nickname", DbFieldType::String).indexed(),
         ),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let plan = adapter.plan_migrations(&updated).await?;
 
@@ -171,7 +181,7 @@ async fn tokio_postgres_adapter_reports_type_mismatch_and_repairs_missing_index(
             DbField::new("nickname", DbFieldType::String).indexed(),
         ),
         rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
+        ..prefixed_options(&prefix)
     });
     let raw = raw_client().await?;
     raw.batch_execute(&format!(
