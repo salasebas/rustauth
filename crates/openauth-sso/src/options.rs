@@ -6,9 +6,13 @@ use time::Duration;
 use openauth_core::db::User;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::RateLimitRule;
+use openauth_core::secret::SecretString;
 
-use crate::saml_impl::DeprecatedAlgorithmBehavior;
-use crate::secrets::SecretString;
+#[cfg(feature = "saml")]
+pub use openauth_saml::{
+    DeprecatedAlgorithmBehavior, SamlConfig, SamlIdpMetadata, SamlMapping, SamlService,
+    SamlSpMetadata,
+};
 
 #[path = "options/audit.rs"]
 mod audit;
@@ -273,6 +277,13 @@ impl SsoOptions {
     }
 }
 
+#[cfg(feature = "oidc")]
+impl openauth_oidc::OidcFlowOptions for SsoOptions {
+    fn redirect_uri(&self) -> Option<&str> {
+        self.redirect_uri.as_deref()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// OIDC runtime and security behavior for SSO providers.
@@ -402,6 +413,17 @@ pub struct SamlAlgorithmOptions {
     pub allowed_data_encryption_algorithms: Option<Vec<String>>,
 }
 
+#[cfg(not(feature = "saml"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+/// Behavior used when SAML algorithms are deprecated.
+pub enum DeprecatedAlgorithmBehavior {
+    /// Accept deprecated algorithms while allowing callers to audit them.
+    Warn,
+    /// Reject deprecated algorithms.
+    Reject,
+}
+
 impl Default for SamlAlgorithmOptions {
     fn default() -> Self {
         Self {
@@ -483,6 +505,9 @@ pub struct OidcConfig {
     pub override_user_info: bool,
 }
 
+#[allow(dead_code)]
+pub type OidcProviderConfig = OidcConfig;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 /// Supported OAuth token endpoint authentication methods.
@@ -491,6 +516,63 @@ pub enum TokenEndpointAuthentication {
     ClientSecretBasic,
     /// Send client credentials in the token request body.
     ClientSecretPost,
+}
+
+#[cfg(feature = "oidc")]
+impl From<TokenEndpointAuthentication> for openauth_oidc::TokenEndpointAuthentication {
+    fn from(value: TokenEndpointAuthentication) -> Self {
+        match value {
+            TokenEndpointAuthentication::ClientSecretBasic => Self::ClientSecretBasic,
+            TokenEndpointAuthentication::ClientSecretPost => Self::ClientSecretPost,
+        }
+    }
+}
+
+#[cfg(feature = "oidc")]
+impl From<openauth_oidc::TokenEndpointAuthentication> for TokenEndpointAuthentication {
+    fn from(value: openauth_oidc::TokenEndpointAuthentication) -> Self {
+        match value {
+            openauth_oidc::TokenEndpointAuthentication::ClientSecretBasic => {
+                Self::ClientSecretBasic
+            }
+            openauth_oidc::TokenEndpointAuthentication::ClientSecretPost => Self::ClientSecretPost,
+        }
+    }
+}
+
+#[cfg(feature = "oidc")]
+impl openauth_oidc::OidcEndpointConfig for OidcConfig {
+    fn discovery_endpoint(&self) -> &str {
+        &self.discovery_endpoint
+    }
+
+    fn authorization_endpoint(&self) -> Option<&str> {
+        self.authorization_endpoint.as_deref()
+    }
+
+    fn token_endpoint(&self) -> Option<&str> {
+        self.token_endpoint.as_deref()
+    }
+
+    fn user_info_endpoint(&self) -> Option<&str> {
+        self.user_info_endpoint.as_deref()
+    }
+
+    fn jwks_endpoint(&self) -> Option<&str> {
+        self.jwks_endpoint.as_deref()
+    }
+
+    fn revocation_endpoint(&self) -> Option<&str> {
+        self.revocation_endpoint.as_deref()
+    }
+
+    fn end_session_endpoint(&self) -> Option<&str> {
+        self.end_session_endpoint.as_deref()
+    }
+
+    fn introspection_endpoint(&self) -> Option<&str> {
+        self.introspection_endpoint.as_deref()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -511,6 +593,14 @@ pub struct OidcMapping {
     pub extra_fields: Option<BTreeMap<String, String>>,
 }
 
+#[allow(dead_code)]
+pub type OidcProfileMapping = OidcMapping;
+
+#[cfg(feature = "saml")]
+#[allow(dead_code)]
+pub type SamlProviderConfig = SamlConfig;
+
+#[cfg(not(feature = "saml"))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// SAML configuration for an SSO provider.
@@ -562,6 +652,11 @@ pub struct SamlConfig {
     pub additional_params: Option<BTreeMap<String, serde_json::Value>>,
 }
 
+#[cfg(not(feature = "saml"))]
+#[allow(dead_code)]
+pub type SamlProviderConfig = SamlConfig;
+
+#[cfg(not(feature = "saml"))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// IdP metadata fields accepted by SAML provider configuration.
@@ -593,6 +688,7 @@ pub struct SamlIdpMetadata {
     pub single_logout_service: Option<Vec<SamlService>>,
 }
 
+#[cfg(not(feature = "saml"))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// SAML metadata service endpoint.
 pub struct SamlService {
@@ -604,6 +700,7 @@ pub struct SamlService {
     pub location: String,
 }
 
+#[cfg(not(feature = "saml"))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Service provider metadata overrides.
@@ -627,6 +724,7 @@ pub struct SamlSpMetadata {
     pub enc_private_key_pass: Option<SecretString>,
 }
 
+#[cfg(not(feature = "saml"))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Mapping from SAML attributes to OpenAuth profile fields.

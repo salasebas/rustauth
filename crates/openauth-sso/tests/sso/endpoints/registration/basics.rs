@@ -1,6 +1,7 @@
 use super::*;
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn register_persists_and_sanitizes_oidc_config() -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
     let cookie = seed_session(&adapter).await?;
@@ -76,6 +77,7 @@ async fn register_accepts_form_urlencoded_body() -> Result<(), Box<dyn std::erro
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn register_returns_shared_oidc_redirect_uri_when_configured(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) =
@@ -112,6 +114,7 @@ async fn register_returns_shared_oidc_redirect_uri_when_configured(
 }
 
 #[tokio::test]
+#[cfg(all(feature = "oidc", feature = "saml"))]
 async fn register_allows_provider_with_oidc_and_saml_configs(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;

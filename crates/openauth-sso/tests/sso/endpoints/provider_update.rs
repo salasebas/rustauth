@@ -84,6 +84,7 @@ async fn update_provider_rejects_organization_id_without_membership(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn update_provider_rejects_saml_config_with_unknown_digest_algorithm(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -118,6 +119,7 @@ async fn update_provider_rejects_saml_config_with_unknown_digest_algorithm(
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn update_provider_rejects_empty_update_body() -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
     let cookie = seed_session(&adapter).await?;
@@ -139,6 +141,7 @@ async fn update_provider_rejects_empty_update_body() -> Result<(), Box<dyn std::
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn update_provider_merges_partial_saml_config() -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
     let cookie = seed_session(&adapter).await?;
@@ -179,6 +182,7 @@ async fn update_provider_merges_partial_saml_config() -> Result<(), Box<dyn std:
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn update_provider_merges_partial_oidc_config_and_keeps_secret(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -235,6 +239,7 @@ async fn update_provider_merges_partial_oidc_config_and_keeps_secret(
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn update_provider_rejects_untrusted_manual_oidc_endpoint_when_strict_policy_is_enabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut options = SsoOptions::default();
@@ -267,6 +272,7 @@ async fn update_provider_rejects_untrusted_manual_oidc_endpoint_when_strict_poli
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn update_provider_rejects_oversized_saml_idp_metadata(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut options = SsoOptions::default();
@@ -298,6 +304,7 @@ async fn update_provider_rejects_oversized_saml_idp_metadata(
 }
 
 #[tokio::test]
+#[cfg(all(feature = "oidc", feature = "saml"))]
 async fn update_provider_rejects_config_update_for_wrong_provider_type(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -323,6 +330,7 @@ async fn update_provider_rejects_config_update_for_wrong_provider_type(
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn update_provider_rejects_invalid_oidc_endpoint_url(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -350,6 +358,7 @@ async fn update_provider_rejects_invalid_oidc_endpoint_url(
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn update_provider_rejects_public_suffix_domain() -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
     let cookie = seed_session(&adapter).await?;

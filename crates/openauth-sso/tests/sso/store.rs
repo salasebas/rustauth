@@ -247,6 +247,7 @@ async fn provider_store_accepts_json_config_values_from_adapters(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn provider_store_returns_saml_certificate_metadata_without_raw_cert(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = openauth_core::db::MemoryAdapter::new();
@@ -307,6 +308,7 @@ async fn provider_store_returns_saml_certificate_metadata_without_raw_cert(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn provider_store_returns_saml_certificate_parse_error_without_raw_cert(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = openauth_core::db::MemoryAdapter::new();

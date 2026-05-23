@@ -1,14 +1,19 @@
 use std::sync::Arc;
 
 mod domain_verification;
+#[cfg(feature = "oidc")]
 mod oidc;
 mod provider_update;
 mod providers;
 mod registration;
+#[cfg(feature = "saml")]
 mod saml_acs;
+#[cfg(feature = "saml")]
 mod saml_config;
+#[cfg(feature = "saml")]
 mod saml_metadata;
 mod sign_in;
+#[cfg(feature = "saml")]
 mod slo;
 mod support;
 
@@ -16,43 +21,61 @@ use http::Method;
 use openauth_core::api::AsyncAuthEndpoint;
 use serde_json::json;
 
-use crate::options::{SamlConfig, SsoOptions};
+#[cfg(feature = "saml")]
+use crate::options::SamlConfig;
+use crate::options::SsoOptions;
+#[cfg(feature = "saml")]
 use crate::saml_impl::security::{validate_saml_config_algorithms_with_policy, SamlSecurityError};
+#[cfg(feature = "saml")]
 use crate::saml_impl::signature::SamlSignatureValidationError;
 use crate::utils;
 
 pub fn endpoints(options: Arc<SsoOptions>) -> Vec<AsyncAuthEndpoint> {
     let mut endpoints = vec![
-        saml_metadata::endpoint(Arc::clone(&options)),
         registration::endpoint(Arc::clone(&options)),
         sign_in::endpoint(Arc::clone(&options)),
-        oidc::callback_endpoint(Arc::clone(&options), "/sso/callback/:providerId"),
-        oidc::callback_endpoint(Arc::clone(&options), "/sso/callback"),
-        saml_acs::get_callback_endpoint(),
-        saml_acs::endpoint(
-            Arc::clone(&options),
-            "/sso/saml2/callback/:providerId",
-            "handleSAMLCallback",
-        ),
-        saml_acs::endpoint(
-            Arc::clone(&options),
-            "/sso/saml2/sp/acs/:providerId",
-            "handleSAMLAssertionConsumerService",
-        ),
-        slo::endpoint(Arc::clone(&options), Method::GET),
-        slo::endpoint(Arc::clone(&options), Method::POST),
-        slo::logout_endpoint(Arc::clone(&options)),
         providers::list_endpoint(Arc::clone(&options)),
         providers::get_endpoint(Arc::clone(&options)),
         provider_update::endpoint(Arc::clone(&options)),
         providers::delete_endpoint(Arc::clone(&options)),
     ];
+    #[cfg(feature = "oidc")]
+    {
+        endpoints.push(oidc::callback_endpoint(
+            Arc::clone(&options),
+            "/sso/callback/:providerId",
+        ));
+        endpoints.push(oidc::callback_endpoint(
+            Arc::clone(&options),
+            "/sso/callback",
+        ));
+    }
+    #[cfg(feature = "saml")]
+    {
+        endpoints.push(saml_metadata::endpoint(Arc::clone(&options)));
+        endpoints.push(saml_acs::get_callback_endpoint());
+        endpoints.push(saml_acs::endpoint(
+            Arc::clone(&options),
+            "/sso/saml2/callback/:providerId",
+            "handleSAMLCallback",
+        ));
+        endpoints.push(saml_acs::endpoint(
+            Arc::clone(&options),
+            "/sso/saml2/sp/acs/:providerId",
+            "handleSAMLAssertionConsumerService",
+        ));
+        endpoints.push(slo::endpoint(Arc::clone(&options), Method::GET));
+        endpoints.push(slo::endpoint(Arc::clone(&options), Method::POST));
+        endpoints.push(slo::logout_endpoint(Arc::clone(&options)));
+    }
     if options.domain_verification.enabled {
         endpoints.push(domain_verification::request_endpoint(Arc::clone(&options)));
         endpoints.push(domain_verification::verify_endpoint(Arc::clone(&options)));
     }
     endpoints
 }
+
+#[cfg(feature = "saml")]
 pub(super) fn saml_signature_error_response(
     error: SamlSignatureValidationError,
 ) -> Result<openauth_core::api::ApiResponse, openauth_core::error::OpenAuthError> {
@@ -71,6 +94,7 @@ fn is_valid_http_url(value: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(feature = "saml")]
 fn validate_configured_saml_algorithms(
     config: &SamlConfig,
     options: &SsoOptions,
@@ -88,6 +112,7 @@ fn validate_configured_saml_algorithms(
     )
 }
 
+#[cfg(feature = "saml")]
 fn saml_algorithm_error_response(
     error: SamlSecurityError,
 ) -> Result<openauth_core::api::ApiResponse, openauth_core::error::OpenAuthError> {
@@ -126,6 +151,7 @@ fn saml_algorithm_error_response(
     }
 }
 
+#[cfg(feature = "saml")]
 fn saml_runtime_algorithm_error_code(error: &SamlSecurityError) -> &'static str {
     match error {
         SamlSecurityError::UnknownSignatureAlgorithm(_)

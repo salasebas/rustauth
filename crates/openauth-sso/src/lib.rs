@@ -24,19 +24,20 @@ mod errors;
 mod hooks;
 #[path = "linking.rs"]
 mod linking_impl;
-#[path = "oidc/mod.rs"]
-mod oidc_impl;
 mod openapi;
 mod options;
 mod org;
 mod routes;
-#[path = "saml/mod.rs"]
-mod saml_impl;
 mod schema;
 mod secrets;
 mod state;
 mod store;
 mod utils;
+
+#[cfg(feature = "oidc")]
+pub(crate) use openauth_oidc as oidc_impl;
+#[cfg(feature = "saml")]
+pub(crate) use openauth_saml as saml_impl;
 
 /// Stable SSO account-linking helpers.
 pub mod linking {
@@ -46,78 +47,15 @@ pub mod linking {
     };
 }
 
-/// Stable OIDC helpers used by the SSO plugin.
-pub mod oidc {
-    /// OIDC discovery URL helpers.
-    pub mod discovery {
-        pub use crate::oidc_impl::discovery::{
-            compute_discovery_url, discover_oidc_config, normalize_url,
-        };
-    }
-
-    /// OIDC redirect URI helpers.
-    pub mod flow {
-        pub use crate::oidc_impl::flow::oidc_redirect_uri;
-    }
-}
-
-/// Stable SAML validation helpers used by the SSO plugin.
-pub mod saml {
-    /// SAML assertion parsing and structural validation helpers.
-    pub mod assertions {
-        pub use crate::saml_impl::assertions::{
-            count_assertions, parse_saml_response, parse_saml_response_with_decryption,
-            validate_single_assertion, AssertionCounts, ParsedSamlAssertion, ParsedSamlResponse,
-            ParsedSubjectConfirmation, SamlResponseParseError,
-        };
-    }
-
-    /// SAML XML well-formedness and parser boundary helpers.
-    pub mod xml {
-        pub use crate::saml_impl::xml::validate_saml_xml;
-    }
-
-    /// SAML AuthnRequest builders.
-    pub mod authn_request {
-        pub use crate::saml_impl::authn_request::{
-            authn_request_xml, build_authn_request_redirect, SamlAuthnRequest,
-            SamlAuthnRequestError,
-        };
-    }
-
-    /// SAML logout message builders and parsers.
-    pub mod logout {
-        pub use crate::saml_impl::logout::{
-            build_logout_request_binding, build_logout_request_redirect,
-            build_logout_response_binding, build_logout_response_redirect, logout_request_xml,
-            logout_response_xml, parse_post_logout_request, parse_post_logout_response,
-            parse_redirect_logout_request, parse_redirect_logout_response, ParsedSamlLogoutRequest,
-            ParsedSamlLogoutResponse, SamlLogoutBinding, SamlLogoutBindingResponse,
-            SamlLogoutRequest, SamlLogoutRequestError, SamlLogoutRequestInput,
-        };
-    }
-
-    /// SAML signature verification boundary.
-    pub mod signature {
-        pub use crate::saml_impl::signature::{
-            verify_redirect_logout_request, verify_redirect_logout_response,
-            verify_signed_logout_request, verify_signed_logout_response,
-            verify_signed_saml_response, SamlSignatureInfo, SamlSignatureValidationError,
-            SamlSignedElement, VerifiedSamlSignature,
-        };
-    }
-
-    pub use crate::saml_impl::{
-        collect_saml_runtime_algorithms, validate_saml_config_algorithms,
-        validate_saml_config_algorithms_with_policy, validate_saml_runtime_algorithms,
-        validate_saml_timestamp, DataEncryptionAlgorithm, DeprecatedAlgorithmBehavior,
-        DigestAlgorithm, KeyEncryptionAlgorithm, SamlConditions, SamlRuntimeAlgorithmPolicy,
-        SamlRuntimeAlgorithms, SamlSecurityError, SignatureAlgorithm, TimestampValidationOptions,
-    };
-}
+#[cfg(feature = "oidc")]
+pub use openauth_oidc as oidc;
+#[cfg(feature = "saml")]
+pub use openauth_saml as saml;
 
 pub use errors::{sso_error_category, sso_error_descriptors, SsoErrorCategory, SsoErrorDescriptor};
 pub use linking::NormalizedSsoProfile;
+#[cfg(not(feature = "saml"))]
+pub use options::DeprecatedAlgorithmBehavior;
 pub use options::{
     DnsTxtResolver, DomainVerificationOptions, OidcConfig, OidcMapping, OidcOptions,
     OrganizationProvisioningOptions, OrganizationRoleInput, OrganizationRoleResolver,
@@ -126,6 +64,7 @@ pub use options::{
     SsoAuditEvent, SsoAuditEventKind, SsoAuditEventResolver, SsoAuditSeverity, SsoOptions,
     SsoProvider, SsoRateLimitOptions, TokenEndpointAuthentication,
 };
+#[cfg(feature = "saml")]
 pub use saml::DeprecatedAlgorithmBehavior;
 pub use secrets::SecretString;
 pub use store::{
@@ -163,13 +102,16 @@ pub fn sso(options: SsoOptions) -> AuthPlugin {
         plugin = plugin.with_rate_limit(rule);
     }
 
-    plugin = plugin
-        .with_async_before_hook("/sign-out", |context, request| {
-            Box::pin(hooks::capture_sign_out_session(context, request))
-        })
-        .with_async_after_hook("/sign-out", |context, request, response| {
-            Box::pin(hooks::cleanup_sign_out_session(context, request, response))
-        });
+    #[cfg(feature = "saml")]
+    {
+        plugin = plugin
+            .with_async_before_hook("/sign-out", |context, request| {
+                Box::pin(hooks::capture_sign_out_session(context, request))
+            })
+            .with_async_after_hook("/sign-out", |context, request, response| {
+                Box::pin(hooks::cleanup_sign_out_session(context, request, response))
+            });
+    }
 
     for path in [
         "/sign-up/email",
@@ -196,18 +138,43 @@ fn rate_limit_rules(options: &SsoRateLimitOptions) -> Vec<PluginRateLimitRule> {
     if !options.enabled {
         return Vec::new();
     }
-    vec![
+    let mut rules = vec![
         PluginRateLimitRule::new("/sso/register", options.registration.clone()),
         PluginRateLimitRule::new(
             "/sso/request-domain-verification",
             options.domain_verification.clone(),
         ),
         PluginRateLimitRule::new("/sso/verify-domain", options.domain_verification.clone()),
-        PluginRateLimitRule::new("/sso/callback", options.oidc_callback.clone()),
-        PluginRateLimitRule::new("/sso/callback/:providerId", options.oidc_callback.clone()),
-        PluginRateLimitRule::new("/sso/saml2/callback/:providerId", options.saml.clone()),
-        PluginRateLimitRule::new("/sso/saml2/sp/acs/:providerId", options.saml.clone()),
-        PluginRateLimitRule::new("/sso/saml2/sp/slo/:providerId", options.saml.clone()),
-        PluginRateLimitRule::new("/sso/saml2/logout/:providerId", options.saml.clone()),
-    ]
+    ];
+    #[cfg(feature = "oidc")]
+    {
+        rules.push(PluginRateLimitRule::new(
+            "/sso/callback",
+            options.oidc_callback.clone(),
+        ));
+        rules.push(PluginRateLimitRule::new(
+            "/sso/callback/:providerId",
+            options.oidc_callback.clone(),
+        ));
+    }
+    #[cfg(feature = "saml")]
+    {
+        rules.push(PluginRateLimitRule::new(
+            "/sso/saml2/callback/:providerId",
+            options.saml.clone(),
+        ));
+        rules.push(PluginRateLimitRule::new(
+            "/sso/saml2/sp/acs/:providerId",
+            options.saml.clone(),
+        ));
+        rules.push(PluginRateLimitRule::new(
+            "/sso/saml2/sp/slo/:providerId",
+            options.saml.clone(),
+        ));
+        rules.push(PluginRateLimitRule::new(
+            "/sso/saml2/logout/:providerId",
+            options.saml.clone(),
+        ));
+    }
+    rules
 }

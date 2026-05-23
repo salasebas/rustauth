@@ -1,24 +1,8 @@
 use std::process::Command;
 
-#[test]
-fn sqlx_postgres_feature_does_not_enable_sqlite_driver() -> Result<(), Box<dyn std::error::Error>> {
+fn cargo_tree_stdout(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let output = Command::new(cargo)
-        .args([
-            "tree",
-            "-p",
-            "openauth",
-            "-e",
-            "features",
-            "--edges",
-            "normal,build",
-            "--no-default-features",
-            "--features",
-            "sqlx-postgres",
-            "--depth",
-            "5",
-        ])
-        .output()?;
+    let output = Command::new(cargo).args(args).output()?;
 
     if !output.status.success() {
         return Err(format!(
@@ -28,9 +12,58 @@ fn sqlx_postgres_feature_does_not_enable_sqlite_driver() -> Result<(), Box<dyn s
         .into());
     }
 
-    let stdout = String::from_utf8(output.stdout)?;
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+#[test]
+fn sqlx_postgres_feature_does_not_enable_sqlite_driver() -> Result<(), Box<dyn std::error::Error>> {
+    let stdout = cargo_tree_stdout(&[
+        "tree",
+        "-p",
+        "openauth",
+        "-e",
+        "features",
+        "--edges",
+        "normal,build",
+        "--no-default-features",
+        "--features",
+        "sqlx-postgres",
+        "--depth",
+        "5",
+    ])?;
+
     assert!(stdout.contains("sqlx-postgres"));
     assert!(!stdout.contains("openauth-sqlx feature \"sqlite\""));
     assert!(!stdout.contains("sqlx feature \"sqlite\""));
+    Ok(())
+}
+
+#[test]
+fn oidc_feature_does_not_enable_saml_or_xml_dependencies() -> Result<(), Box<dyn std::error::Error>>
+{
+    let stdout = cargo_tree_stdout(&[
+        "tree",
+        "-p",
+        "openauth",
+        "--edges",
+        "normal,build",
+        "--no-default-features",
+        "--features",
+        "oidc",
+    ])?;
+
+    for forbidden in [
+        "openauth-saml",
+        "quick-xml",
+        "x509-parser",
+        "samael",
+        "xmlsec",
+    ] {
+        assert!(
+            !stdout.contains(forbidden),
+            "OIDC-only feature unexpectedly enabled {forbidden}"
+        );
+    }
+
     Ok(())
 }

@@ -79,6 +79,7 @@ async fn register_rejects_provider_id_that_cannot_be_used_in_paths(
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn register_rejects_invalid_oidc_endpoint_url_when_discovery_is_skipped(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -113,6 +114,7 @@ async fn register_rejects_invalid_oidc_endpoint_url_when_discovery_is_skipped(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn register_rejects_saml_config_with_invalid_entry_point(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -152,6 +154,7 @@ async fn register_rejects_saml_config_with_invalid_entry_point(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn register_rejects_saml_config_with_non_http_entry_point(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -187,6 +190,7 @@ async fn register_rejects_saml_config_with_non_http_entry_point(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn register_rejects_saml_config_with_unknown_signature_algorithm(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -223,6 +227,7 @@ async fn register_rejects_saml_config_with_unknown_signature_algorithm(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn register_rejects_deprecated_saml_algorithm_when_configured(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut options = SsoOptions::default();

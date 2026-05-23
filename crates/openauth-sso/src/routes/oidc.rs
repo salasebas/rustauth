@@ -473,7 +473,7 @@ pub(super) async fn ensure_runtime_oidc_config(
             revocation_endpoint: config.revocation_endpoint.as_deref(),
             end_session_endpoint: config.end_session_endpoint.as_deref(),
             introspection_endpoint: config.introspection_endpoint.as_deref(),
-            token_endpoint_authentication: config.token_endpoint_authentication,
+            token_endpoint_authentication: config.token_endpoint_authentication.map(Into::into),
         },
         |url| is_trusted_oidc_url(context, request, url),
     )
@@ -491,7 +491,7 @@ pub(super) async fn ensure_runtime_oidc_config(
         revocation_endpoint: hydrated.revocation_endpoint,
         end_session_endpoint: hydrated.end_session_endpoint,
         introspection_endpoint: hydrated.introspection_endpoint,
-        token_endpoint_authentication: Some(hydrated.token_endpoint_authentication),
+        token_endpoint_authentication: Some(hydrated.token_endpoint_authentication.into()),
         scopes: config.scopes.or(hydrated.scopes_supported),
         mapping: config.mapping,
         override_user_info: config.override_user_info,

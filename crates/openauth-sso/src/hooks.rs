@@ -1,23 +1,30 @@
-use http::header;
 use openauth_core::api::{ApiRequest, ApiResponse};
+#[cfg(feature = "saml")]
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::context::request_state::current_new_session;
 use openauth_core::context::AuthContext;
+#[cfg(feature = "saml")]
 use openauth_core::db::DbAdapter;
 use openauth_core::error::OpenAuthError;
-use openauth_core::plugin::{PluginAfterHookAction, PluginBeforeHookAction};
+use openauth_core::plugin::PluginAfterHookAction;
+#[cfg(feature = "saml")]
+use openauth_core::plugin::PluginBeforeHookAction;
 use std::sync::Arc;
 
 use crate::linking_impl::assign_organization_by_domain_with_model;
 use crate::options::SsoOptions;
+#[cfg(feature = "saml")]
 use crate::saml_impl::state::{saml_session_by_id_key, SESSION_PREFIX};
+#[cfg(feature = "saml")]
 use crate::state::SsoStateStore;
 
+#[cfg(feature = "saml")]
 #[derive(Debug, Clone)]
 struct SignOutSamlSession {
     session_id: String,
 }
 
+#[cfg(feature = "saml")]
 pub(crate) async fn capture_sign_out_session(
     context: &AuthContext,
     mut request: ApiRequest,
@@ -27,7 +34,7 @@ pub(crate) async fn capture_sign_out_session(
     };
     let cookie_header = request
         .headers()
-        .get(header::COOKIE)
+        .get(http::header::COOKIE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
@@ -45,6 +52,7 @@ pub(crate) async fn capture_sign_out_session(
     Ok(PluginBeforeHookAction::Continue(request))
 }
 
+#[cfg(feature = "saml")]
 pub(crate) async fn cleanup_sign_out_session(
     context: &AuthContext,
     request: &ApiRequest,
@@ -88,6 +96,7 @@ pub(crate) async fn assign_domain_organization_after_auth(
     Ok(PluginAfterHookAction::Continue(response))
 }
 
+#[cfg(feature = "saml")]
 pub(crate) async fn clear_saml_session_lookup_state(
     context: &AuthContext,
     adapter: &dyn DbAdapter,

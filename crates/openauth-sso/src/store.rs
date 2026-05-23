@@ -6,10 +6,13 @@ use openauth_core::error::OpenAuthError;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+#[cfg(feature = "oidc")]
 use crate::oidc_impl::flow::oidc_redirect_uri;
 use crate::options::{OidcConfig, SamlConfig};
 use crate::schema::SSO_PROVIDER_MODEL;
-use crate::utils::{certificate_metadata, client_id_last_four};
+#[cfg(feature = "saml")]
+use crate::utils::certificate_metadata;
+use crate::utils::client_id_last_four;
 
 const SSO_PROVIDER_FIELDS: [&str; 9] = [
     "id",
@@ -435,6 +438,7 @@ impl SsoProviderRecord {
                 token_endpoint_authentication: config.token_endpoint_authentication,
                 scopes: config.scopes,
             });
+        #[cfg(feature = "saml")]
         let saml_config = self
             .saml_config
             .as_deref()
@@ -458,15 +462,20 @@ impl SsoProviderRecord {
                     certificate_error: certificate.parse_error,
                 }
             });
+        #[cfg(not(feature = "saml"))]
+        let saml_config = None;
         let provider_type = if saml_config.is_some() {
             "saml"
         } else {
             "oidc"
         }
         .to_owned();
+        #[cfg(feature = "oidc")]
         let redirect_uri = oidc_config.as_ref().and_then(|_| {
             options.map(|options| oidc_redirect_uri(base_url, &self.provider_id, options))
         });
+        #[cfg(not(feature = "oidc"))]
+        let redirect_uri = None;
         SanitizedSsoProvider {
             provider_id: self.provider_id.clone(),
             provider_type: provider_type.clone(),

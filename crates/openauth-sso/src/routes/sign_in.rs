@@ -5,28 +5,42 @@ use openauth_core::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
     OpenApiOperation,
 };
+#[cfg(feature = "oidc")]
 use openauth_core::auth::oauth::{generate_oauth_state, OAuthStateInput};
 use openauth_core::context::AuthContext;
+#[cfg(feature = "saml")]
 use openauth_core::crypto::random::generate_random_string;
+#[cfg(feature = "saml")]
 use openauth_core::db::DbAdapter;
+#[cfg(feature = "oidc")]
 use openauth_core::oauth::oauth2::{
     create_authorization_url, AuthorizationUrlRequest, ClientId, ProviderOptions,
 };
 use serde::Deserialize;
 use serde_json::json;
+#[cfg(feature = "saml")]
 use time::OffsetDateTime;
 
 use crate::linking_impl::provider_matches_email_domain;
+#[cfg(feature = "oidc")]
 use crate::oidc_impl::flow::oidc_redirect_uri;
 use crate::openapi::{sign_in_body_schema, sign_in_sso_response};
-use crate::options::{OidcConfig, SamlConfig, SsoOptions, SsoProvider};
+#[cfg(feature = "oidc")]
+use crate::options::OidcConfig;
+#[cfg(feature = "saml")]
+use crate::options::SamlConfig;
+use crate::options::{SsoOptions, SsoProvider};
 use crate::org::organization_id_by_slug;
+#[cfg(feature = "saml")]
 use crate::saml_impl::authn_request::{build_authn_request_redirect, SamlAuthnRequestError};
+#[cfg(feature = "saml")]
 use crate::saml_impl::state::authn_request_key;
+#[cfg(feature = "saml")]
 use crate::state::SsoStateStore;
 use crate::store::SsoProviderStore;
 use crate::utils;
 
+#[cfg(any(feature = "oidc", feature = "saml"))]
 use super::support::{optional_safe_redirect_field, redirect_json_response, safe_redirect_field};
 
 #[derive(Debug, Deserialize)]
@@ -92,116 +106,150 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         &json!({"code": "DOMAIN_NOT_VERIFIED", "message": "Provider domain has not been verified"}),
                     );
                 }
-                let Some(adapter) = context.adapter.as_deref() else {
-                    return Err(openauth_core::error::OpenAuthError::Adapter(
-                        "SSO sign-in requires an adapter".to_owned(),
-                    ));
-                };
                 if body.provider_type.as_deref() == Some("saml")
                     || (provider.saml_config.is_some() && provider.oidc_config.is_none())
                 {
-                    return saml_sign_in(context, adapter, options.as_ref(), provider, body).await;
-                }
-                let Some(config) = provider
-                    .oidc_config
-                    .as_deref()
-                    .and_then(|value| serde_json::from_str::<OidcConfig>(value).ok())
-                else {
-                    return utils::json(
-                        http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "OIDC_PROVIDER_NOT_CONFIGURED", "message": "OIDC provider is not configured"}),
-                    );
-                };
-                let config = match super::oidc::ensure_runtime_oidc_config(
-                    context,
-                    &request,
-                    &provider.issuer,
-                    config,
-                    &options,
-                    super::oidc::OidcRuntimeRequirement::SignIn,
-                )
-                .await
-                {
-                    Ok(config) => config,
-                    Err(error) => {
-                        return utils::json(
-                            error.status(),
-                            &json!({"code": error.code(), "message": error.to_string()}),
-                        )
+                    #[cfg(feature = "saml")]
+                    {
+                        let Some(adapter) = context.adapter.as_deref() else {
+                            return Err(openauth_core::error::OpenAuthError::Adapter(
+                                "SSO sign-in requires an adapter".to_owned(),
+                            ));
+                        };
+                        return saml_sign_in(context, adapter, options.as_ref(), provider, body)
+                            .await;
                     }
-                };
-                let Some(authorization_endpoint) = config.authorization_endpoint.clone() else {
+                    #[cfg(not(feature = "saml"))]
+                    {
+                        return utils::json(
+                            http::StatusCode::BAD_REQUEST,
+                            &json!({"code": "SAML_FEATURE_DISABLED", "message": "SAML support is not enabled"}),
+                        );
+                    }
+                }
+                #[cfg(not(feature = "oidc"))]
+                {
+                    let _ = (context, request, options, provider, body);
                     return utils::json(
                         http::StatusCode::BAD_REQUEST,
-                        &json!({"code": "INVALID_OIDC_CONFIG", "message": "Invalid OIDC configuration. Authorization URL not found."}),
+                        &json!({"code": "OIDC_FEATURE_DISABLED", "message": "OIDC support is not enabled"}),
                     );
-                };
-                let raw_callback_url = body
-                    .callback_url
-                    .or(body.callback_url_alias)
-                    .unwrap_or_else(|| "/".to_owned());
-                let callback_url =
-                    match safe_redirect_field(context, raw_callback_url, "INVALID_CALLBACK_URL")? {
+                }
+                #[cfg(feature = "oidc")]
+                {
+                    let Some(adapter) = context.adapter.as_deref() else {
+                        return Err(openauth_core::error::OpenAuthError::Adapter(
+                            "SSO sign-in requires an adapter".to_owned(),
+                        ));
+                    };
+                    let Some(config) = provider
+                        .oidc_config
+                        .as_deref()
+                        .and_then(|value| serde_json::from_str::<OidcConfig>(value).ok())
+                    else {
+                        return utils::json(
+                            http::StatusCode::BAD_REQUEST,
+                            &json!({"code": "OIDC_PROVIDER_NOT_CONFIGURED", "message": "OIDC provider is not configured"}),
+                        );
+                    };
+                    let config = match super::oidc::ensure_runtime_oidc_config(
+                        context,
+                        &request,
+                        &provider.issuer,
+                        config,
+                        &options,
+                        super::oidc::OidcRuntimeRequirement::SignIn,
+                    )
+                    .await
+                    {
+                        Ok(config) => config,
+                        Err(error) => {
+                            return utils::json(
+                                error.status(),
+                                &json!({"code": error.code(), "message": error.to_string()}),
+                            )
+                        }
+                    };
+                    let Some(authorization_endpoint) = config.authorization_endpoint.clone() else {
+                        return utils::json(
+                            http::StatusCode::BAD_REQUEST,
+                            &json!({"code": "INVALID_OIDC_CONFIG", "message": "Invalid OIDC configuration. Authorization URL not found."}),
+                        );
+                    };
+                    let raw_callback_url = body
+                        .callback_url
+                        .or(body.callback_url_alias)
+                        .unwrap_or_else(|| "/".to_owned());
+                    let callback_url = match safe_redirect_field(
+                        context,
+                        raw_callback_url,
+                        "INVALID_CALLBACK_URL",
+                    )? {
                         Ok(url) => url,
                         Err(response) => return Ok(response),
                     };
-                let error_url = match optional_safe_redirect_field(
-                    context,
-                    body.error_callback_url.or(body.error_callback_url_alias),
-                    "INVALID_ERROR_CALLBACK_URL",
-                )? {
-                    Ok(url) => url,
-                    Err(response) => return Ok(response),
-                };
-                let new_user_url = match optional_safe_redirect_field(
-                    context,
-                    body.new_user_callback_url
-                        .or(body.new_user_callback_url_alias),
-                    "INVALID_NEW_USER_CALLBACK_URL",
-                )? {
-                    Ok(url) => url,
-                    Err(response) => return Ok(response),
-                };
-                let state = generate_oauth_state(
-                    context,
-                    Some(adapter),
-                    OAuthStateInput {
-                        callback_url,
-                        error_url,
-                        new_user_url,
-                        request_sign_up: body.request_sign_up,
-                        additional_data: json!({ "ssoProviderId": provider.provider_id }),
-                        ..OAuthStateInput::default()
-                    },
-                )
-                .await?;
-                let redirect_uri =
-                    oidc_redirect_uri(&context.base_url, &provider.provider_id, &options);
-                let scopes = body
-                    .scopes
-                    .or(config.scopes)
-                    .unwrap_or_else(default_oidc_scopes);
-                let authorization_url = create_authorization_url(AuthorizationUrlRequest {
-                    id: provider.issuer,
-                    options: ProviderOptions {
-                        client_id: Some(ClientId::Single(config.client_id)),
-                        client_secret: Some(config.client_secret.into_inner()),
-                        ..ProviderOptions::default()
-                    },
-                    authorization_endpoint,
-                    redirect_uri,
-                    state: state.state,
-                    code_verifier: config.pkce.then_some(state.data.code_verifier),
-                    scopes,
-                    login_hint: body.login_hint.or(body.email),
-                    ..AuthorizationUrlRequest::default()
-                })?;
-                redirect_json_response(authorization_url.to_string(), true)
+                    let error_url = match optional_safe_redirect_field(
+                        context,
+                        body.error_callback_url.or(body.error_callback_url_alias),
+                        "INVALID_ERROR_CALLBACK_URL",
+                    )? {
+                        Ok(url) => url,
+                        Err(response) => return Ok(response),
+                    };
+                    let new_user_url = match optional_safe_redirect_field(
+                        context,
+                        body.new_user_callback_url
+                            .or(body.new_user_callback_url_alias),
+                        "INVALID_NEW_USER_CALLBACK_URL",
+                    )? {
+                        Ok(url) => url,
+                        Err(response) => return Ok(response),
+                    };
+                    let state = generate_oauth_state(
+                        context,
+                        Some(adapter),
+                        OAuthStateInput {
+                            callback_url,
+                            error_url,
+                            new_user_url,
+                            request_sign_up: body.request_sign_up,
+                            additional_data: json!({ "ssoProviderId": provider.provider_id }),
+                            ..OAuthStateInput::default()
+                        },
+                    )
+                    .await?;
+                    let redirect_uri = oidc_redirect_uri(
+                        &context.base_url,
+                        &provider.provider_id,
+                        options.as_ref(),
+                    );
+                    let scopes = body
+                        .scopes
+                        .or(config.scopes)
+                        .unwrap_or_else(default_oidc_scopes);
+                    let authorization_url = create_authorization_url(AuthorizationUrlRequest {
+                        id: provider.issuer,
+                        options: ProviderOptions {
+                            client_id: Some(ClientId::Single(config.client_id)),
+                            client_secret: Some(config.client_secret.into_inner()),
+                            ..ProviderOptions::default()
+                        },
+                        authorization_endpoint,
+                        redirect_uri,
+                        state: state.state,
+                        code_verifier: config.pkce.then_some(state.data.code_verifier),
+                        scopes,
+                        login_hint: body.login_hint.or(body.email),
+                        ..AuthorizationUrlRequest::default()
+                    })?;
+                    redirect_json_response(authorization_url.to_string(), true)
+                }
             })
         },
     )
 }
 
+#[cfg(feature = "saml")]
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SamlAuthnRequestRecord {
@@ -215,6 +263,7 @@ pub(super) struct SamlAuthnRequestRecord {
     pub(super) expires_at: i64,
 }
 
+#[cfg(feature = "saml")]
 async fn saml_sign_in(
     context: &AuthContext,
     adapter: &dyn DbAdapter,
@@ -296,6 +345,7 @@ async fn saml_sign_in(
     redirect_json_response(authn_request.redirect_url, true)
 }
 
+#[cfg(feature = "saml")]
 fn saml_authn_request_error_response(
     error: SamlAuthnRequestError,
 ) -> Result<openauth_core::api::ApiResponse, openauth_core::error::OpenAuthError> {
@@ -442,6 +492,7 @@ fn email_domain(email: &str) -> Option<&str> {
     email.rsplit_once('@').map(|(_, domain)| domain)
 }
 
+#[cfg(feature = "oidc")]
 fn default_oidc_scopes() -> Vec<String> {
     ["openid", "email", "profile", "offline_access"]
         .into_iter()

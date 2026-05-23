@@ -25,9 +25,20 @@ let auth = OpenAuth::builder()
     .build()?;
 ```
 
-Enable feature flags such as `passkey`, `plugins`, `sso`, `sqlx-sqlite`,
-`sqlx-postgres`, `sqlx-mysql`, `deadpool-postgres`, or `tokio-postgres` when
-you want the top-level crate to re-export those packages.
+Enable feature flags such as `passkey`, `plugins`, `oidc`, `saml`, `sso`,
+`scim`, `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`, `deadpool-postgres`, or
+`tokio-postgres` when you want the top-level crate to re-export those packages.
+
+Enterprise login is split by direction and protocol:
+
+- `oidc` re-exports `openauth-oidc`, where OpenAuth consumes external OIDC IdPs.
+- `saml` re-exports `openauth-saml`, where OpenAuth consumes external SAML IdPs.
+- `saml-signed` enables the explicit signed-SAML feature surface.
+- `sso` re-exports the enterprise SSO aggregator plugin with provider
+  management, domain verification, and route composition.
+- OAuth/OIDC authorization-server behavior remains in
+  `openauth-oauth-provider`, not in enterprise OIDC SSO.
+- SCIM remains independent provisioning support behind `scim`.
 
 ## Links
 
@@ -40,6 +51,8 @@ you want the top-level crate to re-export those packages.
 - [openauth-passkey](../openauth-passkey/README.md) - passkeys.
 - [openauth-oauth](../openauth-oauth/README.md) - OAuth primitives.
 - [openauth-oauth-provider](../openauth-oauth-provider/README.md) - OAuth/OIDC provider.
+- [openauth-oidc](../openauth-oidc/README.md) - enterprise OIDC IdP client.
+- [openauth-saml](../openauth-saml/README.md) - SAML service-provider support.
 - [openauth-social-providers](../openauth-social-providers/README.md) - social OAuth providers.
 - [openauth-sso](../openauth-sso/README.md) - enterprise SSO.
 - [openauth-scim](../openauth-scim/README.md) - SCIM support.

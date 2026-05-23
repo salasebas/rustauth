@@ -13,10 +13,15 @@ use time::{Duration, OffsetDateTime};
 
 use crate::audit;
 use crate::linking_impl::validate_provider_domains;
+#[cfg(feature = "oidc")]
 use crate::oidc_impl::discovery::{
     compute_discovery_url, discover_oidc_config_with_origin_validator,
     validate_configured_oidc_endpoint_origins, validate_issuer_url, PartialOidcDiscoveryConfig,
 };
+#[cfg(not(feature = "oidc"))]
+fn validate_issuer_url(value: &str) -> Result<String, url::ParseError> {
+    url::Url::parse(value).map(|url| url.to_string())
+}
 use crate::openapi::{register_body_schema, sso_provider_response};
 use crate::options::{
     OidcConfig, OidcMapping, SamlConfig, SsoAuditEvent, SsoAuditEventKind, SsoAuditSeverity,
@@ -145,21 +150,42 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         &json!({"code": "SSO_PROVIDERS_LIMIT_REACHED"}),
                     );
                 }
-                let saml_config = if let Some(config) = body.saml_config {
-                    let config = match super::saml_config::normalize_saml_config(config, &options) {
-                        Ok(config) => config,
-                        Err(error) => return super::saml_config::error_response(error),
-                    };
-                    if let Err(error) =
-                        super::validate_configured_saml_algorithms(&config, &options)
+                let saml_config: Option<SamlConfig> = if let Some(config) = body.saml_config {
+                    #[cfg(not(feature = "saml"))]
                     {
-                        return super::saml_algorithm_error_response(error);
+                        let _ = config;
+                        return utils::json(
+                            http::StatusCode::BAD_REQUEST,
+                            &json!({"code": "SAML_FEATURE_DISABLED", "message": "SAML support is not enabled"}),
+                        );
                     }
-                    Some(config)
+                    #[cfg(feature = "saml")]
+                    {
+                        let config =
+                            match super::saml_config::normalize_saml_config(config, &options) {
+                                Ok(config) => config,
+                                Err(error) => return super::saml_config::error_response(error),
+                            };
+                        if let Err(error) =
+                            super::validate_configured_saml_algorithms(&config, &options)
+                        {
+                            return super::saml_algorithm_error_response(error);
+                        }
+                        Some(config)
+                    }
                 } else {
                     None
                 };
                 if let Some(config) = &body.oidc_config {
+                    #[cfg(not(feature = "oidc"))]
+                    {
+                        let _ = config;
+                        return utils::json(
+                            http::StatusCode::BAD_REQUEST,
+                            &json!({"code": "OIDC_FEATURE_DISABLED", "message": "OIDC support is not enabled"}),
+                        );
+                    }
+                    #[cfg(feature = "oidc")]
                     if !is_valid_register_oidc_config_urls(&body.issuer, config) {
                         return utils::json(
                             http::StatusCode::BAD_REQUEST,
@@ -167,6 +193,7 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         );
                     }
                 }
+                #[cfg(feature = "oidc")]
                 let oidc_config = match body.oidc_config {
                     Some(config) => match build_oidc_config(
                         context,
@@ -188,6 +215,8 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                     },
                     None => None,
                 };
+                #[cfg(not(feature = "oidc"))]
+                let oidc_config = None;
                 let created = store
                     .create(CreateSsoProviderInput {
                         provider_id: body.provider_id,
@@ -248,6 +277,7 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
     )
 }
 
+#[cfg(feature = "oidc")]
 async fn build_oidc_config(
     context: &AuthContext,
     request: &openauth_core::api::ApiRequest,
@@ -294,7 +324,7 @@ async fn build_oidc_config(
                 revocation_endpoint: input.revocation_endpoint.as_deref(),
                 end_session_endpoint: input.end_session_endpoint.as_deref(),
                 introspection_endpoint: input.introspection_endpoint.as_deref(),
-                token_endpoint_authentication: input.token_endpoint_authentication,
+                token_endpoint_authentication: input.token_endpoint_authentication.map(Into::into),
                 ..PartialOidcDiscoveryConfig::default()
             },
             |url| super::oidc::is_trusted_oidc_url(context, request, url),
@@ -314,7 +344,7 @@ async fn build_oidc_config(
             revocation_endpoint: hydrated.revocation_endpoint,
             end_session_endpoint: hydrated.end_session_endpoint,
             introspection_endpoint: hydrated.introspection_endpoint,
-            token_endpoint_authentication: Some(hydrated.token_endpoint_authentication),
+            token_endpoint_authentication: Some(hydrated.token_endpoint_authentication.into()),
             scopes: input.scopes.or(hydrated.scopes_supported),
             mapping: input.mapping,
             override_user_info: override_user_info || options.default_override_user_info,
@@ -331,12 +361,14 @@ async fn build_oidc_config(
     })
 }
 
+#[cfg(feature = "oidc")]
 #[derive(Debug)]
 enum BuildOidcConfigError {
     Discovery(crate::oidc_impl::discovery::OidcDiscoveryError),
     Serialize(String),
 }
 
+#[cfg(feature = "oidc")]
 pub(super) fn oidc_discovery_error_response(
     error: crate::oidc_impl::discovery::OidcDiscoveryError,
 ) -> Result<openauth_core::api::ApiResponse, openauth_core::error::OpenAuthError> {
@@ -346,6 +378,7 @@ pub(super) fn oidc_discovery_error_response(
     )
 }
 
+#[cfg(feature = "oidc")]
 fn is_valid_register_oidc_config_urls(issuer: &str, config: &RegisterOidcConfig) -> bool {
     let discovery_endpoint = config
         .discovery_endpoint

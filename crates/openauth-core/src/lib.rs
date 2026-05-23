@@ -11,6 +11,7 @@ pub mod error;
 pub mod options;
 pub mod plugin;
 pub mod rate_limit;
+pub mod secret;
 pub mod session;
 pub mod user;
 pub mod utils;

@@ -41,9 +41,11 @@ top-level crate, then add feature crates as your application needs them.
 | [OpenAuth Passkey](crates/openauth-passkey/README.md) | Server-side WebAuthn/passkey plugin backed by `webauthn-rs`. |
 | [OpenAuth OAuth](crates/openauth-oauth/README.md) | OAuth client primitives and request/response helpers. |
 | [OpenAuth OAuth Provider](crates/openauth-oauth-provider/README.md) | OAuth 2.1 and OpenID Connect provider support. |
+| [OpenAuth OIDC](crates/openauth-oidc/README.md) | Enterprise OIDC relying-party support for external IdPs. |
+| [OpenAuth SAML](crates/openauth-saml/README.md) | SAML 2.0 service-provider support, XML hardening, ACS, metadata, and SLO helpers. |
 | [OpenAuth Social Providers](crates/openauth-social-providers/README.md) | Social OAuth provider definitions for GitHub, Google, Discord, Slack, and other providers. |
-| [OpenAuth SSO](crates/openauth-sso/README.md) | Enterprise SSO, OIDC, SAML, provider management, and domain verification. |
-| [OpenAuth SCIM](crates/openauth-scim/README.md) | SCIM support surface. |
+| [OpenAuth SSO](crates/openauth-sso/README.md) | Enterprise SSO aggregator, provider management, domain verification, and feature-gated OIDC/SAML route composition. |
+| [OpenAuth SCIM](crates/openauth-scim/README.md) | SCIM provisioning for users and groups, independent from login. |
 | [OpenAuth Stripe](crates/openauth-stripe/README.md) | Stripe billing and webhook integration surface. |
 | [OpenAuth i18n](crates/openauth-i18n/README.md) | Internationalization plugin for localized auth responses. |
 | [OpenAuth Telemetry](crates/openauth-telemetry/README.md) | Optional telemetry payload generation and publishing hooks. |
@@ -56,6 +58,19 @@ top-level crate, then add feature crates as your application needs them.
 ## Repository
 
 Source code lives at [sebasxsala/openauth-rs](https://github.com/sebasxsala/openauth-rs).
+
+## Enterprise Identity Model
+
+`openauth-oauth-provider` is for OpenAuth acting as an OAuth 2.1/OIDC
+authorization server. `openauth-oidc` is the opposite direction: OpenAuth is a
+client of external enterprise IdPs such as Okta, Entra ID, Auth0, Google
+Workspace, or Keycloak.
+
+Use `openauth-oidc` when you only need OIDC enterprise login without SAML/XML
+dependencies. Use `openauth-saml` when you only need SAML 2.0 service-provider
+behavior. Use `openauth-sso` when you want the convenience plugin that combines
+provider management, domain verification, audit hooks, and enabled OIDC/SAML
+routes. Use `openauth-scim` separately for provisioning.
 
 ## License
 

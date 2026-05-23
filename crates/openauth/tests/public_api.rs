@@ -185,6 +185,18 @@ fn sso_feature_reexports_sso_crate() {
     assert_eq!(plugin.version.as_deref(), Some(openauth::sso::VERSION));
 }
 
+#[cfg(feature = "oidc")]
+#[test]
+fn oidc_feature_reexports_oidc_crate() {
+    assert_eq!(openauth::oidc::VERSION, env!("CARGO_PKG_VERSION"));
+}
+
+#[cfg(feature = "saml")]
+#[test]
+fn saml_feature_reexports_saml_crate() {
+    assert_eq!(openauth::saml::VERSION, env!("CARGO_PKG_VERSION"));
+}
+
 #[test]
 fn option_builder_aliases_match_new_constructors() {
     let options = OpenAuthOptions::builder().rate_limit(

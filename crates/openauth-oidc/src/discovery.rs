@@ -159,37 +159,83 @@ where
     Ok(hydrated)
 }
 
-pub fn validate_configured_oidc_endpoint_origins<F>(
-    config: &OidcConfig,
+pub trait OidcEndpointConfig {
+    fn discovery_endpoint(&self) -> &str;
+    fn authorization_endpoint(&self) -> Option<&str>;
+    fn token_endpoint(&self) -> Option<&str>;
+    fn user_info_endpoint(&self) -> Option<&str>;
+    fn jwks_endpoint(&self) -> Option<&str>;
+    fn revocation_endpoint(&self) -> Option<&str>;
+    fn end_session_endpoint(&self) -> Option<&str>;
+    fn introspection_endpoint(&self) -> Option<&str>;
+}
+
+impl OidcEndpointConfig for OidcConfig {
+    fn discovery_endpoint(&self) -> &str {
+        &self.discovery_endpoint
+    }
+
+    fn authorization_endpoint(&self) -> Option<&str> {
+        self.authorization_endpoint.as_deref()
+    }
+
+    fn token_endpoint(&self) -> Option<&str> {
+        self.token_endpoint.as_deref()
+    }
+
+    fn user_info_endpoint(&self) -> Option<&str> {
+        self.user_info_endpoint.as_deref()
+    }
+
+    fn jwks_endpoint(&self) -> Option<&str> {
+        self.jwks_endpoint.as_deref()
+    }
+
+    fn revocation_endpoint(&self) -> Option<&str> {
+        self.revocation_endpoint.as_deref()
+    }
+
+    fn end_session_endpoint(&self) -> Option<&str> {
+        self.end_session_endpoint.as_deref()
+    }
+
+    fn introspection_endpoint(&self) -> Option<&str> {
+        self.introspection_endpoint.as_deref()
+    }
+}
+
+pub fn validate_configured_oidc_endpoint_origins<C, F>(
+    config: &C,
     is_trusted_origin: F,
 ) -> Result<(), OidcDiscoveryError>
 where
+    C: OidcEndpointConfig + ?Sized,
     F: Fn(&str) -> bool,
 {
     validate_trusted_url(
         "discovery_endpoint",
-        &config.discovery_endpoint,
+        config.discovery_endpoint(),
         &is_trusted_origin,
     )?;
-    if let Some(endpoint) = config.authorization_endpoint.as_deref() {
+    if let Some(endpoint) = config.authorization_endpoint() {
         validate_trusted_url("authorization_endpoint", endpoint, &is_trusted_origin)?;
     }
-    if let Some(endpoint) = config.token_endpoint.as_deref() {
+    if let Some(endpoint) = config.token_endpoint() {
         validate_trusted_url("token_endpoint", endpoint, &is_trusted_origin)?;
     }
-    if let Some(endpoint) = config.user_info_endpoint.as_deref() {
+    if let Some(endpoint) = config.user_info_endpoint() {
         validate_trusted_url("userinfo_endpoint", endpoint, &is_trusted_origin)?;
     }
-    if let Some(endpoint) = config.jwks_endpoint.as_deref() {
+    if let Some(endpoint) = config.jwks_endpoint() {
         validate_trusted_url("jwks_uri", endpoint, &is_trusted_origin)?;
     }
-    if let Some(endpoint) = config.revocation_endpoint.as_deref() {
+    if let Some(endpoint) = config.revocation_endpoint() {
         validate_trusted_url("revocation_endpoint", endpoint, &is_trusted_origin)?;
     }
-    if let Some(endpoint) = config.end_session_endpoint.as_deref() {
+    if let Some(endpoint) = config.end_session_endpoint() {
         validate_trusted_url("end_session_endpoint", endpoint, &is_trusted_origin)?;
     }
-    if let Some(endpoint) = config.introspection_endpoint.as_deref() {
+    if let Some(endpoint) = config.introspection_endpoint() {
         validate_trusted_url("introspection_endpoint", endpoint, &is_trusted_origin)?;
     }
     Ok(())

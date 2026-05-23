@@ -2477,8 +2477,10 @@ dependencies = [
  "openauth-core",
  "openauth-deadpool-postgres",
  "openauth-i18n",
+ "openauth-oidc",
  "openauth-passkey",
  "openauth-plugins",
+ "openauth-saml",
  "openauth-scim",
  "openauth-sqlx",
  "openauth-sso",
@@ -2660,6 +2662,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "openauth-oidc"
+version = "0.0.5"
+dependencies = [
+ "http",
+ "openidconnect",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "openauth-passkey"
 version = "0.0.5"
 dependencies = [
@@ -2717,6 +2733,22 @@ dependencies = [
  "redis",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "openauth-saml"
+version = "0.0.5"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "http",
+ "openauth-core",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "time",
+ "url",
 ]
 
 [[package]]
@@ -2781,10 +2813,10 @@ dependencies = [
  "indexmap 2.14.0",
  "josekit",
  "openauth-core",
+ "openauth-oidc",
+ "openauth-saml",
  "openauth-sqlx",
- "openidconnect",
  "publicsuffix2",
- "quick-xml",
  "reqwest",
  "serde",
  "serde_json",

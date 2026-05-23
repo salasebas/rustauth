@@ -1,9 +1,16 @@
-use crate::options::SsoOptions;
+/// Options needed to compute an OIDC redirect URI.
+pub trait OidcFlowOptions {
+    /// Optional shared redirect URI override.
+    fn redirect_uri(&self) -> Option<&str>;
+}
 
-pub fn oidc_redirect_uri(base_url: &str, provider_id: &str, options: &SsoOptions) -> String {
+pub fn oidc_redirect_uri(
+    base_url: &str,
+    provider_id: &str,
+    options: &impl OidcFlowOptions,
+) -> String {
     if let Some(redirect_uri) = options
-        .redirect_uri
-        .as_deref()
+        .redirect_uri()
         .filter(|value| !value.trim().is_empty())
     {
         if url::Url::parse(redirect_uri).is_ok() {

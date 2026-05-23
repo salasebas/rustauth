@@ -18,6 +18,7 @@ async fn register_requires_authenticated_session() -> Result<(), Box<dyn std::er
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn get_and_delete_provider_apply_authenticated_user_scope(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -50,6 +51,7 @@ async fn get_and_delete_provider_apply_authenticated_user_scope(
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn get_provider_accepts_provider_id_query_parameter() -> Result<(), Box<dyn std::error::Error>>
 {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -191,6 +193,7 @@ async fn organization_admin_can_list_get_update_and_delete_org_provider(
 }
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn list_providers_returns_only_session_user_providers(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;
@@ -224,6 +227,7 @@ async fn list_providers_returns_only_session_user_providers(
 }
 
 #[tokio::test]
+#[cfg(feature = "saml")]
 async fn list_providers_returns_saml_certificate_parse_error(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;

@@ -5,7 +5,10 @@ use super::support::router_with_options;
 #[test]
 fn sso_openapi_exposes_public_route_metadata() -> Result<(), Box<dyn std::error::Error>> {
     let mut options = SsoOptions::default().domain_verification_enabled(true);
-    options.saml.enable_single_logout = true;
+    #[cfg(feature = "saml")]
+    {
+        options.saml.enable_single_logout = true;
+    }
     let (_, router) = router_with_options(options)?;
     let openapi = router.openapi_schema();
 
@@ -75,20 +78,23 @@ fn sso_openapi_exposes_public_route_metadata() -> Result<(), Box<dyn std::error:
             ["application/json"]["schema"]["properties"]["samlConfig"]
             .is_object()
     );
-    assert_eq!(
-        openapi["paths"]["/sso/saml2/logout/{providerId}"]["post"]["parameters"][0]["name"],
-        "providerId"
-    );
-    assert!(
-        openapi["paths"]["/sso/saml2/logout/{providerId}"]["post"]["requestBody"]["content"]
-            ["application/json"]["schema"]["properties"]["callbackURL"]
-            .is_object()
-    );
-    assert!(
-        openapi["paths"]["/sso/saml2/sp/slo/{providerId}"]["post"]["requestBody"]["content"]
-            ["application/json"]["schema"]["properties"]["SAMLRequest"]
-            .is_object()
-    );
+    #[cfg(feature = "saml")]
+    {
+        assert_eq!(
+            openapi["paths"]["/sso/saml2/logout/{providerId}"]["post"]["parameters"][0]["name"],
+            "providerId"
+        );
+        assert!(
+            openapi["paths"]["/sso/saml2/logout/{providerId}"]["post"]["requestBody"]["content"]
+                ["application/json"]["schema"]["properties"]["callbackURL"]
+                .is_object()
+        );
+        assert!(
+            openapi["paths"]["/sso/saml2/sp/slo/{providerId}"]["post"]["requestBody"]["content"]
+                ["application/json"]["schema"]["properties"]["SAMLRequest"]
+                .is_object()
+        );
+    }
     assert_eq!(
         openapi["paths"]["/sso/request-domain-verification"]["post"]["operationId"],
         "requestDomainVerification"
@@ -107,14 +113,17 @@ fn sso_openapi_exposes_public_route_metadata() -> Result<(), Box<dyn std::error:
             ["application/json"]["schema"]["properties"]["code"]["type"],
         "string"
     );
-    assert_eq!(
-        openapi["paths"]["/sso/callback/{providerId}"]["get"]["operationId"],
-        "handleSSOCallback"
-    );
-    assert_eq!(
-        openapi["paths"]["/sso/callback"]["get"]["operationId"],
-        "handleSSOCallbackShared"
-    );
+    #[cfg(feature = "oidc")]
+    {
+        assert_eq!(
+            openapi["paths"]["/sso/callback/{providerId}"]["get"]["operationId"],
+            "handleSSOCallback"
+        );
+        assert_eq!(
+            openapi["paths"]["/sso/callback"]["get"]["operationId"],
+            "handleSSOCallbackShared"
+        );
+    }
 
     Ok(())
 }

@@ -73,7 +73,7 @@ pub fn authn_request_xml(
     ))
 }
 
-pub(crate) fn assertion_consumer_service_url(
+pub fn assertion_consumer_service_url(
     provider_id: &str,
     base_url: &str,
     config: &SamlConfig,

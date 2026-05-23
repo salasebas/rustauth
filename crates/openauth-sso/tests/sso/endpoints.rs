@@ -24,6 +24,7 @@ mod audit;
 mod domain_verification;
 #[path = "endpoints/non_sso_linking.rs"]
 mod non_sso_linking;
+#[cfg(feature = "oidc")]
 #[path = "endpoints/oidc_callback.rs"]
 mod oidc_callback;
 #[path = "endpoints/provider_update.rs"]
@@ -32,6 +33,7 @@ mod provider_update;
 mod providers;
 #[path = "endpoints/registration.rs"]
 mod registration;
+#[cfg(feature = "saml")]
 #[path = "endpoints/saml.rs"]
 mod saml;
 #[path = "endpoints/sign_in.rs"]

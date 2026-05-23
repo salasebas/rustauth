@@ -1,19 +1,27 @@
+#[cfg(feature = "oidc")]
 use std::sync::OnceLock;
 
+#[cfg(feature = "saml")]
 use base64::Engine;
 use openauth_core::api::{json_response, ApiResponse};
 use openauth_core::auth::trusted_origins::OriginMatchSettings;
 use openauth_core::context::AuthContext;
 use openauth_core::error::OpenAuthError;
 use serde::Serialize;
+#[cfg(feature = "saml")]
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
+#[cfg(feature = "saml")]
 use time::format_description::well_known::Rfc3339;
+#[cfg(feature = "saml")]
 use x509_parser::prelude::{FromDer, X509Certificate};
+#[cfg(feature = "saml")]
 use x509_parser::public_key::PublicKey;
 
+#[cfg(feature = "oidc")]
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+#[cfg(feature = "saml")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CertificateMetadata {
     pub sha256_fingerprint: String,
@@ -35,6 +43,7 @@ pub fn client_id_last_four(client_id: &str) -> String {
     format!("****{suffix}")
 }
 
+#[cfg(feature = "saml")]
 pub fn certificate_metadata(cert: &str) -> CertificateMetadata {
     let normalized = normalize_certificate(cert);
     let Ok(der) = base64::engine::general_purpose::STANDARD.decode(&normalized) else {
@@ -77,6 +86,7 @@ pub fn json<T: Serialize>(
     json_response(status, body, Vec::new())
 }
 
+#[cfg(feature = "oidc")]
 pub(crate) fn http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(reqwest::Client::new)
 }
@@ -98,12 +108,14 @@ pub fn constant_time_eq(left: &str, right: &str) -> bool {
     left.as_bytes().ct_eq(right.as_bytes()).into()
 }
 
+#[cfg(feature = "saml")]
 fn sha256_hex(value: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value);
     hex::encode(hasher.finalize())
 }
 
+#[cfg(feature = "saml")]
 fn normalize_certificate(cert: &str) -> String {
     cert.lines()
         .filter(|line| !line.starts_with("-----BEGIN ") && !line.starts_with("-----END "))
@@ -112,6 +124,7 @@ fn normalize_certificate(cert: &str) -> String {
         .collect()
 }
 
+#[cfg(feature = "saml")]
 fn public_key_algorithm(public_key: PublicKey<'_>) -> String {
     match public_key {
         PublicKey::RSA(key) => format!("RSA-{}", key.key_size()),

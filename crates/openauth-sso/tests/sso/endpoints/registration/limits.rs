@@ -1,6 +1,7 @@
 use super::*;
 
 #[tokio::test]
+#[cfg(feature = "oidc")]
 async fn register_uses_dynamic_provider_limit_callback() -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default().providers_limit_callback(
         |user: User| async move {

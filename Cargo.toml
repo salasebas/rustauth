@@ -6,6 +6,7 @@ members = [
     "crates/openauth-cli",
     "crates/openauth-core",
     "crates/openauth-i18n",
+    "crates/openauth-oidc",
     "crates/openauth-oauth",
     "crates/openauth-oauth-provider",
     "crates/openauth-passkey",
@@ -15,6 +16,7 @@ members = [
     "crates/openauth-scim",
     "crates/openauth-sqlx",
     "crates/openauth-social-providers",
+    "crates/openauth-saml",
     "crates/openauth-sso",
     "crates/openauth-stripe",
     "crates/openauth-telemetry",
@@ -51,6 +53,7 @@ data-encoding = "2"
 deadpool-postgres = "0.14.1"
 openauth-core = { path = "crates/openauth-core", version = "0.0.5" }
 openauth-i18n = { path = "crates/openauth-i18n", version = "0.0.5" }
+openauth-oidc = { path = "crates/openauth-oidc", version = "0.0.5" }
 openauth = { path = "crates/openauth", version = "0.0.5" }
 axum = "0.8"
 camino = { version = "1.1", features = ["serde1"] }
@@ -64,6 +67,7 @@ openauth-passkey = { path = "crates/openauth-passkey", version = "0.0.5" }
 openauth-redis = { path = "crates/openauth-redis", version = "0.0.5" }
 openauth-scim = { path = "crates/openauth-scim", version = "0.0.5" }
 openauth-social-providers = { path = "crates/openauth-social-providers", version = "0.0.5" }
+openauth-saml = { path = "crates/openauth-saml", version = "0.0.5" }
 openauth-sqlx = { path = "crates/openauth-sqlx", version = "0.0.5", default-features = false }
 openauth-sso = { path = "crates/openauth-sso", version = "0.0.5" }
 openauth-telemetry = { path = "crates/openauth-telemetry", version = "0.0.5" }

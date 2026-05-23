@@ -110,15 +110,21 @@ fn sso_plugin_registers_expected_endpoint_surface() {
         .map(|endpoint| (endpoint.method.clone(), endpoint.path.as_str()))
         .collect::<Vec<_>>();
 
-    assert!(endpoints.contains(&(http::Method::GET, "/sso/saml2/sp/metadata")));
     assert!(endpoints.contains(&(http::Method::POST, "/sso/register")));
     assert!(endpoints.contains(&(http::Method::POST, "/sign-in/sso")));
-    assert!(endpoints.contains(&(http::Method::GET, "/sso/callback/:providerId")));
-    assert!(endpoints.contains(&(http::Method::GET, "/sso/callback")));
-    assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/callback/:providerId")));
-    assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/sp/acs/:providerId")));
-    assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/sp/slo/:providerId")));
-    assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/logout/:providerId")));
+    #[cfg(feature = "oidc")]
+    {
+        assert!(endpoints.contains(&(http::Method::GET, "/sso/callback/:providerId")));
+        assert!(endpoints.contains(&(http::Method::GET, "/sso/callback")));
+    }
+    #[cfg(feature = "saml")]
+    {
+        assert!(endpoints.contains(&(http::Method::GET, "/sso/saml2/sp/metadata")));
+        assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/callback/:providerId")));
+        assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/sp/acs/:providerId")));
+        assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/sp/slo/:providerId")));
+        assert!(endpoints.contains(&(http::Method::POST, "/sso/saml2/logout/:providerId")));
+    }
     assert!(endpoints.contains(&(http::Method::GET, "/sso/providers")));
     assert!(endpoints.contains(&(http::Method::GET, "/sso/get-provider")));
     assert!(endpoints.contains(&(http::Method::POST, "/sso/update-provider")));
@@ -139,10 +145,16 @@ fn sso_plugin_registers_rate_limit_rules_for_expensive_entrypoints() {
     assert!(rules.contains(&("/sso/register", 60, 10)));
     assert!(rules.contains(&("/sso/request-domain-verification", 60, 5)));
     assert!(rules.contains(&("/sso/verify-domain", 60, 5)));
-    assert!(rules.contains(&("/sso/callback", 60, 30)));
-    assert!(rules.contains(&("/sso/callback/:providerId", 60, 30)));
-    assert!(rules.contains(&("/sso/saml2/sp/acs/:providerId", 60, 30)));
-    assert!(rules.contains(&("/sso/saml2/callback/:providerId", 60, 30)));
+    #[cfg(feature = "oidc")]
+    {
+        assert!(rules.contains(&("/sso/callback", 60, 30)));
+        assert!(rules.contains(&("/sso/callback/:providerId", 60, 30)));
+    }
+    #[cfg(feature = "saml")]
+    {
+        assert!(rules.contains(&("/sso/saml2/sp/acs/:providerId", 60, 30)));
+        assert!(rules.contains(&("/sso/saml2/callback/:providerId", 60, 30)));
+    }
 }
 
 #[test]

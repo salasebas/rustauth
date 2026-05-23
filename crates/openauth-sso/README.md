@@ -13,9 +13,26 @@ XML security backend.
 ## What It Provides
 
 `openauth-sso` exposes a server-side plugin for enterprise SSO. It adds SSO
-provider storage, OIDC sign-in, SAML metadata/ACS/SLO scaffolding, domain
-verification, account linking helpers, organization provisioning, and audit
-hooks.
+provider storage, feature-gated OIDC sign-in, feature-gated SAML
+metadata/ACS/SLO scaffolding, domain verification, account linking helpers,
+organization provisioning, and audit hooks.
+
+Use `openauth-oidc` directly when you only need OpenAuth to consume external
+OIDC IdPs. Use `openauth-saml` directly when you only need SAML. Use this crate
+when you want the convenient enterprise SSO plugin that composes those protocol
+crates with provider management and domain verification.
+
+## Features
+
+- `default = ["oidc"]` keeps the common OIDC SSO path enabled.
+- `oidc` enables external OIDC IdP client routes and helpers.
+- `saml` enables SAML metadata, ACS, and SLO routes.
+- `saml-signed` enables the explicit signed-SAML feature surface and forwards to
+  `openauth-saml/saml-signed`.
+
+OIDC-only builds do not depend on the SAML crate or SAML/XML-specific
+dependencies. SCIM provisioning remains in `openauth-scim` and is not part of
+this login plugin.
 
 ## Current Behavior
 

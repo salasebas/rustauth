@@ -10,6 +10,7 @@ use serde_json::json;
 
 use crate::audit;
 use crate::linking_impl::validate_provider_domains;
+#[cfg(feature = "oidc")]
 use crate::oidc_impl::discovery::{validate_configured_oidc_endpoint_origins, validate_issuer_url};
 use crate::openapi::{sso_provider_response, update_provider_body_schema};
 use crate::options::{
@@ -159,68 +160,90 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                     }
                 }
                 let merged_oidc_config = if let Some(update) = body.oidc_config {
-                    let existing_config = existing
-                        .oidc_config
-                        .as_deref()
-                        .and_then(|value| serde_json::from_str::<OidcConfig>(value).ok());
-                    let Some(existing_config) = existing_config else {
+                    #[cfg(not(feature = "oidc"))]
+                    {
+                        let _ = update;
                         return utils::json(
                             http::StatusCode::BAD_REQUEST,
-                            &json!({"code": "OIDC_CONFIG_NOT_CONFIGURED"}),
-                        );
-                    };
-                    let merged = merge_oidc_config(existing_config, update);
-                    if !is_valid_oidc_config_urls(&merged) {
-                        return utils::json(
-                            http::StatusCode::BAD_REQUEST,
-                            &json!({"code": "INVALID_OIDC_CONFIG"}),
+                            &json!({"code": "OIDC_FEATURE_DISABLED", "message": "OIDC support is not enabled"}),
                         );
                     }
-                    if options.oidc.strict_manual_endpoint_origins {
-                        if let Err(error) =
-                            validate_configured_oidc_endpoint_origins(&merged, |url| {
-                                super::oidc::is_trusted_oidc_url(context, &request, url)
-                            })
-                        {
-                            return super::registration::oidc_discovery_error_response(error);
+                    #[cfg(feature = "oidc")]
+                    {
+                        let existing_config = existing
+                            .oidc_config
+                            .as_deref()
+                            .and_then(|value| serde_json::from_str::<OidcConfig>(value).ok());
+                        let Some(existing_config) = existing_config else {
+                            return utils::json(
+                                http::StatusCode::BAD_REQUEST,
+                                &json!({"code": "OIDC_CONFIG_NOT_CONFIGURED"}),
+                            );
+                        };
+                        let merged = merge_oidc_config(existing_config, update);
+                        if !is_valid_oidc_config_urls(&merged) {
+                            return utils::json(
+                                http::StatusCode::BAD_REQUEST,
+                                &json!({"code": "INVALID_OIDC_CONFIG"}),
+                            );
                         }
+                        if options.oidc.strict_manual_endpoint_origins {
+                            if let Err(error) =
+                                validate_configured_oidc_endpoint_origins(&merged, |url| {
+                                    super::oidc::is_trusted_oidc_url(context, &request, url)
+                                })
+                            {
+                                return super::registration::oidc_discovery_error_response(error);
+                            }
+                        }
+                        Some(serde_json::to_string(&merged).map_err(|error| {
+                            openauth_core::error::OpenAuthError::Api(format!(
+                                "failed to serialize OIDC config: {error}"
+                            ))
+                        })?)
                     }
-                    Some(serde_json::to_string(&merged).map_err(|error| {
-                        openauth_core::error::OpenAuthError::Api(format!(
-                            "failed to serialize OIDC config: {error}"
-                        ))
-                    })?)
                 } else {
                     None
                 };
                 let merged_saml_config = if let Some(update) = body.saml_config {
-                    let existing_config = existing
-                        .saml_config
-                        .as_deref()
-                        .and_then(|value| serde_json::from_str::<SamlConfig>(value).ok());
-                    let Some(existing_config) = existing_config else {
+                    #[cfg(not(feature = "saml"))]
+                    {
+                        let _ = update;
                         return utils::json(
                             http::StatusCode::BAD_REQUEST,
-                            &json!({"code": "SAML_CONFIG_NOT_CONFIGURED"}),
+                            &json!({"code": "SAML_FEATURE_DISABLED", "message": "SAML support is not enabled"}),
                         );
-                    };
-                    let merged = match super::saml_config::normalize_saml_config(
-                        merge_saml_config(existing_config, update),
-                        &options,
-                    ) {
-                        Ok(config) => config,
-                        Err(error) => return super::saml_config::error_response(error),
-                    };
-                    if let Err(error) =
-                        super::validate_configured_saml_algorithms(&merged, &options)
-                    {
-                        return super::saml_algorithm_error_response(error);
                     }
-                    Some(serde_json::to_string(&merged).map_err(|error| {
-                        openauth_core::error::OpenAuthError::Api(format!(
-                            "failed to serialize SAML config: {error}"
-                        ))
-                    })?)
+                    #[cfg(feature = "saml")]
+                    {
+                        let existing_config = existing
+                            .saml_config
+                            .as_deref()
+                            .and_then(|value| serde_json::from_str::<SamlConfig>(value).ok());
+                        let Some(existing_config) = existing_config else {
+                            return utils::json(
+                                http::StatusCode::BAD_REQUEST,
+                                &json!({"code": "SAML_CONFIG_NOT_CONFIGURED"}),
+                            );
+                        };
+                        let merged = match super::saml_config::normalize_saml_config(
+                            merge_saml_config(existing_config, update),
+                            &options,
+                        ) {
+                            Ok(config) => config,
+                            Err(error) => return super::saml_config::error_response(error),
+                        };
+                        if let Err(error) =
+                            super::validate_configured_saml_algorithms(&merged, &options)
+                        {
+                            return super::saml_algorithm_error_response(error);
+                        }
+                        Some(serde_json::to_string(&merged).map_err(|error| {
+                            openauth_core::error::OpenAuthError::Api(format!(
+                                "failed to serialize SAML config: {error}"
+                            ))
+                        })?)
+                    }
                 } else {
                     None
                 };
@@ -314,6 +337,7 @@ fn merge_oidc_config(mut existing: OidcConfig, update: UpdateOidcConfig) -> Oidc
     existing
 }
 
+#[cfg(feature = "oidc")]
 fn is_valid_oidc_config_urls(config: &OidcConfig) -> bool {
     validate_issuer_url(&config.issuer).is_ok()
         && super::optional_http_url(config.authorization_endpoint.as_deref())
@@ -326,6 +350,7 @@ fn is_valid_oidc_config_urls(config: &OidcConfig) -> bool {
         && super::is_valid_http_url(&config.discovery_endpoint)
 }
 
+#[cfg(feature = "saml")]
 fn merge_saml_config(mut existing: SamlConfig, update: UpdateSamlConfig) -> SamlConfig {
     if let Some(value) = update.issuer {
         existing.issuer = value;
