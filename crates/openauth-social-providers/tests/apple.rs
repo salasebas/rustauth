@@ -5,7 +5,7 @@ use std::net::TcpListener;
 use std::thread;
 
 use josekit::jwk::Jwk;
-use josekit::jws::alg::hmac::HmacJwsAlgorithm::Hs256;
+use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
@@ -222,14 +222,14 @@ fn query(url: &url::Url, key: &str) -> Option<String> {
 }
 
 fn signed_token(kid: &str, claims: Value) -> (String, Jwk) {
-    let mut jwk = Jwk::generate_oct_key(32).expect("key should generate");
+    let mut jwk = Jwk::generate_rsa_key(2048).expect("key should generate");
     jwk.set_key_id(kid);
-    jwk.set_algorithm("HS256");
-    let signer = Hs256.signer_from_jwk(&jwk).expect("signer should build");
+    jwk.set_algorithm("RS256");
+    let signer = Rs256.signer_from_jwk(&jwk).expect("signer should build");
     let mut header = JwsHeader::new();
     header.set_token_type("JWT");
     header.set_key_id(kid);
-    header.set_algorithm("HS256");
+    header.set_algorithm("RS256");
     let mut payload = JwtPayload::new();
     if let Value::Object(map) = claims {
         for (key, value) in map {

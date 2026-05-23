@@ -214,6 +214,7 @@ impl TwitchProvider {
             TokenValidationOptions {
                 audience: audiences,
                 issuer: vec![TWITCH_ISSUER.to_owned()],
+                ..TokenValidationOptions::default()
             },
         )
         .await
@@ -243,6 +244,7 @@ impl TwitchProvider {
             &TokenValidationOptions {
                 audience: audiences,
                 issuer: vec![TWITCH_ISSUER.to_owned()],
+                ..TokenValidationOptions::default()
             },
         ) {
             Ok(result) => result,

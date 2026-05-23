@@ -337,6 +337,7 @@ impl MicrosoftEntraIdProvider {
             TokenValidationOptions {
                 audience: audiences,
                 issuer: self.expected_issuers(),
+                ..TokenValidationOptions::default()
             },
         )
         .await

@@ -198,6 +198,7 @@ impl AppleProvider {
             TokenValidationOptions {
                 audience,
                 issuer: vec![APPLE_ISSUER.to_owned()],
+                ..TokenValidationOptions::default()
             },
         )
         .await

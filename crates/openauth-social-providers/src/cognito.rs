@@ -271,6 +271,7 @@ impl CognitoProvider {
             TokenValidationOptions {
                 audience,
                 issuer: vec![self.expected_issuer()],
+                ..TokenValidationOptions::default()
             },
         )
         .await?;
