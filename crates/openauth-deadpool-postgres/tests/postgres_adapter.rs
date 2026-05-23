@@ -1,15 +1,14 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use deadpool_postgres::{Config, PoolConfig};
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context;
 use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
     auth_schema, AuthSchemaOptions, Count, Create, DbAdapter, DbField, DbFieldType, DbRecord,
-    DbSchema, DbValue, DeleteMany, FindMany, FindOne, JoinAdapter, JoinOption, RateLimitStorage,
-    Sort, SortDirection, TableOptions, Update, Where, WhereOperator,
+    DbSchema, DbValue, DeleteMany, FindMany, FindOne, RateLimitStorage, TableOptions, Update,
+    Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -19,21 +18,28 @@ use openauth_deadpool_postgres::migration::{MigrationStatementKind, SchemaMigrat
 use openauth_deadpool_postgres::{DeadpoolPostgresAdapter, DeadpoolPostgresRateLimitStore};
 use serde_json::Value;
 use time::OffsetDateTime;
+use tokio_postgres::NoTls;
 
-static TEST_ID: AtomicU64 = AtomicU64::new(0);
-const DEFAULT_POSTGRES_URL: &str = "postgres://user:password@localhost:5432/openauth";
+#[path = "../../../tests/support/postgres_adapter_conformance.rs"]
+mod postgres_adapter_conformance;
+
+use postgres_adapter_conformance as conformance;
+use postgres_adapter_conformance::seed_user;
 
 fn database_url() -> String {
-    database_url_from_env(std::env::var("OPENAUTH_TEST_POSTGRES_URL").ok())
+    conformance::database_url()
 }
 
 fn database_url_from_env(value: Option<String>) -> String {
-    value.unwrap_or_else(|| DEFAULT_POSTGRES_URL.to_owned())
+    conformance::database_url_from_env(value)
 }
 
 #[test]
 fn database_url_defaults_to_docker_compose_postgres_when_env_is_unset() {
-    assert_eq!(database_url_from_env(None), DEFAULT_POSTGRES_URL);
+    assert_eq!(
+        database_url_from_env(None),
+        conformance::DEFAULT_POSTGRES_URL
+    );
 }
 
 #[test]
@@ -52,30 +58,20 @@ async fn adapter() -> Result<DeadpoolPostgresAdapter, OpenAuthError> {
     Ok(adapter)
 }
 
+async fn raw_client() -> Result<tokio_postgres::Client, OpenAuthError> {
+    conformance::raw_client().await
+}
+
 fn test_schema() -> DbSchema {
-    let prefix = unique_prefix();
-    auth_schema(AuthSchemaOptions {
-        user: table_options(&prefix, "users"),
-        account: table_options(&prefix, "accounts"),
-        session: table_options(&prefix, "sessions"),
-        verification: table_options(&prefix, "verifications"),
-        rate_limit: table_options(&prefix, "rate_limits"),
-        rate_limit_storage: RateLimitStorage::Database,
-        ..AuthSchemaOptions::default()
-    })
+    conformance::test_schema("oa_dpg")
 }
 
 fn table_options(prefix: &str, table: &str) -> TableOptions {
-    TableOptions::default().with_name(format!("{prefix}_{table}"))
+    conformance::table_options(prefix, table)
 }
 
 fn unique_prefix() -> String {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or_default();
-    let sequence = TEST_ID.fetch_add(1, Ordering::Relaxed);
-    format!("oa_dpg_{millis}_{sequence}")
+    conformance::unique_prefix("oa_dpg")
 }
 
 #[tokio::test]
@@ -108,6 +104,29 @@ async fn deadpool_postgres_adapter_plans_and_runs_migrations() -> Result<(), Ope
         .any(|statement| statement.kind == MigrationStatementKind::CreateTable));
     adapter.run_migrations(&schema).await?;
     assert!(adapter.plan_migrations(&schema).await?.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_reports_missing_database_pool_errors(
+) -> Result<(), OpenAuthError> {
+    let missing_database = format!("missing_{}", unique_prefix());
+    let url = format!("postgres://user:password@localhost:5432/{missing_database}");
+    let adapter = DeadpoolPostgresAdapter::connect_with_schema(&url, test_schema()).await?;
+
+    let error = match adapter.plan_migrations(&test_schema()).await {
+        Ok(_) => {
+            return Err(OpenAuthError::Adapter(
+                "missing database should fail before planning migrations".to_owned(),
+            ));
+        }
+        Err(error) => error,
+    };
+    let message = error.to_string();
+
+    assert!(message.contains("deadpool-postgres error"));
+    assert!(message.contains("detail:"));
+    assert!(message.contains(&missing_database));
     Ok(())
 }
 
@@ -153,83 +172,407 @@ async fn deadpool_postgres_adapter_reports_additive_migration_plan() -> Result<(
 }
 
 #[tokio::test]
+async fn deadpool_postgres_adapter_reports_type_mismatch_and_repairs_missing_index(
+) -> Result<(), OpenAuthError> {
+    let prefix = unique_prefix();
+    let schema = auth_schema(AuthSchemaOptions {
+        user: table_options(&prefix, "users").with_field(
+            "nickname",
+            DbField::new("nickname", DbFieldType::String).indexed(),
+        ),
+        rate_limit_storage: RateLimitStorage::Database,
+        ..AuthSchemaOptions::default()
+    });
+    let raw = raw_client().await?;
+    raw.batch_execute(&format!(
+        "CREATE TABLE {prefix}_users (id TEXT PRIMARY KEY, email INTEGER)"
+    ))
+    .await
+    .map_err(openauth_tokio_postgres::driver::postgres_error)?;
+    let adapter =
+        DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
+
+    let initial = adapter.plan_migrations(&schema).await?;
+    assert!(initial.warnings.iter().any(|warning| {
+        matches!(
+            warning,
+            SchemaMigrationWarning::ColumnTypeMismatch {
+                column_name,
+                actual,
+                ..
+            } if column_name == "email" && actual == "integer"
+        )
+    }));
+    assert!(initial
+        .indexes_to_be_created
+        .iter()
+        .any(|index| index.field_logical_name == "nickname"));
+
+    adapter.run_migrations(&schema).await?;
+    assert!(!adapter
+        .plan_migrations(&schema)
+        .await?
+        .indexes_to_be_created
+        .iter()
+        .any(|index| index.field_logical_name == "nickname"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_round_trips_json_arrays_and_create_select(
+) -> Result<(), OpenAuthError> {
+    let prefix = unique_prefix();
+    let schema = auth_schema(AuthSchemaOptions {
+        user: table_options(&prefix, "users")
+            .with_field("profile", DbField::new("profile", DbFieldType::Json))
+            .with_field("tags", DbField::new("tags", DbFieldType::StringArray))
+            .with_field("scores", DbField::new("scores", DbFieldType::NumberArray)),
+        account: table_options(&prefix, "accounts"),
+        session: table_options(&prefix, "sessions"),
+        verification: table_options(&prefix, "verifications"),
+        rate_limit: table_options(&prefix, "rate_limits"),
+        rate_limit_storage: RateLimitStorage::Database,
+        ..AuthSchemaOptions::default()
+    });
+    let adapter =
+        DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
+    adapter.create_schema(&schema, None).await?;
+    conformance::assert_round_trips_json_arrays_and_create_select(&adapter).await
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_creates_native_postgres_array_columns(
+) -> Result<(), OpenAuthError> {
+    let prefix = unique_prefix();
+    let table = format!("{prefix}_users");
+    let schema = auth_schema(AuthSchemaOptions {
+        user: table_options(&prefix, "users")
+            .with_field("tags", DbField::new("tags", DbFieldType::StringArray))
+            .with_field("scores", DbField::new("scores", DbFieldType::NumberArray)),
+        rate_limit_storage: RateLimitStorage::Database,
+        ..AuthSchemaOptions::default()
+    });
+    let adapter =
+        DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
+    adapter.create_schema(&schema, None).await?;
+
+    let raw = raw_client().await?;
+    let rows = raw
+        .query(
+            "SELECT column_name, data_type, udt_name FROM information_schema.columns \
+             WHERE table_schema = current_schema() AND table_name = $1 \
+             AND column_name IN ('tags', 'scores')",
+            &[&table],
+        )
+        .await
+        .map_err(openauth_tokio_postgres::driver::postgres_error)?;
+    let columns = rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.get::<_, String>("column_name"),
+                row.get::<_, String>("data_type"),
+                row.get::<_, String>("udt_name"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(columns.iter().any(|(name, data_type, udt_name)| {
+        name == "tags" && data_type == "ARRAY" && udt_name == "_text"
+    }));
+    assert!(columns.iter().any(|(name, data_type, udt_name)| {
+        name == "scores" && data_type == "ARRAY" && udt_name == "_int8"
+    }));
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_accepts_explicit_tls_connector_api() -> Result<(), OpenAuthError>
+{
+    let schema = test_schema();
+    let mut config = Config::new();
+    config.url = Some(database_url());
+    let adapter =
+        DeadpoolPostgresAdapter::from_config_with_schema_tls(config, schema.clone(), 16, NoTls)?;
+
+    adapter.create_schema(&schema, None).await?;
+    assert_eq!(adapter.capabilities().adapter_id, "deadpool-postgres");
+    Ok(())
+}
+
+#[tokio::test]
 async fn deadpool_postgres_adapter_filters_sorts_limits_counts_and_mutates(
 ) -> Result<(), OpenAuthError> {
     let adapter = adapter().await?;
-    let base = OffsetDateTime::UNIX_EPOCH;
-    for (id, email, created_at) in [
-        (
-            "user_1",
-            "ada@example.com",
-            base + time::Duration::seconds(1),
-        ),
-        (
-            "user_2",
-            "grace@example.com",
-            base + time::Duration::seconds(3),
-        ),
-        (
-            "user_3",
-            "alan@example.net",
-            base + time::Duration::seconds(2),
-        ),
-    ] {
-        seed_user(&adapter, id, email, created_at).await?;
-    }
+    conformance::assert_filters_sorts_limits_counts_and_mutates(&adapter).await
+}
 
-    let records = adapter
-        .find_many(
-            FindMany::new("user")
-                .where_clause(
-                    Where::new("email", DbValue::String("EXAMPLE.COM".to_owned()))
-                        .operator(WhereOperator::EndsWith)
-                        .insensitive(),
+#[tokio::test]
+async fn deadpool_postgres_adapter_applies_case_insensitive_string_operators(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    seed_user(
+        &adapter,
+        "user_keep",
+        "keep@example.com",
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+    seed_user(
+        &adapter,
+        "user_target",
+        "Ada.Target@Example.COM",
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+
+    let eq = adapter
+        .find_one(
+            FindOne::new("user").where_clause(
+                Where::new(
+                    "email",
+                    DbValue::String("ada.target@example.com".to_owned()),
                 )
-                .sort_by(Sort::new("created_at", SortDirection::Desc))
-                .limit(1)
-                .offset(0),
+                .insensitive(),
+            ),
+        )
+        .await?
+        .ok_or_else(|| OpenAuthError::Adapter("missing insensitive eq match".to_owned()))?;
+    assert_eq!(
+        eq.get("id"),
+        Some(&DbValue::String("user_target".to_owned()))
+    );
+
+    let in_result = adapter
+        .find_many(
+            FindMany::new("user").where_clause(
+                Where::new(
+                    "email",
+                    DbValue::StringArray(vec![
+                        "nobody@example.com".to_owned(),
+                        "ada.target@example.com".to_owned(),
+                    ]),
+                )
+                .operator(WhereOperator::In)
+                .insensitive(),
+            ),
         )
         .await?;
+    assert_eq!(in_result.len(), 1);
+
+    let not_in = adapter
+        .find_many(
+            FindMany::new("user").where_clause(
+                Where::new(
+                    "email",
+                    DbValue::StringArray(vec!["ada.target@example.com".to_owned()]),
+                )
+                .operator(WhereOperator::NotIn)
+                .insensitive(),
+            ),
+        )
+        .await?;
+    assert!(not_in
+        .iter()
+        .all(|record| record.get("id") != Some(&DbValue::String("user_target".to_owned()))));
+
     let count = adapter
         .count(
             Count::new("user").where_clause(
-                Where::new("email", DbValue::String("example.com".to_owned()))
+                Where::new("email", DbValue::String("target@example.com".to_owned()))
                     .operator(WhereOperator::EndsWith)
                     .insensitive(),
             ),
         )
         .await?;
+    assert_eq!(count, 1);
 
-    assert_eq!(count, 2);
-    assert_eq!(
-        records[0].get("id"),
-        Some(&DbValue::String("user_2".to_owned()))
-    );
-
-    seed_session(&adapter, "session_1", "user_1").await?;
-    seed_session(&adapter, "session_2", "user_1").await?;
-    seed_session(&adapter, "session_3", "user_2").await?;
     let updated = adapter
         .update(
-            Update::new("session")
-                .where_clause(Where::new("id", DbValue::String("session_1".to_owned())))
-                .data("user_agent", DbValue::String("updated".to_owned())),
+            Update::new("user")
+                .where_clause(
+                    Where::new(
+                        "email",
+                        DbValue::String("ada.target@example.com".to_owned()),
+                    )
+                    .operator(WhereOperator::Ne)
+                    .insensitive(),
+                )
+                .where_clause(Where::new("id", DbValue::String("user_keep".to_owned())))
+                .data(
+                    "name",
+                    DbValue::String("updated-by-insensitive-ne".to_owned()),
+                ),
         )
         .await?
-        .ok_or_else(|| OpenAuthError::Adapter("missing updated session".to_owned()))?;
+        .ok_or_else(|| OpenAuthError::Adapter("missing insensitive update".to_owned()))?;
+    assert_eq!(
+        updated.get("name"),
+        Some(&DbValue::String("updated-by-insensitive-ne".to_owned()))
+    );
+
     let deleted = adapter
         .delete_many(
-            DeleteMany::new("session")
-                .where_clause(Where::new("user_id", DbValue::String("user_1".to_owned()))),
+            DeleteMany::new("user").where_clause(
+                Where::new(
+                    "email",
+                    DbValue::String("ADA.TARGET@EXAMPLE.COM".to_owned()),
+                )
+                .insensitive(),
+            ),
+        )
+        .await?;
+    assert_eq!(deleted, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_supports_empty_mutations_and_delete_one(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::assert_empty_mutations_delete_one_and_case_insensitive_arrays(&adapter).await
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_handles_null_predicates_in_groups_and_updates(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    seed_user(
+        &adapter,
+        "null_verified",
+        "null@example.com",
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+    seed_user(
+        &adapter,
+        "image_verified",
+        "image@example.com",
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+    adapter
+        .update(
+            Update::new("user")
+                .where_clause(Where::new(
+                    "id",
+                    DbValue::String("image_verified".to_owned()),
+                ))
+                .data(
+                    "image",
+                    DbValue::String("https://example.com/avatar.png".to_owned()),
+                ),
+        )
+        .await?;
+
+    let null_rows = adapter
+        .find_many(
+            FindMany::new("user")
+                .where_clause(Where::new("image", DbValue::Null).operator(WhereOperator::Eq)),
+        )
+        .await?;
+    assert!(null_rows
+        .iter()
+        .any(|record| record.get("id") == Some(&DbValue::String("null_verified".to_owned()))));
+
+    let not_null_rows = adapter
+        .find_many(
+            FindMany::new("user")
+                .where_clause(Where::new("image", DbValue::Null).operator(WhereOperator::Ne)),
+        )
+        .await?;
+    assert_eq!(not_null_rows.len(), 1);
+
+    let or_rows = adapter
+        .find_many(
+            FindMany::new("user")
+                .where_clause(
+                    Where::new("image", DbValue::Null)
+                        .operator(WhereOperator::Eq)
+                        .or(),
+                )
+                .where_clause(
+                    Where::new("email", DbValue::String("image@example.com".to_owned())).or(),
+                ),
+        )
+        .await?;
+    assert_eq!(or_rows.len(), 2);
+
+    let updated = adapter
+        .update(
+            Update::new("user")
+                .where_clause(Where::new(
+                    "id",
+                    DbValue::String("null_verified".to_owned()),
+                ))
+                .where_clause(Where::new("image", DbValue::Null).operator(WhereOperator::Eq))
+                .data("name", DbValue::String("updated-null-user".to_owned())),
+        )
+        .await?
+        .ok_or_else(|| OpenAuthError::Adapter("missing null predicate update".to_owned()))?;
+    assert_eq!(
+        updated.get("name"),
+        Some(&DbValue::String("updated-null-user".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_round_trips_json_and_array_fields() -> Result<(), OpenAuthError>
+{
+    let prefix = unique_prefix();
+    let schema = auth_schema(AuthSchemaOptions {
+        user: table_options(&prefix, "users")
+            .with_field("metadata", DbField::new("metadata", DbFieldType::Json))
+            .with_field("tags", DbField::new("tags", DbFieldType::StringArray))
+            .with_field("scores", DbField::new("scores", DbFieldType::NumberArray)),
+        rate_limit_storage: RateLimitStorage::Database,
+        ..AuthSchemaOptions::default()
+    });
+    let adapter =
+        DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
+    adapter.create_schema(&schema, None).await?;
+    let now = OffsetDateTime::now_utc();
+    let metadata = serde_json::json!({ "tier": "admin", "enabled": true });
+
+    let created = adapter
+        .create(
+            Create::new("user")
+                .data("id", DbValue::String("user_json".to_owned()))
+                .data("name", DbValue::String("json user".to_owned()))
+                .data("email", DbValue::String("json@example.com".to_owned()))
+                .data("email_verified", DbValue::Boolean(false))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(now))
+                .data("updated_at", DbValue::Timestamp(now))
+                .data("metadata", DbValue::Json(metadata.clone()))
+                .data(
+                    "tags",
+                    DbValue::StringArray(vec!["a".to_owned(), "b".to_owned()]),
+                )
+                .data("scores", DbValue::NumberArray(vec![1, 2, 3])),
         )
         .await?;
 
     assert_eq!(
-        updated.get("user_agent"),
-        Some(&DbValue::String("updated".to_owned()))
+        created.get("metadata"),
+        Some(&DbValue::Json(metadata.clone()))
     );
-    assert_eq!(deleted, 2);
-    assert_eq!(adapter.find_many(FindMany::new("session")).await?.len(), 1);
+
+    let updated = adapter
+        .update(
+            Update::new("user")
+                .where_clause(Where::new("id", DbValue::String("user_json".to_owned())))
+                .data("tags", DbValue::StringArray(vec!["c".to_owned()]))
+                .data("scores", DbValue::NumberArray(vec![9])),
+        )
+        .await?
+        .ok_or_else(|| OpenAuthError::Adapter("missing json user update".to_owned()))?;
+    assert_eq!(
+        updated.get("tags"),
+        Some(&DbValue::StringArray(vec!["c".to_owned()]))
+    );
+    assert_eq!(updated.get("scores"), Some(&DbValue::NumberArray(vec![9])));
     Ok(())
 }
 
@@ -237,136 +580,39 @@ async fn deadpool_postgres_adapter_filters_sorts_limits_counts_and_mutates(
 async fn deadpool_postgres_adapter_supports_native_and_fallback_joins() -> Result<(), OpenAuthError>
 {
     let adapter = adapter().await?;
-    seed_user(
-        &adapter,
-        "user_1",
-        "ada@example.com",
-        OffsetDateTime::now_utc(),
-    )
-    .await?;
-    seed_user(
-        &adapter,
-        "user_2",
-        "grace@example.com",
-        OffsetDateTime::now_utc(),
-    )
-    .await?;
-    seed_account(&adapter, "account_1", "user_1").await?;
-    seed_account(&adapter, "account_2", "user_1").await?;
-    seed_session(&adapter, "session_1", "user_1").await?;
-    seed_session(&adapter, "session_2", "user_1").await?;
+    conformance::assert_supports_native_and_fallback_joins(&adapter).await
+}
 
-    let user = adapter
-        .find_one(
-            FindOne::new("user")
-                .where_clause(Where::new("id", DbValue::String("user_1".to_owned())))
-                .join("account", JoinOption::enabled().limit(1)),
-        )
-        .await?
-        .ok_or_else(|| OpenAuthError::Adapter("missing joined user".to_owned()))?;
-    assert!(matches!(
-        user.get("account"),
-        Some(DbValue::RecordArray(accounts)) if accounts.len() == 1
-    ));
-
-    let users = adapter
-        .find_many(
-            FindMany::new("user")
-                .join("account", JoinOption::enabled().limit(1))
-                .join("session", JoinOption::enabled()),
-        )
-        .await?;
-    let joined = users
-        .iter()
-        .find(|record| record.get("id") == Some(&DbValue::String("user_1".to_owned())))
-        .ok_or_else(|| OpenAuthError::Adapter("missing fallback joined user".to_owned()))?;
-    assert!(matches!(
-        joined.get("account"),
-        Some(DbValue::RecordArray(accounts)) if accounts.len() == 1
-    ));
-    assert!(matches!(
-        joined.get("session"),
-        Some(DbValue::RecordArray(sessions)) if sessions.len() == 2
-    ));
-
-    let account = adapter
-        .find_one(
-            FindOne::new("account")
-                .where_clause(Where::new("id", DbValue::String("account_1".to_owned())))
-                .join("user", JoinOption::enabled()),
-        )
-        .await?
-        .ok_or_else(|| OpenAuthError::Adapter("missing joined account".to_owned()))?;
-    assert!(matches!(
-        account.get("user"),
-        Some(DbValue::Record(user)) if user.get("id") == Some(&DbValue::String("user_1".to_owned()))
-    ));
-    Ok(())
+#[tokio::test]
+async fn deadpool_postgres_adapter_returns_empty_or_null_for_missing_join_rows(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::assert_returns_empty_or_null_for_missing_join_rows(&adapter).await
 }
 
 #[tokio::test]
 async fn deadpool_postgres_adapter_rolls_back_failed_transactions() -> Result<(), OpenAuthError> {
     let adapter = adapter().await?;
-    let result = adapter
-        .transaction(Box::new(|tx| {
-            Box::pin(async move {
-                seed_user(
-                    tx.as_ref(),
-                    "user_1",
-                    "ada@example.com",
-                    OffsetDateTime::now_utc(),
-                )
-                .await?;
-                Err(OpenAuthError::Adapter("force rollback".to_owned()))
-            })
-        }))
-        .await;
-
-    assert!(result.is_err());
-    assert_eq!(adapter.count(Count::new("user")).await?, 0);
-    Ok(())
+    conformance::assert_rolls_back_failed_transactions(&adapter).await
 }
 
 #[tokio::test]
 async fn deadpool_postgres_adapter_commits_successful_transactions() -> Result<(), OpenAuthError> {
     let adapter = adapter().await?;
-    adapter
-        .transaction(Box::new(|tx| {
-            Box::pin(async move {
-                seed_user(
-                    tx.as_ref(),
-                    "user_1",
-                    "ada@example.com",
-                    OffsetDateTime::now_utc(),
-                )
-                .await
-            })
-        }))
-        .await?;
+    conformance::assert_commits_successful_transactions(&adapter).await
+}
 
-    assert_eq!(adapter.count(Count::new("user")).await?, 1);
-    Ok(())
+#[tokio::test]
+async fn deadpool_postgres_adapter_rolls_back_after_sql_error_in_transaction(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::assert_rolls_back_after_sql_error_in_transaction(&adapter).await
 }
 
 #[tokio::test]
 async fn deadpool_postgres_adapter_rejects_nested_transactions() -> Result<(), OpenAuthError> {
     let adapter = adapter().await?;
-    let result = adapter
-        .transaction(Box::new(|tx| {
-            Box::pin(async move {
-                tx.transaction(Box::new(|_| Box::pin(async { Ok(()) })))
-                    .await
-            })
-        }))
-        .await;
-
-    let Err(error) = result else {
-        return Err(OpenAuthError::Adapter(
-            "nested transaction unexpectedly succeeded".to_owned(),
-        ));
-    };
-    assert!(error.to_string().contains("nested"));
-    Ok(())
+    conformance::assert_rejects_nested_transactions(&adapter).await
 }
 
 #[tokio::test]
@@ -376,43 +622,7 @@ async fn deadpool_postgres_transaction_multi_join_uses_fallback() -> Result<(), 
         DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
     adapter.create_schema(&schema, None).await?;
 
-    adapter
-        .transaction(Box::new(move |tx| {
-            let schema = schema.clone();
-            Box::pin(async move {
-                seed_user(
-                    tx.as_ref(),
-                    "user_1",
-                    "ada@example.com",
-                    OffsetDateTime::now_utc(),
-                )
-                .await?;
-                seed_account(tx.as_ref(), "account_1", "user_1").await?;
-                seed_session(tx.as_ref(), "session_1", "user_1").await?;
-
-                let joined = JoinAdapter::new(schema, tx, true)
-                    .find_many(
-                        FindMany::new("user")
-                            .join("account", JoinOption::enabled())
-                            .join("session", JoinOption::enabled()),
-                    )
-                    .await?;
-                let user = joined
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| OpenAuthError::Adapter("missing joined user".to_owned()))?;
-                assert!(matches!(
-                    user.get("account"),
-                    Some(DbValue::RecordArray(accounts)) if accounts.len() == 1
-                ));
-                assert!(matches!(
-                    user.get("session"),
-                    Some(DbValue::RecordArray(sessions)) if sessions.len() == 1
-                ));
-                Ok(())
-            })
-        }))
-        .await
+    conformance::assert_transaction_multi_join_uses_fallback(&adapter, schema).await
 }
 
 #[tokio::test]
@@ -480,6 +690,38 @@ async fn deadpool_postgres_rate_limit_store_denies_without_incrementing_denied_r
         .await?
         .ok_or_else(|| OpenAuthError::Adapter("missing rate limit row".to_owned()))?;
     assert_eq!(record.get("count"), Some(&DbValue::Number(1)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_allows_concurrent_pool_operations() -> Result<(), OpenAuthError>
+{
+    let schema = test_schema();
+    let mut config = Config::new();
+    config.url = Some(database_url());
+    config.pool = Some(PoolConfig::new(2));
+    let adapter = Arc::new(DeadpoolPostgresAdapter::from_config_with_schema(
+        config,
+        schema.clone(),
+        16,
+    )?);
+    adapter.create_schema(&schema, None).await?;
+
+    let mut tasks = Vec::new();
+    for index in 0..6 {
+        let adapter = Arc::clone(&adapter);
+        tasks.push(tokio::spawn(async move {
+            let id = format!("concurrent_user_{index}");
+            let email = format!("concurrent-{index}@example.com");
+            seed_user(adapter.as_ref(), &id, &email, OffsetDateTime::now_utc()).await
+        }));
+    }
+    for task in tasks {
+        task.await
+            .map_err(|error| OpenAuthError::Adapter(format!("join failed: {error}")))??;
+    }
+
+    assert_eq!(adapter.count(Count::new("user")).await?, 6);
     Ok(())
 }
 
@@ -644,78 +886,4 @@ fn string_field<'a>(record: &'a DbRecord, field: &str) -> Result<&'a str, OpenAu
             "missing string field `{field}`"
         ))),
     }
-}
-
-async fn seed_user<A>(
-    adapter: &A,
-    id: &str,
-    email: &str,
-    created_at: OffsetDateTime,
-) -> Result<(), OpenAuthError>
-where
-    A: DbAdapter + ?Sized,
-{
-    adapter
-        .create(
-            Create::new("user")
-                .data("id", DbValue::String(id.to_owned()))
-                .data("name", DbValue::String(id.to_owned()))
-                .data("email", DbValue::String(email.to_owned()))
-                .data("email_verified", DbValue::Boolean(false))
-                .data("image", DbValue::Null)
-                .data("created_at", DbValue::Timestamp(created_at))
-                .data("updated_at", DbValue::Timestamp(created_at)),
-        )
-        .await?;
-    Ok(())
-}
-
-async fn seed_account<A>(adapter: &A, id: &str, user_id: &str) -> Result<(), OpenAuthError>
-where
-    A: DbAdapter + ?Sized,
-{
-    let now = OffsetDateTime::now_utc();
-    adapter
-        .create(
-            Create::new("account")
-                .data("id", DbValue::String(id.to_owned()))
-                .data("account_id", DbValue::String(id.to_owned()))
-                .data("provider_id", DbValue::String("credential".to_owned()))
-                .data("user_id", DbValue::String(user_id.to_owned()))
-                .data("access_token", DbValue::Null)
-                .data("refresh_token", DbValue::Null)
-                .data("id_token", DbValue::Null)
-                .data("access_token_expires_at", DbValue::Null)
-                .data("refresh_token_expires_at", DbValue::Null)
-                .data("scope", DbValue::Null)
-                .data("password", DbValue::Null)
-                .data("created_at", DbValue::Timestamp(now))
-                .data("updated_at", DbValue::Timestamp(now)),
-        )
-        .await?;
-    Ok(())
-}
-
-async fn seed_session<A>(adapter: &A, id: &str, user_id: &str) -> Result<(), OpenAuthError>
-where
-    A: DbAdapter + ?Sized,
-{
-    let now = OffsetDateTime::now_utc();
-    adapter
-        .create(
-            Create::new("session")
-                .data("id", DbValue::String(id.to_owned()))
-                .data(
-                    "expires_at",
-                    DbValue::Timestamp(now + time::Duration::hours(1)),
-                )
-                .data("token", DbValue::String(id.to_owned()))
-                .data("created_at", DbValue::Timestamp(now))
-                .data("updated_at", DbValue::Timestamp(now))
-                .data("ip_address", DbValue::Null)
-                .data("user_agent", DbValue::Null)
-                .data("user_id", DbValue::String(user_id.to_owned())),
-        )
-        .await?;
-    Ok(())
 }

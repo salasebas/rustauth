@@ -1,5 +1,7 @@
 #![cfg(feature = "mysql")]
 
+mod common;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,8 +14,8 @@ use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
     auth_schema, AdapterCapabilities, AuthSchemaOptions, Count, Create, DbAdapter, DbField,
     DbFieldType, DbRecord, DbSchema, DbTable, DbValue, DeleteMany, FindMany, FindOne, ForeignKey,
-    JoinOption, OnDelete, RateLimitStorage, Sort, SortDirection, TableOptions, Update, Where,
-    WhereOperator,
+    IdGeneration, IdPolicy, JoinOption, OnDelete, RateLimitStorage, Sort, SortDirection,
+    TableOptions, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -26,19 +28,27 @@ use sqlx::mysql::MySqlPoolOptions;
 use time::OffsetDateTime;
 
 static TEST_ID: AtomicU64 = AtomicU64::new(0);
-const DEFAULT_MYSQL_URL: &str = "mysql://user:password@localhost:3306/openauth";
 
 fn database_url() -> String {
-    database_url_from_env(std::env::var("OPENAUTH_TEST_MYSQL_URL").ok())
+    common::mysql_database_url()
 }
 
 fn database_url_from_env(value: Option<String>) -> String {
-    value.unwrap_or_else(|| DEFAULT_MYSQL_URL.to_owned())
+    common::database_url_from_env(value, common::DEFAULT_MYSQL_URL)
+}
+
+async fn test_pool(max_connections: u32) -> Result<sqlx::MySqlPool, OpenAuthError> {
+    let database_url = database_url();
+    MySqlPoolOptions::new()
+        .max_connections(max_connections)
+        .connect(&database_url)
+        .await
+        .map_err(|error| common::preflight_error("mysql", &database_url, error))
 }
 
 #[test]
 fn database_url_defaults_to_docker_compose_mysql_when_env_is_unset() {
-    assert_eq!(database_url_from_env(None), DEFAULT_MYSQL_URL);
+    assert_eq!(database_url_from_env(None), common::DEFAULT_MYSQL_URL);
 }
 
 #[test]
@@ -51,11 +61,7 @@ fn database_url_allows_mysql_env_override() {
 
 async fn adapter() -> Result<MySqlAdapter, OpenAuthError> {
     let schema = test_schema();
-    let pool = MySqlPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(5).await?;
     let adapter = MySqlAdapter::with_schema(pool, schema.clone());
     adapter.create_schema(&schema, None).await?;
     Ok(adapter)
@@ -221,11 +227,7 @@ async fn mysql_adapter_updates_and_deletes_matching_records() -> Result<(), Open
 
 #[tokio::test]
 async fn mysql_adapter_reports_public_capabilities() -> Result<(), OpenAuthError> {
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let capabilities = MySqlAdapter::new(pool).capabilities();
 
     assert_eq!(
@@ -237,6 +239,42 @@ async fn mysql_adapter_reports_public_capabilities() -> Result<(), OpenAuthError
             .with_joins()
             .with_transactions()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn mysql_adapter_returns_database_generated_serial_ids() -> Result<(), OpenAuthError> {
+    let prefix = unique_prefix();
+    let schema = auth_schema(AuthSchemaOptions {
+        id_policy: IdPolicy::new(IdGeneration::Serial),
+        user: table_options(&prefix, "users"),
+        account: table_options(&prefix, "accounts"),
+        session: table_options(&prefix, "sessions"),
+        verification: table_options(&prefix, "verifications"),
+        rate_limit: table_options(&prefix, "rate_limits"),
+        ..AuthSchemaOptions::default()
+    });
+    let pool = test_pool(1).await?;
+    let adapter = MySqlAdapter::with_schema(pool, schema.clone());
+    adapter.create_schema(&schema, None).await?;
+
+    let created = adapter
+        .create(
+            Create::new("user")
+                .data("name", DbValue::String("Ada".to_owned()))
+                .data(
+                    "email",
+                    DbValue::String(format!("ada-{prefix}@example.com")),
+                )
+                .data("email_verified", DbValue::Boolean(true))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .select(["id", "email"]),
+        )
+        .await?;
+
+    assert_eq!(created.get("id"), Some(&DbValue::Number(1)));
     Ok(())
 }
 
@@ -285,11 +323,7 @@ async fn mysql_rate_limit_store_uses_physical_column_names() -> Result<(), OpenA
         rate_limit_storage: RateLimitStorage::Database,
         ..AuthSchemaOptions::default()
     });
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool.clone(), schema.clone());
     adapter.create_schema(&schema, None).await?;
     let store = MySqlRateLimitStore::from(&adapter);
@@ -326,11 +360,7 @@ async fn mysql_adapter_plan_migrations_reports_empty_database_tables_in_order(
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool, schema.clone());
 
     let plan = adapter.plan_migrations(&schema).await?;
@@ -370,11 +400,7 @@ async fn mysql_adapter_plan_migrations_reports_plugin_columns_indexes_and_sql(
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool, base_schema.clone());
     adapter.run_migrations(&base_schema).await?;
 
@@ -439,11 +465,7 @@ async fn mysql_adapter_plan_migrations_reports_plugin_tables_with_deferred_index
             order: Some(5),
         },
     )?;
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool, schema.clone());
 
     let plan = adapter.plan_migrations(&schema).await?;
@@ -478,11 +500,7 @@ async fn mysql_adapter_plan_migrations_reports_plugin_tables_with_deferred_index
 async fn mysql_adapter_compile_migrations_returns_semicolon_for_noop() -> Result<(), OpenAuthError>
 {
     let schema = test_schema();
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool, schema.clone());
     adapter.run_migrations(&schema).await?;
 
@@ -503,11 +521,7 @@ async fn mysql_adapter_plan_migrations_warns_for_type_mismatch_without_rewrite(
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     sqlx::query(&format!(
         "CREATE TABLE {users_table} (id VARCHAR(255) PRIMARY KEY, name TEXT NOT NULL, email BIGINT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL, image TEXT, created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ))
@@ -551,11 +565,7 @@ async fn mysql_adapter_run_migrations_adds_plugin_columns_to_existing_tables(
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool.clone(), base_schema.clone());
     adapter.run_migrations(&base_schema).await?;
 
@@ -613,11 +623,7 @@ async fn mysql_adapter_run_migrations_repairs_missing_indexes_on_existing_column
             .optional()
             .indexed(),
     )?;
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool.clone(), schema.clone());
     adapter.run_migrations(&schema).await?;
     sqlx::query(&format!(
@@ -681,11 +687,7 @@ async fn mysql_adapter_run_migrations_creates_plugin_tables_with_indexes_and_for
             order: Some(5),
         },
     )?;
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool.clone(), schema.clone());
 
     adapter.run_migrations(&schema).await?;
@@ -733,11 +735,7 @@ async fn mysql_adapter_uses_physical_names_from_auth_schema() -> Result<(), Open
         rate_limit_storage: RateLimitStorage::Database,
         ..AuthSchemaOptions::default()
     });
-    let pool = MySqlPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = MySqlAdapter::with_schema(pool.clone(), schema.clone());
     adapter.create_schema(&schema, None).await?;
 

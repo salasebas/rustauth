@@ -1,5 +1,7 @@
 #![cfg(feature = "postgres")]
 
+mod common;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,8 +14,8 @@ use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
     auth_schema, AdapterCapabilities, AuthSchemaOptions, Count, Create, DbAdapter, DbField,
     DbFieldType, DbRecord, DbSchema, DbTable, DbValue, DeleteMany, FindMany, FindOne, ForeignKey,
-    JoinOption, OnDelete, RateLimitStorage, Sort, SortDirection, TableOptions, Update, Where,
-    WhereOperator,
+    IdGeneration, IdPolicy, JoinOption, OnDelete, RateLimitStorage, Sort, SortDirection,
+    TableOptions, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -26,19 +28,27 @@ use sqlx::postgres::PgPoolOptions;
 use time::OffsetDateTime;
 
 static TEST_ID: AtomicU64 = AtomicU64::new(0);
-const DEFAULT_POSTGRES_URL: &str = "postgres://user:password@localhost:5432/openauth";
 
 fn database_url() -> String {
-    database_url_from_env(std::env::var("OPENAUTH_TEST_POSTGRES_URL").ok())
+    common::postgres_database_url()
 }
 
 fn database_url_from_env(value: Option<String>) -> String {
-    value.unwrap_or_else(|| DEFAULT_POSTGRES_URL.to_owned())
+    common::database_url_from_env(value, common::DEFAULT_POSTGRES_URL)
+}
+
+async fn test_pool(max_connections: u32) -> Result<sqlx::PgPool, OpenAuthError> {
+    let database_url = database_url();
+    PgPoolOptions::new()
+        .max_connections(max_connections)
+        .connect(&database_url)
+        .await
+        .map_err(|error| common::preflight_error("postgres", &database_url, error))
 }
 
 #[test]
 fn database_url_defaults_to_docker_compose_postgres_when_env_is_unset() {
-    assert_eq!(database_url_from_env(None), DEFAULT_POSTGRES_URL);
+    assert_eq!(database_url_from_env(None), common::DEFAULT_POSTGRES_URL);
 }
 
 #[test]
@@ -51,11 +61,7 @@ fn database_url_allows_postgres_env_override() {
 
 async fn adapter() -> Result<PostgresAdapter, OpenAuthError> {
     let schema = test_schema();
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(5).await?;
     let adapter = PostgresAdapter::with_schema(pool, schema.clone());
     adapter.create_schema(&schema, None).await?;
     Ok(adapter)
@@ -221,11 +227,7 @@ async fn postgres_adapter_updates_and_deletes_matching_records() -> Result<(), O
 
 #[tokio::test]
 async fn postgres_adapter_reports_public_capabilities() -> Result<(), OpenAuthError> {
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let capabilities = PostgresAdapter::new(pool).capabilities();
 
     assert_eq!(
@@ -238,6 +240,48 @@ async fn postgres_adapter_reports_public_capabilities() -> Result<(), OpenAuthEr
             .with_joins()
             .with_transactions()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_adapter_returns_database_generated_uuid_ids() -> Result<(), OpenAuthError> {
+    let prefix = unique_prefix();
+    let schema = auth_schema(AuthSchemaOptions {
+        id_policy: IdPolicy::new(IdGeneration::Uuid).with_database_uuid_support(true),
+        user: table_options(&prefix, "users"),
+        account: table_options(&prefix, "accounts"),
+        session: table_options(&prefix, "sessions"),
+        verification: table_options(&prefix, "verifications"),
+        rate_limit: table_options(&prefix, "rate_limits"),
+        ..AuthSchemaOptions::default()
+    });
+    let pool = test_pool(1).await?;
+    let adapter = PostgresAdapter::with_schema(pool, schema.clone());
+    adapter.create_schema(&schema, None).await?;
+
+    let created = adapter
+        .create(
+            Create::new("user")
+                .data("name", DbValue::String("Ada".to_owned()))
+                .data(
+                    "email",
+                    DbValue::String(format!("ada-{prefix}@example.com")),
+                )
+                .data("email_verified", DbValue::Boolean(true))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .select(["id", "email"]),
+        )
+        .await?;
+
+    let Some(DbValue::String(id)) = created.get("id") else {
+        return Err(OpenAuthError::Adapter(
+            "missing generated UUID id".to_owned(),
+        ));
+    };
+    uuid::Uuid::parse_str(id)
+        .map_err(|error| OpenAuthError::Adapter(format!("invalid generated UUID: {error}")))?;
     Ok(())
 }
 
@@ -286,11 +330,7 @@ async fn postgres_rate_limit_store_uses_physical_column_names() -> Result<(), Op
         rate_limit_storage: RateLimitStorage::Database,
         ..AuthSchemaOptions::default()
     });
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool.clone(), schema.clone());
     adapter.create_schema(&schema, None).await?;
     let store = PostgresRateLimitStore::from(&adapter);
@@ -327,11 +367,7 @@ async fn postgres_adapter_plan_migrations_reports_empty_database_tables_in_order
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool, schema.clone());
 
     let plan = adapter.plan_migrations(&schema).await?;
@@ -371,11 +407,7 @@ async fn postgres_adapter_plan_migrations_reports_plugin_columns_indexes_and_sql
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool, base_schema.clone());
     adapter.run_migrations(&base_schema).await?;
 
@@ -437,11 +469,7 @@ async fn postgres_adapter_plan_migrations_reports_plugin_tables_with_deferred_in
             order: Some(5),
         },
     )?;
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool, schema.clone());
 
     let plan = adapter.plan_migrations(&schema).await?;
@@ -476,11 +504,7 @@ async fn postgres_adapter_plan_migrations_reports_plugin_tables_with_deferred_in
 async fn postgres_adapter_compile_migrations_returns_semicolon_for_noop(
 ) -> Result<(), OpenAuthError> {
     let schema = test_schema();
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool, schema.clone());
     adapter.run_migrations(&schema).await?;
 
@@ -501,11 +525,7 @@ async fn postgres_adapter_plan_migrations_warns_for_type_mismatch_without_rewrit
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     sqlx::query(&format!(
         "CREATE TABLE {users_table} (id TEXT PRIMARY KEY, name TEXT NOT NULL, email BIGINT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)"
     ))
@@ -547,11 +567,7 @@ async fn postgres_adapter_run_migrations_adds_plugin_columns_to_existing_tables(
         rate_limit: table_options(&prefix, "rate_limits"),
         ..AuthSchemaOptions::default()
     });
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool.clone(), base_schema.clone());
     adapter.run_migrations(&base_schema).await?;
 
@@ -609,11 +625,7 @@ async fn postgres_adapter_run_migrations_repairs_missing_indexes_on_existing_col
             .optional()
             .indexed(),
     )?;
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool.clone(), schema.clone());
     adapter.run_migrations(&schema).await?;
     sqlx::query(&format!("DROP INDEX idx_{users_table}_tenant_id"))
@@ -675,11 +687,7 @@ async fn postgres_adapter_run_migrations_creates_plugin_tables_with_indexes_and_
             order: Some(5),
         },
     )?;
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool.clone(), schema.clone());
 
     adapter.run_migrations(&schema).await?;
@@ -727,11 +735,7 @@ async fn postgres_adapter_uses_physical_names_from_auth_schema() -> Result<(), O
         rate_limit_storage: RateLimitStorage::Database,
         ..AuthSchemaOptions::default()
     });
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url())
-        .await
-        .map_err(sql_error)?;
+    let pool = test_pool(1).await?;
     let adapter = PostgresAdapter::with_schema(pool.clone(), schema.clone());
     adapter.create_schema(&schema, None).await?;
 

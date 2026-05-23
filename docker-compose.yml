@@ -8,7 +8,7 @@ x-postgres-healthcheck: &postgres-healthcheck
 
 x-mysql-healthcheck: &mysql-healthcheck
   healthcheck:
-    test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uuser", "-ppassword"]
+    test: ["CMD-SHELL", "mysql -h 127.0.0.1 -uuser -ppassword openauth -e 'SELECT 1' >/dev/null"]
     interval: 1s
     timeout: 5s
     retries: 10

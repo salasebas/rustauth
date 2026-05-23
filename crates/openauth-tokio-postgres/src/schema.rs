@@ -90,7 +90,9 @@ async fn column_type(
 ) -> Result<Option<String>, OpenAuthError> {
     let row = client
         .query_opt(
-            "SELECT data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2",
+            "SELECT CASE WHEN data_type = 'ARRAY' THEN udt_name ELSE data_type END \
+             FROM information_schema.columns \
+             WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2",
             &[&table, &column],
         )
         .await

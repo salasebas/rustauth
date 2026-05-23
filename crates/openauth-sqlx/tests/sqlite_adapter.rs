@@ -11,8 +11,8 @@ use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
     auth_schema, AdapterCapabilities, AuthSchemaOptions, Count, Create, DbAdapter, DbField,
     DbFieldType, DbRecord, DbTable, DbValue, DeleteMany, FindMany, FindOne, ForeignKey,
-    HookedAdapter, JoinOption, OnDelete, RateLimitStorage, Sort, SortDirection, TableOptions,
-    Update, Where, WhereOperator,
+    HookedAdapter, IdGeneration, IdPolicy, JoinOption, OnDelete, RateLimitStorage, Sort,
+    SortDirection, TableOptions, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -224,6 +224,72 @@ async fn sqlite_adapter_create_schema_is_idempotent_and_creates_rate_limit_table
 }
 
 #[tokio::test]
+async fn sqlite_adapter_returns_database_generated_serial_ids() -> Result<(), OpenAuthError> {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .map_err(sql_error)?;
+    let schema = auth_schema(AuthSchemaOptions {
+        id_policy: IdPolicy::new(IdGeneration::Serial),
+        ..AuthSchemaOptions::default()
+    });
+    let adapter = SqliteAdapter::with_schema(pool, schema.clone());
+    adapter.create_schema(&schema, None).await?;
+
+    let created = adapter
+        .create(
+            Create::new("user")
+                .data("name", DbValue::String("Ada".to_owned()))
+                .data("email", DbValue::String("ada@example.com".to_owned()))
+                .data("email_verified", DbValue::Boolean(true))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .select(["id", "email"]),
+        )
+        .await?;
+
+    assert_eq!(created.get("id"), Some(&DbValue::Number(1)));
+    assert_eq!(
+        created.get("email"),
+        Some(&DbValue::String("ada@example.com".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_connect_enables_foreign_keys_for_pooled_connections() -> Result<(), OpenAuthError> {
+    let database_url = format!(
+        "sqlite:///private/tmp/openauth_sqlx_fk_{}_{}.db?mode=rwc",
+        std::process::id(),
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    );
+    let schema = auth_schema(AuthSchemaOptions::default());
+    let adapter = SqliteAdapter::connect_with_schema(&database_url, schema.clone()).await?;
+    adapter.create_schema(&schema, None).await?;
+
+    let result = adapter
+        .create(
+            Create::new("session")
+                .data("id", DbValue::String("session_1".to_owned()))
+                .data("expires_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("token", DbValue::String("token_1".to_owned()))
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("ip_address", DbValue::Null)
+                .data("user_agent", DbValue::Null)
+                .data("user_id", DbValue::String("missing_user".to_owned())),
+        )
+        .await;
+
+    assert!(
+        matches!(result, Err(OpenAuthError::Adapter(message)) if message.contains("FOREIGN KEY"))
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn sqlite_rate_limit_store_denies_without_incrementing_denied_requests(
 ) -> Result<(), OpenAuthError> {
     let pool = SqlitePoolOptions::new()
@@ -336,6 +402,43 @@ async fn sqlite_rate_limit_store_uses_physical_column_names() -> Result<(), Open
 }
 
 #[tokio::test]
+async fn sqlite_rate_limit_store_rejects_negative_persisted_counts() -> Result<(), OpenAuthError> {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .map_err(sql_error)?;
+    let schema = auth_schema(AuthSchemaOptions {
+        rate_limit_storage: RateLimitStorage::Database,
+        ..AuthSchemaOptions::default()
+    });
+    let adapter = SqliteAdapter::with_schema(pool.clone(), schema.clone());
+    adapter.create_schema(&schema, None).await?;
+    let store = SqliteRateLimitStore::from(&adapter);
+    let key = "127.0.0.1|/corrupt-negative-count".to_owned();
+    sqlx::query("INSERT INTO rate_limits (key, count, last_request) VALUES (?, ?, ?)")
+        .bind(&key)
+        .bind(-1_i64)
+        .bind(1_700_000_000_000_i64)
+        .execute(&pool)
+        .await
+        .map_err(sql_error)?;
+
+    let result = store
+        .consume(RateLimitConsumeInput {
+            key,
+            rule: RateLimitRule { window: 60, max: 5 },
+            now_ms: 1_700_000_000_001,
+        })
+        .await;
+
+    assert!(
+        matches!(result, Err(OpenAuthError::Adapter(message)) if message.contains("negative rate limit count"))
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn sqlite_adapter_run_migrations_applies_plugin_aware_schema() -> Result<(), OpenAuthError> {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -359,6 +462,68 @@ async fn sqlite_adapter_run_migrations_applies_plugin_aware_schema() -> Result<(
     .await
     .map_err(sql_error)?;
     assert_eq!(tenant_column_count, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_adapter_run_migrations_rejects_type_warnings_without_applying_statements(
+) -> Result<(), OpenAuthError> {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .map_err(sql_error)?;
+    sqlx::query(
+        "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email INTEGER NOT NULL UNIQUE, email_verified INTEGER NOT NULL, image TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    )
+    .execute(&pool)
+    .await
+    .map_err(sql_error)?;
+    let adapter = SqliteAdapter::new(pool.clone());
+    let schema = auth_schema(AuthSchemaOptions::default());
+
+    let result = adapter.run_migrations(&schema).await;
+
+    assert!(
+        matches!(result, Err(OpenAuthError::Adapter(message)) if message.contains("non-executable migration warnings"))
+    );
+    let sessions_table_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(sql_error)?;
+    assert_eq!(sessions_table_count, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_adapter_create_schema_rejects_type_warnings_without_applying_statements(
+) -> Result<(), OpenAuthError> {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .map_err(sql_error)?;
+    sqlx::query("CREATE TABLE users (id TEXT PRIMARY KEY, email INTEGER)")
+        .execute(&pool)
+        .await
+        .map_err(sql_error)?;
+
+    let schema = auth_schema(AuthSchemaOptions::default());
+    let adapter = SqliteAdapter::with_schema(pool.clone(), schema.clone());
+    let result = adapter.create_schema(&schema, None).await;
+
+    assert!(
+        matches!(result, Err(OpenAuthError::Adapter(message)) if message.contains("migration warnings"))
+    );
+    let sessions_table_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(sql_error)?;
+    assert_eq!(sessions_table_count, 0);
     Ok(())
 }
 
@@ -536,6 +701,54 @@ async fn sqlite_adapter_plan_migrations_warns_for_type_mismatch_without_rewrite(
     assert!(!sql.contains("ALTER COLUMN"));
     assert!(!sql.contains("DROP"));
     assert!(!sql.contains("RENAME"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_adapter_plan_migrations_warns_for_foreign_key_mismatch() -> Result<(), OpenAuthError>
+{
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .map_err(sql_error)?;
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .map_err(sql_error)?;
+    sqlx::query("CREATE TABLE users (id TEXT PRIMARY KEY)")
+        .execute(&pool)
+        .await
+        .map_err(sql_error)?;
+    sqlx::query(
+        "CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE RESTRICT)",
+    )
+    .execute(&pool)
+    .await
+    .map_err(sql_error)?;
+
+    let schema = auth_schema(AuthSchemaOptions::default());
+    let adapter = SqliteAdapter::with_schema(pool, schema.clone());
+    let plan = adapter.plan_migrations(&schema).await?;
+
+    assert!(
+        plan.warnings.iter().any(|warning| {
+            matches!(
+                warning,
+                SchemaMigrationWarning::ForeignKeyMismatch {
+                    table_name,
+                    column_name,
+                    expected,
+                    actual: Some(actual),
+                } if table_name == "sessions"
+                    && column_name == "user_id"
+                    && expected.on_delete == OnDelete::Cascade
+                    && actual.on_delete == OnDelete::Restrict
+            )
+        }),
+        "expected FK mismatch warning, got {:?}",
+        plan.warnings
+    );
     Ok(())
 }
 
@@ -1005,6 +1218,54 @@ async fn sqlite_adapter_supports_forward_reverse_and_limited_joins() -> Result<(
     assert!(matches!(
         account.get("user"),
         Some(DbValue::Record(user)) if user.get("id") == Some(&DbValue::String("user_1".to_owned()))
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_adapter_supports_multi_joins_inside_transactions() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    seed_join_user(&adapter, "user_1", "ada@example.com").await?;
+    seed_join_account(&adapter, "account_1", "user_1").await?;
+    seed_join_session(&adapter, "session_1", "user_1").await?;
+    let joined_records = Arc::new(StdMutex::new(Vec::<DbRecord>::new()));
+
+    adapter
+        .transaction(Box::new({
+            let joined_records = Arc::clone(&joined_records);
+            move |tx| {
+                Box::pin(async move {
+                    let users = tx
+                        .find_many(
+                            FindMany::new("user")
+                                .where_clause(Where::new(
+                                    "id",
+                                    DbValue::String("user_1".to_owned()),
+                                ))
+                                .join("account", JoinOption::enabled())
+                                .join("session", JoinOption::enabled()),
+                        )
+                        .await?;
+                    *joined_records.lock().map_err(|_| {
+                        OpenAuthError::Adapter("joined records lock poisoned".to_owned())
+                    })? = users;
+                    Ok(())
+                })
+            }
+        }))
+        .await?;
+
+    let users = joined_records
+        .lock()
+        .map_err(|_| OpenAuthError::Adapter("joined records lock poisoned".to_owned()))?;
+    assert_eq!(users.len(), 1);
+    assert!(matches!(
+        users[0].get("account"),
+        Some(DbValue::RecordArray(accounts)) if accounts.len() == 1
+    ));
+    assert!(matches!(
+        users[0].get("session"),
+        Some(DbValue::RecordArray(sessions)) if sessions.len() == 1
     ));
     Ok(())
 }

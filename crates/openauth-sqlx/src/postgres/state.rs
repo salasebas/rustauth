@@ -7,7 +7,7 @@ use openauth_core::error::OpenAuthError;
 use sqlx::postgres::{PgArguments, PgRow};
 use sqlx::{PgPool, Postgres, Transaction};
 
-use super::errors::{inactive_transaction, sql_error};
+use super::errors::{inactive_transaction, sql_error_with_context};
 use super::query::bind_param;
 use super::row::row_value_at;
 
@@ -54,20 +54,25 @@ impl PostgresState<'_, '_> {
         runner(self).delete_many(query).await
     }
 
-    async fn execute_sql(&mut self, sql: String, args: PgArguments) -> Result<u64, OpenAuthError> {
+    async fn execute_sql(
+        &mut self,
+        sql: String,
+        args: PgArguments,
+        params: usize,
+    ) -> Result<u64, OpenAuthError> {
         match &mut self.executor {
             PostgresExecutor::Pool(pool) => sqlx::query_with(&sql, args)
                 .execute(*pool)
                 .await
                 .map(|result| result.rows_affected())
-                .map_err(sql_error),
+                .map_err(|error| sql_error_with_context("execute", &sql, params, error)),
             PostgresExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_with(&sql, args)
                     .execute(&mut **tx)
                     .await
                     .map(|result| result.rows_affected())
-                    .map_err(sql_error)
+                    .map_err(|error| sql_error_with_context("execute", &sql, params, error))
             }
         }
     }
@@ -76,18 +81,19 @@ impl PostgresState<'_, '_> {
         &mut self,
         sql: String,
         args: PgArguments,
+        params: usize,
     ) -> Result<Vec<PgRow>, OpenAuthError> {
         match &mut self.executor {
             PostgresExecutor::Pool(pool) => sqlx::query_with(&sql, args)
                 .fetch_all(*pool)
                 .await
-                .map_err(sql_error),
+                .map_err(|error| sql_error_with_context("fetch_all", &sql, params, error)),
             PostgresExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_with(&sql, args)
                     .fetch_all(&mut **tx)
                     .await
-                    .map_err(sql_error)
+                    .map_err(|error| sql_error_with_context("fetch_all", &sql, params, error))
             }
         }
     }
@@ -96,18 +102,19 @@ impl PostgresState<'_, '_> {
         &mut self,
         sql: String,
         args: PgArguments,
+        params: usize,
     ) -> Result<Option<PgRow>, OpenAuthError> {
         match &mut self.executor {
             PostgresExecutor::Pool(pool) => sqlx::query_with(&sql, args)
                 .fetch_optional(*pool)
                 .await
-                .map_err(sql_error),
+                .map_err(|error| sql_error_with_context("fetch_optional", &sql, params, error)),
             PostgresExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_with(&sql, args)
                     .fetch_optional(&mut **tx)
                     .await
-                    .map_err(sql_error)
+                    .map_err(|error| sql_error_with_context("fetch_optional", &sql, params, error))
             }
         }
     }
@@ -116,18 +123,19 @@ impl PostgresState<'_, '_> {
         &mut self,
         sql: String,
         args: PgArguments,
+        params: usize,
     ) -> Result<i64, OpenAuthError> {
         match &mut self.executor {
             PostgresExecutor::Pool(pool) => sqlx::query_scalar_with(&sql, args)
                 .fetch_one(*pool)
                 .await
-                .map_err(sql_error),
+                .map_err(|error| sql_error_with_context("fetch_scalar", &sql, params, error)),
             PostgresExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_scalar_with(&sql, args)
                     .fetch_one(&mut **tx)
                     .await
-                    .map_err(sql_error)
+                    .map_err(|error| sql_error_with_context("fetch_scalar", &sql, params, error))
             }
         }
     }
@@ -138,15 +146,17 @@ impl SqlExecutor for PostgresState<'_, '_> {
 
     fn execute<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, u64> {
         Box::pin(async move {
+            let params = statement.params.len();
             let args = postgres_args(&statement.params)?;
-            self.execute_sql(statement.sql, args).await
+            self.execute_sql(statement.sql, args, params).await
         })
     }
 
     fn fetch_all<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, Vec<Self::Row>> {
         Box::pin(async move {
+            let params = statement.params.len();
             let args = postgres_args(&statement.params)?;
-            self.fetch_all_sql(statement.sql, args).await
+            self.fetch_all_sql(statement.sql, args, params).await
         })
     }
 
@@ -155,15 +165,17 @@ impl SqlExecutor for PostgresState<'_, '_> {
         statement: SqlStatement,
     ) -> AdapterFuture<'a, Option<Self::Row>> {
         Box::pin(async move {
+            let params = statement.params.len();
             let args = postgres_args(&statement.params)?;
-            self.fetch_optional_sql(statement.sql, args).await
+            self.fetch_optional_sql(statement.sql, args, params).await
         })
     }
 
     fn fetch_scalar_i64<'a>(&'a mut self, statement: SqlStatement) -> AdapterFuture<'a, i64> {
         Box::pin(async move {
+            let params = statement.params.len();
             let args = postgres_args(&statement.params)?;
-            self.fetch_scalar_sql(statement.sql, args).await
+            self.fetch_scalar_sql(statement.sql, args, params).await
         })
     }
 }

@@ -22,16 +22,8 @@ fn postgres_param(param: &SqlParam) -> Result<Box<dyn ToSql + Sync + Send>, Open
         DbValue::Boolean(value) => Ok(Box::new(*value)),
         DbValue::Timestamp(value) => Ok(Box::new(*value)),
         DbValue::Json(value) => Ok(Box::new(value.clone())),
-        DbValue::StringArray(value) => Ok(Box::new(serde_json::Value::Array(
-            value
-                .iter()
-                .cloned()
-                .map(serde_json::Value::String)
-                .collect(),
-        ))),
-        DbValue::NumberArray(value) => Ok(Box::new(serde_json::Value::Array(
-            value.iter().copied().map(serde_json::Value::from).collect(),
-        ))),
+        DbValue::StringArray(value) => Ok(Box::new(value.clone())),
+        DbValue::NumberArray(value) => Ok(Box::new(value.clone())),
         DbValue::Record(_) | DbValue::RecordArray(_) => Err(OpenAuthError::Adapter(
             "joined records cannot be bound as SQL values".to_owned(),
         )),
@@ -40,9 +32,9 @@ fn postgres_param(param: &SqlParam) -> Result<Box<dyn ToSql + Sync + Send>, Open
             DbFieldType::Number => Ok(Box::new(Option::<i64>::None)),
             DbFieldType::Boolean => Ok(Box::new(Option::<bool>::None)),
             DbFieldType::Timestamp => Ok(Box::new(Option::<time::OffsetDateTime>::None)),
-            DbFieldType::Json | DbFieldType::StringArray | DbFieldType::NumberArray => {
-                Ok(Box::new(Option::<serde_json::Value>::None))
-            }
+            DbFieldType::Json => Ok(Box::new(Option::<serde_json::Value>::None)),
+            DbFieldType::StringArray => Ok(Box::new(Option::<Vec<String>>::None)),
+            DbFieldType::NumberArray => Ok(Box::new(Option::<Vec<i64>>::None)),
         },
     }
 }

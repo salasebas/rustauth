@@ -1,10 +1,10 @@
-use openauth_core::db::{DbField, DbFieldType, DbValue};
+use openauth_core::db::{DbField, DbFieldType, DbValue, IdGeneration};
 use openauth_core::error::OpenAuthError;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use time::OffsetDateTime;
 
-use super::errors::{json_error, sql_error};
+use super::errors::sql_error;
 
 pub(super) fn row_value_at(
     row: &PgRow,
@@ -12,6 +12,14 @@ pub(super) fn row_value_at(
     column: &str,
 ) -> Result<DbValue, OpenAuthError> {
     match field.field_type {
+        DbFieldType::String if field.generated_id == Some(IdGeneration::Uuid) => row
+            .try_get::<Option<uuid::Uuid>, _>(column)
+            .map(|value| {
+                value
+                    .map(|value| DbValue::String(value.to_string()))
+                    .unwrap_or(DbValue::Null)
+            })
+            .map_err(sql_error),
         DbFieldType::String => row
             .try_get::<Option<String>, _>(column)
             .map(|value| value.map(DbValue::String).unwrap_or(DbValue::Null))
@@ -32,31 +40,13 @@ pub(super) fn row_value_at(
             .try_get::<Option<serde_json::Value>, _>(column)
             .map(|value| value.map(DbValue::Json).unwrap_or(DbValue::Null))
             .map_err(sql_error),
-        DbFieldType::StringArray => {
-            let value = row
-                .try_get::<Option<serde_json::Value>, _>(column)
-                .map_err(sql_error)?;
-            value
-                .map(|value| {
-                    serde_json::from_value::<Vec<String>>(value)
-                        .map(DbValue::StringArray)
-                        .map_err(json_error)
-                })
-                .transpose()
-                .map(|value| value.unwrap_or(DbValue::Null))
-        }
-        DbFieldType::NumberArray => {
-            let value = row
-                .try_get::<Option<serde_json::Value>, _>(column)
-                .map_err(sql_error)?;
-            value
-                .map(|value| {
-                    serde_json::from_value::<Vec<i64>>(value)
-                        .map(DbValue::NumberArray)
-                        .map_err(json_error)
-                })
-                .transpose()
-                .map(|value| value.unwrap_or(DbValue::Null))
-        }
+        DbFieldType::StringArray => row
+            .try_get::<Option<Vec<String>>, _>(column)
+            .map(|value| value.map(DbValue::StringArray).unwrap_or(DbValue::Null))
+            .map_err(sql_error),
+        DbFieldType::NumberArray => row
+            .try_get::<Option<Vec<i64>>, _>(column)
+            .map(|value| value.map(DbValue::NumberArray).unwrap_or(DbValue::Null))
+            .map_err(sql_error),
     }
 }

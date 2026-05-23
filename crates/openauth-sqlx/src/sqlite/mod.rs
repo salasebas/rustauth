@@ -21,12 +21,10 @@ use sqlx::{Executor, Row, Sqlite, SqlitePool, Transaction};
 use tokio::sync::Mutex;
 
 use self::errors::sql_error;
-use self::schema::{
-    create_schema, execute_migration_plan, plan_migrations as plan_schema_migrations,
-};
+use self::schema::{create_schema, plan_migrations as plan_schema_migrations};
 use self::state::{SqliteExecutor, SqliteState};
 use crate::migration::SchemaMigrationPlan;
-use crate::{consume_record, RateLimitSqlNames};
+use crate::{consume_record, count_from_i64, count_to_i64, RateLimitSqlNames};
 
 #[derive(Debug, Clone)]
 pub struct SqliteAdapter {
@@ -93,10 +91,10 @@ async fn consume_sqlite_rate_limit(
         .await
         .map_err(sql_error)?
         .ok_or_else(|| OpenAuthError::Adapter("missing rate limit row".to_owned()))?;
-    let (decision, record, update) = consume_record(input, Some(sqlite_record(row)));
+    let (decision, record, update) = consume_record(input, Some(sqlite_record(row)?));
     if decision.permitted && update {
         sqlx::query(&plan.update.sql)
-            .bind(record.count as i64)
+            .bind(count_to_i64(record.count)?)
             .bind(record.last_request)
             .bind(&record.key)
             .execute(&mut *tx)
@@ -107,12 +105,12 @@ async fn consume_sqlite_rate_limit(
     Ok(decision)
 }
 
-fn sqlite_record(row: sqlx::sqlite::SqliteRow) -> RateLimitRecord {
-    RateLimitRecord {
+fn sqlite_record(row: sqlx::sqlite::SqliteRow) -> Result<RateLimitRecord, OpenAuthError> {
+    Ok(RateLimitRecord {
         key: String::new(),
-        count: row.get::<i64, _>("count") as u64,
+        count: count_from_i64(row.get::<i64, _>("count"))?,
         last_request: row.get("last_request"),
-    }
+    })
 }
 
 impl SqliteAdapter {
@@ -136,6 +134,12 @@ impl SqliteAdapter {
         schema: DbSchema,
     ) -> Result<Self, OpenAuthError> {
         let pool = SqlitePoolOptions::new()
+            .after_connect(|connection, _metadata| {
+                Box::pin(async move {
+                    connection.execute("PRAGMA foreign_keys = ON").await?;
+                    Ok(())
+                })
+            })
             .connect(database_url)
             .await
             .map_err(sql_error)?;
@@ -262,8 +266,15 @@ impl DbAdapter for SqliteAdapter {
                 .await
                 .map_err(sql_error)?;
             let plan = plan_schema_migrations(SqliteExecutor::Pool(&self.pool), schema).await?;
-            let mut executor = SqliteExecutor::Pool(&self.pool);
-            execute_migration_plan(&mut executor, &plan).await?;
+            crate::migration::ensure_executable(&plan)?;
+            let mut tx = self.pool.begin().await.map_err(sql_error)?;
+            for statement in &plan.statements {
+                sqlx::query(&statement.sql)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(sql_error)?;
+            }
+            tx.commit().await.map_err(sql_error)?;
             Ok(())
         })
     }
@@ -284,6 +295,7 @@ impl DbAdapter for SqliteTxAdapter<'_> {
             .named("SQLx SQLite")
             .with_json()
             .with_arrays()
+            .with_joins()
             .with_transactions()
     }
 
@@ -296,7 +308,14 @@ impl DbAdapter for SqliteTxAdapter<'_> {
     }
 
     fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
-        Box::pin(async move { self.state().await?.find_many(query).await })
+        Box::pin(async move {
+            if query.joins.len() <= 1 {
+                self.state().await?.find_many(query).await
+            } else {
+                let adapter = JoinAdapter::new(self.schema.as_ref().clone(), self, false);
+                adapter.find_many(query).await
+            }
+        })
     }
 
     fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {

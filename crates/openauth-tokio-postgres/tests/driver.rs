@@ -7,10 +7,12 @@ fn driver_binds_open_auth_values_for_postgres_execution() -> Result<(), Box<dyn 
     let values = postgres_params(&[
         SqlParam {
             field_type: DbFieldType::String,
+            generated_id: None,
             value: DbValue::String("user@example.com".to_owned()),
         },
         SqlParam {
             field_type: DbFieldType::Number,
+            generated_id: None,
             value: DbValue::Null,
         },
     ])?;

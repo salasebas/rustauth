@@ -21,12 +21,10 @@ use sqlx::{MySql, MySqlPool, Row, Transaction};
 use tokio::sync::Mutex;
 
 use self::errors::{inactive_transaction, sql_error};
-use self::schema::{
-    create_schema, execute_migration_plan, plan_migrations as plan_schema_migrations,
-};
+use self::schema::{create_schema, plan_migrations as plan_schema_migrations};
 use self::state::{MySqlExecutor, MySqlState};
 use crate::migration::SchemaMigrationPlan;
-use crate::{consume_record, RateLimitSqlNames};
+use crate::{consume_record, count_from_i64, count_to_i64, RateLimitSqlNames};
 
 #[derive(Debug, Clone)]
 pub struct MySqlAdapter {
@@ -93,10 +91,10 @@ async fn consume_mysql_rate_limit(
         .await
         .map_err(sql_error)?
         .ok_or_else(|| OpenAuthError::Adapter("missing rate limit row".to_owned()))?;
-    let (decision, record, update) = consume_record(input, Some(mysql_record(row)));
+    let (decision, record, update) = consume_record(input, Some(mysql_record(row)?));
     if decision.permitted && update {
         sqlx::query(&plan.update.sql)
-            .bind(record.count as i64)
+            .bind(count_to_i64(record.count)?)
             .bind(record.last_request)
             .bind(&record.key)
             .execute(&mut *tx)
@@ -107,12 +105,12 @@ async fn consume_mysql_rate_limit(
     Ok(decision)
 }
 
-fn mysql_record(row: sqlx::mysql::MySqlRow) -> RateLimitRecord {
-    RateLimitRecord {
+fn mysql_record(row: sqlx::mysql::MySqlRow) -> Result<RateLimitRecord, OpenAuthError> {
+    Ok(RateLimitRecord {
         key: String::new(),
-        count: row.get::<i64, _>("count") as u64,
+        count: count_from_i64(row.get::<i64, _>("count"))?,
         last_request: row.get("last_request"),
-    }
+    })
 }
 
 impl MySqlAdapter {
@@ -254,8 +252,15 @@ impl DbAdapter for MySqlAdapter {
     fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
             let plan = plan_schema_migrations(MySqlExecutor::Pool(&self.pool), schema).await?;
-            let mut executor = MySqlExecutor::Pool(&self.pool);
-            execute_migration_plan(&mut executor, &plan).await?;
+            crate::migration::ensure_executable(&plan)?;
+            let mut tx = self.pool.begin().await.map_err(sql_error)?;
+            for statement in &plan.statements {
+                sqlx::query(&statement.sql)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(sql_error)?;
+            }
+            tx.commit().await.map_err(sql_error)?;
             Ok(())
         })
     }
@@ -276,6 +281,7 @@ impl DbAdapter for MySqlTxAdapter<'_> {
             .named("SQLx MySQL")
             .with_json()
             .with_arrays()
+            .with_joins()
             .with_transactions()
     }
 
@@ -288,7 +294,14 @@ impl DbAdapter for MySqlTxAdapter<'_> {
     }
 
     fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
-        Box::pin(async move { self.state().await?.find_many(query).await })
+        Box::pin(async move {
+            if query.joins.len() <= 1 {
+                self.state().await?.find_many(query).await
+            } else {
+                let adapter = JoinAdapter::new(self.schema.as_ref().clone(), self, false);
+                adapter.find_many(query).await
+            }
+        })
     }
 
     fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {
