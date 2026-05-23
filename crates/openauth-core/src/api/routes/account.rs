@@ -3,6 +3,7 @@ mod support;
 use std::sync::Arc;
 
 use http::{Method, StatusCode};
+#[cfg(feature = "oauth")]
 use serde_json::json;
 
 use super::shared::{
@@ -12,16 +13,21 @@ use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
     OpenApiOperation,
 };
+#[cfg(feature = "oauth")]
 use crate::auth::oauth::decrypt_oauth_token;
 use crate::db::DbAdapter;
 use crate::user::DbUserStore;
 
+#[cfg(feature = "oauth")]
 use support::{
-    access_token_response_from_tokens, account_not_found, account_openapi_schema, account_scopes,
-    find_user_account, is_refresh_unsupported, persist_refreshed_tokens, provider_not_supported,
-    should_refresh, token_body_schema, token_openapi_response, tokens_from_account,
-    unlink_account_body_schema, AccessTokenResponse, AccountInfoResponse, AccountResponse,
-    RefreshTokenResponse, StatusBody, TokenBody, UnlinkAccountBody,
+    access_token_response_from_tokens, account_not_found, account_scopes, find_user_account,
+    is_refresh_unsupported, persist_refreshed_tokens, provider_not_supported, should_refresh,
+    token_body_schema, token_openapi_response, tokens_from_account, AccessTokenResponse,
+    AccountInfoResponse, RefreshTokenResponse, TokenBody,
+};
+use support::{
+    account_openapi_schema, unlink_account_body_schema, AccountResponse, StatusBody,
+    UnlinkAccountBody,
 };
 
 pub(super) fn list_user_accounts_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
@@ -65,6 +71,7 @@ pub(super) fn list_user_accounts_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncA
     )
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn get_access_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/get-access-token",
@@ -161,6 +168,7 @@ pub(super) fn get_access_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAut
     )
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn refresh_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/refresh-token",
@@ -267,6 +275,7 @@ pub(super) fn refresh_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
     )
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn account_info_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/account-info",

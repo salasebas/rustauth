@@ -37,6 +37,7 @@ use crate::api::AsyncAuthEndpoint;
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use http::{Request, Response};
+#[cfg(feature = "oauth")]
 use openauth_oauth::oauth2::SocialOAuthProvider;
 use serde_json::Value;
 use std::fmt;
@@ -81,6 +82,7 @@ pub struct AuthPlugin {
     pub error_codes: Vec<PluginErrorCode>,
     pub database_hooks: Vec<PluginDatabaseHook>,
     pub migrations: Vec<PluginMigration>,
+    #[cfg(feature = "oauth")]
     pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
     pub password_validators: Vec<PluginPasswordValidator>,
 }
@@ -103,6 +105,7 @@ impl AuthPlugin {
             error_codes: Vec::new(),
             database_hooks: Vec::new(),
             migrations: Vec::new(),
+            #[cfg(feature = "oauth")]
             social_providers: Vec::new(),
             password_validators: Vec::new(),
         }
@@ -220,6 +223,7 @@ impl AuthPlugin {
         self
     }
 
+    #[cfg(feature = "oauth")]
     pub fn with_social_provider(
         mut self,
         provider: impl Into<Arc<dyn SocialOAuthProvider>>,
@@ -318,17 +322,24 @@ impl fmt::Debug for AuthPlugin {
             .field("error_codes", &self.error_codes)
             .field("database_hooks", &self.database_hooks)
             .field("migrations", &self.migrations)
-            .field(
-                "social_providers",
-                &self
-                    .social_providers
-                    .iter()
-                    .map(|provider| provider.id())
-                    .collect::<Vec<_>>(),
-            )
+            .field("social_providers", &debug_social_providers(self))
             .field("password_validators", &self.password_validators)
             .finish()
     }
+}
+
+#[cfg(feature = "oauth")]
+fn debug_social_providers(plugin: &AuthPlugin) -> Vec<&str> {
+    plugin
+        .social_providers
+        .iter()
+        .map(|provider| provider.id())
+        .collect()
+}
+
+#[cfg(not(feature = "oauth"))]
+fn debug_social_providers(_plugin: &AuthPlugin) -> Vec<&'static str> {
+    Vec::new()
 }
 
 #[derive(Clone)]

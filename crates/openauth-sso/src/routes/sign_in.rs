@@ -13,7 +13,7 @@ use openauth_core::crypto::random::generate_random_string;
 #[cfg(feature = "saml")]
 use openauth_core::db::DbAdapter;
 #[cfg(feature = "oidc")]
-use openauth_core::oauth::oauth2::{
+use openauth_oauth::oauth2::{
     create_authorization_url, AuthorizationUrlRequest, ClientId, ProviderOptions,
 };
 use serde::Deserialize;
@@ -241,6 +241,9 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         scopes,
                         login_hint: body.login_hint.or(body.email),
                         ..AuthorizationUrlRequest::default()
+                    })
+                    .map_err(|error| {
+                        openauth_core::error::OpenAuthError::OAuth(error.to_string())
                     })?;
                     redirect_json_response(authorization_url.to_string(), true)
                 }

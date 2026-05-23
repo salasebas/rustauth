@@ -21,6 +21,23 @@ workspace: API requests and responses, auth context, cookies, crypto helpers,
 database adapter traits, schemas, errors, options, plugins, sessions, users,
 verification storage, and rate limiting.
 
+## Feature Flags
+
+Default features preserve the current compatibility surface:
+
+- `jose`: enables JOSE/JWE helpers backed by `josekit`, including encrypted
+  cookie cache and account-cookie JWE support.
+- `oauth`: enables OAuth/social route support and the `openauth_core::oauth`
+  re-export.
+- `social-providers`: enables the `openauth_core::social_providers` re-export.
+
+Use `openauth-core --no-default-features` for a minimal core build. That path
+keeps HS256 JWT, password hashing, secret rotation, signed cookies, sessions,
+email verification, and compact/JWT cookie cache available without compiling
+`josekit` or OpenSSL. JWE-only paths fail closed with a typed
+`OpenAuthError::FeatureDisabled { feature: "jose" }` error until `jose` is
+enabled.
+
 ## Example
 
 ```rust

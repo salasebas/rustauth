@@ -1,6 +1,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+#[cfg(feature = "oauth")]
 use openauth_oauth::oauth2::SocialOAuthProvider;
 
 use super::storage::SecondaryStorage;
@@ -80,6 +81,7 @@ pub struct OpenAuthOptions {
     pub rate_limit: RateLimitOptions,
     pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
     pub plugins: Vec<AuthPlugin>,
+    #[cfg(feature = "oauth")]
     pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
     pub production: bool,
     pub telemetry: TelemetryOptions,
@@ -207,6 +209,7 @@ impl OpenAuthOptions {
         self
     }
 
+    #[cfg(feature = "oauth")]
     #[must_use]
     pub fn social_provider<P>(mut self, provider: P) -> Self
     where
@@ -216,6 +219,7 @@ impl OpenAuthOptions {
         self
     }
 
+    #[cfg(feature = "oauth")]
     #[must_use]
     pub fn social_provider_arc(mut self, provider: Arc<dyn SocialOAuthProvider>) -> Self {
         self.social_providers.push(provider);
@@ -270,17 +274,24 @@ impl fmt::Debug for OpenAuthOptions {
                     .map(|_| "<secondary-storage>"),
             )
             .field("plugins", &self.plugins)
-            .field(
-                "social_providers",
-                &self
-                    .social_providers
-                    .iter()
-                    .map(|provider| provider.id())
-                    .collect::<Vec<_>>(),
-            )
+            .field("social_providers", &debug_social_providers(self))
             .field("production", &self.production)
             .field("telemetry", &self.telemetry)
             .field("experimental", &self.experimental)
             .finish()
     }
+}
+
+#[cfg(feature = "oauth")]
+fn debug_social_providers(options: &OpenAuthOptions) -> Vec<&str> {
+    options
+        .social_providers
+        .iter()
+        .map(|provider| provider.id())
+        .collect()
+}
+
+#[cfg(not(feature = "oauth"))]
+fn debug_social_providers(_options: &OpenAuthOptions) -> Vec<&'static str> {
+    Vec::new()
 }

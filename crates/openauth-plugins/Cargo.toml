@@ -22,8 +22,8 @@ hmac.workspace = true
 http.workspace = true
 indexmap.workspace = true
 josekit.workspace = true
-openauth-core.workspace = true
-openauth-oauth.workspace = true
+openauth-core = { workspace = true, features = ["default"] }
+openauth-oauth = { workspace = true, features = ["default"] }
 openauth-social-providers.workspace = true
 rand.workspace = true
 reqwest.workspace = true

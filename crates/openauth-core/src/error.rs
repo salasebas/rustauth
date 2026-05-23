@@ -35,6 +35,8 @@ pub enum OpenAuthError {
     NumericOutOfRange { context: &'static str },
     #[error("crypto error: {0}")]
     Crypto(String),
+    #[error("feature `{feature}` is required for this operation")]
+    FeatureDisabled { feature: &'static str },
     #[error("invalid secret configuration: {0}")]
     InvalidSecretConfig(String),
     #[error("password hash error: {0}")]
@@ -71,6 +73,7 @@ pub enum OpenAuthError {
     Adapter(String),
 }
 
+#[cfg(feature = "oauth")]
 impl From<openauth_oauth::oauth2::OAuthError> for OpenAuthError {
     fn from(error: openauth_oauth::oauth2::OAuthError) -> Self {
         Self::OAuth(error.to_string())

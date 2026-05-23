@@ -1,16 +1,21 @@
 use openauth_core::context::{
     create_auth_context, create_auth_context_with_environment, AuthEnvironment,
 };
+#[cfg(feature = "oauth")]
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     OpenAuthOptions, PasswordOptions, RateLimitOptions, RateLimitStorageOption, SessionOptions,
 };
+#[cfg(feature = "oauth")]
 use openauth_core::plugin::{AuthPlugin, PluginInitOutput};
+#[cfg(feature = "oauth")]
 use openauth_oauth::oauth2::{
     OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
     SocialAuthorizationUrlRequest, SocialOAuthProvider, SocialProviderFuture,
 };
+#[cfg(feature = "oauth")]
 use std::sync::Arc;
+#[cfg(feature = "oauth")]
 use url::Url;
 
 #[test]
@@ -136,6 +141,7 @@ fn create_auth_context_rejects_external_rate_limit_storage_without_storage_contr
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn create_auth_context_resolves_unique_social_provider_registry(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ctx = create_auth_context(OpenAuthOptions {
@@ -149,6 +155,7 @@ fn create_auth_context_resolves_unique_social_provider_registry(
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn create_auth_context_rejects_duplicate_social_provider_ids() {
     let result = create_auth_context(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
@@ -166,6 +173,7 @@ fn create_auth_context_rejects_duplicate_social_provider_ids() {
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn create_auth_context_accepts_plugin_social_provider() -> Result<(), Box<dyn std::error::Error>> {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("plugin-provider"));
     let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
@@ -181,6 +189,7 @@ fn create_auth_context_accepts_plugin_social_provider() -> Result<(), Box<dyn st
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn create_auth_context_accepts_plugin_init_social_provider(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin = AuthPlugin::new("social-plugin").with_init(|_context| {
@@ -199,6 +208,7 @@ fn create_auth_context_accepts_plugin_init_social_provider(
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn plugin_init_sees_social_providers_registered_by_previous_plugin(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("first-provider"));
@@ -218,6 +228,7 @@ fn plugin_init_sees_social_providers_registered_by_previous_plugin(
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn create_auth_context_rejects_duplicate_social_provider_from_plugin() {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("github"));
     let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
@@ -236,6 +247,7 @@ fn create_auth_context_rejects_duplicate_social_provider_from_plugin() {
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn create_auth_context_rejects_duplicate_social_provider_from_plugin_init() {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("github"));
     let plugin = AuthPlugin::new("social-plugin")
@@ -258,6 +270,7 @@ fn create_auth_context_rejects_duplicate_social_provider_from_plugin_init() {
 }
 
 #[test]
+#[cfg(feature = "oauth")]
 fn create_auth_context_rejects_empty_social_provider_id_from_plugin() {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new(""));
     let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
@@ -276,11 +289,13 @@ fn create_auth_context_rejects_empty_social_provider_id_from_plugin() {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "oauth")]
 struct TestProvider {
     id: String,
     options: ProviderOptions,
 }
 
+#[cfg(feature = "oauth")]
 impl TestProvider {
     fn new(id: &str) -> Self {
         Self {
@@ -293,6 +308,7 @@ impl TestProvider {
     }
 }
 
+#[cfg(feature = "oauth")]
 impl SocialOAuthProvider for TestProvider {
     fn id(&self) -> &str {
         &self.id

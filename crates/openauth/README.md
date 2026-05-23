@@ -29,6 +29,12 @@ Enable feature flags such as `passkey`, `plugins`, `oidc`, `saml`, `sso`,
 `scim`, `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`, `deadpool-postgres`, or
 `tokio-postgres` when you want the top-level crate to re-export those packages.
 
+`openauth` keeps the default `openauth-core` compatibility surface enabled,
+including JOSE/JWE, OAuth route support, and social-provider re-exports. Crates
+that need a minimal core build can depend on `openauth-core` directly with
+`default-features = false`; that avoids `josekit` and OpenSSL unless the `jose`
+feature is explicitly enabled.
+
 Enterprise login is split by direction and protocol:
 
 - `oidc` re-exports `openauth-oidc`, where OpenAuth consumes external OIDC IdPs.

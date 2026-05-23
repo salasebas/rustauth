@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 http.workspace = true
-openauth-core.workspace = true
+openauth-core = { workspace = true, features = ["default"] }
 openauth-deadpool-postgres = { workspace = true, optional = true }
 openauth-i18n = { workspace = true, optional = true }
 openauth-oidc = { workspace = true, optional = true }

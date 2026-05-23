@@ -18,6 +18,7 @@ mod shared;
 mod sign_in;
 mod sign_out;
 mod sign_up;
+#[cfg(feature = "oauth")]
 mod social;
 mod update_user;
 
@@ -31,10 +32,15 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
     vec![
         sign_up::sign_up_email_endpoint(Arc::clone(&adapter)),
         sign_in::sign_in_email_endpoint(Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         social::sign_in_social_endpoint(Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         social::sign_in_oauth2_endpoint(Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         social::callback_oauth_endpoint(Method::GET, Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         social::callback_oauth_endpoint(Method::POST, Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         social::link_social_endpoint(Arc::clone(&adapter)),
         error::error_endpoint(),
         session::get_session_endpoint(Method::GET, Arc::clone(&adapter)),
@@ -46,8 +52,11 @@ pub fn core_auth_async_endpoints(adapter: Arc<dyn DbAdapter>) -> Vec<AsyncAuthEn
         session::revoke_other_sessions_endpoint(Arc::clone(&adapter)),
         account::list_user_accounts_endpoint(Arc::clone(&adapter)),
         account::unlink_account_endpoint(Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         account::get_access_token_endpoint(Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         account::refresh_token_endpoint(Arc::clone(&adapter)),
+        #[cfg(feature = "oauth")]
         account::account_info_endpoint(Arc::clone(&adapter)),
         update_user::update_user_endpoint(Arc::clone(&adapter)),
         change_email::change_email_endpoint(Arc::clone(&adapter)),

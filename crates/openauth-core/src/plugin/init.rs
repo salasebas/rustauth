@@ -7,6 +7,7 @@ use super::schema::PluginSchemaContribution;
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use crate::options::{SessionAdditionalField, UserAdditionalField};
+#[cfg(feature = "oauth")]
 use openauth_oauth::oauth2::SocialOAuthProvider;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -25,6 +26,7 @@ pub struct PluginInitOutput {
     pub error_codes: Vec<PluginErrorCode>,
     pub database_hooks: Vec<PluginDatabaseHook>,
     pub migrations: Vec<PluginMigration>,
+    #[cfg(feature = "oauth")]
     pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
     pub user_additional_fields: BTreeMap<String, UserAdditionalField>,
     pub session_additional_fields: BTreeMap<String, SessionAdditionalField>,
@@ -43,14 +45,7 @@ impl fmt::Debug for PluginInitOutput {
             .field("migrations", &self.migrations)
             .field("user_additional_fields", &self.user_additional_fields)
             .field("session_additional_fields", &self.session_additional_fields)
-            .field(
-                "social_providers",
-                &self
-                    .social_providers
-                    .iter()
-                    .map(|provider| provider.id())
-                    .collect::<Vec<_>>(),
-            )
+            .field("social_providers", &debug_social_providers(self))
             .finish()
     }
 }
@@ -102,6 +97,7 @@ impl PluginInitOutput {
         self
     }
 
+    #[cfg(feature = "oauth")]
     #[must_use]
     pub fn social_provider(mut self, provider: impl Into<Arc<dyn SocialOAuthProvider>>) -> Self {
         self.social_providers.push(provider.into());
@@ -127,4 +123,18 @@ impl PluginInitOutput {
         self.session_additional_fields.insert(name.into(), field);
         self
     }
+}
+
+#[cfg(feature = "oauth")]
+fn debug_social_providers(output: &PluginInitOutput) -> Vec<&str> {
+    output
+        .social_providers
+        .iter()
+        .map(|provider| provider.id())
+        .collect()
+}
+
+#[cfg(not(feature = "oauth"))]
+fn debug_social_providers(_output: &PluginInitOutput) -> Vec<&'static str> {
+    Vec::new()
 }

@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;
 
-use crate::crypto::jwe::{symmetric_decode_jwt, symmetric_encode_jwt, JweSecretSource};
 use crate::crypto::jwt::{sign_jwt, verify_jwt};
+use crate::crypto::JweSecretSource;
 use crate::error::OpenAuthError;
 use crate::options::CookieCacheStrategy;
 
@@ -140,7 +140,7 @@ where
         CookieCacheStrategy::Jwt => {
             sign_jwt(payload, &secret.current_jwe_secret()?, max_age as i64)?
         }
-        CookieCacheStrategy::Jwe => symmetric_encode_jwt(payload, secret, max_age)?,
+        CookieCacheStrategy::Jwe => encode_jwe_cache(payload, secret, max_age)?,
     };
     let mut attributes = auth_cookies.session_data.attributes.clone();
     attributes.max_age = Some(max_age);
@@ -167,7 +167,7 @@ where
     let Some(payload) = (match strategy {
         CookieCacheStrategy::Compact => decode_compact_cache(&data, &secret.current_jwe_secret()?)?,
         CookieCacheStrategy::Jwt => verify_jwt(&data, &secret.current_jwe_secret()?)?,
-        CookieCacheStrategy::Jwe => symmetric_decode_jwt(&data, secret)?,
+        CookieCacheStrategy::Jwe => decode_jwe_cache(&data, secret)?,
     }) else {
         return Ok(None);
     };
@@ -177,4 +177,100 @@ where
     }
 
     Ok(Some(payload))
+}
+
+#[cfg(feature = "jose")]
+fn encode_jwe_cache<S, U>(
+    payload: &CookieCachePayload<S, U>,
+    secret: &(impl JweSecretSource + ?Sized),
+    max_age: u64,
+) -> Result<String, OpenAuthError>
+where
+    S: Serialize,
+    U: Serialize,
+{
+    crate::crypto::symmetric_encode_jwt(payload, secret, max_age)
+}
+
+#[cfg(not(feature = "jose"))]
+fn encode_jwe_cache<S, U>(
+    _payload: &CookieCachePayload<S, U>,
+    _secret: &(impl JweSecretSource + ?Sized),
+    _max_age: u64,
+) -> Result<String, OpenAuthError>
+where
+    S: Serialize,
+    U: Serialize,
+{
+    Err(OpenAuthError::FeatureDisabled { feature: "jose" })
+}
+
+#[cfg(feature = "jose")]
+fn decode_jwe_cache<S, U>(
+    data: &str,
+    secret: &(impl JweSecretSource + ?Sized),
+) -> Result<Option<CookieCachePayload<S, U>>, OpenAuthError>
+where
+    S: DeserializeOwned,
+    U: DeserializeOwned,
+{
+    crate::crypto::symmetric_decode_jwt(data, secret)
+}
+
+#[cfg(not(feature = "jose"))]
+fn decode_jwe_cache<S, U>(
+    _data: &str,
+    _secret: &(impl JweSecretSource + ?Sized),
+) -> Result<Option<CookieCachePayload<S, U>>, OpenAuthError>
+where
+    S: DeserializeOwned,
+    U: DeserializeOwned,
+{
+    Err(OpenAuthError::FeatureDisabled { feature: "jose" })
+}
+
+#[cfg(all(test, not(feature = "jose")))]
+mod tests {
+    use super::*;
+    use crate::cookies::get_cookies;
+    use crate::options::OpenAuthOptions;
+
+    #[derive(Debug, Serialize)]
+    struct TestSession {
+        id: String,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct TestUser {
+        id: String,
+    }
+
+    #[test]
+    fn jwe_cache_strategy_fails_closed_without_jose() -> Result<(), OpenAuthError> {
+        let cookies = get_cookies(&OpenAuthOptions::default())?;
+        let payload = CookieCachePayload {
+            session: TestSession {
+                id: "session_1".to_owned(),
+            },
+            user: TestUser {
+                id: "user_1".to_owned(),
+            },
+            updated_at: 0,
+            version: "1".to_owned(),
+        };
+
+        let result = set_cookie_cache(
+            &cookies,
+            "secret-a-at-least-32-chars-long!!",
+            &payload,
+            CookieCacheStrategy::Jwe,
+            300,
+        );
+
+        assert!(matches!(
+            result,
+            Err(OpenAuthError::FeatureDisabled { feature: "jose" })
+        ));
+        Ok(())
+    }
 }

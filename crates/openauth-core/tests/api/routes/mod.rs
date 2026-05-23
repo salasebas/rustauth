@@ -49,6 +49,7 @@ impl RouteAdapterSeed for RouteAdapter {
     }
 }
 
+#[cfg(feature = "oauth")]
 mod account_tokens;
 mod change_email;
 mod change_password;
@@ -70,6 +71,7 @@ mod set_password;
 mod sign_in_email;
 mod sign_out;
 mod sign_up_email;
+#[cfg(feature = "oauth")]
 mod social_oauth;
 mod unlink_account;
 mod update_session;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use openauth_core::db::User;
 use openauth_core::error::OpenAuthError;
-use openauth_core::oauth::oauth2::OAuth2Tokens;
+use openauth_oauth::oauth2::OAuth2Tokens;
 
 use crate::linking_impl::NormalizedSsoProfile;
 use crate::store::SsoProviderRecord;

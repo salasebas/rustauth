@@ -2,7 +2,7 @@ use openauth_core::context::AuthContext;
 use openauth_core::crypto::random::generate_random_string;
 use openauth_core::db::{Create, DbAdapter, DbValue, FindOne, User, Where};
 use openauth_core::error::OpenAuthError;
-use openauth_core::oauth::oauth2::OAuth2Tokens;
+use openauth_oauth::oauth2::OAuth2Tokens;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;

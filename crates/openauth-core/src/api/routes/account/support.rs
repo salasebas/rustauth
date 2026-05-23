@@ -1,14 +1,23 @@
+#[cfg(feature = "oauth")]
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "oauth")]
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 
+#[cfg(feature = "oauth")]
 use super::super::shared::{error_response, json_openapi_response};
-use crate::api::{ApiResponse, BodyField, BodySchema, JsonSchemaType};
+#[cfg(feature = "oauth")]
+use crate::api::ApiResponse;
+use crate::api::{BodyField, BodySchema, JsonSchemaType};
+#[cfg(feature = "oauth")]
 use crate::auth::oauth::{decrypt_oauth_token, set_token_util};
 use crate::db::Account;
+#[cfg(feature = "oauth")]
 use crate::error::OpenAuthError;
+#[cfg(feature = "oauth")]
 use crate::user::{DbUserStore, UpdateAccountInput};
+#[cfg(feature = "oauth")]
 use openauth_oauth::oauth2::{OAuth2Tokens, OAuth2UserInfo};
 
 #[derive(Debug, Deserialize)]
@@ -20,6 +29,7 @@ pub(super) struct UnlinkAccountBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "oauth")]
 pub(super) struct TokenBody {
     pub(super) provider_id: String,
     pub(super) account_id: Option<String>,
@@ -45,6 +55,7 @@ pub(super) struct StatusBody {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "oauth")]
 pub(super) struct AccessTokenResponse {
     pub(super) access_token: Option<String>,
     pub(super) access_token_expires_at: Option<OffsetDateTime>,
@@ -55,6 +66,7 @@ pub(super) struct AccessTokenResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "oauth")]
 pub(super) struct RefreshTokenResponse {
     pub(super) access_token: String,
     pub(super) refresh_token: String,
@@ -69,6 +81,7 @@ pub(super) struct RefreshTokenResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "oauth")]
 pub(super) struct AccountInfoResponse {
     pub(super) user: AccountInfoUser,
     pub(super) data: Value,
@@ -76,6 +89,7 @@ pub(super) struct AccountInfoResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "oauth")]
 pub(super) struct AccountInfoUser {
     id: String,
     name: Option<String>,
@@ -99,6 +113,7 @@ impl From<Account> for AccountResponse {
     }
 }
 
+#[cfg(feature = "oauth")]
 impl From<OAuth2UserInfo> for AccountInfoUser {
     fn from(user: OAuth2UserInfo) -> Self {
         Self {
@@ -120,6 +135,7 @@ pub(super) fn unlink_account_body_schema() -> BodySchema {
     ])
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn token_body_schema() -> BodySchema {
     BodySchema::object([
         BodyField::new("providerId", JsonSchemaType::String)
@@ -158,6 +174,7 @@ pub(super) fn account_openapi_schema() -> serde_json::Value {
     })
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn token_openapi_response(include_refresh: bool) -> serde_json::Value {
     let mut properties = serde_json::Map::new();
     properties.insert("tokenType".to_owned(), json!({ "type": "string" }));
@@ -187,6 +204,7 @@ pub(super) fn token_openapi_response(include_refresh: bool) -> serde_json::Value
     )
 }
 
+#[cfg(feature = "oauth")]
 pub(super) async fn find_user_account(
     users: &DbUserStore<'_>,
     user_id: &str,
@@ -202,6 +220,7 @@ pub(super) async fn find_user_account(
     }))
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn should_refresh(account: &Account) -> bool {
     account
         .access_token_expires_at
@@ -209,6 +228,7 @@ pub(super) fn should_refresh(account: &Account) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(feature = "oauth")]
 pub(super) async fn persist_refreshed_tokens(
     context: &crate::context::AuthContext,
     users: &DbUserStore<'_>,
@@ -252,6 +272,7 @@ pub(super) async fn persist_refreshed_tokens(
         .ok_or_else(|| OpenAuthError::Adapter("failed to update account".to_owned()))
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn access_token_response_from_tokens(
     tokens: OAuth2Tokens,
     account: &Account,
@@ -271,6 +292,7 @@ pub(super) fn access_token_response_from_tokens(
     }
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn tokens_from_account(
     context: &crate::context::AuthContext,
     account: &Account,
@@ -294,12 +316,14 @@ pub(super) fn tokens_from_account(
     })
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn is_refresh_unsupported(error: &openauth_oauth::oauth2::OAuthError) -> bool {
     error
         .to_string()
         .contains("does not support refresh tokens")
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn provider_not_supported(provider_id: &str) -> Result<ApiResponse, OpenAuthError> {
     error_response(
         StatusCode::BAD_REQUEST,
@@ -308,6 +332,7 @@ pub(super) fn provider_not_supported(provider_id: &str) -> Result<ApiResponse, O
     )
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn account_not_found() -> Result<ApiResponse, OpenAuthError> {
     error_response(
         StatusCode::BAD_REQUEST,

@@ -1,3 +1,5 @@
+#![cfg(all(feature = "oauth", feature = "social-providers"))]
+
 use openauth_core::{oauth, social_providers};
 
 #[test]

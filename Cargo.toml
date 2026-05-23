@@ -51,7 +51,7 @@ josekit = "0.10"
 hkdf = "0.12"
 data-encoding = "2"
 deadpool-postgres = "0.14.1"
-openauth-core = { path = "crates/openauth-core", version = "0.0.5" }
+openauth-core = { path = "crates/openauth-core", version = "0.0.5", default-features = false }
 openauth-i18n = { path = "crates/openauth-i18n", version = "0.0.5" }
 openauth-oidc = { path = "crates/openauth-oidc", version = "0.0.5" }
 openauth = { path = "crates/openauth", version = "0.0.5" }
@@ -61,7 +61,7 @@ cargo_metadata = "0.19"
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
 inquire = "0.7"
-openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.5" }
+openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.5", default-features = false }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.5" }
 openauth-passkey = { path = "crates/openauth-passkey", version = "0.0.5" }
 openauth-redis = { path = "crates/openauth-redis", version = "0.0.5" }

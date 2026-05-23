@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [features]
 default = ["oidc"]
-oidc = ["dep:openauth-oidc", "dep:reqwest"]
+oidc = ["dep:base64", "dep:openauth-oidc", "dep:reqwest"]
 saml = ["dep:base64", "dep:openauth-saml", "dep:x509-parser"]
 saml-signed = ["saml", "openauth-saml/saml-signed"]
 
@@ -26,7 +26,9 @@ hex.workspace = true
 hickory-resolver.workspace = true
 http.workspace = true
 indexmap.workspace = true
-openauth-core.workspace = true
+openauth-core = { workspace = true, default-features = false }
+openidconnect.workspace = true
+openauth-oauth = { workspace = true, default-features = false }
 openauth-oidc = { workspace = true, optional = true }
 openauth-saml = { workspace = true, optional = true }
 publicsuffix2.workspace = true

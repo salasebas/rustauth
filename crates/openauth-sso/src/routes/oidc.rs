@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use http::Method;
 use openauth_core::api::{
     create_auth_endpoint, session_cookies, ApiRequest, AsyncAuthEndpoint, AuthEndpointOptions,
@@ -10,11 +12,14 @@ use openauth_core::auth::oauth::{
     OAuthUserInfo,
 };
 use openauth_core::context::AuthContext;
-use openauth_core::oauth::oauth2::{
-    validate_authorization_code, validate_token, AuthorizationCodeRequest, ClientAuthentication,
-    ClientId, ClientTokenRequest, OAuth2Tokens, ProviderOptions, TokenValidationOptions,
+use openauth_oauth::oauth2::{
+    validate_authorization_code, AuthorizationCodeRequest, ClientAuthentication, ClientId,
+    ClientTokenRequest, OAuth2Tokens, ProviderOptions,
 };
+use openidconnect::core::{CoreIdToken, CoreIdTokenVerifier, CoreJsonWebKeySet};
+use openidconnect::{ClientId as OidcClientId, ClientSecret, IssuerUrl, JsonWebKeySetUrl, Nonce};
 use serde_json::Value;
+use std::str::FromStr;
 
 use crate::linking_impl::{
     assign_organization_from_provider, provider_matches_email_domain, provision_sso_user,
@@ -316,20 +321,52 @@ async fn validate_oidc_id_token(
     if config.issuer != provider_issuer {
         issuers.push(config.issuer.clone());
     }
-    let result = validate_token(
-        id_token,
-        jwks_endpoint,
-        TokenValidationOptions {
-            audience: vec![config.client_id.clone()],
-            issuer: issuers,
-            ..TokenValidationOptions::default()
+    let jwks_url = JsonWebKeySetUrl::new(jwks_endpoint.to_owned())
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
+    let jwks = CoreJsonWebKeySet::fetch_async(&jwks_url, utils::http_client())
+        .await
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
+    let raw_payload = jwt_payload_json(id_token)?;
+    let id_token = CoreIdToken::from_str(id_token)
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
+    let mut last_error = None;
+    for issuer in issuers {
+        let issuer = IssuerUrl::new(issuer)
+            .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
+        let verifier = CoreIdTokenVerifier::new_confidential_client(
+            OidcClientId::new(config.client_id.clone()),
+            ClientSecret::new(config.client_secret.expose_secret().to_owned()),
+            issuer,
+            jwks.clone(),
+        )
+        .set_other_audience_verifier_fn(|_| true);
+        match id_token.claims(&verifier, ignore_nonce) {
+            Ok(_) => {
+                validate_oidc_authorized_party(&raw_payload, &config.client_id)?;
+                return Ok(Some(raw_payload));
+            }
+            Err(error) => last_error = Some(error.to_string()),
         }
-        .require_standard_claims(),
-    )
-    .await
-    .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
-    validate_oidc_authorized_party(&result.payload, &config.client_id)?;
-    Ok(Some(result.payload))
+    }
+    Err(openauth_core::error::OpenAuthError::OAuth(
+        last_error.unwrap_or_else(|| "OIDC issuer mismatch".to_owned()),
+    ))
+}
+
+fn ignore_nonce(_nonce: Option<&Nonce>) -> Result<(), String> {
+    Ok(())
+}
+
+fn jwt_payload_json(token: &str) -> Result<Value, openauth_core::error::OpenAuthError> {
+    let payload = token
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| openauth_core::error::OpenAuthError::OAuth("invalid JWT".to_owned()))?;
+    let decoded = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
+    serde_json::from_slice(&decoded)
+        .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))
 }
 
 fn validate_oidc_authorized_party(

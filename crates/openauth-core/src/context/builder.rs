@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+#[cfg(feature = "oauth")]
 use openauth_oauth::oauth2::SocialOAuthProvider;
 
 use crate::cookies::get_cookies;
@@ -86,6 +87,7 @@ pub fn create_auth_context_with_environment_and_adapter(
     let base_url = options.base_url.clone().unwrap_or_default();
     let trusted_origins = resolve_trusted_origins(&base_url, &options);
     let auth_cookies = get_cookies(&options)?;
+    #[cfg(feature = "oauth")]
     let social_providers = resolve_social_providers(&options)?;
     let session_config = SessionConfig {
         update_age: options.session.update_age.unwrap_or(24 * 60 * 60),
@@ -140,6 +142,7 @@ pub fn create_auth_context_with_environment_and_adapter(
         adapter,
         secondary_storage: options.secondary_storage.clone(),
         background_tasks: options.advanced.background_tasks.clone(),
+        #[cfg(feature = "oauth")]
         social_providers,
         db_schema: auth_schema(schema_options),
         plugin_error_codes: BTreeMap::new(),
@@ -159,6 +162,7 @@ pub fn create_auth_context_with_environment_and_adapter(
     Ok(context)
 }
 
+#[cfg(feature = "oauth")]
 fn resolve_social_providers(
     options: &OpenAuthOptions,
 ) -> Result<BTreeMap<String, Arc<dyn SocialOAuthProvider>>, OpenAuthError> {
@@ -169,6 +173,7 @@ fn resolve_social_providers(
     Ok(providers)
 }
 
+#[cfg(feature = "oauth")]
 pub(super) fn insert_social_provider(
     providers: &mut BTreeMap<String, Arc<dyn SocialOAuthProvider>>,
     provider: Arc<dyn SocialOAuthProvider>,

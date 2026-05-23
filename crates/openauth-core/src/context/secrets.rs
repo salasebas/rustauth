@@ -34,7 +34,7 @@ impl JweSecretSource for SecretMaterial {
         }
     }
 
-    fn all_jwe_secrets(&self) -> Result<Vec<crate::crypto::jwe::JweSecret>, OpenAuthError> {
+    fn all_jwe_secrets(&self) -> Result<Vec<crate::crypto::JweSecret>, OpenAuthError> {
         match self {
             Self::Single(secret) => secret.all_jwe_secrets(),
             Self::Rotating(config) => config.all_jwe_secrets(),

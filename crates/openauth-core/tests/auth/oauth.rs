@@ -4,8 +4,11 @@ use openauth_core::auth::oauth::{
     OAuthStateInput, OAuthStateLink, OAuthUserInfo, OAuthUserInfoError,
 };
 use openauth_core::context::create_auth_context;
+#[cfg(feature = "jose")]
 use openauth_core::crypto::symmetric_decode_jwt_with_salt;
-use openauth_core::db::{Account, DbValue, MemoryAdapter};
+#[cfg(feature = "jose")]
+use openauth_core::db::Account;
+use openauth_core::db::{DbValue, MemoryAdapter};
 use openauth_core::options::{
     AccountLinkingOptions, AccountOptions, OAuthStateStoreStrategy, OpenAuthOptions,
 };
@@ -152,6 +155,7 @@ async fn oauth_state_database_strategy_persists_and_rejects_expired_state(
     Ok(())
 }
 
+#[cfg(feature = "jose")]
 #[tokio::test]
 async fn handle_oauth_user_info_sets_account_cookie_when_enabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -188,6 +192,34 @@ async fn handle_oauth_user_info_sets_account_cookie_when_enabled(
     assert_eq!(account.account_id, "github_ada");
     assert_eq!(account.access_token.as_deref(), Some("access-1"));
     assert_eq!(cookie.attributes.max_age, Some(300));
+    Ok(())
+}
+
+#[cfg(not(feature = "jose"))]
+#[tokio::test]
+async fn handle_oauth_user_info_account_cookie_fails_closed_without_jose(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = MemoryAdapter::new();
+    let context = test_context(AccountOptions {
+        store_account_cookie: true,
+        ..AccountOptions::default()
+    })?;
+
+    let result = handle_oauth_user_info(
+        &context,
+        &adapter,
+        HandleOAuthUserInfoInput {
+            user_info: oauth_user("github_ada", "ada@example.com", true),
+            account: oauth_account("github", "github_ada", Some("access-1")),
+            ..HandleOAuthUserInfoInput::default()
+        },
+    )
+    .await;
+
+    assert!(matches!(
+        result,
+        Err(openauth_core::error::OpenAuthError::FeatureDisabled { feature: "jose" })
+    ));
     Ok(())
 }
 

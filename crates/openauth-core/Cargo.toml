@@ -14,6 +14,12 @@ categories.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = ["jose", "oauth", "social-providers"]
+jose = ["dep:josekit"]
+oauth = ["dep:openauth-oauth", "openauth-oauth/jose"]
+social-providers = ["oauth", "dep:openauth-social-providers"]
+
 [dependencies]
 base64.workspace = true
 chacha20poly1305.workspace = true
@@ -23,9 +29,9 @@ hmac.workspace = true
 http.workspace = true
 governor.workspace = true
 indexmap.workspace = true
-josekit.workspace = true
-openauth-oauth.workspace = true
-openauth-social-providers.workspace = true
+josekit = { workspace = true, optional = true }
+openauth-oauth = { workspace = true, default-features = false, optional = true }
+openauth-social-providers = { workspace = true, optional = true }
 rand.workspace = true
 scrypt.workspace = true
 serde.workspace = true

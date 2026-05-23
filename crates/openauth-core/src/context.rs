@@ -19,6 +19,7 @@ use crate::options::{
 use crate::plugin::{AuthPlugin, PluginErrorCode};
 use crate::rate_limit::GovernorMemoryRateLimitStore;
 use http::Request;
+#[cfg(feature = "oauth")]
 use openauth_oauth::oauth2::SocialOAuthProvider;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -51,6 +52,7 @@ pub struct AuthContext {
     pub adapter: Option<Arc<dyn DbAdapter>>,
     pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
     pub background_tasks: Option<Arc<dyn BackgroundTaskRunner>>,
+    #[cfg(feature = "oauth")]
     pub social_providers: BTreeMap<String, Arc<dyn SocialOAuthProvider>>,
     pub db_schema: DbSchema,
     pub plugin_error_codes: BTreeMap<String, PluginErrorCode>,
@@ -144,6 +146,7 @@ impl AuthContext {
         true
     }
 
+    #[cfg(feature = "oauth")]
     pub fn social_provider(&self, id: &str) -> Option<Arc<dyn SocialOAuthProvider>> {
         self.social_providers.get(id).cloned()
     }

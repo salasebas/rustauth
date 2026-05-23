@@ -5,6 +5,7 @@ use time::{Duration, OffsetDateTime};
 
 use crate::context::AuthContext;
 use crate::cookies::{ChunkedCookieStore, Cookie};
+#[cfg(feature = "jose")]
 use crate::crypto::symmetric_encode_jwt_with_salt;
 use crate::db::{Account, DbAdapter, Session, User};
 use crate::error::OpenAuthError;
@@ -16,6 +17,7 @@ use crate::user::{
 use super::errors::OAuthUserInfoError;
 use super::tokens::set_token_util;
 
+#[cfg(feature = "jose")]
 const ACCOUNT_COOKIE_SALT: &str = "better-auth-account";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -321,12 +323,15 @@ fn set_account_cookie(
         .attributes
         .max_age
         .unwrap_or(60 * 5);
+    #[cfg(feature = "jose")]
     let data = symmetric_encode_jwt_with_salt(
         account,
         &context.secret_config,
         ACCOUNT_COOKIE_SALT,
         max_age,
     )?;
+    #[cfg(not(feature = "jose"))]
+    let data = encode_account_cookie_data(account)?;
     let mut attributes = context.auth_cookies.account_data.attributes.clone();
     attributes.max_age = Some(max_age);
     Ok(ChunkedCookieStore::new(
@@ -335,6 +340,11 @@ fn set_account_cookie(
         "",
     )
     .chunk(&data))
+}
+
+#[cfg(not(feature = "jose"))]
+fn encode_account_cookie_data(_account: &Account) -> Result<String, OpenAuthError> {
+    Err(OpenAuthError::FeatureDisabled { feature: "jose" })
 }
 
 async fn override_linked_user_info(

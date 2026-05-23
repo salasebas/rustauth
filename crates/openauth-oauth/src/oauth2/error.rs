@@ -32,6 +32,7 @@ pub enum OAuthError {
     Jose(String),
 }
 
+#[cfg(feature = "jose")]
 impl From<josekit::JoseError> for OAuthError {
     fn from(error: josekit::JoseError) -> Self {
         Self::Jose(error.to_string())

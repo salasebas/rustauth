@@ -1,6 +1,7 @@
 use crate::error::OpenAuthError;
 use crate::plugin::PluginInitOutput;
 
+#[cfg(feature = "oauth")]
 use super::builder::insert_social_provider;
 use super::origins::{push_trusted_origin, push_unique};
 use super::AuthContext;
@@ -17,6 +18,7 @@ pub(super) fn initialize_plugins(context: &mut AuthContext) -> Result<(), OpenAu
                 error_codes: plugin.error_codes.clone(),
                 database_hooks: plugin.database_hooks.clone(),
                 migrations: plugin.migrations.clone(),
+                #[cfg(feature = "oauth")]
                 social_providers: plugin.social_providers.clone(),
                 ..PluginInitOutput::default()
             },
@@ -86,6 +88,7 @@ pub(super) fn apply_plugin_output(
         }
         context.plugin_migrations.push(migration);
     }
+    #[cfg(feature = "oauth")]
     for provider in output.social_providers {
         insert_social_provider(&mut context.social_providers, provider)?;
     }

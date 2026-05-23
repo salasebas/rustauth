@@ -4,6 +4,7 @@ use openauth_core::cookies::{
     delete_session_cookie, get_cookie_cache, get_cookies, set_cookie_cache, set_session_cookie,
     CookieCachePayload, CookieCacheStrategy, SessionCookieOptions,
 };
+#[cfg(feature = "jose")]
 use openauth_core::crypto::SecretConfig;
 use openauth_core::options::{CookieCacheOptions, OpenAuthOptions, SessionOptions};
 
@@ -288,6 +289,7 @@ fn jwt_cookie_cache_rejects_version_mismatch() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
+#[cfg(feature = "jose")]
 fn jwe_cookie_cache_round_trips_with_valid_secret() -> Result<(), Box<dyn std::error::Error>> {
     let cookies = get_cookies(&OpenAuthOptions::default())?;
     let payload = CookieCachePayload {
@@ -322,6 +324,7 @@ fn jwe_cookie_cache_round_trips_with_valid_secret() -> Result<(), Box<dyn std::e
 }
 
 #[test]
+#[cfg(feature = "jose")]
 fn jwe_cookie_cache_rejects_wrong_secret() -> Result<(), Box<dyn std::error::Error>> {
     let cookies = get_cookies(&OpenAuthOptions::default())?;
     let payload = CookieCachePayload {
@@ -356,6 +359,7 @@ fn jwe_cookie_cache_rejects_wrong_secret() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
+#[cfg(feature = "jose")]
 fn jwe_cookie_cache_decodes_with_rotated_secret_config() -> Result<(), Box<dyn std::error::Error>> {
     let cookies = get_cookies(&OpenAuthOptions::default())?;
     let payload = CookieCachePayload {
