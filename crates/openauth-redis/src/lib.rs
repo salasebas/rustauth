@@ -9,10 +9,11 @@ use std::borrow::Cow;
 
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitStore,
+    RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitStore, SecondaryStorage,
+    SecondaryStorageFuture,
 };
 use redis::aio::ConnectionManager;
-use redis::Script;
+use redis::{AsyncCommands, Script};
 
 const RATE_LIMIT_SCRIPT: &str = r#"
 local key = KEYS[1]
@@ -80,6 +81,45 @@ impl RedisRateLimitStore {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedisSecondaryStorageOptions {
+    pub key_prefix: String,
+}
+
+impl Default for RedisSecondaryStorageOptions {
+    fn default() -> Self {
+        Self {
+            key_prefix: "openauth:".to_owned(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct RedisSecondaryStorage {
+    manager: ConnectionManager,
+    options: RedisSecondaryStorageOptions,
+}
+
+impl RedisSecondaryStorage {
+    pub async fn connect(redis_url: &str) -> Result<Self, OpenAuthError> {
+        let redis_url = normalize_redis_url(redis_url);
+        let client = redis::Client::open(redis_url.as_ref())
+            .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+        let manager = ConnectionManager::new(client)
+            .await
+            .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+        Ok(Self::new(manager, RedisSecondaryStorageOptions::default()))
+    }
+
+    pub fn new(manager: ConnectionManager, options: RedisSecondaryStorageOptions) -> Self {
+        Self { manager, options }
+    }
+
+    fn key(&self, key: &str) -> String {
+        format!("{}secondary:{key}", self.options.key_prefix)
+    }
+}
+
 fn normalize_redis_url(redis_url: &str) -> Cow<'_, str> {
     if let Some(rest) = redis_url.strip_prefix("valkey://") {
         return Cow::Owned(format!("redis://{rest}"));
@@ -88,6 +128,62 @@ fn normalize_redis_url(redis_url: &str) -> Cow<'_, str> {
         return Cow::Owned(format!("rediss://{rest}"));
     }
     Cow::Borrowed(redis_url)
+}
+
+impl SecondaryStorage for RedisSecondaryStorage {
+    fn get<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let mut manager = self.manager.clone();
+            manager
+                .get(self.key(key))
+                .await
+                .map_err(|error| OpenAuthError::Adapter(error.to_string()))
+        })
+    }
+
+    fn set<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            let redis_key = self.key(key);
+            let mut manager = self.manager.clone();
+            match ttl_seconds {
+                Some(0) => {
+                    let _: usize = manager
+                        .del(redis_key)
+                        .await
+                        .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+                }
+                Some(ttl_seconds) => {
+                    let _: () = manager
+                        .set_ex(redis_key, value, ttl_seconds)
+                        .await
+                        .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+                }
+                None => {
+                    let _: () = manager
+                        .set(redis_key, value)
+                        .await
+                        .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            let mut manager = self.manager.clone();
+            let _: usize = manager
+                .del(self.key(key))
+                .await
+                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+            Ok(())
+        })
+    }
 }
 
 impl RateLimitStore for RedisRateLimitStore {
@@ -172,5 +268,15 @@ mod tests {
     fn rate_limit_script_uses_current_hash_set_command() {
         assert!(RATE_LIMIT_SCRIPT.contains("HSET"));
         assert!(!RATE_LIMIT_SCRIPT.contains("HMSET"));
+    }
+
+    #[test]
+    fn secondary_storage_uses_separate_key_namespace() {
+        let options = RedisSecondaryStorageOptions {
+            key_prefix: "test:".to_owned(),
+        };
+        let key = format!("{}secondary:{}", options.key_prefix, "session:token");
+
+        assert_eq!(key, "test:secondary:session:token");
     }
 }

@@ -5,9 +5,12 @@ use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     AdvancedOptions, DynamicRateLimitPathRule, HybridRateLimitOptions, IpAddressOptions,
     OpenAuthOptions, RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitOptions,
-    RateLimitPathRule, RateLimitRecord, RateLimitRule, RateLimitStorage, RateLimitStore,
+    RateLimitPathRule, RateLimitRecord, RateLimitRule, RateLimitStorage, RateLimitStorageOption,
+    RateLimitStore,
 };
-use openauth_core::rate_limit::{GovernorMemoryRateLimitStore, RequestClientIp};
+use openauth_core::rate_limit::{
+    consume_rate_limit, GovernorMemoryRateLimitStore, RequestClientIp,
+};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{
@@ -73,7 +76,7 @@ async fn rate_limiter_uses_special_sign_in_rule() -> Result<(), Box<dyn std::err
                     .headers()
                     .get("X-Retry-After")
                     .ok_or("missing retry header")?,
-                "4"
+                "10"
             );
             assert_error_body(
                 &response,
@@ -196,6 +199,40 @@ async fn governor_memory_rate_limiter_reports_remaining_capacity(
     assert_eq!(second.remaining, 1);
     assert_eq!(second.retry_after, 0);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn runtime_external_rate_limit_storage_without_store_returns_clear_error(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut context = create_auth_context(OpenAuthOptions {
+        rate_limit: RateLimitOptions {
+            enabled: Some(true),
+            window: 10,
+            max: 1,
+            ..RateLimitOptions::default()
+        },
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    context.rate_limit.storage = RateLimitStorageOption::Database;
+    context.rate_limit.custom_store = None;
+
+    let result = consume_rate_limit(
+        &context,
+        &Request::builder()
+            .method(Method::GET)
+            .uri("http://localhost:3000/api/auth/ok")
+            .body(Vec::new())?,
+    )
+    .await;
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::InvalidConfig(message))
+            if message.contains("database rate limit storage")
+                && message.contains("RateLimitStore")
+    ));
     Ok(())
 }
 

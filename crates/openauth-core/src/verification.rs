@@ -2,12 +2,15 @@
 
 use time::OffsetDateTime;
 
+use crate::context::AuthContext;
 use crate::crypto::random::generate_random_string;
 use crate::db::{
     Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindMany, Sort, SortDirection,
     Update, Verification, Where, WhereOperator,
 };
 use crate::error::OpenAuthError;
+use crate::options::SecondaryStorage;
+use std::sync::Arc;
 
 const VERIFICATION_MODEL: &str = "verification";
 const DEFAULT_ID_LENGTH: usize = 32;
@@ -200,6 +203,141 @@ impl<'a> DbVerificationStore<'a> {
     }
 }
 
+/// Verification store that uses configured secondary storage when present.
+#[derive(Clone)]
+pub struct VerificationStore<'a> {
+    database: DbVerificationStore<'a>,
+    secondary_storage: Option<Arc<dyn SecondaryStorage>>,
+}
+
+impl<'a> VerificationStore<'a> {
+    pub fn new(adapter: &'a dyn DbAdapter, context: &AuthContext) -> Self {
+        Self {
+            database: DbVerificationStore::new(adapter),
+            secondary_storage: context.secondary_storage(),
+        }
+    }
+
+    pub async fn create_verification(
+        &self,
+        input: CreateVerificationInput,
+    ) -> Result<Verification, OpenAuthError> {
+        let Some(storage) = &self.secondary_storage else {
+            return self.database.create_verification(input).await;
+        };
+        let now = OffsetDateTime::now_utc();
+        let verification = Verification {
+            id: input
+                .id
+                .unwrap_or_else(|| generate_random_string(DEFAULT_ID_LENGTH)),
+            identifier: input.identifier,
+            value: input.value,
+            expires_at: input.expires_at,
+            created_at: now,
+            updated_at: now,
+        };
+        storage
+            .set(
+                &verification_key(&verification.identifier),
+                serialize_verification(&verification)?,
+                ttl_seconds(verification.expires_at),
+            )
+            .await?;
+        Ok(verification)
+    }
+
+    pub async fn find_verification(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        let Some(storage) = &self.secondary_storage else {
+            return self.database.find_verification(identifier).await;
+        };
+        let Some(verification) = self
+            .find_secondary_verification(storage.as_ref(), identifier)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if verification.expires_at <= OffsetDateTime::now_utc() {
+            storage.delete(&verification_key(identifier)).await?;
+            return Ok(None);
+        }
+        Ok(Some(verification))
+    }
+
+    pub async fn find_verification_including_expired(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        let Some(storage) = &self.secondary_storage else {
+            return self
+                .database
+                .find_verification_including_expired(identifier)
+                .await;
+        };
+        self.find_secondary_verification(storage.as_ref(), identifier)
+            .await
+    }
+
+    pub async fn update_verification(
+        &self,
+        identifier: &str,
+        input: UpdateVerificationInput,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        let Some(storage) = &self.secondary_storage else {
+            return self.database.update_verification(identifier, input).await;
+        };
+        let Some(mut verification) = self
+            .find_secondary_verification(storage.as_ref(), identifier)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if let Some(value) = input.value {
+            verification.value = value;
+        }
+        if let Some(expires_at) = input.expires_at {
+            verification.expires_at = expires_at;
+        }
+        verification.updated_at = OffsetDateTime::now_utc();
+        storage
+            .set(
+                &verification_key(identifier),
+                serialize_verification(&verification)?,
+                ttl_seconds(verification.expires_at),
+            )
+            .await?;
+        Ok(Some(verification))
+    }
+
+    pub async fn delete_verification(&self, identifier: &str) -> Result<(), OpenAuthError> {
+        let Some(storage) = &self.secondary_storage else {
+            return self.database.delete_verification(identifier).await;
+        };
+        storage.delete(&verification_key(identifier)).await
+    }
+
+    pub async fn delete_expired_verifications(&self) -> Result<u64, OpenAuthError> {
+        let Some(_storage) = &self.secondary_storage else {
+            return self.database.delete_expired_verifications().await;
+        };
+        Ok(0)
+    }
+
+    async fn find_secondary_verification(
+        &self,
+        storage: &dyn SecondaryStorage,
+        identifier: &str,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        storage
+            .get(&verification_key(identifier))
+            .await?
+            .map(|value| deserialize_verification(&value))
+            .transpose()
+    }
+}
+
 fn identifier_where(identifier: &str) -> Where {
     Where::new("identifier", DbValue::String(identifier.to_owned()))
 }
@@ -213,6 +351,29 @@ fn verification_from_record(record: DbRecord) -> Result<Verification, OpenAuthEr
         created_at: required_timestamp(&record, "created_at")?,
         updated_at: required_timestamp(&record, "updated_at")?,
     })
+}
+
+fn verification_key(identifier: &str) -> String {
+    format!("verification:{identifier}")
+}
+
+fn serialize_verification(verification: &Verification) -> Result<String, OpenAuthError> {
+    serde_json::to_string(verification).map_err(|error| OpenAuthError::Serialization {
+        context: "serializing verification record",
+        message: error.to_string(),
+    })
+}
+
+fn deserialize_verification(value: &str) -> Result<Verification, OpenAuthError> {
+    serde_json::from_str(value).map_err(|error| OpenAuthError::Serialization {
+        context: "deserializing verification record",
+        message: error.to_string(),
+    })
+}
+
+fn ttl_seconds(expires_at: OffsetDateTime) -> Option<u64> {
+    let seconds = (expires_at - OffsetDateTime::now_utc()).whole_seconds();
+    Some(u64::try_from(seconds.max(0)).unwrap_or(0))
 }
 
 fn required_string<'a>(record: &'a DbRecord, field: &str) -> Result<&'a str, OpenAuthError> {
@@ -232,11 +393,16 @@ fn required_timestamp(record: &DbRecord, field: &str) -> Result<OffsetDateTime, 
 }
 
 fn missing_field(field: &str) -> OpenAuthError {
-    OpenAuthError::Adapter(format!("verification record is missing `{field}`"))
+    OpenAuthError::MissingRecordField {
+        record: "verification",
+        field: field.to_owned(),
+    }
 }
 
-fn invalid_field(field: &str, expected: &str) -> OpenAuthError {
-    OpenAuthError::Adapter(format!(
-        "verification record field `{field}` must be {expected}"
-    ))
+fn invalid_field(field: &str, expected: &'static str) -> OpenAuthError {
+    OpenAuthError::InvalidRecordField {
+        record: "verification",
+        field: field.to_owned(),
+        expected,
+    }
 }

@@ -310,7 +310,7 @@ impl AuthRouter {
             .await?;
             return run_on_response_plugins(&self.context, &request, response);
         }
-        unreachable!("endpoint existence checked before rate limiting")
+        api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound)
     }
 }
 

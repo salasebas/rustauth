@@ -9,7 +9,8 @@ use time::{Duration, OffsetDateTime};
 use crate::crypto::password::{hash_password, verify_password};
 use crate::db::{DbAdapter, DbRecord, Session, User};
 use crate::error::OpenAuthError;
-use crate::session::{CreateSessionInput, DbSessionStore};
+use crate::options::SecondaryStorage;
+use crate::session::{CreateSessionInput, SessionStore};
 use crate::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
 
 pub type PasswordHashFn = fn(&str) -> Result<String, OpenAuthError>;
@@ -100,13 +101,16 @@ impl From<OpenAuthError> for AuthFlowError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct EmailPasswordConfig {
     pub session_expires_in: u64,
     pub dont_remember_session_expires_in: u64,
     pub min_password_length: usize,
     pub max_password_length: usize,
     pub require_email_verification: bool,
+    pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
+    pub store_session_in_database: bool,
+    pub preserve_session_in_database: bool,
 }
 
 impl Default for EmailPasswordConfig {
@@ -117,7 +121,41 @@ impl Default for EmailPasswordConfig {
             min_password_length: 8,
             max_password_length: 128,
             require_email_verification: false,
+            secondary_storage: None,
+            store_session_in_database: false,
+            preserve_session_in_database: false,
         }
+    }
+}
+
+impl fmt::Debug for EmailPasswordConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EmailPasswordConfig")
+            .field("session_expires_in", &self.session_expires_in)
+            .field(
+                "dont_remember_session_expires_in",
+                &self.dont_remember_session_expires_in,
+            )
+            .field("min_password_length", &self.min_password_length)
+            .field("max_password_length", &self.max_password_length)
+            .field(
+                "require_email_verification",
+                &self.require_email_verification,
+            )
+            .field(
+                "secondary_storage",
+                &self
+                    .secondary_storage
+                    .as_ref()
+                    .map(|_| "<secondary-storage>"),
+            )
+            .field("store_session_in_database", &self.store_session_in_database)
+            .field(
+                "preserve_session_in_database",
+                &self.preserve_session_in_database,
+            )
+            .finish()
     }
 }
 
@@ -487,19 +525,24 @@ async fn create_session_record(
         input = input.user_agent(user_agent);
     }
 
-    DbSessionStore::new(adapter)
-        .create_session(input)
-        .await
-        .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))
+    SessionStore::with_storage(
+        adapter,
+        config.secondary_storage.clone(),
+        config.store_session_in_database,
+        config.preserve_session_in_database,
+    )
+    .create_session(input)
+    .await
+    .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))
 }
 
 fn store_sign_up_result(
     result: &Mutex<Option<Result<EmailPasswordAuthResult, AuthFlowError>>>,
     value: Result<EmailPasswordAuthResult, AuthFlowError>,
 ) -> Result<(), OpenAuthError> {
-    let mut guard = result
-        .lock()
-        .map_err(|_| OpenAuthError::Adapter("sign-up result lock poisoned".to_owned()))?;
+    let mut guard = result.lock().map_err(|_| OpenAuthError::LockPoisoned {
+        context: "sign-up result",
+    })?;
     *guard = Some(value);
     Ok(())
 }
@@ -510,9 +553,9 @@ fn take_sign_up_result(
     result
         .lock()
         .map_err(|_| {
-            AuthFlowError::storage(OpenAuthError::Adapter(
-                "sign-up result lock poisoned".to_owned(),
-            ))
+            AuthFlowError::storage(OpenAuthError::LockPoisoned {
+                context: "sign-up result",
+            })
         })
         .map(|mut guard| guard.take())
 }

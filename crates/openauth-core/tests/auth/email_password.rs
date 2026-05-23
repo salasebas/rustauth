@@ -430,6 +430,9 @@ fn config() -> EmailPasswordConfig {
         min_password_length: 8,
         max_password_length: 128,
         require_email_verification: false,
+        secondary_storage: None,
+        store_session_in_database: false,
+        preserve_session_in_database: false,
     }
 }
 

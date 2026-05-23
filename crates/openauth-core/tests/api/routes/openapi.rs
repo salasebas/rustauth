@@ -21,6 +21,19 @@ fn core_auth_routes_expose_upstream_openapi_metadata() -> Result<(), Box<dyn std
         serde_json::json!(["object", "null"])
     );
     assert_eq!(
+        openapi["paths"]["/get-session"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["properties"]["user"]["$ref"],
+        "#/components/schemas/User"
+    );
+    assert_eq!(
+        openapi["components"]["schemas"]["User"]["additionalProperties"],
+        true
+    );
+    assert_eq!(
+        openapi["components"]["schemas"]["Session"]["additionalProperties"],
+        true
+    );
+    assert_eq!(
         openapi["paths"]["/get-session"]["post"]["requestBody"]["content"]["application/json"]
             ["schema"],
         serde_json::json!({

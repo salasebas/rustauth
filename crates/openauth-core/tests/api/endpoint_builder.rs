@@ -79,6 +79,14 @@ async fn create_auth_endpoint_exposes_metadata_and_openapi(
         "email"
     );
     assert_eq!(
+        openapi["components"]["schemas"]["User"]["additionalProperties"],
+        true
+    );
+    assert_eq!(
+        openapi["components"]["schemas"]["Session"]["additionalProperties"],
+        true
+    );
+    assert_eq!(
         openapi["paths"]["/sign-up/email"]["post"]["operationId"],
         "signUpWithEmailAndPassword"
     );
@@ -103,6 +111,21 @@ async fn create_auth_endpoint_exposes_metadata_and_openapi(
     assert_eq!(
         openapi["paths"]["/sign-up/email"]["post"]["responses"]["400"]["description"],
         "Bad Request. Usually due to missing parameters, or invalid parameters."
+    );
+    assert_eq!(
+        openapi["paths"]["/sign-up/email"]["post"]["responses"]["400"]["content"]
+            ["application/json"]["schema"]["properties"]["code"]["type"],
+        "string"
+    );
+    assert_eq!(
+        openapi["paths"]["/sign-up/email"]["post"]["responses"]["400"]["content"]
+            ["application/json"]["schema"]["properties"]["originalMessage"]["type"],
+        "string"
+    );
+    assert_eq!(
+        openapi["paths"]["/sign-up/email"]["post"]["responses"]["400"]["content"]
+            ["application/json"]["schema"]["required"],
+        json!(["code", "message"])
     );
     Ok(())
 }
@@ -153,6 +176,11 @@ async fn openapi_generation_matches_upstream_route_shape() -> Result<(), Box<dyn
     assert_eq!(
         openapi["paths"]["/sign-out"]["post"]["responses"]["401"]["description"],
         "Unauthorized. Due to missing or invalid authentication."
+    );
+    assert_eq!(
+        openapi["paths"]["/sign-out"]["post"]["responses"]["403"]["content"]["application/json"]
+            ["schema"]["required"],
+        json!(["code"])
     );
     Ok(())
 }

@@ -117,9 +117,16 @@ fn optional_timestamp_field(
 }
 
 fn missing_field(field: &str) -> OpenAuthError {
-    OpenAuthError::Adapter(format!("record is missing `{field}`"))
+    OpenAuthError::MissingRecordField {
+        record: "user/account",
+        field: field.to_owned(),
+    }
 }
 
-fn invalid_field(field: &str, expected: &str) -> OpenAuthError {
-    OpenAuthError::Adapter(format!("record field `{field}` must be {expected}"))
+fn invalid_field(field: &str, expected: &'static str) -> OpenAuthError {
+    OpenAuthError::InvalidRecordField {
+        record: "user/account",
+        field: field.to_owned(),
+        expected,
+    }
 }

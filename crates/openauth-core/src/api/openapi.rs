@@ -414,20 +414,27 @@ fn default_openapi_responses() -> serde_json::Map<String, Value> {
 }
 
 fn openapi_error_response(description: &str, require_message: bool) -> Value {
-    let required = require_message.then(|| json!(["message"]));
+    let mut required = vec!["code"];
+    if require_message {
+        required.push("message");
+    }
     let mut schema = serde_json::Map::new();
     schema.insert("type".to_owned(), Value::String("object".to_owned()));
     schema.insert(
         "properties".to_owned(),
         json!({
+            "code": {
+                "type": "string",
+            },
             "message": {
+                "type": "string",
+            },
+            "originalMessage": {
                 "type": "string",
             },
         }),
     );
-    if let Some(required) = required {
-        schema.insert("required".to_owned(), required);
-    }
+    schema.insert("required".to_owned(), json!(required));
     json!({
         "content": {
             "application/json": {
@@ -508,6 +515,7 @@ pub(super) fn openapi_model_schemas() -> Value {
                 "updatedAt": { "type": "string", "format": "date-time" },
             },
             "required": ["id", "email", "name", "emailVerified", "createdAt", "updatedAt"],
+            "additionalProperties": true,
         },
         "Session": {
             "type": "object",
@@ -522,6 +530,7 @@ pub(super) fn openapi_model_schemas() -> Value {
                 "updatedAt": { "type": "string", "format": "date-time" },
             },
             "required": ["id", "userId", "expiresAt", "token", "createdAt", "updatedAt"],
+            "additionalProperties": true,
         },
         "Account": {
             "type": "object",
@@ -539,6 +548,7 @@ pub(super) fn openapi_model_schemas() -> Value {
                 "updatedAt": { "type": "string", "format": "date-time" },
             },
             "required": ["id", "providerId", "accountId", "userId", "createdAt", "updatedAt"],
+            "additionalProperties": true,
         },
         "Verification": {
             "type": "object",
@@ -551,6 +561,7 @@ pub(super) fn openapi_model_schemas() -> Value {
                 "updatedAt": { "type": "string", "format": "date-time" },
             },
             "required": ["id", "identifier", "value", "expiresAt", "createdAt", "updatedAt"],
+            "additionalProperties": true,
         },
     })
 }

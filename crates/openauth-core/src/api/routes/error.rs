@@ -85,7 +85,10 @@ fn html_response(code: &str, description: Option<&str>) -> Result<ApiResponse, O
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(html.into_bytes())
-        .map_err(|error| OpenAuthError::Api(error.to_string()))
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building error page response",
+            message: error.to_string(),
+        })
 }
 
 fn redirect(location: &str) -> Result<ApiResponse, OpenAuthError> {
@@ -93,7 +96,10 @@ fn redirect(location: &str) -> Result<ApiResponse, OpenAuthError> {
         .status(StatusCode::FOUND)
         .header(header::LOCATION, location)
         .body(Vec::new())
-        .map_err(|error| OpenAuthError::Api(error.to_string()))
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building error redirect response",
+            message: error.to_string(),
+        })
 }
 
 fn is_safe_code(code: &str) -> bool {

@@ -12,7 +12,7 @@ use crate::cookies::{
 };
 use crate::db::{DbAdapter, Session, User};
 use crate::error::OpenAuthError;
-use crate::session::DbSessionStore;
+use crate::session::SessionStore;
 use crate::user::DbUserStore;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +20,7 @@ pub struct GetSessionInput {
     pub cookie_header: String,
     pub disable_cookie_cache: bool,
     pub disable_refresh: bool,
+    pub defer_refresh: bool,
 }
 
 impl GetSessionInput {
@@ -28,6 +29,7 @@ impl GetSessionInput {
             cookie_header: cookie_header.into(),
             disable_cookie_cache: false,
             disable_refresh: false,
+            defer_refresh: false,
         }
     }
 
@@ -40,6 +42,12 @@ impl GetSessionInput {
     #[must_use]
     pub fn disable_refresh(mut self) -> Self {
         self.disable_refresh = true;
+        self
+    }
+
+    #[must_use]
+    pub fn defer_refresh(mut self) -> Self {
+        self.defer_refresh = true;
         self
     }
 }
@@ -106,7 +114,7 @@ impl<'a> SessionAuth<'a> {
             }
         }
 
-        let session_store = DbSessionStore::new(self.adapter);
+        let session_store = SessionStore::new(self.adapter, self.context);
         let Some(mut session) = session_store.find_session(&token).await? else {
             return Ok(Some(unauthenticated(delete_session_cookie(
                 &self.context.auth_cookies,
@@ -132,10 +140,11 @@ impl<'a> SessionAuth<'a> {
         .is_some();
         let needs_refresh = !dont_remember
             && !input.disable_refresh
+            && !self.context.options.session.disable_session_refresh
             && session_needs_refresh(&session, self.context);
         let mut cookies = Vec::new();
 
-        if needs_refresh {
+        if needs_refresh && !input.defer_refresh {
             let refreshed_expires_at = OffsetDateTime::now_utc()
                 + Duration::seconds(self.context.session_config.expires_in as i64);
             if let Some(updated_session) = session_store
@@ -180,7 +189,7 @@ impl<'a> SessionAuth<'a> {
             get_session_cookie(cookie_header, cookie_prefix(self.context), None)
         {
             if let Some(token) = verify_cookie_value(&signed_token, &self.context.secret)? {
-                let _delete_result = DbSessionStore::new(self.adapter)
+                let _delete_result = SessionStore::new(self.adapter, self.context)
                     .delete_session(&token)
                     .await;
             }

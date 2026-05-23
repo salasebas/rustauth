@@ -265,11 +265,17 @@ fn invalid_request_response(
         message: message.to_owned(),
         original_message: None,
     })
-    .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    .map_err(|error| OpenAuthError::Serialization {
+        context: "serializing API error response",
+        message: error.to_string(),
+    })?;
 
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
         .body(body)
-        .map_err(|error| OpenAuthError::Api(error.to_string()))
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building API error response",
+            message: error.to_string(),
+        })
 }

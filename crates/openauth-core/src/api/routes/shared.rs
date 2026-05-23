@@ -5,9 +5,7 @@ use serde_json::{json, Value};
 use crate::api::additional_fields::AdditionalFieldError;
 use crate::api::output::{session_response_cookies, user_output_value};
 use crate::api::{ApiErrorResponse, ApiRequest, ApiResponse};
-use crate::auth::email_password::{
-    AuthFlowError, AuthFlowErrorCode, EmailPasswordConfig, SignInInput, SignUpInput,
-};
+use crate::auth::email_password::{AuthFlowError, AuthFlowErrorCode};
 use crate::auth::session::{GetSessionInput, SessionAuth};
 use crate::context::request_state::{
     has_request_state, set_current_new_session, set_current_session_user,
@@ -17,44 +15,6 @@ use crate::cookies::Cookie;
 use crate::db::{DbAdapter, DbRecord, DbValue, Session, User};
 use crate::error::OpenAuthError;
 use crate::plugin::PluginPasswordValidationRejection;
-
-pub(super) trait RequestMetadata {
-    fn with_request_metadata(self, request: &ApiRequest) -> Self;
-}
-
-impl RequestMetadata for SignUpInput {
-    fn with_request_metadata(mut self, request: &ApiRequest) -> Self {
-        if let Some(ip_address) = request_ip(request) {
-            self = self.ip_address(ip_address);
-        }
-        if let Some(user_agent) = request_user_agent(request) {
-            self = self.user_agent(user_agent);
-        }
-        self
-    }
-}
-
-impl RequestMetadata for SignInInput {
-    fn with_request_metadata(mut self, request: &ApiRequest) -> Self {
-        if let Some(ip_address) = request_ip(request) {
-            self = self.ip_address(ip_address);
-        }
-        if let Some(user_agent) = request_user_agent(request) {
-            self = self.user_agent(user_agent);
-        }
-        self
-    }
-}
-
-pub(super) fn email_password_config(context: &AuthContext) -> EmailPasswordConfig {
-    EmailPasswordConfig {
-        session_expires_in: context.session_config.expires_in,
-        dont_remember_session_expires_in: 60 * 60 * 24,
-        min_password_length: context.password.config.min_password_length,
-        max_password_length: context.password.config.max_password_length,
-        require_email_verification: false,
-    }
-}
 
 pub(super) fn auth_session_cookies(
     context: &AuthContext,
@@ -74,9 +34,8 @@ pub(super) fn record_new_session(session: &Session, user: &User) -> Result<(), O
 
 pub(super) fn auth_flow_error_response(error: AuthFlowError) -> Result<ApiResponse, OpenAuthError> {
     let status = match error.code() {
-        AuthFlowErrorCode::InvalidEmailOrPassword | AuthFlowErrorCode::EmailNotVerified => {
-            StatusCode::UNAUTHORIZED
-        }
+        AuthFlowErrorCode::InvalidEmailOrPassword => StatusCode::UNAUTHORIZED,
+        AuthFlowErrorCode::EmailNotVerified => StatusCode::FORBIDDEN,
         AuthFlowErrorCode::StorageError | AuthFlowErrorCode::FailedToCreateSession => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
@@ -136,12 +95,18 @@ pub(super) fn json_response<T>(
 where
     T: Serialize,
 {
-    let body = serde_json::to_vec(body).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let body = serde_json::to_vec(body).map_err(|error| OpenAuthError::Serialization {
+        context: "serializing JSON response body",
+        message: error.to_string(),
+    })?;
     let mut response = http::Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
         .body(body)
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building JSON response",
+            message: error.to_string(),
+        })?;
     for cookie in cookies {
         response.headers_mut().append(
             header::SET_COOKIE,
@@ -174,9 +139,30 @@ pub(super) async fn current_session(
     context: &AuthContext,
     request: &ApiRequest,
 ) -> Result<Option<(Session, User, Vec<Cookie>)>, OpenAuthError> {
+    current_session_with_cache_policy(adapter, context, request, false).await
+}
+
+pub(super) async fn sensitive_session(
+    adapter: &dyn DbAdapter,
+    context: &AuthContext,
+    request: &ApiRequest,
+) -> Result<Option<(Session, User, Vec<Cookie>)>, OpenAuthError> {
+    current_session_with_cache_policy(adapter, context, request, true).await
+}
+
+async fn current_session_with_cache_policy(
+    adapter: &dyn DbAdapter,
+    context: &AuthContext,
+    request: &ApiRequest,
+    disable_cookie_cache: bool,
+) -> Result<Option<(Session, User, Vec<Cookie>)>, OpenAuthError> {
     let cookie_header = request_cookie_header(request).unwrap_or_default();
+    let mut input = GetSessionInput::new(cookie_header);
+    if disable_cookie_cache {
+        input = input.disable_cookie_cache();
+    }
     let Some(result) = SessionAuth::new(adapter, context)
-        .get_session(GetSessionInput::new(cookie_header))
+        .get_session(input)
         .await?
     else {
         return Ok(None);
@@ -188,9 +174,12 @@ pub(super) async fn current_session(
         return Ok(None);
     };
     if has_request_state() {
-        set_current_session_user(
-            serde_json::to_value(&user).map_err(|error| OpenAuthError::Api(error.to_string()))?,
-        )?;
+        set_current_session_user(serde_json::to_value(&user).map_err(|error| {
+            OpenAuthError::Serialization {
+                context: "serializing current session user",
+                message: error.to_string(),
+            }
+        })?)?;
     }
     Ok(Some((session, user, result.cookies)))
 }
@@ -417,30 +406,4 @@ fn percent_decode(value: &str) -> String {
         index += 1;
     }
     String::from_utf8_lossy(&decoded).into_owned()
-}
-
-fn request_user_agent(request: &ApiRequest) -> Option<String> {
-    request
-        .headers()
-        .get(header::USER_AGENT)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-}
-
-fn request_ip(request: &ApiRequest) -> Option<String> {
-    request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .or_else(|| {
-            request
-                .headers()
-                .get("x-real-ip")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned)
-        })
 }

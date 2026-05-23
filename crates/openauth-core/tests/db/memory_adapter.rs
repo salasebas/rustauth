@@ -1,7 +1,7 @@
 use openauth_core::db::{
-    auth_schema, AdapterCapabilities, Count, Create, DbAdapter, DbValue, DeleteMany, FindMany,
-    FindOne, JoinAdapter, JoinOption, MemoryAdapter, Sort, SortDirection, Update, Where, WhereMode,
-    WhereOperator,
+    adapter_harness::run_adapter_contract, auth_schema, AdapterCapabilities, Count, Create,
+    DbAdapter, DbValue, DeleteMany, FindMany, FindOne, JoinAdapter, JoinOption, MemoryAdapter,
+    Sort, SortDirection, Update, Where, WhereMode, WhereOperator,
 };
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use time::OffsetDateTime;
@@ -33,6 +33,15 @@ async fn memory_adapter_clones_share_inserted_records() -> Result<(), Box<dyn st
         record.get("id"),
         Some(&DbValue::String("user_1".to_owned()))
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn memory_adapter_satisfies_shared_adapter_contract() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = MemoryAdapter::new();
+
+    run_adapter_contract(&adapter).await?;
     Ok(())
 }
 

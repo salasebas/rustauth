@@ -4,15 +4,16 @@ use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::email_verification::create_email_verification_token;
-use super::shared::{auth_session_cookies, current_session, error_response, json_response};
+use super::shared::{auth_session_cookies, error_response, json_response, sensitive_session};
+use crate::api::services::user as user_service;
+use crate::api::services::user::{
+    ChangeEmailError, ChangeEmailErrorOrOpenAuth, ChangeEmailInput, ChangeEmailResult,
+};
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::db::{DbAdapter, User};
-use crate::options::VerificationEmail;
-use crate::user::DbUserStore;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,32 +64,41 @@ pub(super) fn change_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
         move |context, request| {
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {
-                if !context.options.user.change_email.enabled {
-                    return error_response(
-                        StatusCode::BAD_REQUEST,
-                        "CHANGE_EMAIL_DISABLED",
-                        "Change email is disabled",
-                    );
-                }
                 let Some((session, user, _cookies)) =
-                    current_session(adapter.as_ref(), context, &request).await?
+                    sensitive_session(adapter.as_ref(), context, &request).await?
                 else {
                     return super::shared::unauthorized();
                 };
                 let body: ChangeEmailBody = parse_request_body(&request)?;
-                let new_email = body.new_email.to_lowercase();
-                if new_email == user.email {
-                    return error_response(
-                        StatusCode::BAD_REQUEST,
-                        "EMAIL_IS_SAME",
-                        "Email is the same",
-                    );
-                }
-
-                let users = DbUserStore::new(adapter.as_ref());
-                if users.find_user_by_email(&new_email).await?.is_some() {
-                    create_email_verification_token(context, &user.email, Some(&new_email), None)?;
-                    return json_response(
+                let result = match user_service::change_email(
+                    adapter.as_ref(),
+                    context,
+                    Some(&request),
+                    user,
+                    ChangeEmailInput {
+                        new_email: body.new_email,
+                        callback_url: body.callback_url,
+                    },
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(error) => return change_email_error_response(error),
+                };
+                match result {
+                    ChangeEmailResult::Updated(updated) => {
+                        let cookies = auth_session_cookies(context, &session, &updated, false)?;
+                        json_response(
+                            StatusCode::OK,
+                            &ChangeEmailResponse {
+                                status: true,
+                                message: "Email updated",
+                                user: Some(updated),
+                            },
+                            cookies,
+                        )
+                    }
+                    ChangeEmailResult::VerificationSent => json_response(
                         StatusCode::OK,
                         &ChangeEmailResponse {
                             status: true,
@@ -96,79 +106,36 @@ pub(super) fn change_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                             user: None,
                         },
                         Vec::new(),
-                    );
+                    ),
                 }
-
-                if !user.email_verified
-                    && context
-                        .options
-                        .user
-                        .change_email
-                        .update_email_without_verification
-                {
-                    let updated = users
-                        .update_user_email(&user.id, &new_email, false)
-                        .await?
-                        .unwrap_or(user);
-                    let cookies = auth_session_cookies(context, &session, &updated, false)?;
-                    return json_response(
-                        StatusCode::OK,
-                        &ChangeEmailResponse {
-                            status: true,
-                            message: "Email updated",
-                            user: Some(updated),
-                        },
-                        cookies,
-                    );
-                }
-
-                let Some(sender) = context
-                    .options
-                    .email_verification
-                    .send_verification_email
-                    .clone()
-                else {
-                    return error_response(
-                        StatusCode::BAD_REQUEST,
-                        "VERIFICATION_EMAIL_NOT_ENABLED",
-                        "Verification email isn't enabled",
-                    );
-                };
-                let token = create_email_verification_token(
-                    context,
-                    &user.email,
-                    Some(&new_email),
-                    Some("change-email-verification"),
-                )?;
-                let callback_url = body.callback_url.unwrap_or_else(|| "/".to_owned());
-                let url = format!(
-                    "{}/verify-email?token={token}&callbackURL={}",
-                    context.base_url,
-                    super::shared::percent_encode(&callback_url)
-                );
-                sender.send_verification_email(
-                    VerificationEmail {
-                        user: User {
-                            email: new_email,
-                            ..user
-                        },
-                        url,
-                        token,
-                    },
-                    Some(&request),
-                )?;
-                json_response(
-                    StatusCode::OK,
-                    &ChangeEmailResponse {
-                        status: true,
-                        message: "Verification email sent",
-                        user: None,
-                    },
-                    Vec::new(),
-                )
             })
         },
     )
+}
+
+fn change_email_error_response(
+    error: ChangeEmailErrorOrOpenAuth,
+) -> Result<crate::api::ApiResponse, crate::error::OpenAuthError> {
+    match error {
+        ChangeEmailErrorOrOpenAuth::OpenAuth(error) => Err(error),
+        ChangeEmailErrorOrOpenAuth::Service(error) => match error {
+            ChangeEmailError::Disabled => error_response(
+                StatusCode::BAD_REQUEST,
+                "CHANGE_EMAIL_DISABLED",
+                "Change email is disabled",
+            ),
+            ChangeEmailError::EmailIsSame => error_response(
+                StatusCode::BAD_REQUEST,
+                "EMAIL_IS_SAME",
+                "Email is the same",
+            ),
+            ChangeEmailError::VerificationEmailNotEnabled => error_response(
+                StatusCode::BAD_REQUEST,
+                "VERIFICATION_EMAIL_NOT_ENABLED",
+                "Verification email isn't enabled",
+            ),
+        },
+    }
 }
 
 fn change_email_body_schema() -> BodySchema {

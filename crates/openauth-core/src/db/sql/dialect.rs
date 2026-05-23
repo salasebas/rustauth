@@ -101,7 +101,11 @@ impl SqlDialect {
                     WhereOperator::Lte => "<=",
                     WhereOperator::Gt => ">",
                     WhereOperator::Gte => ">=",
-                    _ => unreachable!("operator matched by outer arm"),
+                    _ => {
+                        return Err(OpenAuthError::Adapter(
+                            "unsupported scalar where operator".to_owned(),
+                        ));
+                    }
                 };
                 let placeholder =
                     self.push_param(params, field, clause.value.clone(), first_placeholder);
@@ -127,7 +131,11 @@ impl SqlDialect {
                     WhereOperator::Contains => format!("%{value}%"),
                     WhereOperator::StartsWith => format!("{value}%"),
                     WhereOperator::EndsWith => format!("%{value}"),
-                    _ => unreachable!("operator matched by outer arm"),
+                    _ => {
+                        return Err(OpenAuthError::Adapter(
+                            "unsupported string pattern where operator".to_owned(),
+                        ));
+                    }
                 };
                 let placeholder =
                     self.push_param(params, field, DbValue::String(pattern), first_placeholder);

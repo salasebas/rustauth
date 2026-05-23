@@ -108,6 +108,8 @@ pub struct EmailVerificationOptions {
     pub before_email_verification: Option<Arc<dyn BeforeEmailVerification>>,
     pub after_email_verification: Option<Arc<dyn AfterEmailVerification>>,
     pub expires_in: Option<u64>,
+    pub send_on_sign_up: bool,
+    pub send_on_sign_in: bool,
     pub auto_sign_in_after_verification: bool,
 }
 
@@ -154,6 +156,18 @@ impl EmailVerificationOptions {
     }
 
     #[must_use]
+    pub fn send_on_sign_up(mut self, enabled: bool) -> Self {
+        self.send_on_sign_up = enabled;
+        self
+    }
+
+    #[must_use]
+    pub fn send_on_sign_in(mut self, enabled: bool) -> Self {
+        self.send_on_sign_in = enabled;
+        self
+    }
+
+    #[must_use]
     pub fn auto_sign_in_after_verification(mut self, enabled: bool) -> Self {
         self.auto_sign_in_after_verification = enabled;
         self
@@ -186,6 +200,8 @@ impl fmt::Debug for EmailVerificationOptions {
                     .map(|_| "<after-email-verification>"),
             )
             .field("expires_in", &self.expires_in)
+            .field("send_on_sign_up", &self.send_on_sign_up)
+            .field("send_on_sign_in", &self.send_on_sign_in)
             .field(
                 "auto_sign_in_after_verification",
                 &self.auto_sign_in_after_verification,
