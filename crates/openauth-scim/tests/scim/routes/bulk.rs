@@ -279,6 +279,63 @@ async fn bulk_route_executes_user_patch_operations() {
 }
 
 #[tokio::test]
+async fn bulk_user_patch_remove_external_id_resets_account_id_to_user_name() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+    let created = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Users",
+            r#"{"userName":"bulk-remove-external@example.com","externalId":"bulk-upstream"}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    let user_id = json_body(created)["id"].as_str().expect("id").to_owned();
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Bulk",
+            &format!(
+                r#"{{
+                    "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                    "Operations":[
+                        {{
+                            "method":"PATCH",
+                            "path":"/Users/{user_id}",
+                            "data":{{
+                                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                                "Operations":[{{"op":"remove","path":"externalId"}}]
+                            }}
+                        }}
+                    ]
+                }}"#
+            ),
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response);
+    assert_eq!(body["Operations"][0]["status"]["code"], 200);
+    assert_eq!(
+        body["Operations"][0]["response"]["externalId"],
+        "bulk-remove-external@example.com"
+    );
+}
+
+#[tokio::test]
 async fn bulk_delete_user_requires_provider_scope() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     for (provider_id, token) in [("okta", "okta-token"), ("entra", "entra-token")] {

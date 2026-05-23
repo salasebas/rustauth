@@ -115,6 +115,59 @@ pub(super) async fn create_scim_group_profile(
     Ok(())
 }
 
+pub(super) async fn create_group_with_profile_and_members(
+    adapter: &dyn DbAdapter,
+    provider_id: &str,
+    organization_id: &str,
+    input: ScimGroupInput,
+) -> Result<ScimTeamRecord, OpenAuthError> {
+    let provider_id = provider_id.to_owned();
+    let organization_id = organization_id.to_owned();
+    let result = Arc::new(Mutex::new(None));
+    let result_for_transaction = Arc::clone(&result);
+    adapter
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                let team = create_team_for_group(
+                    transaction.as_ref(),
+                    &organization_id,
+                    input.display_name.trim(),
+                )
+                .await?;
+                create_scim_group_profile(
+                    transaction.as_ref(),
+                    &provider_id,
+                    &organization_id,
+                    &team.id,
+                    input.external_id.as_deref(),
+                )
+                .await?;
+                for member in &input.members {
+                    create_team_member_if_missing(transaction.as_ref(), &team.id, &member.value)
+                        .await?;
+                }
+                let mut guard = result_for_transaction.lock().map_err(|_| {
+                    OpenAuthError::Adapter("create SCIM group result mutex was poisoned".to_owned())
+                })?;
+                *guard = Some(team);
+                Ok(())
+            })
+        }))
+        .await?;
+    let team = result
+        .lock()
+        .map_err(|_| {
+            OpenAuthError::Adapter("create SCIM group result mutex was poisoned".to_owned())
+        })?
+        .take()
+        .ok_or_else(|| {
+            OpenAuthError::Adapter(
+                "create SCIM group transaction completed without a result".to_owned(),
+            )
+        })?;
+    Ok(team)
+}
+
 pub(super) async fn create_team_member_if_missing(
     adapter: &dyn DbAdapter,
     team_id: &str,
@@ -224,35 +277,45 @@ pub(super) async fn replace_group(
                 .unwrap_or_else(|| "Invalid group member".to_owned()),
         )
     })?;
+    let provider_id = provider_id.to_owned();
+    let organization_id = organization_id.to_owned();
+    let group_id = group_id.to_owned();
     adapter
-        .update(
-            Update::new("team")
-                .where_clause(Where::new("id", DbValue::String(group_id.to_owned())))
-                .data(
-                    "name",
-                    DbValue::String(input.display_name.trim().to_owned()),
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                transaction
+                    .update(
+                        Update::new("team")
+                            .where_clause(Where::new("id", DbValue::String(group_id.clone())))
+                            .data(
+                                "name",
+                                DbValue::String(input.display_name.trim().to_owned()),
+                            )
+                            .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc())),
+                    )
+                    .await?;
+                upsert_scim_group_profile(
+                    transaction.as_ref(),
+                    &provider_id,
+                    &organization_id,
+                    &group_id,
+                    input.external_id.as_deref(),
                 )
-                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc())),
-        )
-        .await?;
-    upsert_scim_group_profile(
-        adapter,
-        provider_id,
-        organization_id,
-        group_id,
-        input.external_id.as_deref(),
-    )
-    .await?;
-    adapter
-        .delete_many(
-            DeleteMany::new("team_member")
-                .where_clause(Where::new("team_id", DbValue::String(group_id.to_owned()))),
-        )
-        .await?;
-    for member in input.members {
-        create_team_member_if_missing(adapter, group_id, &member.value).await?;
-    }
-    Ok(())
+                .await?;
+                transaction
+                    .delete_many(
+                        DeleteMany::new("team_member")
+                            .where_clause(Where::new("team_id", DbValue::String(group_id.clone()))),
+                    )
+                    .await?;
+                for member in input.members {
+                    create_team_member_if_missing(transaction.as_ref(), &group_id, &member.value)
+                        .await?;
+                }
+                Ok(())
+            })
+        }))
+        .await
 }
 
 pub(super) async fn upsert_scim_group_profile(
@@ -303,6 +366,7 @@ pub(super) async fn apply_group_patch(
     group_id: &str,
     operations: Vec<PatchOperationInput>,
 ) -> Result<(), ScimErrorOrOpenAuth> {
+    let mut mutations = Vec::new();
     for operation in operations {
         let op = operation.op.unwrap_or_else(|| "replace".to_owned());
         match op.to_ascii_lowercase().as_str() {
@@ -312,69 +376,42 @@ pub(super) async fn apply_group_patch(
                         .map_err(ScimErrorOrOpenAuth::Scim)?;
                     validate_group_member_users(adapter, provider_id, organization_id, &members)
                         .await?;
-                    for member in members {
-                        create_team_member_if_missing(adapter, group_id, &member)
-                            .await
-                            .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
-                    }
+                    mutations.push(GroupPatchMutation::AddMembers(members));
+                } else {
+                    return Err(ScimErrorOrOpenAuth::Scim(unsupported_group_patch_path()));
                 }
             }
             "replace" => {
                 if operation.path.as_deref() == Some("displayName") {
-                    if let Some(display_name) = operation.value.as_str() {
-                        adapter
-                            .update(
-                                Update::new("team")
-                                    .where_clause(Where::new(
-                                        "id",
-                                        DbValue::String(group_id.to_owned()),
-                                    ))
-                                    .data("name", DbValue::String(display_name.to_owned()))
-                                    .data(
-                                        "updated_at",
-                                        DbValue::Timestamp(OffsetDateTime::now_utc()),
-                                    ),
-                            )
-                            .await
-                            .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
-                    }
+                    let Some(display_name) = operation.value.as_str() else {
+                        return Err(ScimErrorOrOpenAuth::Scim(
+                            ScimError::bad_request("displayName must be a string")
+                                .with_scim_type("invalidValue"),
+                        ));
+                    };
+                    validate_group_display_name(display_name).map_err(ScimErrorOrOpenAuth::Scim)?;
+                    mutations.push(GroupPatchMutation::ReplaceDisplayName(
+                        display_name.trim().to_owned(),
+                    ));
                 } else if operation.path.as_deref() == Some("members") {
                     let members = members_from_patch_value(&operation.value)
                         .map_err(ScimErrorOrOpenAuth::Scim)?;
                     validate_group_member_users(adapter, provider_id, organization_id, &members)
                         .await?;
-                    adapter
-                        .delete_many(DeleteMany::new("team_member").where_clause(Where::new(
-                            "team_id",
-                            DbValue::String(group_id.to_owned()),
-                        )))
-                        .await
-                        .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
-                    for member in members {
-                        create_team_member_if_missing(adapter, group_id, &member)
-                            .await
-                            .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
-                    }
+                    mutations.push(GroupPatchMutation::ReplaceMembers(members));
+                } else {
+                    return Err(ScimErrorOrOpenAuth::Scim(unsupported_group_patch_path()));
                 }
             }
             "remove" => {
                 if let Some(path) = operation.path.as_deref() {
                     if let Some(member_id) = member_value_from_filter_path(path) {
-                        adapter
-                            .delete_many(
-                                DeleteMany::new("team_member")
-                                    .where_clause(Where::new(
-                                        "team_id",
-                                        DbValue::String(group_id.to_owned()),
-                                    ))
-                                    .where_clause(Where::new(
-                                        "user_id",
-                                        DbValue::String(member_id),
-                                    )),
-                            )
-                            .await
-                            .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
+                        mutations.push(GroupPatchMutation::RemoveMember(member_id));
+                    } else {
+                        return Err(ScimErrorOrOpenAuth::Scim(unsupported_group_patch_path()));
                     }
+                } else {
+                    return Err(ScimErrorOrOpenAuth::Scim(unsupported_group_patch_path()));
                 }
             }
             _ => {
@@ -385,7 +422,78 @@ pub(super) async fn apply_group_patch(
             }
         }
     }
+    if mutations.is_empty() {
+        return Err(ScimErrorOrOpenAuth::Scim(unsupported_group_patch_path()));
+    }
+
+    let group_id = group_id.to_owned();
+    adapter
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                for mutation in mutations {
+                    apply_group_patch_mutation(transaction.as_ref(), &group_id, mutation).await?;
+                }
+                Ok(())
+            })
+        }))
+        .await
+        .map_err(ScimErrorOrOpenAuth::OpenAuth)
+}
+
+enum GroupPatchMutation {
+    AddMembers(Vec<String>),
+    ReplaceMembers(Vec<String>),
+    ReplaceDisplayName(String),
+    RemoveMember(String),
+}
+
+async fn apply_group_patch_mutation(
+    adapter: &dyn DbAdapter,
+    group_id: &str,
+    mutation: GroupPatchMutation,
+) -> Result<(), OpenAuthError> {
+    match mutation {
+        GroupPatchMutation::AddMembers(members) => {
+            for member in members {
+                create_team_member_if_missing(adapter, group_id, &member).await?;
+            }
+        }
+        GroupPatchMutation::ReplaceMembers(members) => {
+            adapter
+                .delete_many(
+                    DeleteMany::new("team_member")
+                        .where_clause(Where::new("team_id", DbValue::String(group_id.to_owned()))),
+                )
+                .await?;
+            for member in members {
+                create_team_member_if_missing(adapter, group_id, &member).await?;
+            }
+        }
+        GroupPatchMutation::ReplaceDisplayName(display_name) => {
+            adapter
+                .update(
+                    Update::new("team")
+                        .where_clause(Where::new("id", DbValue::String(group_id.to_owned())))
+                        .data("name", DbValue::String(display_name))
+                        .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc())),
+                )
+                .await?;
+        }
+        GroupPatchMutation::RemoveMember(member_id) => {
+            adapter
+                .delete_many(
+                    DeleteMany::new("team_member")
+                        .where_clause(Where::new("team_id", DbValue::String(group_id.to_owned())))
+                        .where_clause(Where::new("user_id", DbValue::String(member_id))),
+                )
+                .await?;
+        }
+    }
     Ok(())
+}
+
+fn unsupported_group_patch_path() -> ScimError {
+    ScimError::bad_request("Unsupported Group PatchOp path").with_scim_type("invalidPath")
 }
 
 pub(super) fn group_input_member_values(members: &[ScimGroupMemberInput]) -> Vec<String> {
@@ -456,27 +564,32 @@ pub(super) async fn delete_group(
     provider_id: &str,
     group_id: &str,
 ) -> Result<(), OpenAuthError> {
+    let provider_id = provider_id.to_owned();
+    let group_id = group_id.to_owned();
     adapter
-        .delete_many(
-            DeleteMany::new("team_member")
-                .where_clause(Where::new("team_id", DbValue::String(group_id.to_owned()))),
-        )
-        .await?;
-    adapter
-        .delete_many(
-            DeleteMany::new("scimGroupProfile")
-                .where_clause(Where::new(
-                    "providerId",
-                    DbValue::String(provider_id.to_owned()),
-                ))
-                .where_clause(Where::new("teamId", DbValue::String(group_id.to_owned()))),
-        )
-        .await?;
-    adapter
-        .delete(
-            Delete::new("team")
-                .where_clause(Where::new("id", DbValue::String(group_id.to_owned()))),
-        )
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                transaction
+                    .delete_many(
+                        DeleteMany::new("team_member")
+                            .where_clause(Where::new("team_id", DbValue::String(group_id.clone()))),
+                    )
+                    .await?;
+                transaction
+                    .delete_many(
+                        DeleteMany::new("scimGroupProfile")
+                            .where_clause(Where::new("providerId", DbValue::String(provider_id)))
+                            .where_clause(Where::new("teamId", DbValue::String(group_id.clone()))),
+                    )
+                    .await?;
+                transaction
+                    .delete(
+                        Delete::new("team")
+                            .where_clause(Where::new("id", DbValue::String(group_id))),
+                    )
+                    .await
+            })
+        }))
         .await
 }
 

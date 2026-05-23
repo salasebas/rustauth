@@ -55,6 +55,10 @@ let options = ScimOptions {
 };
 ```
 
+`ScimTokenStorage::Plain` remains the default for Better Auth compatibility and
+local development. Prefer `Hashed`, `Encrypted`, or an application-owned custom
+storage mode for production deployments.
+
 ## Scope
 
 SCIM is server-side only. This crate does not ship browser SDKs, dashboard UI,
@@ -63,6 +67,14 @@ is scoped to an organization, the OpenAuth organization plugin must be installed
 and the caller must have an allowed organization role. Organization-scoped SCIM
 tokens are rejected with a controlled SCIM error when the organization plugin is
 not installed.
+
+SCIM `Groups` are backed by organization teams and therefore require an
+organization-scoped SCIM provider. Personal providers support `Users` and
+metadata endpoints, but group mutations return a controlled SCIM error.
+
+`providerId` is intentionally globally unique, matching Better Auth's provider
+connection model. A generated token may be personal or organization-scoped, but
+the same `providerId` cannot be reused for a different scope.
 
 ## Database Adapters
 
@@ -82,6 +94,11 @@ Migrations and runtime persistence are tested against these SQL adapters:
 
 The in-memory adapter is supported for tests and in-memory runtime usage, but it
 does not provide durable migrations.
+
+Redis and Valkey integrations in this repository are rate-limit stores, not SCIM
+identity stores. The root Docker Compose file includes MongoDB for broader
+adapter work, but `openauth-scim` does not use MongoDB until an OpenAuth
+MongoDB `DbAdapter` exists.
 
 ## Links
 

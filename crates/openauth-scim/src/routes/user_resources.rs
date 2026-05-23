@@ -28,12 +28,16 @@ pub(super) async fn find_scim_user(
     Ok(Some((user, account)))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn create_scim_user_account_and_membership(
     adapter: &dyn DbAdapter,
     existing_user: Option<User>,
     user_input: CreateUserInput,
     mut account_input: CreateOAuthAccountInput,
     organization_id: Option<String>,
+    provider_id: String,
+    external_id: Option<String>,
+    profile_attributes: serde_json::Value,
 ) -> Result<(User, Account), OpenAuthError> {
     let result = Arc::new(Mutex::new(None));
     let result_for_transaction = Arc::clone(&result);
@@ -55,6 +59,14 @@ pub(super) async fn create_scim_user_account_and_membership(
                     )
                     .await?;
                 }
+                upsert_scim_user_profile(
+                    transaction.as_ref(),
+                    &provider_id,
+                    &user.id,
+                    external_id.as_deref(),
+                    profile_attributes,
+                )
+                .await?;
                 store_create_scim_user_result(
                     &result_for_transaction,
                     CreateScimUserResult { user, account },
@@ -102,6 +114,7 @@ pub(super) async fn load_user_resources(
     provider: &AuthenticatedScimProvider,
     filter: Option<&str>,
 ) -> Result<Vec<ScimUserResource>, ScimErrorOrOpenAuth> {
+    let db_filters = filter.and_then(|filter| parse_user_filter(filter).ok());
     let accounts = adapter
         .find_many(
             FindMany::new("account")
@@ -153,17 +166,29 @@ pub(super) async fn load_user_resources(
         }
     }
 
-    let query = FindMany::new("user")
-        .where_clause(Where::new("id", DbValue::StringArray(user_ids)).operator(WhereOperator::In))
-        .select([
-            "id",
-            "name",
-            "email",
-            "email_verified",
-            "image",
-            "created_at",
-            "updated_at",
-        ]);
+    let mut query = FindMany::new("user")
+        .where_clause(Where::new("id", DbValue::StringArray(user_ids)).operator(WhereOperator::In));
+    if let Some(filters) = db_filters.as_deref() {
+        for filter in filters {
+            match filter.operator {
+                ScimFilterOperator::Eq => {
+                    query = query.where_clause(Where::new(
+                        &filter.field,
+                        DbValue::String(filter.value.clone()),
+                    ));
+                }
+            }
+        }
+    }
+    let query = query.select([
+        "id",
+        "name",
+        "email",
+        "email_verified",
+        "image",
+        "created_at",
+        "updated_at",
+    ]);
     let users = adapter
         .find_many(query)
         .await
@@ -179,7 +204,7 @@ pub(super) async fn load_user_resources(
             let resource = complete_user_resource(adapter, base_url, provider, &user, account)
                 .await
                 .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
-            if let Some(filter) = filter {
+            if let Some(filter) = filter.filter(|_| db_filters.is_none()) {
                 let value = serde_json::to_value(&resource).map_err(|error| {
                     ScimErrorOrOpenAuth::OpenAuth(OpenAuthError::Api(error.to_string()))
                 })?;
@@ -529,14 +554,19 @@ fn remove_json_field(object: &mut serde_json::Map<String, serde_json::Value>, pa
     object.remove(path);
 }
 
-pub(super) async fn update_scim_user_and_account(
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn update_scim_user_account_and_replace_profile(
     adapter: &dyn DbAdapter,
+    provider_id: &str,
     user_id: &str,
     account_record_id: &str,
     email: Option<String>,
     name: Option<String>,
     account_id: Option<String>,
+    external_id: Option<String>,
+    attributes: serde_json::Value,
 ) -> Result<(), OpenAuthError> {
+    let provider_id = provider_id.to_owned();
     let user_id = user_id.to_owned();
     let account_record_id = account_record_id.to_owned();
     adapter
@@ -555,7 +585,96 @@ pub(super) async fn update_scim_user_and_account(
                     update_account_id(transaction.as_ref(), &account_record_id, &account_id)
                         .await?;
                 }
+                upsert_scim_user_profile(
+                    transaction.as_ref(),
+                    &provider_id,
+                    &user_id,
+                    external_id.as_deref(),
+                    attributes,
+                )
+                .await
+            })
+        }))
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn update_scim_user_account_and_merge_profile(
+    adapter: &dyn DbAdapter,
+    provider_id: &str,
+    user_id: &str,
+    account_record_id: &str,
+    email: Option<String>,
+    name: Option<String>,
+    account_id: Option<String>,
+    profile_patch: indexmap::IndexMap<String, serde_json::Value>,
+) -> Result<(), OpenAuthError> {
+    let provider_id = provider_id.to_owned();
+    let user_id = user_id.to_owned();
+    let account_record_id = account_record_id.to_owned();
+    adapter
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                let users = DbUserStore::new(transaction.as_ref());
+                if let Some(email) = email {
+                    users.update_user_email(&user_id, &email, true).await?;
+                }
+                if let Some(name) = name {
+                    users
+                        .update_user(&user_id, UpdateUserInput::new().name(name))
+                        .await?;
+                }
+                if let Some(account_id) = account_id {
+                    update_account_id(transaction.as_ref(), &account_record_id, &account_id)
+                        .await?;
+                }
+                if !profile_patch.is_empty() {
+                    merge_scim_user_profile_patch(
+                        transaction.as_ref(),
+                        &provider_id,
+                        &user_id,
+                        profile_patch,
+                    )
+                    .await?;
+                }
                 Ok(())
+            })
+        }))
+        .await
+}
+
+pub(super) fn patched_account_id(user: &User, patch: &crate::patch::UserPatch) -> Option<String> {
+    let value = patch.account.get("account_id")?;
+    if value.is_null() {
+        Some(user.email.clone())
+    } else {
+        value.as_str().map(str::to_owned)
+    }
+}
+
+pub(super) async fn delete_scim_user(
+    adapter: &dyn DbAdapter,
+    user_id: &str,
+) -> Result<(), OpenAuthError> {
+    let user_id = user_id.to_owned();
+    adapter
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                transaction
+                    .delete_many(
+                        DeleteMany::new("scimUserProfile")
+                            .where_clause(Where::new("userId", DbValue::String(user_id.clone()))),
+                    )
+                    .await?;
+                transaction
+                    .delete_many(
+                        DeleteMany::new("team_member")
+                            .where_clause(Where::new("user_id", DbValue::String(user_id.clone()))),
+                    )
+                    .await?;
+                let users = DbUserStore::new(transaction.as_ref());
+                users.delete_user_accounts(&user_id).await?;
+                users.delete_user(&user_id).await
             })
         }))
         .await

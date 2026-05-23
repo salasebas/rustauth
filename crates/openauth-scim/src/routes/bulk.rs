@@ -348,10 +348,7 @@ async fn execute_bulk_operation(
                     ScimError::not_found("User not found"),
                 );
             };
-            DbUserStore::new(adapter)
-                .delete_user_accounts(&user.id)
-                .await?;
-            DbUserStore::new(adapter).delete_user(&user.id).await?;
+            delete_scim_user(adapter, &user.id).await?;
             return Ok(BulkOperationResponse {
                 method,
                 path: Some(path),
@@ -626,13 +623,8 @@ async fn bulk_create_user(
             scope: None,
         },
         provider.organization_id.clone(),
-    )
-    .await?;
-    upsert_scim_user_profile(
-        adapter,
-        &provider.provider_id,
-        &user.id,
-        input.external_id.as_deref(),
+        provider.provider_id.clone(),
+        input.external_id.clone(),
         profile_attributes,
     )
     .await?;
@@ -704,18 +696,13 @@ async fn bulk_create_group(
         let (status, body) = scim_or_openauth_value(error)?;
         return Ok((status, body, None));
     }
-    let team = create_team_for_group(adapter, organization_id, input.display_name.trim()).await?;
-    create_scim_group_profile(
+    let team = create_group_with_profile_and_members(
         adapter,
         &provider.provider_id,
         organization_id,
-        &team.id,
-        input.external_id.as_deref(),
+        input,
     )
     .await?;
-    for member in &input.members {
-        create_team_member_if_missing(adapter, &team.id, &member.value).await?;
-    }
     let resource = load_group_resource(
         adapter,
         base_url,
@@ -780,20 +767,15 @@ async fn bulk_update_user(
     let name = user_full_name(&email, input.name.as_ref());
     let next_account_id = account_id(&input.user_name, input.external_id.as_deref());
     let profile_attributes = scim_user_profile_attributes(&input);
-    update_scim_user_and_account(
+    update_scim_user_account_and_replace_profile(
         adapter,
+        &provider.provider_id,
         &user.id,
         &account.id,
         Some(email),
         Some(name),
         Some(next_account_id),
-    )
-    .await?;
-    upsert_scim_user_profile(
-        adapter,
-        &provider.provider_id,
-        &user.id,
-        input.external_id.as_deref(),
+        input.external_id,
         profile_attributes,
     )
     .await?;
@@ -993,8 +975,9 @@ async fn bulk_patch_user(
             ));
         }
     };
-    update_scim_user_and_account(
+    update_scim_user_account_and_merge_profile(
         adapter,
+        &provider.provider_id,
         &user.id,
         &account.id,
         patch
@@ -1007,17 +990,10 @@ async fn bulk_patch_user(
             .get("name")
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned),
-        patch
-            .account
-            .get("account_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned),
+        patched_account_id(&user, &patch),
+        patch.profile,
     )
     .await?;
-    if !patch.profile.is_empty() {
-        merge_scim_user_profile_patch(adapter, &provider.provider_id, &user.id, patch.profile)
-            .await?;
-    }
     let Some((updated_user, updated_account)) = find_scim_user(
         adapter,
         &user.id,

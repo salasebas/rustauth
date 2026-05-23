@@ -376,6 +376,51 @@ async fn groups_patch_rejects_nested_groups_and_unknown_members() {
         .expect("request should succeed");
     assert_eq!(missing.status(), StatusCode::BAD_REQUEST);
     assert_eq!(json_body(missing)["scimType"], "invalidValue");
+
+    let empty_display_name = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{group_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"replace","path":"displayName","value":"   "}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(empty_display_name.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(empty_display_name)["scimType"], "invalidValue");
+
+    let unsupported_path = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{group_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"replace","path":"externalId","value":"ignored"}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(unsupported_path.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(unsupported_path)["scimType"], "invalidPath");
+
+    let no_effect = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{group_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"remove","path":"displayName"}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(no_effect.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(no_effect)["scimType"], "invalidPath");
 }
 
 #[tokio::test]

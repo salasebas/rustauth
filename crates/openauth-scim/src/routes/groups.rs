@@ -43,9 +43,6 @@ pub(super) fn create_group_endpoint(
                 if let Err(error) = reject_nested_group_members(&input.members) {
                     return error.into_response();
                 }
-                if let Err(error) = validate_group_display_name(&input.display_name) {
-                    return error.into_response();
-                }
                 if let Err(error) = validate_group_member_users(
                     adapter.as_ref(),
                     &provider.provider_id,
@@ -57,24 +54,13 @@ pub(super) fn create_group_endpoint(
                     return error.into_response();
                 }
 
-                let team = create_team_for_group(
-                    adapter.as_ref(),
-                    organization_id,
-                    input.display_name.trim(),
-                )
-                .await?;
-                create_scim_group_profile(
+                let team = create_group_with_profile_and_members(
                     adapter.as_ref(),
                     &provider.provider_id,
                     organization_id,
-                    &team.id,
-                    input.external_id.as_deref(),
+                    input,
                 )
                 .await?;
-                for member in &input.members {
-                    create_team_member_if_missing(adapter.as_ref(), &team.id, &member.value)
-                        .await?;
-                }
 
                 let resource = load_group_resource(
                     adapter.as_ref(),

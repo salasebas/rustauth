@@ -1005,6 +1005,58 @@ async fn user_patch_replaces_and_removes_multivalued_attributes() {
 }
 
 #[tokio::test]
+async fn user_patch_remove_external_id_resets_account_id_to_user_name() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+    let created = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Users",
+            r#"{"userName":"remove-external@example.com","externalId":"upstream-123"}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    let user_id = json_body(created)["id"].as_str().expect("id").to_owned();
+
+    let patch = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Users/{user_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"remove","path":"externalId"}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(patch.status(), StatusCode::NO_CONTENT);
+
+    let fetched = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{user_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(
+        json_body(fetched)["externalId"],
+        "remove-external@example.com"
+    );
+}
+
+#[tokio::test]
 async fn user_patch_rejects_read_only_attributes_with_mutability_error() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     ScimProviderStore::new(adapter.as_ref())
@@ -1160,6 +1212,67 @@ async fn users_route_gets_patches_and_deletes_scim_user() {
         .await
         .expect("request should succeed");
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn users_route_delete_removes_scim_profile_and_team_memberships() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(ScimOptions::default()).expect("router");
+    let (owner_cookie, owner_id) =
+        session_cookie_with_user(adapter.as_ref(), &context, "cleanup-owner@example.com")
+            .await
+            .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let user_id =
+        create_scim_user(&router, &token, "cleanup-user@example.com", "Cleanup User").await;
+    let group_id = create_scim_group(
+        &router,
+        &token,
+        "Cleanup Group",
+        "cleanup-group",
+        &[&user_id],
+    )
+    .await;
+
+    let delete = router
+        .handle_async(auth_request(
+            Method::DELETE,
+            &format!("/scim/v2/Users/{user_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+
+    let profiles = adapter.records("scimUserProfile").await;
+    assert!(
+        profiles.iter().all(|record| {
+            !matches!(record.get("userId"), Some(DbValue::String(value)) if value == &user_id)
+        }),
+        "deleted users must not leave SCIM user profiles"
+    );
+    let memberships = adapter.records("team_member").await;
+    assert!(
+        memberships.iter().all(|record| {
+            !matches!(record.get("user_id"), Some(DbValue::String(value)) if value == &user_id)
+        }),
+        "deleted users must not leave team memberships"
+    );
+    let group = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Groups/{group_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert!(json_body(group).get("members").is_none());
 }
 
 #[tokio::test]

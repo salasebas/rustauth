@@ -189,13 +189,8 @@ pub(super) fn create_user_endpoint(
                     user_input,
                     account_input,
                     provider.organization_id.clone(),
-                )
-                .await?;
-                upsert_scim_user_profile(
-                    adapter.as_ref(),
-                    &provider.provider_id,
-                    &user.id,
-                    input.external_id.as_deref(),
+                    provider.provider_id.clone(),
+                    input.external_id.clone(),
                     user_profile_attributes,
                 )
                 .await?;
@@ -294,20 +289,15 @@ pub(super) fn put_user_endpoint(
                     return error.into_response();
                 }
 
-                update_scim_user_and_account(
+                update_scim_user_account_and_replace_profile(
                     adapter.as_ref(),
+                    &provider.provider_id,
                     &user.id,
                     &account.id,
                     Some(email),
                     Some(name),
                     Some(next_account_id),
-                )
-                .await?;
-                upsert_scim_user_profile(
-                    adapter.as_ref(),
-                    &provider.provider_id,
-                    &user.id,
-                    input.external_id.as_deref(),
+                    input.external_id,
                     user_profile_attributes,
                 )
                 .await?;
@@ -419,8 +409,9 @@ pub(super) fn patch_user_endpoint(
                     Err(error) => return error.into_response(),
                 };
 
-                update_scim_user_and_account(
+                update_scim_user_account_and_merge_profile(
                     adapter.as_ref(),
+                    &provider.provider_id,
                     &user.id,
                     &account.id,
                     patch
@@ -433,22 +424,10 @@ pub(super) fn patch_user_endpoint(
                         .get("name")
                         .and_then(serde_json::Value::as_str)
                         .map(str::to_owned),
-                    patch
-                        .account
-                        .get("account_id")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned),
+                    patched_account_id(&user, &patch),
+                    patch.profile,
                 )
                 .await?;
-                if !patch.profile.is_empty() {
-                    merge_scim_user_profile_patch(
-                        adapter.as_ref(),
-                        &provider.provider_id,
-                        &user.id,
-                        patch.profile,
-                    )
-                    .await?;
-                }
 
                 Response::builder()
                     .status(StatusCode::NO_CONTENT)
@@ -486,7 +465,6 @@ pub(super) fn delete_user_endpoint(
                 let Some(user_id) = path_param(&request, "userId") else {
                     return ScimError::not_found("User not found").into_response();
                 };
-                let users = DbUserStore::new(adapter.as_ref());
                 let Some((user, account)) = find_scim_user(
                     adapter.as_ref(),
                     &user_id,
@@ -510,8 +488,7 @@ pub(super) fn delete_user_endpoint(
                 {
                     return error.into_response();
                 }
-                users.delete_user_accounts(&user_id).await?;
-                users.delete_user(&user_id).await?;
+                delete_scim_user(adapter.as_ref(), &user.id).await?;
                 Response::builder()
                     .status(StatusCode::NO_CONTENT)
                     .body(Vec::new())

@@ -22,7 +22,7 @@ use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
 
 use crate::errors::ScimError;
-use crate::filters::resource_matches_filter;
+use crate::filters::{parse_user_filter, resource_matches_filter, ScimFilterOperator};
 use crate::mappings::{account_id, primary_email, user_full_name, ScimEmail, ScimName};
 use crate::metadata;
 use crate::options::{
