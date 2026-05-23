@@ -2476,6 +2476,7 @@ dependencies = [
  "http",
  "openauth-core",
  "openauth-deadpool-postgres",
+ "openauth-i18n",
  "openauth-passkey",
  "openauth-plugins",
  "openauth-scim",
@@ -2662,6 +2663,7 @@ dependencies = [
 name = "openauth-passkey"
 version = "0.0.5"
 dependencies = [
+ "base64 0.22.1",
  "http",
  "indexmap 2.14.0",
  "openauth-core",
@@ -2689,7 +2691,9 @@ dependencies = [
  "josekit",
  "openauth-core",
  "openauth-oauth",
+ "openauth-redis",
  "openauth-social-providers",
+ "openauth-sqlx",
  "rand 0.8.6",
  "reqwest",
  "serde",
@@ -2697,6 +2701,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "sha3",
+ "sqlx",
  "subtle",
  "thiserror 2.0.18",
  "time",
@@ -2761,6 +2766,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4163,6 +4169,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -4243,6 +4250,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tracing",
+ "uuid",
  "whoami 1.6.1",
 ]
 
@@ -4281,6 +4289,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tracing",
+ "uuid",
  "whoami 1.6.1",
 ]
 
@@ -4307,6 +4316,7 @@ dependencies = [
  "time",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]

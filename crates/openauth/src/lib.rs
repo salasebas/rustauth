@@ -72,6 +72,8 @@ pub use openauth_core::{
 pub use openauth_core::{oauth, social_providers};
 #[cfg(feature = "deadpool-postgres")]
 pub use openauth_deadpool_postgres as deadpool_postgres;
+#[cfg(feature = "i18n")]
+pub use openauth_i18n as i18n;
 #[cfg(feature = "passkey")]
 pub use openauth_passkey as passkey;
 #[cfg(feature = "plugins")]

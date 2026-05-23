@@ -88,6 +88,13 @@ fn openauth_builder_exposes_primary_initializer() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+#[cfg(feature = "i18n")]
+#[test]
+fn i18n_feature_reexports_i18n_crate() {
+    let dictionary = openauth::i18n::translation_dictionary([("CODE", "Message")]);
+    assert_eq!(dictionary.get("CODE").map(String::as_str), Some("Message"));
+}
+
 #[test]
 fn openauth_builder_accepts_adapter_and_extra_endpoints() -> Result<(), Box<dyn std::error::Error>>
 {

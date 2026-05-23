@@ -18,6 +18,7 @@ path = "src/lib.rs"
 http.workspace = true
 openauth-core.workspace = true
 openauth-deadpool-postgres = { workspace = true, optional = true }
+openauth-i18n = { workspace = true, optional = true }
 openauth-passkey = { workspace = true, optional = true }
 openauth-plugins = { workspace = true, optional = true }
 openauth-scim = { workspace = true, optional = true }
@@ -31,6 +32,7 @@ tokio.workspace = true
 [features]
 default = []
 deadpool-postgres = ["dep:openauth-deadpool-postgres"]
+i18n = ["dep:openauth-i18n"]
 passkey = ["dep:openauth-passkey"]
 plugins = ["dep:openauth-plugins"]
 scim = ["dep:openauth-scim"]
