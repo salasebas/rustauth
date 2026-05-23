@@ -10,7 +10,7 @@ use openauth_core::cookies::{set_session_cookie, Cookie, SessionCookieOptions};
 use openauth_core::db::{Create, DbAdapter, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, OpenAuthOptions, SecondaryStorage, TrustedOriginOptions,
+    AdvancedOptions, OpenAuthOptions, SecondaryStorage, SessionOptions, TrustedOriginOptions,
 };
 use openauth_core::plugin::AuthPlugin;
 use openauth_sso::{sso, SsoOptions};
@@ -132,6 +132,10 @@ fn router_with_options_storage_trusted_origins_extra_plugins_and_advanced(
             secret: Some(SECRET.to_owned()),
             plugins,
             trusted_origins: TrustedOriginOptions::Static(trusted_origins),
+            session: SessionOptions {
+                store_session_in_database: secondary_storage.is_some(),
+                ..SessionOptions::default()
+            },
             secondary_storage,
             advanced,
             ..OpenAuthOptions::default()

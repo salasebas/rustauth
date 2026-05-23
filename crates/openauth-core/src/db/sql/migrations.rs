@@ -307,9 +307,12 @@ pub fn plan_schema_migration(
     }
 
     for (table_logical_name, table) in tables {
+        let table_exists = snapshot.table_exists(&table.name);
         for (logical_name, field) in &table.fields {
             if field.index || field.unique {
-                if field.unique && snapshot.unique_column_exists(&table.name, &field.name) {
+                if field.unique
+                    && (!table_exists || snapshot.unique_column_exists(&table.name, &field.name))
+                {
                     continue;
                 }
                 let prefix = if field.unique { "uidx" } else { "idx" };

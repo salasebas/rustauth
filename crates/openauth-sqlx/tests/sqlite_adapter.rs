@@ -267,11 +267,12 @@ async fn sqlite_adapter_returns_database_generated_serial_ids() -> Result<(), Op
 
 #[tokio::test]
 async fn sqlite_connect_enables_foreign_keys_for_pooled_connections() -> Result<(), OpenAuthError> {
-    let database_url = format!(
-        "sqlite:///private/tmp/openauth_sqlx_fk_{}_{}.db?mode=rwc",
+    let database_path = std::env::temp_dir().join(format!(
+        "openauth_sqlx_fk_{}_{}.db",
         std::process::id(),
         OffsetDateTime::now_utc().unix_timestamp_nanos()
-    );
+    ));
+    let database_url = format!("sqlite://{}?mode=rwc", database_path.to_string_lossy());
     let schema = auth_schema(AuthSchemaOptions::default());
     let adapter = SqliteAdapter::connect_with_schema(&database_url, schema.clone()).await?;
     adapter.create_schema(&schema, None).await?;
