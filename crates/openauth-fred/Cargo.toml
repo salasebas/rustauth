@@ -15,7 +15,7 @@ categories.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-fred = { version = "10.1", default-features = false, features = ["i-scripts", "sha-1"] }
+fred = { version = "10.1", default-features = false, features = ["i-keys", "i-scripts", "sha-1"] }
 openauth-core.workspace = true
 tokio.workspace = true
 

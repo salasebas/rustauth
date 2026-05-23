@@ -7,6 +7,7 @@ use openauth_core::options::{
     RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitStore,
 };
 
+use crate::error::fred_error;
 use crate::script::{parse_rate_limit_script_result, RATE_LIMIT_SCRIPT};
 use crate::{normalize_fred_url, FredRateLimitOptions};
 
@@ -34,16 +35,7 @@ impl FredRateLimitStore {
         url: &str,
         options: FredRateLimitOptions,
     ) -> Result<Self, OpenAuthError> {
-        let url = normalize_fred_url(url);
-        let config = Config::from_url(url.as_ref())
-            .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
-        let client = Builder::from_config(config)
-            .build()
-            .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
-        client
-            .init()
-            .await
-            .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+        let client = connect_client(url).await?;
         Ok(Self::new(client, options))
     }
 
@@ -63,8 +55,8 @@ impl FredRateLimitStore {
 impl RateLimitStore for FredRateLimitStore {
     fn consume<'a>(&'a self, input: RateLimitConsumeInput) -> RateLimitFuture<'a> {
         Box::pin(async move {
+            let window_ms = validate_rule(&input)?;
             let redis_key = self.key(&input.key);
-            let window_ms = input.rule.window.saturating_mul(1000);
             let result = self
                 .script
                 .evalsha_with_reload(
@@ -77,7 +69,7 @@ impl RateLimitStore for FredRateLimitStore {
                     ],
                 )
                 .await
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+                .map_err(|error| fred_error("eval rate limit script", error))?;
             let result = parse_rate_limit_script_result(result)?;
             let retry_ms = result
                 .last_request
@@ -97,6 +89,41 @@ impl RateLimitStore for FredRateLimitStore {
             })
         })
     }
+}
+
+pub(crate) async fn connect_client(url: &str) -> Result<Client, OpenAuthError> {
+    let url = normalize_fred_url(url);
+    let config = Config::from_url(url.as_ref()).map_err(|error| fred_error("parse url", error))?;
+    let client = Builder::from_config(config)
+        .build()
+        .map_err(|error| fred_error("build client", error))?;
+    client
+        .init()
+        .await
+        .map_err(|error| fred_error("connect", error))?;
+    Ok(client)
+}
+
+fn validate_rule(input: &RateLimitConsumeInput) -> Result<u64, OpenAuthError> {
+    if input.rule.window == 0 {
+        return Err(OpenAuthError::InvalidConfig(
+            "rate limit window must be greater than zero".to_owned(),
+        ));
+    }
+    if input.rule.max == 0 {
+        return Err(OpenAuthError::InvalidConfig(
+            "rate limit max must be greater than zero".to_owned(),
+        ));
+    }
+    let window_ms = input.rule.window.checked_mul(1000).ok_or_else(|| {
+        OpenAuthError::InvalidConfig("rate limit window milliseconds overflowed".to_owned())
+    })?;
+    i64::try_from(window_ms).map_err(|_| {
+        OpenAuthError::InvalidConfig("rate limit window milliseconds must fit in i64".to_owned())
+    })?;
+    i64::try_from(input.rule.max)
+        .map_err(|_| OpenAuthError::InvalidConfig("rate limit max must fit in i64".to_owned()))?;
+    Ok(window_ms)
 }
 
 fn ceil_millis_to_seconds(milliseconds: i64) -> u64 {

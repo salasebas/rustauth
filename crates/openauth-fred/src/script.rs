@@ -18,7 +18,7 @@ local data = redis.call("HMGET", key, "count", "last_request")
 local count = tonumber(data[1])
 local last_request = tonumber(data[2])
 
-if count == nil or last_request == nil or (now - last_request) > window then
+if count == nil or last_request == nil or (now - last_request) >= window then
   redis.call("HSET", key, "count", 1, "last_request", now)
   redis.call("PEXPIRE", key, window)
   return {1, 1, now}
@@ -50,12 +50,25 @@ pub fn parse_rate_limit_script_result(
                 values.len()
             ))
         })?;
-    let permitted = integer_value(permitted, "permitted")? == 1;
-    let count = integer_value(count, "count")?.max(0) as u64;
+    let permitted = match integer_value(permitted, "permitted")? {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(OpenAuthError::Adapter(
+                "invalid fred rate limit script result: `permitted` was not 0 or 1".to_owned(),
+            ));
+        }
+    };
+    let count = integer_value(count, "count")?;
+    if count < 0 {
+        return Err(OpenAuthError::Adapter(
+            "invalid fred rate limit script result: `count` was negative".to_owned(),
+        ));
+    }
     let last_request = integer_value(last_request, "last_request")?;
     Ok(RateLimitScriptResult {
         permitted,
-        count,
+        count: count as u64,
         last_request,
     })
 }

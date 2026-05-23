@@ -1,0 +1,132 @@
+use fred::clients::Client;
+use fred::interfaces::KeysInterface;
+use fred::types::Expiration;
+use openauth_core::error::OpenAuthError;
+use openauth_core::options::{SecondaryStorage, SecondaryStorageFuture};
+
+use crate::error::fred_error;
+use crate::store::connect_client;
+use crate::FredSecondaryStorageOptions;
+
+#[derive(Clone)]
+pub struct FredSecondaryStorage {
+    client: Client,
+    options: FredSecondaryStorageOptions,
+}
+
+impl FredSecondaryStorage {
+    pub async fn connect(url: &str) -> Result<Self, OpenAuthError> {
+        Self::connect_with_options(url, FredSecondaryStorageOptions::default()).await
+    }
+
+    pub async fn connect_redis(url: &str) -> Result<Self, OpenAuthError> {
+        Self::connect(url).await
+    }
+
+    pub async fn connect_valkey(url: &str) -> Result<Self, OpenAuthError> {
+        Self::connect(url).await
+    }
+
+    pub async fn connect_with_options(
+        url: &str,
+        options: FredSecondaryStorageOptions,
+    ) -> Result<Self, OpenAuthError> {
+        let client = connect_client(url).await?;
+        Ok(Self::new(client, options))
+    }
+
+    pub fn new(client: Client, options: FredSecondaryStorageOptions) -> Self {
+        Self { client, options }
+    }
+
+    pub async fn list_keys(&self) -> Result<Vec<String>, OpenAuthError> {
+        let pattern = format!("{}*", self.options.key_prefix);
+        let mut cursor = "0".to_owned();
+        let mut keys = Vec::new();
+
+        loop {
+            let (next_cursor, page): (String, Vec<String>) = self
+                .client
+                .scan_page(cursor, pattern.clone(), Some(self.options.scan_count), None)
+                .await
+                .map_err(|error| fred_error("secondary scan", error))?;
+            for key in page {
+                if let Some(unprefixed) = key.strip_prefix(&self.options.key_prefix) {
+                    keys.push(unprefixed.to_owned());
+                }
+            }
+            if next_cursor == "0" {
+                break;
+            }
+            cursor = next_cursor;
+        }
+
+        Ok(keys)
+    }
+
+    pub async fn clear(&self) -> Result<(), OpenAuthError> {
+        let keys = self
+            .list_keys()
+            .await?
+            .into_iter()
+            .map(|key| self.prefixed_key(&key))
+            .collect::<Vec<_>>();
+        if keys.is_empty() {
+            return Ok(());
+        }
+        self.client
+            .del::<u64, _>(keys)
+            .await
+            .map_err(|error| fred_error("secondary clear", error))?;
+        Ok(())
+    }
+
+    fn prefixed_key(&self, key: &str) -> String {
+        format!("{}{key}", self.options.key_prefix)
+    }
+}
+
+impl SecondaryStorage for FredSecondaryStorage {
+    fn get<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move {
+            self.client
+                .get::<Option<String>, _>(self.prefixed_key(key))
+                .await
+                .map_err(|error| fred_error("secondary get", error))
+        })
+    }
+
+    fn set<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            let expire = ttl_seconds
+                .filter(|ttl| *ttl > 0)
+                .map(|ttl| {
+                    i64::try_from(ttl).map(Expiration::EX).map_err(|_| {
+                        OpenAuthError::InvalidConfig(
+                            "secondary storage ttl must fit in i64".to_owned(),
+                        )
+                    })
+                })
+                .transpose()?;
+            self.client
+                .set::<(), _, _>(self.prefixed_key(key), value, expire, None, false)
+                .await
+                .map_err(|error| fred_error("secondary set", error))
+        })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.client
+                .del::<u64, _>(self.prefixed_key(key))
+                .await
+                .map_err(|error| fred_error("secondary delete", error))?;
+            Ok(())
+        })
+    }
+}

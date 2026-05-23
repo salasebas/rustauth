@@ -24,7 +24,7 @@ local data = redis.call("HMGET", key, "count", "last_request")
 local count = tonumber(data[1])
 local last_request = tonumber(data[2])
 
-if count == nil or last_request == nil or (now - last_request) > window then
+if count == nil or last_request == nil or (now - last_request) >= window then
   redis.call("HSET", key, "count", 1, "last_request", now)
   redis.call("PEXPIRE", key, window)
   return {1, 1, now}
@@ -93,22 +93,36 @@ fn normalize_redis_url(redis_url: &str) -> Cow<'_, str> {
 impl RateLimitStore for RedisRateLimitStore {
     fn consume<'a>(&'a self, input: RateLimitConsumeInput) -> RateLimitFuture<'a> {
         Box::pin(async move {
+            let window_ms = validate_rule(&input)?;
             let redis_key = self.key(&input.key);
-            let window_ms = input.rule.window.saturating_mul(1000);
             let mut manager = self.manager.clone();
             let result: (i64, i64, i64) = Script::new(RATE_LIMIT_SCRIPT)
                 .key(redis_key)
                 .arg(input.now_ms)
-                .arg(window_ms as i64)
+                .arg(window_ms)
                 .arg(input.rule.max as i64)
                 .invoke_async(&mut manager)
                 .await
                 .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
-            let permitted = result.0 == 1;
-            let count = result.1.max(0) as u64;
+            let permitted = match result.0 {
+                0 => false,
+                1 => true,
+                _ => {
+                    return Err(OpenAuthError::Adapter(
+                        "invalid redis rate limit script result: `permitted` was not 0 or 1"
+                            .to_owned(),
+                    ));
+                }
+            };
+            if result.1 < 0 {
+                return Err(OpenAuthError::Adapter(
+                    "invalid redis rate limit script result: `count` was negative".to_owned(),
+                ));
+            }
+            let count = result.1 as u64;
             let last_request = result.2;
             let retry_ms = last_request
-                .saturating_add(window_ms as i64)
+                .saturating_add(window_ms)
                 .saturating_sub(input.now_ms)
                 .max(0);
             Ok(RateLimitDecision {
@@ -124,6 +138,28 @@ impl RateLimitStore for RedisRateLimitStore {
             })
         })
     }
+}
+
+fn validate_rule(input: &RateLimitConsumeInput) -> Result<i64, OpenAuthError> {
+    if input.rule.window == 0 {
+        return Err(OpenAuthError::InvalidConfig(
+            "rate limit window must be greater than zero".to_owned(),
+        ));
+    }
+    if input.rule.max == 0 {
+        return Err(OpenAuthError::InvalidConfig(
+            "rate limit max must be greater than zero".to_owned(),
+        ));
+    }
+    let window_ms = input.rule.window.checked_mul(1000).ok_or_else(|| {
+        OpenAuthError::InvalidConfig("rate limit window milliseconds overflowed".to_owned())
+    })?;
+    let window_ms = i64::try_from(window_ms).map_err(|_| {
+        OpenAuthError::InvalidConfig("rate limit window milliseconds must fit in i64".to_owned())
+    })?;
+    i64::try_from(input.rule.max)
+        .map_err(|_| OpenAuthError::InvalidConfig("rate limit max must fit in i64".to_owned()))?;
+    Ok(window_ms)
 }
 
 fn ceil_millis_to_seconds(milliseconds: i64) -> u64 {
