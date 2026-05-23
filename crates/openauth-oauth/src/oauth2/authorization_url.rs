@@ -54,6 +54,41 @@ impl Default for AuthorizationUrlRequest {
     }
 }
 
+impl AuthorizationUrlRequest {
+    pub fn try_new(
+        id: impl Into<String>,
+        options: ProviderOptions,
+        authorization_endpoint: impl Into<String>,
+        redirect_uri: impl Into<String>,
+        state: impl Into<String>,
+    ) -> Result<Self, OAuthError> {
+        let authorization_endpoint = authorization_endpoint.into();
+        let redirect_uri = redirect_uri.into();
+        url::Url::parse(
+            options
+                .authorization_endpoint
+                .as_deref()
+                .unwrap_or(&authorization_endpoint),
+        )?;
+        url::Url::parse(options.redirect_uri.as_deref().unwrap_or(&redirect_uri))?;
+        get_primary_client_id(&options.client_id).ok_or(OAuthError::MissingOption("client_id"))?;
+        let state = state.into();
+        if state.is_empty() {
+            return Err(OAuthError::InvalidConfiguration(
+                "authorization state cannot be empty".to_owned(),
+            ));
+        }
+        Ok(Self {
+            id: id.into(),
+            options,
+            authorization_endpoint,
+            redirect_uri,
+            state,
+            ..Self::default()
+        })
+    }
+}
+
 pub fn create_authorization_url(input: AuthorizationUrlRequest) -> Result<Url, OAuthError> {
     let endpoint = input
         .options

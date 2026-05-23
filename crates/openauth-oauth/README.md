@@ -25,6 +25,38 @@ let challenge = generate_code_challenge("a-long-random-code-verifier")?;
 Most applications will consume this indirectly through `openauth` or
 `openauth-social-providers`; provider authors can use it directly.
 
+## Security Notes
+
+- HTTP helpers use a reusable `reqwest` client with a default timeout and parse
+  OAuth error response bodies into typed errors.
+- `OAuthHttpClientConfig` can be used to set a custom timeout and user-agent,
+  or callers can inject a prebuilt `reqwest::Client`.
+- Request builders keep standard OAuth fields from being overwritten by
+  authorization-code `additional_params`.
+- HTTP Basic client authentication uses standard Base64 encoding for RFC 7617
+  compatibility.
+- JWS verification allows asymmetric algorithms by default. HMAC algorithms
+  (`HS256`, `HS384`, `HS512`) require explicit opt-in with
+  `TokenValidationOptions::allow_hmac_algorithms()`.
+- JWKS responses are cached per URL and refetched when a token references an
+  unknown `kid`; `clear_jwks_cache()` is available for explicit rotation or
+  tests.
+- Required token claims validate both presence and basic type shape for JWT and
+  introspection payloads.
+- Default provider errors do not include access, refresh, ID, or revocation
+  tokens.
+
+## Upstream Compatibility Notes
+
+This crate follows Better Auth's observable OAuth helper behavior where it
+fits Rust server-side boundaries. Intentional differences:
+
+- Authorization-code `additional_params` are additive by default; use
+  `override_params` for explicit provider-specific overrides.
+- Remote JWKS verification rejects `HS*` algorithms unless explicitly enabled.
+- Verification code is split by concern (`claims`, `token_validation`, `jwks`,
+  `introspection`) while compatibility re-exports remain under `oauth2`.
+
 ## Links
 
 - [Root README](../../README.md)

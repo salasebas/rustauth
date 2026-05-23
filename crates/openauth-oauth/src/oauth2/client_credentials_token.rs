@@ -2,7 +2,7 @@ use super::error::OAuthError;
 use super::request::{
     apply_client_authentication, post_form, ClientAuthentication, OAuthFormRequest,
 };
-use super::tokens::{get_oauth2_tokens, OAuth2Tokens, ProviderOptions};
+use super::tokens::{get_oauth2_tokens, get_primary_client_id, OAuth2Tokens, ProviderOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientCredentialsTokenRequest {
@@ -23,6 +23,21 @@ impl Default for ClientCredentialsTokenRequest {
     }
 }
 
+impl ClientCredentialsTokenRequest {
+    pub fn try_new(options: ProviderOptions) -> Result<Self, OAuthError> {
+        get_primary_client_id(&options.client_id).ok_or(OAuthError::MissingOption("client_id"))?;
+        options
+            .client_secret
+            .as_deref()
+            .filter(|secret| !secret.is_empty())
+            .ok_or(OAuthError::MissingOption("client_secret"))?;
+        Ok(Self {
+            options,
+            ..Self::default()
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientCredentialsGrant {
     pub token_endpoint: String,
@@ -40,6 +55,8 @@ pub fn create_client_credentials_token_request(
     for resource in input.resource {
         request.push_body("resource", resource);
     }
+    get_primary_client_id(&input.options.client_id)
+        .ok_or(OAuthError::MissingOption("client_id"))?;
     apply_client_authentication(&mut request, &input.options, input.authentication, true)?;
     Ok(request)
 }

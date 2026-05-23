@@ -5,6 +5,7 @@ use base64::Engine;
 use url::form_urlencoded::Serializer;
 
 use super::error::OAuthError;
+use super::http::{default_http_client, OAuthHttpClient};
 use super::tokens::{get_primary_client_id, ProviderOptions};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -122,18 +123,13 @@ pub async fn post_form(
     token_endpoint: &str,
     request: OAuthFormRequest,
 ) -> Result<serde_json::Value, OAuthError> {
-    let client = reqwest::Client::new();
-    let mut builder = client.post(token_endpoint);
-    for (key, value) in &request.headers {
-        builder = builder.header(key, value);
-    }
-    let response = builder
-        .body(request.to_form_urlencoded())
-        .send()
-        .await?
-        .error_for_status()?;
-    response
-        .json::<serde_json::Value>()
-        .await
-        .map_err(Into::into)
+    post_form_with_client(token_endpoint, request, &default_http_client()?).await
+}
+
+pub async fn post_form_with_client(
+    token_endpoint: &str,
+    request: OAuthFormRequest,
+    client: &OAuthHttpClient,
+) -> Result<serde_json::Value, OAuthError> {
+    client.post_form(token_endpoint, request).await
 }

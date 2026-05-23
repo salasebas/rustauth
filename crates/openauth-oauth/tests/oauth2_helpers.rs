@@ -18,17 +18,20 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{
-    client_credentials_token, create_authorization_code_request, create_authorization_url,
-    create_client_credentials_token_request, create_refresh_access_token_request,
-    generate_code_challenge, get_oauth2_tokens, get_primary_client_id, refresh_access_token,
-    validate_token, verify_access_token, verify_jws_access_token, AuthorizationCodeRequest,
-    AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
+    clear_jwks_cache, client_credentials_token, create_authorization_code_request,
+    create_authorization_url, create_client_credentials_token_request,
+    create_refresh_access_token_request, generate_code_challenge, get_oauth2_tokens,
+    get_primary_client_id, refresh_access_token, validate_token, verify_access_token,
+    verify_access_token_with_client, verify_jws_access_token, AuthorizationCodeRequest,
+    AuthorizationEndpoint, AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
     ClientCredentialsTokenRequest, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo,
-    OAuthError, ProviderOptions, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
-    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
+    OAuthError, OAuthHttpClient, OAuthHttpClientConfig, ProviderOptions, RedirectUri,
+    RefreshAccessTokenRequest, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
+    SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture, TokenEndpoint,
     TokenValidationOptions, VerifyAccessTokenOptions, VerifyAccessTokenRemote,
 };
 use serde_json::json;
+use std::time::Duration;
 use time::OffsetDateTime;
 
 #[test]
@@ -218,6 +221,106 @@ fn request_builders_support_post_and_basic_authentication() {
 }
 
 #[test]
+fn authorization_code_additional_params_do_not_overwrite_standard_fields() {
+    let request = create_authorization_code_request(AuthorizationCodeRequest {
+        code: "code-123".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            client_secret: Some("client-secret".to_owned()),
+            ..ProviderOptions::default()
+        },
+        additional_params: BTreeMap::from([
+            ("code".to_owned(), "attacker-code".to_owned()),
+            ("grant_type".to_owned(), "refresh_token".to_owned()),
+            ("audience".to_owned(), "api".to_owned()),
+        ]),
+        ..AuthorizationCodeRequest::default()
+    })
+    .expect("authorization code request should build");
+
+    assert_eq!(request.form_value("code"), Some("code-123"));
+    assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
+    assert_eq!(request.form_value("audience"), Some("api"));
+}
+
+#[test]
+fn client_credentials_requires_client_id_and_secret() {
+    let missing_client_id =
+        create_client_credentials_token_request(ClientCredentialsTokenRequest {
+            options: ProviderOptions {
+                client_secret: Some("client-secret".to_owned()),
+                ..ProviderOptions::default()
+            },
+            ..ClientCredentialsTokenRequest::default()
+        })
+        .expect_err("client credentials should require a client_id");
+
+    assert_eq!(
+        missing_client_id.to_string(),
+        "missing OAuth provider option `client_id`"
+    );
+
+    let missing_client_secret =
+        create_client_credentials_token_request(ClientCredentialsTokenRequest {
+            options: ProviderOptions {
+                client_id: Some(ClientId::Single("client-id".to_owned())),
+                ..ProviderOptions::default()
+            },
+            ..ClientCredentialsTokenRequest::default()
+        })
+        .expect_err("client credentials should require a client_secret");
+
+    assert_eq!(
+        missing_client_secret.to_string(),
+        "missing OAuth provider option `client_secret`"
+    );
+}
+
+#[test]
+fn validated_constructors_reject_invalid_required_values() {
+    assert!(AuthorizationEndpoint::new("https://provider.example.com/authorize").is_ok());
+    assert!(TokenEndpoint::new("https://provider.example.com/token").is_ok());
+    assert!(RedirectUri::new("https://app.example.com/callback").is_ok());
+
+    assert!(AuthorizationUrlRequest::try_new(
+        "provider",
+        ProviderOptions::default(),
+        "https://provider.example.com/authorize",
+        "https://app.example.com/callback",
+        "state"
+    )
+    .is_err());
+    assert!(AuthorizationCodeRequest::try_new(
+        "",
+        "https://app.example.com/callback",
+        ProviderOptions::default()
+    )
+    .is_err());
+    assert!(RefreshAccessTokenRequest::try_new("", ProviderOptions::default()).is_err());
+    assert!(VerifyAccessTokenOptions::remote(VerifyAccessTokenRemote {
+        introspect_url: "https://provider.example.com/introspect".to_owned(),
+        client_id: String::new(),
+        client_secret: "secret".to_owned(),
+        force: true,
+    })
+    .is_err());
+}
+
+#[test]
+fn oauth_http_client_config_validates_timeout() {
+    let error = OAuthHttpClient::from_config(OAuthHttpClientConfig {
+        timeout: Duration::ZERO,
+        ..OAuthHttpClientConfig::default()
+    })
+    .expect_err("zero timeout should be invalid");
+
+    assert!(error
+        .to_string()
+        .contains("timeout must be greater than zero"));
+}
+
+#[test]
 fn token_helpers_parse_raw_scopes_expiry_and_pkce() {
     let tokens = get_oauth2_tokens(json!({
         "token_type": "Bearer",
@@ -306,6 +409,61 @@ async fn network_token_helpers_post_form_requests_and_parse_responses() {
 }
 
 #[tokio::test]
+async fn network_token_helpers_parse_oauth_error_without_leaking_secrets() {
+    let server = JsonServer::spawn_status(
+        400,
+        json!({
+            "error": "invalid_client",
+            "error_description": "client_secret rejected",
+            "access_token": "secret-access-token"
+        }),
+    );
+
+    let error = client_credentials_token(ClientCredentialsGrant {
+        token_endpoint: server.url(),
+        request: ClientCredentialsTokenRequest {
+            options: ProviderOptions {
+                client_id: Some(ClientId::Single("client-id".to_owned())),
+                client_secret: Some("client-secret".to_owned()),
+                ..ProviderOptions::default()
+            },
+            authentication: ClientAuthentication::Post,
+            ..ClientCredentialsTokenRequest::default()
+        },
+    })
+    .await
+    .expect_err("OAuth error body should become a typed error");
+
+    assert!(error.to_string().contains("invalid_client"));
+    assert!(!error.to_string().contains("secret-access-token"));
+}
+
+#[tokio::test]
+async fn network_token_helpers_redact_sensitive_oauth_error_descriptions() {
+    let server = JsonServer::spawn_status(
+        400,
+        json!({
+            "error": "invalid_grant",
+            "error_description": "refresh_token=secret-refresh-token was rejected"
+        }),
+    );
+
+    let error = refresh_access_token(ClientTokenRequest {
+        token_endpoint: server.url(),
+        request: RefreshAccessTokenRequest {
+            refresh_token: "secret-refresh-token".to_owned(),
+            options: provider_options(),
+            ..RefreshAccessTokenRequest::default()
+        },
+    })
+    .await
+    .expect_err("OAuth error description should be redacted");
+
+    assert!(error.to_string().contains("invalid_grant"));
+    assert!(!error.to_string().contains("secret-refresh-token"));
+}
+
+#[tokio::test]
 async fn validate_token_verifies_jwks_audience_issuer_and_scope() {
     let (token, jwk) = signed_hs256_token(
         "test-key",
@@ -325,7 +483,9 @@ async fn validate_token_verifies_jwks_audience_issuer_and_scope() {
         TokenValidationOptions {
             audience: vec!["client-id".to_owned()],
             issuer: vec!["https://issuer.example.com".to_owned()],
-        },
+            ..TokenValidationOptions::default()
+        }
+        .allow_hmac_algorithms(),
     )
     .await
     .expect("token should verify");
@@ -337,10 +497,50 @@ async fn validate_token_verifies_jwks_audience_issuer_and_scope() {
         TokenValidationOptions {
             audience: vec!["wrong-client".to_owned()],
             issuer: vec!["https://issuer.example.com".to_owned()],
-        },
+            ..TokenValidationOptions::default()
+        }
+        .allow_hmac_algorithms(),
     )
     .await
     .is_err());
+}
+
+#[tokio::test]
+async fn validate_token_rejects_hmac_algorithms_by_default() {
+    let (token, jwk) = signed_hs256_token(
+        "hmac-key",
+        json!({
+            "sub": "user-123"
+        }),
+    );
+    let server = JsonServer::spawn(json!({ "keys": [jwk] }));
+
+    let error = validate_token(&token, &server.url(), TokenValidationOptions::default())
+        .await
+        .expect_err("default validation should reject HMAC algorithms");
+
+    assert_eq!(error.to_string(), "unsupported OAuth JWT algorithm `HS256`");
+}
+
+#[tokio::test]
+async fn validate_token_accepts_hmac_algorithms_when_explicitly_allowed() {
+    let (token, jwk) = signed_hs256_token(
+        "hmac-key-explicit",
+        json!({
+            "sub": "user-123"
+        }),
+    );
+    let server = JsonServer::spawn(json!({ "keys": [jwk] }));
+
+    let result = validate_token(
+        &token,
+        &server.url(),
+        TokenValidationOptions::default().allow_hmac_algorithms(),
+    )
+    .await
+    .expect("explicit HMAC opt-in should verify");
+
+    assert_eq!(result.payload["sub"], "user-123");
 }
 
 #[tokio::test]
@@ -362,6 +562,7 @@ async fn validate_token_rejects_expired_tokens() {
         TokenValidationOptions {
             audience: vec!["client-id".to_owned()],
             issuer: vec!["https://issuer.example.com".to_owned()],
+            ..TokenValidationOptions::default()
         },
     )
     .await
@@ -387,6 +588,106 @@ async fn validate_token_verifies_rs256_es256_and_eddsa_tokens() {
 }
 
 #[tokio::test]
+async fn verify_access_token_rejects_required_claims_with_wrong_types() {
+    let server = JsonServer::spawn(json!({
+            "active": true,
+            "sub": 123,
+            "iss": "https://issuer.example.com",
+            "aud": "client-id",
+            "scope": "read",
+            "exp": OffsetDateTime::now_utc().unix_timestamp() + 300
+    }));
+
+    let error = verify_access_token(
+        "opaque-token",
+        VerifyAccessTokenOptions {
+            verify_options: TokenValidationOptions {
+                audience: vec!["client-id".to_owned()],
+                issuer: vec!["https://issuer.example.com".to_owned()],
+                ..TokenValidationOptions::default()
+            }
+            .require_standard_claims(),
+            scopes: vec!["read".to_owned()],
+            jwks_url: None,
+            remote_verify: Some(VerifyAccessTokenRemote {
+                introspect_url: server.url(),
+                client_id: "client".to_owned(),
+                client_secret: "secret".to_owned(),
+                force: true,
+            }),
+        },
+    )
+    .await
+    .expect_err("required sub claim must be a string");
+
+    assert!(error.to_string().contains("invalid OAuth claim `sub`"));
+}
+
+#[tokio::test]
+async fn verify_jws_access_token_reuses_cached_jwks_for_known_kid() {
+    clear_jwks_cache().expect("cache should clear");
+    let (token, jwk) = signed_asymmetric_token("RS256", "cached-rsa-key");
+    let server = JsonServer::spawn_many(vec![JsonResponse::ok(json!({ "keys": [jwk] }))]);
+
+    verify_jws_access_token(&token, &server.url(), TokenValidationOptions::default())
+        .await
+        .expect("first verification should fetch jwks");
+    verify_jws_access_token(&token, &server.url(), TokenValidationOptions::default())
+        .await
+        .expect("second verification should use cached jwks");
+
+    assert_eq!(server.request_count(), 1);
+}
+
+#[tokio::test]
+async fn verify_jws_access_token_refetches_jwks_for_unknown_kid() {
+    clear_jwks_cache().expect("cache should clear");
+    let (first_token, first_jwk) = signed_asymmetric_token("RS256", "first-rsa-key");
+    let (second_token, second_jwk) = signed_asymmetric_token("RS256", "second-rsa-key");
+    let server = JsonServer::spawn_many(vec![
+        JsonResponse::ok(json!({ "keys": [first_jwk] })),
+        JsonResponse::ok(json!({ "keys": [second_jwk] })),
+    ]);
+
+    verify_jws_access_token(
+        &first_token,
+        &server.url(),
+        TokenValidationOptions::default(),
+    )
+    .await
+    .expect("first verification should fetch first jwks");
+    verify_jws_access_token(
+        &second_token,
+        &server.url(),
+        TokenValidationOptions::default(),
+    )
+    .await
+    .expect("unknown kid should refetch jwks");
+
+    assert_eq!(server.request_count(), 2);
+}
+
+#[tokio::test]
+async fn clear_jwks_cache_forces_next_jwks_fetch() {
+    clear_jwks_cache().expect("cache should clear");
+    let (token, jwk) = signed_asymmetric_token("RS256", "clear-cache-rsa-key");
+    let server = JsonServer::spawn_many(vec![
+        JsonResponse::ok(json!({ "keys": [jwk.clone()] })),
+        JsonResponse::ok(json!({ "keys": [jwk] })),
+    ]);
+
+    verify_jws_access_token(&token, &server.url(), TokenValidationOptions::default())
+        .await
+        .expect("first verification should fetch jwks");
+    clear_jwks_cache().expect("cache should clear");
+    verify_jws_access_token(&token, &server.url(), TokenValidationOptions::default())
+        .await
+        .expect("cache clear should force refetch");
+
+    assert_eq!(server.request_count(), 2);
+}
+
+#[tokio::test]
 async fn validate_token_rejects_missing_kid_empty_jwks_and_wrong_key() {
     let (missing_kid, jwk_without_kid) = signed_hs256_token(
         "",
@@ -398,7 +699,7 @@ async fn validate_token_rejects_missing_kid_empty_jwks_and_wrong_key() {
     assert!(validate_token(
         &missing_kid,
         &server.url(),
-        TokenValidationOptions::default()
+        TokenValidationOptions::default().allow_hmac_algorithms()
     )
     .await
     .is_err());
@@ -414,7 +715,7 @@ async fn validate_token_rejects_missing_kid_empty_jwks_and_wrong_key() {
     assert!(validate_token(
         &wrong_key_token,
         &server.url(),
-        TokenValidationOptions::default()
+        TokenValidationOptions::default().allow_hmac_algorithms()
     )
     .await
     .is_err());
@@ -429,7 +730,7 @@ async fn validate_token_rejects_missing_kid_empty_jwks_and_wrong_key() {
     assert!(validate_token(
         &empty_jwks_token,
         &server.url(),
-        TokenValidationOptions::default()
+        TokenValidationOptions::default().allow_hmac_algorithms()
     )
     .await
     .is_err());
@@ -451,6 +752,7 @@ async fn verify_access_token_validates_remote_audience_issuer_and_scopes() {
             verify_options: TokenValidationOptions {
                 audience: vec!["api-client".to_owned()],
                 issuer: vec!["https://issuer.example.com".to_owned()],
+                ..TokenValidationOptions::default()
             },
             scopes: vec!["read".to_owned()],
             jwks_url: None,
@@ -511,6 +813,22 @@ async fn verify_access_token_rejects_remote_audience_issuer_scope_and_inactive_t
     )
     .await
     .is_err());
+
+    let missing_active = JsonServer::spawn(json!({
+        "aud": "api-client",
+        "iss": "https://issuer.example.com",
+        "scope": "read"
+    }));
+    let error = verify_access_token(
+        "opaque-token",
+        remote_verify_options(missing_active.url(), vec!["read".to_owned()]),
+    )
+    .await
+    .expect_err("introspection without active must be invalid");
+
+    assert!(error
+        .to_string()
+        .contains("missing OAuth token field `active`"));
 }
 
 #[tokio::test]
@@ -534,6 +852,7 @@ async fn verify_access_token_falls_back_to_remote_for_opaque_tokens() {
             verify_options: TokenValidationOptions {
                 audience: vec!["api-client".to_owned()],
                 issuer: vec!["https://issuer.example.com".to_owned()],
+                ..TokenValidationOptions::default()
             },
             scopes: vec!["read".to_owned()],
             jwks_url: Some("http://127.0.0.1:1/jwks".to_owned()),
@@ -542,6 +861,27 @@ async fn verify_access_token_falls_back_to_remote_for_opaque_tokens() {
     )
     .await
     .expect("opaque token should fall back to remote introspection");
+
+    assert_eq!(payload["active"], true);
+}
+
+#[tokio::test]
+async fn verify_access_token_accepts_injected_http_client_for_introspection() {
+    let remote = JsonServer::spawn(json!({
+        "active": true,
+        "aud": "api-client",
+        "iss": "https://issuer.example.com",
+        "scope": "read"
+    }));
+    let client = OAuthHttpClient::default_client().expect("client should build");
+
+    let payload = verify_access_token_with_client(
+        "opaque-token",
+        remote_verify_options(remote.url(), vec!["read".to_owned()]),
+        &client,
+    )
+    .await
+    .expect("injected client should verify token");
 
     assert_eq!(payload["active"], true);
 }
@@ -557,10 +897,14 @@ async fn verify_jws_access_token_maps_azp_to_client_id() {
     );
     let server = JsonServer::spawn(json!({ "keys": [jwk] }));
 
-    let payload = verify_jws_access_token(&token, &server.url(), TokenValidationOptions::default())
-        .await
-        .expect("jws access token should verify")
-        .payload;
+    let payload = verify_jws_access_token(
+        &token,
+        &server.url(),
+        TokenValidationOptions::default().allow_hmac_algorithms(),
+    )
+    .await
+    .expect("jws access token should verify")
+    .payload;
 
     assert_eq!(payload["client_id"], "authorized-party");
 }
@@ -578,6 +922,7 @@ fn remote_verify_options(introspect_url: String, scopes: Vec<String>) -> VerifyA
         verify_options: TokenValidationOptions {
             audience: vec!["api-client".to_owned()],
             issuer: vec!["https://issuer.example.com".to_owned()],
+            ..TokenValidationOptions::default()
         },
         scopes,
         jwks_url: None,
@@ -679,7 +1024,23 @@ async fn social_provider_default_revoke_token_returns_unsupported_error() {
 
     assert_eq!(
         error.to_string(),
-        "invalid OAuth response: provider does not support token revocation for token `token-1`"
+        "invalid OAuth response: provider does not support token revocation"
+    );
+}
+
+#[tokio::test]
+async fn social_provider_default_refresh_error_does_not_leak_token() {
+    let provider: Box<dyn SocialOAuthProvider> = Box::new(DefaultOnlySocialProvider);
+
+    let error = provider
+        .refresh_access_token("secret-refresh-token".to_owned())
+        .await
+        .expect_err("default refresh should be unsupported");
+
+    assert!(!error.to_string().contains("secret-refresh-token"));
+    assert_eq!(
+        error.to_string(),
+        "invalid OAuth response: provider does not support refresh tokens"
     );
 }
 
@@ -824,40 +1185,71 @@ impl SocialOAuthProvider for FakeSocialProvider {
 struct JsonServer {
     url: String,
     body: std::sync::Arc<std::sync::Mutex<String>>,
+    count: std::sync::Arc<std::sync::Mutex<usize>>,
     handle: Option<thread::JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone)]
+struct JsonResponse {
+    status: u16,
+    body: serde_json::Value,
+}
+
+impl JsonResponse {
+    fn ok(body: serde_json::Value) -> Self {
+        Self { status: 200, body }
+    }
 }
 
 impl JsonServer {
     fn spawn(response: serde_json::Value) -> Self {
+        Self::spawn_many(vec![JsonResponse::ok(response)])
+    }
+
+    fn spawn_status(status: u16, response: serde_json::Value) -> Self {
+        Self::spawn_many(vec![JsonResponse {
+            status,
+            body: response,
+        }])
+    }
+
+    fn spawn_many(responses: Vec<JsonResponse>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
         let url = format!(
             "http://{}",
             listener.local_addr().expect("local addr should exist")
         );
         let body = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let count = std::sync::Arc::new(std::sync::Mutex::new(0));
         let body_for_thread = std::sync::Arc::clone(&body);
+        let count_for_thread = std::sync::Arc::clone(&count);
         let handle = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("connection should accept");
-            let mut buffer = [0; 8192];
-            let read = stream.read(&mut buffer).expect("request should read");
-            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
-            if let Some((_, request_body)) = request.split_once("\r\n\r\n") {
-                *body_for_thread.lock().expect("body lock") = request_body.to_owned();
+            for response in responses {
+                let (mut stream, _) = listener.accept().expect("connection should accept");
+                let mut buffer = [0; 8192];
+                let read = stream.read(&mut buffer).expect("request should read");
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                if let Some((_, request_body)) = request.split_once("\r\n\r\n") {
+                    *body_for_thread.lock().expect("body lock") = request_body.to_owned();
+                }
+                *count_for_thread.lock().expect("count lock") += 1;
+                let response_body = response.body.to_string();
+                let response = format!(
+                    "HTTP/1.1 {} OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    response.status,
+                    response_body.len(),
+                    response_body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("response should write");
             }
-            let response_body = response.to_string();
-            let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                response_body.len(),
-                response_body
-            );
-            stream
-                .write_all(response.as_bytes())
-                .expect("response should write");
         });
 
         Self {
             url,
             body,
+            count,
             handle: Some(handle),
         }
     }
@@ -868,6 +1260,10 @@ impl JsonServer {
 
     fn request_body(&self) -> String {
         self.body.lock().expect("body lock").clone()
+    }
+
+    fn request_count(&self) -> usize {
+        *self.count.lock().expect("count lock")
     }
 }
 

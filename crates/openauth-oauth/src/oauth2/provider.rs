@@ -127,20 +127,20 @@ pub trait SocialOAuthProvider: Send + Sync + 'static {
 
     fn refresh_access_token(
         &self,
-        refresh_token: String,
+        _refresh_token: String,
     ) -> SocialProviderFuture<'_, OAuth2Tokens> {
         Box::pin(async move {
-            Err(OAuthError::InvalidResponse(format!(
-                "provider does not support refresh tokens for token `{refresh_token}`"
-            )))
+            Err(OAuthError::InvalidResponse(
+                "provider does not support refresh tokens".to_owned(),
+            ))
         })
     }
 
-    fn revoke_token(&self, token: String) -> SocialProviderFuture<'_, ()> {
+    fn revoke_token(&self, _token: String) -> SocialProviderFuture<'_, ()> {
         Box::pin(async move {
-            Err(OAuthError::InvalidResponse(format!(
-                "provider does not support token revocation for token `{token}`"
-            )))
+            Err(OAuthError::InvalidResponse(
+                "provider does not support token revocation".to_owned(),
+            ))
         })
     }
 }

@@ -28,6 +28,23 @@ impl Default for RefreshAccessTokenRequest {
     }
 }
 
+impl RefreshAccessTokenRequest {
+    pub fn try_new(
+        refresh_token: impl Into<String>,
+        options: ProviderOptions,
+    ) -> Result<Self, OAuthError> {
+        let refresh_token = refresh_token.into();
+        if refresh_token.is_empty() {
+            return Err(OAuthError::MissingTokenField("refresh_token"));
+        }
+        Ok(Self {
+            refresh_token,
+            options,
+            ..Self::default()
+        })
+    }
+}
+
 pub fn create_refresh_access_token_request(
     input: RefreshAccessTokenRequest,
 ) -> Result<OAuthFormRequest, OAuthError> {
