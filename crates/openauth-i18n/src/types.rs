@@ -5,6 +5,7 @@ use openauth_core::api::{ApiErrorCode, ApiRequest};
 use openauth_core::auth::email_password::AuthFlowErrorCode;
 use openauth_core::context::AuthContext;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
 
 /// Sync resolver for locale from the incoming request (callback / session hooks).
@@ -59,6 +60,19 @@ impl TranslationKey for AuthFlowErrorCode {
 }
 
 /// Build a translation dictionary from string keys or typed OpenAuth error-code enums.
+///
+/// # Examples
+///
+/// ```rust
+/// use openauth_i18n::translation_dictionary;
+///
+/// let dictionary = translation_dictionary([("INVALID_EMAIL", "Invalid email")]);
+///
+/// assert_eq!(
+///     dictionary.get("INVALID_EMAIL").map(String::as_str),
+///     Some("Invalid email")
+/// );
+/// ```
 pub fn translation_dictionary<K, V, I>(entries: I) -> TranslationDictionary
 where
     K: TranslationKey,
@@ -92,6 +106,28 @@ pub struct I18nOptions {
 
 impl I18nOptions {
     /// Build options with the given translation tables; other fields use defaults matching Better Auth.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use indexmap::IndexMap;
+    /// use openauth_i18n::{
+    ///     translation_dictionary, I18nOptions, LocaleDetectionStrategy,
+    /// };
+    ///
+    /// let mut translations = IndexMap::new();
+    /// translations.insert(
+    ///     "fr".to_owned(),
+    ///     translation_dictionary([("INVALID_EMAIL", "Email invalide")]),
+    /// );
+    ///
+    /// let options = I18nOptions::new(translations)
+    ///     .default_locale("fr")
+    ///     .detection([LocaleDetectionStrategy::Cookie, LocaleDetectionStrategy::Header])
+    ///     .locale_cookie("lang");
+    ///
+    /// assert_eq!(options.default_locale.as_deref(), Some("fr"));
+    /// ```
     pub fn new(translations: IndexMap<String, TranslationDictionary>) -> Self {
         Self {
             translations,
@@ -102,5 +138,68 @@ impl I18nOptions {
             get_locale: None,
             resolve_user_locale: None,
         }
+    }
+
+    /// Set the default/fallback locale.
+    pub fn default_locale(mut self, locale: impl Into<String>) -> Self {
+        self.default_locale = Some(locale.into());
+        self
+    }
+
+    /// Set locale detection strategies in priority order.
+    pub fn detection<I>(mut self, detection: I) -> Self
+    where
+        I: IntoIterator<Item = LocaleDetectionStrategy>,
+    {
+        self.detection = detection.into_iter().collect();
+        self
+    }
+
+    /// Set the cookie name used by [`LocaleDetectionStrategy::Cookie`].
+    pub fn locale_cookie(mut self, name: impl Into<String>) -> Self {
+        self.locale_cookie = name.into();
+        self
+    }
+
+    /// Set the user field read by [`LocaleDetectionStrategy::Session`].
+    pub fn user_locale_field(mut self, field: impl Into<String>) -> Self {
+        self.user_locale_field = field.into();
+        self
+    }
+
+    /// Set the callback resolver used by [`LocaleDetectionStrategy::Callback`].
+    pub fn get_locale(mut self, resolver: LocaleResolver) -> Self {
+        self.get_locale = Some(resolver);
+        self
+    }
+
+    /// Set the session locale resolver used by [`LocaleDetectionStrategy::Session`].
+    pub fn resolve_user_locale(mut self, resolver: LocaleResolver) -> Self {
+        self.resolve_user_locale = Some(resolver);
+        self
+    }
+}
+
+impl fmt::Debug for I18nOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("I18nOptions")
+            .field("translations", &self.translations)
+            .field("default_locale", &self.default_locale)
+            .field("detection", &self.detection)
+            .field("locale_cookie", &self.locale_cookie)
+            .field("user_locale_field", &self.user_locale_field)
+            .field(
+                "get_locale",
+                &self.get_locale.as_ref().map(|_| "<locale-resolver>"),
+            )
+            .field(
+                "resolve_user_locale",
+                &self
+                    .resolve_user_locale
+                    .as_ref()
+                    .map(|_| "<locale-resolver>"),
+            )
+            .finish()
     }
 }

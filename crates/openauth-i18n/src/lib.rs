@@ -3,7 +3,9 @@
 mod accept_language;
 mod cookie;
 mod error;
+mod locale;
 mod plugin;
+mod response;
 pub mod types;
 
 pub use error::I18nConfigError;

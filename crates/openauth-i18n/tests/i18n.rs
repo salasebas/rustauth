@@ -327,6 +327,103 @@ async fn accept_language_region_maps_to_base_locale() -> Result<(), Box<dyn std:
     Ok(())
 }
 
+#[tokio::test]
+async fn accept_language_prefers_exact_region_before_base_locale(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("other-password")?,
+            now,
+        ))
+        .await?;
+
+    let mut translations = base_translations();
+    translations.insert("pt".into(), {
+        let mut dictionary = IndexMap::new();
+        dictionary.insert(
+            "INVALID_EMAIL_OR_PASSWORD".into(),
+            "Email ou senha inválidos".into(),
+        );
+        dictionary
+    });
+    translations.insert("pt-BR".into(), {
+        let mut dictionary = IndexMap::new();
+        dictionary.insert(
+            "INVALID_EMAIL_OR_PASSWORD".into(),
+            "E-mail ou senha inválidos".into(),
+        );
+        dictionary
+    });
+    let mut opts = I18nOptions::new(translations);
+    opts.default_locale = Some("en".into());
+
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            plugins: vec![i18n(opts)?],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request_with_headers(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"wrongpassword"}"#,
+            &[("Accept-Language", "pt-BR, pt;q=0.9")],
+            None,
+        )?)
+        .await?;
+
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["message"], "E-mail ou senha inválidos");
+    Ok(())
+}
+
+#[tokio::test]
+async fn accept_language_matches_locale_case_insensitively(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("other-password")?,
+            now,
+        ))
+        .await?;
+
+    let mut opts = I18nOptions::new(base_translations());
+    opts.default_locale = Some("en".into());
+
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            plugins: vec![i18n(opts)?],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request_with_headers(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"wrongpassword"}"#,
+            &[("Accept-Language", "FR-ca")],
+            None,
+        )?)
+        .await?;
+
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["message"], "Email ou mot de passe invalide");
+    Ok(())
+}
+
 // Cookie detection.
 
 #[tokio::test]
@@ -1146,6 +1243,76 @@ fn unknown_default_locale_rejected() {
 }
 
 #[test]
+fn duplicate_locales_after_normalization_are_rejected() {
+    let mut translations = base_translations();
+    translations.insert("EN".into(), translation_dictionary([("OTHER", "Other")]));
+
+    assert!(matches!(
+        i18n(I18nOptions::new(translations)),
+        Err(I18nConfigError::DuplicateLocale(locale)) if locale == "EN"
+    ));
+}
+
+#[test]
+fn empty_locale_cookie_is_rejected_when_cookie_detection_is_enabled() {
+    let mut opts = I18nOptions::new(base_translations());
+    opts.detection = vec![LocaleDetectionStrategy::Cookie];
+    opts.locale_cookie.clear();
+
+    assert!(matches!(
+        i18n(opts),
+        Err(I18nConfigError::EmptyLocaleCookie)
+    ));
+}
+
+#[test]
+fn empty_user_locale_field_is_rejected_when_session_detection_is_enabled() {
+    let mut opts = I18nOptions::new(base_translations());
+    opts.detection = vec![LocaleDetectionStrategy::Session];
+    opts.user_locale_field.clear();
+
+    assert!(matches!(
+        i18n(opts),
+        Err(I18nConfigError::EmptyUserLocaleField)
+    ));
+}
+
+#[test]
+fn options_builder_methods_configure_public_options() {
+    let opts = I18nOptions::new(base_translations())
+        .default_locale("fr")
+        .detection([
+            LocaleDetectionStrategy::Cookie,
+            LocaleDetectionStrategy::Header,
+        ])
+        .locale_cookie("lang")
+        .user_locale_field("preferred_locale")
+        .get_locale(Arc::new(|_ctx, _req| Some("fr".to_owned())))
+        .resolve_user_locale(Arc::new(|_ctx, _req| Some("de".to_owned())));
+
+    assert_eq!(opts.default_locale.as_deref(), Some("fr"));
+    assert_eq!(
+        opts.detection,
+        vec![
+            LocaleDetectionStrategy::Cookie,
+            LocaleDetectionStrategy::Header
+        ]
+    );
+    assert_eq!(opts.locale_cookie, "lang");
+    assert_eq!(opts.user_locale_field, "preferred_locale");
+    assert!(opts.get_locale.is_some());
+    assert!(opts.resolve_user_locale.is_some());
+}
+
+#[test]
+fn options_debug_hides_callback_internals() {
+    let opts = I18nOptions::new(base_translations())
+        .get_locale(Arc::new(|_ctx, _req| Some("fr".to_owned())));
+
+    assert!(format!("{opts:?}").contains("<locale-resolver>"));
+}
+
+#[test]
 fn detection_strategy_deserialization_rejects_unknown_values() {
     let parsed = serde_json::from_str::<LocaleDetectionStrategy>(r#""browser""#);
 
@@ -1282,5 +1449,150 @@ async fn translated_response_preserves_original_headers() -> Result<(), Box<dyn 
             .and_then(|v| v.to_str().ok()),
         Some("kept")
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn translated_response_removes_stale_content_length() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut opts = I18nOptions::new(translations_with_locale(
+        "fr",
+        "NEEDS_HEADER",
+        "Message traduit",
+    ));
+    opts.default_locale = Some("fr".into());
+
+    let router = test_router_with_error_response(
+        opts,
+        http::StatusCode::BAD_REQUEST,
+        json!({
+            "code": "NEEDS_HEADER",
+            "message": "Original message"
+        }),
+        &[("Content-Length", "999")],
+    )?;
+
+    let response = router
+        .handle_async(empty_get_request(
+            "/api/auth/custom-error",
+            &[("Accept-Language", "fr")],
+        )?)
+        .await?;
+
+    assert!(response
+        .headers()
+        .get(http::header::CONTENT_LENGTH)
+        .is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn text_plain_response_is_not_translated() -> Result<(), Box<dyn std::error::Error>> {
+    let mut opts = I18nOptions::new(translations_with_locale(
+        "fr",
+        "NEEDS_HEADER",
+        "Message traduit",
+    ));
+    opts.default_locale = Some("fr".into());
+
+    let response = http::Response::builder()
+        .status(http::StatusCode::BAD_REQUEST)
+        .header(http::header::CONTENT_TYPE, "text/plain")
+        .body(serde_json::to_vec(&json!({
+            "code": "NEEDS_HEADER",
+            "message": "Original message"
+        }))?)?;
+    let endpoint = create_auth_endpoint(
+        "/plain-error",
+        Method::GET,
+        AuthEndpointOptions::new(),
+        move |_context, _request| {
+            let response = response.clone();
+            Box::pin(async move { Ok(response) })
+        },
+    );
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("test-secret-123456789012345678901234".to_owned()),
+        plugins: vec![i18n(opts)?],
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), vec![endpoint])?;
+
+    let response = router
+        .handle_async(empty_get_request(
+            "/api/auth/plain-error",
+            &[("Accept-Language", "fr")],
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(body["message"], "Original message");
+    assert!(body.get("originalMessage").is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn arbitrary_json_with_code_and_message_is_not_translated(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut opts = I18nOptions::new(translations_with_locale(
+        "fr",
+        "NEEDS_HEADER",
+        "Message traduit",
+    ));
+    opts.default_locale = Some("fr".into());
+
+    let router = test_router_with_error_response(
+        opts,
+        http::StatusCode::OK,
+        json!({
+            "code": "NEEDS_HEADER",
+            "message": "Original message"
+        }),
+        &[],
+    )?;
+
+    let response = router
+        .handle_async(empty_get_request(
+            "/api/auth/custom-error",
+            &[("Accept-Language", "fr")],
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(body["message"], "Original message");
+    assert!(body.get("originalMessage").is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn existing_original_message_is_preserved() -> Result<(), Box<dyn std::error::Error>> {
+    let mut opts = I18nOptions::new(translations_with_locale(
+        "fr",
+        "NEEDS_HEADER",
+        "Message traduit",
+    ));
+    opts.default_locale = Some("fr".into());
+
+    let router = test_router_with_error_response(
+        opts,
+        http::StatusCode::BAD_REQUEST,
+        json!({
+            "code": "NEEDS_HEADER",
+            "message": "Already translated",
+            "originalMessage": "Original message"
+        }),
+        &[],
+    )?;
+
+    let response = router
+        .handle_async(empty_get_request(
+            "/api/auth/custom-error",
+            &[("Accept-Language", "fr")],
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(body["message"], "Message traduit");
+    assert_eq!(body["originalMessage"], "Original message");
     Ok(())
 }

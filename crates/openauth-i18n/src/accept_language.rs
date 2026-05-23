@@ -17,8 +17,9 @@ pub fn parse_accept_language(header: Option<&str>) -> Vec<String> {
         let q = quality_part
             .strip_prefix("q=")
             .and_then(|v| v.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
             .unwrap_or(1.0);
-        let locale = locale_str.split('-').next().unwrap_or("").trim().to_owned();
+        let locale = locale_str.trim().to_owned();
         if !locale.is_empty() {
             entries.push((locale, q));
         }
@@ -46,7 +47,19 @@ mod tests {
     #[test]
     fn base_locale_from_region() {
         let parsed = parse_accept_language(Some("fr-CA"));
-        assert_eq!(parsed, vec!["fr"]);
+        assert_eq!(parsed, vec!["fr-CA"]);
+    }
+
+    #[test]
+    fn preserves_quality_tie_order() {
+        let parsed = parse_accept_language(Some("de;q=0.8, fr;q=0.8, en;q=0.7"));
+        assert_eq!(parsed, vec!["de", "fr", "en"]);
+    }
+
+    #[test]
+    fn handles_uppercase_and_spaces() {
+        let parsed = parse_accept_language(Some(" FR-ca ; q=0.9 , en ; q=0.8 "));
+        assert_eq!(parsed, vec!["FR-ca", "en"]);
     }
 
     #[test]

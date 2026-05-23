@@ -1,17 +1,17 @@
 //! i18n plugin: translate API error JSON using locale detection.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
-use openauth_core::api::{ApiErrorResponse, ApiRequest};
+use openauth_core::api::ApiRequest;
 use openauth_core::context::request_state::current_session_user;
 use openauth_core::context::AuthContext;
-use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::AuthPlugin;
 
 use crate::accept_language::parse_accept_language;
 use crate::cookie::cookie_value;
 use crate::error::I18nConfigError;
+use crate::locale::LocaleCatalog;
+use crate::response::translate_response;
 use crate::types::{I18nOptions, LocaleDetectionStrategy};
 
 fn strategy_name(strategy: LocaleDetectionStrategy) -> &'static str {
@@ -25,6 +25,7 @@ fn strategy_name(strategy: LocaleDetectionStrategy) -> &'static str {
 
 struct I18nPluginState {
     translations: Arc<indexmap::IndexMap<String, indexmap::IndexMap<String, String>>>,
+    locale_catalog: LocaleCatalog,
     default_locale: String,
     detection: Vec<LocaleDetectionStrategy>,
     locale_cookie: String,
@@ -33,18 +34,18 @@ struct I18nPluginState {
     resolve_user_locale: Option<crate::types::LocaleResolver>,
 }
 
-fn resolve_default_locale(options: &I18nOptions) -> Result<String, I18nConfigError> {
-    if options.translations.is_empty() {
-        return Err(I18nConfigError::EmptyTranslations);
-    }
+fn resolve_default_locale(
+    options: &I18nOptions,
+    locale_catalog: &LocaleCatalog,
+) -> Result<String, I18nConfigError> {
     if let Some(d) = options.default_locale.as_ref() {
-        if options.translations.contains_key(d) {
-            return Ok(d.clone());
+        if let Some(locale) = locale_catalog.match_locale(d) {
+            return Ok(locale.to_owned());
         }
         return Err(I18nConfigError::UnknownDefaultLocale(d.clone()));
     }
-    if options.translations.contains_key("en") {
-        return Ok("en".to_owned());
+    if let Some(locale) = locale_catalog.match_locale("en") {
+        return Ok(locale.to_owned());
     }
     options
         .translations
@@ -54,9 +55,24 @@ fn resolve_default_locale(options: &I18nOptions) -> Result<String, I18nConfigErr
         .ok_or(I18nConfigError::EmptyTranslations)
 }
 
-fn detect_locale(state: &I18nPluginState, context: &AuthContext, request: &ApiRequest) -> String {
-    let available: HashSet<&str> = state.translations.keys().map(String::as_str).collect();
+fn validate_options(
+    options: &I18nOptions,
+    detection: &[LocaleDetectionStrategy],
+) -> Result<(), I18nConfigError> {
+    if detection.contains(&LocaleDetectionStrategy::Cookie)
+        && options.locale_cookie.trim().is_empty()
+    {
+        return Err(I18nConfigError::EmptyLocaleCookie);
+    }
+    if detection.contains(&LocaleDetectionStrategy::Session)
+        && options.user_locale_field.trim().is_empty()
+    {
+        return Err(I18nConfigError::EmptyUserLocaleField);
+    }
+    Ok(())
+}
 
+fn detect_locale(state: &I18nPluginState, context: &AuthContext, request: &ApiRequest) -> String {
     for strategy in &state.detection {
         let found: Option<String> = match strategy {
             LocaleDetectionStrategy::Header => {
@@ -66,15 +82,24 @@ fn detect_locale(state: &I18nPluginState, context: &AuthContext, request: &ApiRe
                     .and_then(|v| v.to_str().ok());
                 parse_accept_language(header)
                     .into_iter()
-                    .find(|l| available.contains(l.as_str()))
+                    .find_map(|locale| {
+                        state
+                            .locale_catalog
+                            .match_locale(&locale)
+                            .map(str::to_owned)
+                    })
             }
             LocaleDetectionStrategy::Cookie => {
                 let cookie_header = request
                     .headers()
                     .get(http::header::COOKIE)
                     .and_then(|v| v.to_str().ok());
-                cookie_value(cookie_header, &state.locale_cookie)
-                    .filter(|v| available.contains(v.as_str()))
+                cookie_value(cookie_header, &state.locale_cookie).and_then(|locale| {
+                    state
+                        .locale_catalog
+                        .match_locale(&locale)
+                        .map(str::to_owned)
+                })
             }
             LocaleDetectionStrategy::Session => state
                 .resolve_user_locale
@@ -89,12 +114,22 @@ fn detect_locale(state: &I18nPluginState, context: &AuthContext, request: &ApiRe
                         .as_str()
                         .map(str::to_owned)
                 })
-                .filter(|l| available.contains(l.as_str())),
+                .and_then(|locale| {
+                    state
+                        .locale_catalog
+                        .match_locale(&locale)
+                        .map(str::to_owned)
+                }),
             LocaleDetectionStrategy::Callback => state
                 .get_locale
                 .as_ref()
                 .and_then(|f| f(context, request))
-                .filter(|l| available.contains(l.as_str())),
+                .and_then(|locale| {
+                    state
+                        .locale_catalog
+                        .match_locale(&locale)
+                        .map(str::to_owned)
+                }),
         };
         if let Some(locale) = found {
             return locale;
@@ -107,12 +142,14 @@ fn detect_locale(state: &I18nPluginState, context: &AuthContext, request: &ApiRe
 ///
 /// Behavior matches Better Auth `@better-auth/i18n` 1.6.9 (locale detection + `originalMessage` on translate).
 pub fn i18n(options: I18nOptions) -> Result<AuthPlugin, I18nConfigError> {
-    let default_locale = resolve_default_locale(&options)?;
+    let locale_catalog = LocaleCatalog::new(&options.translations)?;
     let detection = if options.detection.is_empty() {
         vec![LocaleDetectionStrategy::Header]
     } else {
         options.detection.clone()
     };
+    validate_options(&options, &detection)?;
+    let default_locale = resolve_default_locale(&options, &locale_catalog)?;
     let options_metadata = serde_json::json!({
         "defaultLocale": default_locale,
         "detection": detection.iter().copied().map(strategy_name).collect::<Vec<_>>(),
@@ -122,6 +159,7 @@ pub fn i18n(options: I18nOptions) -> Result<AuthPlugin, I18nConfigError> {
     });
     let state = Arc::new(I18nPluginState {
         translations: Arc::new(options.translations),
+        locale_catalog,
         default_locale: default_locale.clone(),
         detection,
         locale_cookie: options.locale_cookie,
@@ -138,32 +176,11 @@ pub fn i18n(options: I18nOptions) -> Result<AuthPlugin, I18nConfigError> {
             if response.status().is_success() {
                 return Ok(response);
             }
-            let body = response.body();
-            if body.is_empty() {
-                return Ok(response);
-            }
-            let mut err: ApiErrorResponse = match serde_json::from_slice(body) {
-                Ok(v) => v,
-                Err(_) => return Ok(response),
-            };
-            if err.code.is_empty() {
-                return Ok(response);
-            }
             let locale = detect_locale(state_hook.as_ref(), context, request);
-            let Some(translated) = state_hook
-                .translations
-                .get(&locale)
-                .and_then(|m| m.get(&err.code))
-                .cloned()
-            else {
+            let Some(dictionary) = state_hook.translations.get(&locale) else {
                 return Ok(response);
             };
-            let previous = err.message.clone();
-            err.message = translated;
-            err.original_message = Some(previous);
-            let new_body =
-                serde_json::to_vec(&err).map_err(|e| OpenAuthError::Api(e.to_string()))?;
-            *response.body_mut() = new_body;
+            translate_response(&mut response, dictionary)?;
             Ok(response)
         }))
 }
