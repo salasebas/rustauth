@@ -1,8 +1,13 @@
 pub mod app;
+pub(crate) mod commands;
 pub mod config;
 pub mod db;
 pub mod diagnostics;
+pub(crate) mod env;
+pub(crate) mod output;
+pub(crate) mod paths;
 pub mod plugins;
+pub(crate) mod prompt;
 pub mod schema;
 pub mod secret;
 pub mod workspace;

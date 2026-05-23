@@ -1,4 +1,8 @@
+#![allow(clippy::expect_used)]
+
+use assert_cmd::Command;
 use openauth_cli::secret::{assess_secret, generate_secret, SecretSeverity};
+use predicates::prelude::*;
 
 #[test]
 fn generated_secret_passes_strength_check() {
@@ -13,4 +17,27 @@ fn weak_secret_is_rejected_for_production() {
     let assessment = assess_secret("secret-a-at-least-32-chars-long!!", true);
 
     assert_eq!(assessment.severity, SecretSeverity::Error);
+}
+
+#[test]
+fn secret_env_line_uses_openauth_secret_key() {
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args(["secret", "--env-line"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("OPENAUTH_SECRET="));
+}
+
+#[test]
+fn secret_check_env_reports_missing_variable_name() {
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args(["secret", "--check-env", "OPENAUTH_SECRET_MISSING_FOR_TEST"])
+        .env_remove("OPENAUTH_SECRET_MISSING_FOR_TEST")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "OPENAUTH_SECRET_MISSING_FOR_TEST is not set",
+        ));
 }

@@ -16,8 +16,10 @@ use crate::schema::{dialect_from_provider, dialect_name, full_schema_plan, targe
 pub enum DbCliError {
     #[error("database provider is not configured")]
     MissingProvider,
-    #[error("database URL environment variable {0} is not set")]
+    #[error("database URL environment variable {0} is not set; add it to .env/.env.local or export it before running this command")]
     MissingDatabaseUrl(String),
+    #[error("unsupported database adapter `{0}`; CLI migrations currently support sqlx with sqlite, postgres, or mysql")]
+    UnsupportedAdapter(String),
     #[error("unsupported database provider `{0}`")]
     UnsupportedProvider(String),
     #[error("migration has non-executable warnings; fix schema mismatches before applying")]
@@ -78,6 +80,15 @@ impl PlannedMigration {
 }
 
 pub async fn plan(config: &CliConfig, from_empty: bool) -> Result<PlannedMigration, DbCliError> {
+    plan_with_base(config, from_empty, None).await
+}
+
+pub async fn plan_with_base(
+    config: &CliConfig,
+    from_empty: bool,
+    cwd: Option<&Path>,
+) -> Result<PlannedMigration, DbCliError> {
+    validate_sql_adapter(config)?;
     let schema = target_schema(config)?;
     let provider = config
         .database
@@ -90,7 +101,7 @@ pub async fn plan(config: &CliConfig, from_empty: bool) -> Result<PlannedMigrati
             .ok_or_else(|| DbCliError::UnsupportedProvider(provider.clone()))?;
         full_schema_plan(dialect, &schema)?
     } else {
-        let database_url = database_url(config)?;
+        let database_url = database_url_with_base(config, cwd)?;
         match provider.as_str() {
             "sqlite" | "sqlite3" => {
                 ensure_sqlite_database(&database_url)?;
@@ -123,11 +134,18 @@ pub async fn plan(config: &CliConfig, from_empty: bool) -> Result<PlannedMigrati
 }
 
 pub async fn migrate(config: &CliConfig) -> Result<PlannedMigration, DbCliError> {
-    let planned = plan(config, false).await?;
+    migrate_with_base(config, None).await
+}
+
+pub async fn migrate_with_base(
+    config: &CliConfig,
+    cwd: Option<&Path>,
+) -> Result<PlannedMigration, DbCliError> {
+    let planned = plan_with_base(config, false, cwd).await?;
     if !planned.plan.warnings.is_empty() {
         return Err(DbCliError::UnsafeMigration);
     }
-    let database_url = database_url(config)?;
+    let database_url = database_url_with_base(config, cwd)?;
     match planned.provider.as_str() {
         "sqlite" | "sqlite3" => {
             ensure_sqlite_database(&database_url)?;
@@ -173,28 +191,61 @@ pub fn write_migration(
     output: Option<&Path>,
     force: bool,
 ) -> Result<PathBuf, DbCliError> {
+    write_migration_output(
+        config,
+        planned,
+        output
+            .map(|path| MigrationOutput::Directory(path.to_path_buf()))
+            .unwrap_or(MigrationOutput::Default),
+        force,
+    )
+}
+
+pub enum MigrationOutput {
+    Default,
+    Directory(PathBuf),
+    File(PathBuf),
+}
+
+pub fn write_migration_output(
+    config: &CliConfig,
+    planned: &PlannedMigration,
+    output: MigrationOutput,
+    force: bool,
+) -> Result<PathBuf, DbCliError> {
     if planned.plan.is_empty() {
         return Ok(PathBuf::new());
     }
-    let dir = output
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(&config.database.migrations_dir));
+    let (dir, explicit_file) = match output {
+        MigrationOutput::Default => (PathBuf::from(&config.database.migrations_dir), None),
+        MigrationOutput::Directory(dir) => (dir, None),
+        MigrationOutput::File(path) => (
+            path.parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from(".")),
+            Some(path),
+        ),
+    };
     let hash = plan_hash(&planned.plan);
-    if let Some(existing) = find_existing_plan_hash(&dir, &hash)? {
-        return Err(DbCliError::DuplicateMigration(
-            existing.display().to_string(),
-        ));
+    if !force {
+        if let Some(existing) = find_existing_plan_hash(&dir, &hash)? {
+            return Err(DbCliError::DuplicateMigration(
+                existing.display().to_string(),
+            ));
+        }
     }
     fs::create_dir_all(&dir).map_err(|source| DbCliError::CreateDir {
         path: dir.clone(),
         source,
     })?;
-    let path = dir.join(format!(
-        "{}_{}_{}.sql",
-        filename_timestamp(),
-        normalized_provider(&planned.provider),
-        hash
-    ));
+    let path = explicit_file.unwrap_or_else(|| {
+        dir.join(format!(
+            "{}_{}_{}.sql",
+            filename_timestamp(),
+            normalized_provider(&planned.provider),
+            hash
+        ))
+    });
     if path.exists() && !force {
         return Err(DbCliError::DuplicateMigration(path.display().to_string()));
     }
@@ -217,8 +268,50 @@ pub fn plan_hash(plan: &SchemaMigrationPlan) -> String {
 }
 
 pub fn database_url(config: &CliConfig) -> Result<String, DbCliError> {
+    database_url_with_base(config, None)
+}
+
+pub fn database_url_with_base(
+    config: &CliConfig,
+    cwd: Option<&Path>,
+) -> Result<String, DbCliError> {
     std::env::var(&config.database.url_env)
+        .map(|url| normalize_database_url(config.database.provider.as_deref(), &url, cwd))
         .map_err(|_| DbCliError::MissingDatabaseUrl(config.database.url_env.clone()))
+}
+
+pub fn supports_sql_migrations(config: &CliConfig) -> bool {
+    config.database.adapter == "sqlx"
+        && config
+            .database
+            .provider
+            .as_deref()
+            .is_some_and(|provider| dialect_from_provider(provider).is_some())
+}
+
+fn validate_sql_adapter(config: &CliConfig) -> Result<(), DbCliError> {
+    if config.database.adapter != "sqlx" {
+        return Err(DbCliError::UnsupportedAdapter(
+            config.database.adapter.clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_database_url(provider: Option<&str>, url: &str, cwd: Option<&Path>) -> String {
+    if !matches!(provider, Some("sqlite" | "sqlite3")) {
+        return url.to_owned();
+    }
+    let Some(cwd) = cwd else {
+        return url.to_owned();
+    };
+    let Some(path) = sqlite_path(url) else {
+        return url.to_owned();
+    };
+    if path.as_os_str().is_empty() || path.is_absolute() {
+        return url.to_owned();
+    }
+    format!("sqlite://{}", cwd.join(path).display())
 }
 
 fn short_hash(input: &[u8]) -> String {

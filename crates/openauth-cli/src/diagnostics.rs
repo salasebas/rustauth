@@ -26,6 +26,8 @@ pub struct Finding {
 #[derive(Debug, Serialize)]
 pub struct DiagnosticReport {
     pub workspace_root: Option<String>,
+    pub target_package: Option<String>,
+    pub openauth_version: String,
     pub rust: String,
     pub cargo: String,
     pub config: RedactedConfig,
@@ -72,7 +74,14 @@ pub async fn doctor(
     inspect_database(&mut findings, config, production).await;
 
     DiagnosticReport {
-        workspace_root: workspace.map(|info| info.root.display().to_string()),
+        workspace_root: workspace
+            .as_ref()
+            .map(|info| info.root.display().to_string()),
+        target_package: workspace
+            .as_ref()
+            .and_then(|info| info.packages.first())
+            .map(|package| package.name.clone()),
+        openauth_version: env!("CARGO_PKG_VERSION").to_owned(),
         rust: command_version("rustc").unwrap_or_else(|_| "not available".to_owned()),
         cargo: command_version("cargo").unwrap_or_else(|_| "not available".to_owned()),
         config: redact_config(config),
@@ -107,6 +116,14 @@ pub fn redact_config(config: &CliConfig) -> RedactedConfig {
     database.insert(
         "provider".to_owned(),
         serde_json::Value::String(config.database.provider.clone().unwrap_or_default()),
+    );
+    database.insert(
+        "normalized_provider".to_owned(),
+        serde_json::Value::String(normalized_provider(config.database.provider.as_deref())),
+    );
+    database.insert(
+        "migration_support".to_owned(),
+        serde_json::Value::Bool(db::supports_sql_migrations(config)),
     );
     database.insert(
         "url_env".to_owned(),
@@ -163,6 +180,19 @@ fn inspect_workspace(
             "Config uses the sqlx adapter, but openauth-sqlx was not detected in dependencies.",
         ));
     }
+    if config.database.adapter != "sqlx"
+        && config.database.provider.as_deref().is_some_and(|provider| {
+            matches!(
+                provider,
+                "sqlite" | "sqlite3" | "postgres" | "postgresql" | "pg" | "mysql"
+            )
+        })
+    {
+        findings.push(warn(
+            "database.adapter_provider_mismatch",
+            "database.provider is SQL-compatible but database.adapter is not sqlx.",
+        ));
+    }
     if workspace.detected_databases.len() > 1 && config.database.provider.is_none() {
         findings.push(warn(
             "database.multiple_adapters",
@@ -194,6 +224,13 @@ fn inspect_security(findings: &mut Vec<Finding>, config: &CliConfig, production:
 }
 
 async fn inspect_database(findings: &mut Vec<Finding>, config: &CliConfig, production: bool) {
+    if !db::supports_sql_migrations(config) {
+        findings.push(warn(
+            "database.migrations_unsupported",
+            "CLI migration checks are skipped for this database adapter/provider.",
+        ));
+        return;
+    }
     if production && std::env::var(&config.database.url_env).is_err() {
         findings.push(error(
             "database.url",
@@ -229,6 +266,15 @@ async fn inspect_database(findings: &mut Vec<Finding>, config: &CliConfig, produ
             }
         }
         Err(db_error) => findings.push(error("database.connection", &db_error.to_string())),
+    }
+}
+
+fn normalized_provider(provider: Option<&str>) -> String {
+    match provider {
+        Some("postgresql" | "pg") => "postgres".to_owned(),
+        Some("sqlite3") => "sqlite".to_owned(),
+        Some(provider) => provider.to_owned(),
+        None => String::new(),
     }
 }
 

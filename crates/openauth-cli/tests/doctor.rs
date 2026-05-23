@@ -89,5 +89,7 @@ enabled = []
         .assert()
         .success()
         .stdout(predicate::str::contains("[REDACTED]"))
+        .stdout(predicate::str::contains("normalized_provider"))
+        .stdout(predicate::str::contains("openauth_version"))
         .stdout(predicate::str::contains("super-secret-value").not());
 }

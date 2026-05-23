@@ -35,8 +35,54 @@ fn init_creates_config_and_env_example() {
     assert!(config.contains("\"two-factor\""));
 
     let env = fs::read_to_string(temp.path().join(".env.example")).expect("env example");
-    assert!(env.contains("OPENAUTH_SECRET="));
+    assert!(env.contains("OPENAUTH_SECRET=<generate-with-openauth-secret>"));
     assert!(env.contains("DATABASE_URL="));
+}
+
+#[test]
+fn commands_accept_global_config_path() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config").join("auth.toml");
+    fs::create_dir_all(config_path.parent().expect("config parent")).expect("mkdir config");
+    fs::write(
+        &config_path,
+        r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "sqlx"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/openauth"
+
+[security]
+secret_env = "OPENAUTH_SECRET_FOR_TEST"
+
+[plugins]
+enabled = []
+"#,
+    )
+    .expect("write config");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--config",
+            "config/auth.toml",
+            "schema",
+            "print",
+            "--dialect",
+            "sqlite",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CREATE TABLE"));
 }
 
 #[test]
@@ -122,4 +168,17 @@ fn compact_betterauth_aliases_work() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("Secret is too short"));
+}
+
+#[test]
+fn plugins_list_json_exposes_enriched_contract() {
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args(["plugins", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"official\""))
+        .stdout(predicate::str::contains("\"schema_supported\""))
+        .stdout(predicate::str::contains("\"snippet_supported\""))
+        .stdout(predicate::str::contains("\"migration_impact\""));
 }

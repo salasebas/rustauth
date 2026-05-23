@@ -1,23 +1,31 @@
 use openauth_core::db::DbSchema;
+use openauth_core::db::MemoryAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::AuthPlugin;
 use openauth_plugins::{
     admin::{admin, AdminOptions},
     anonymous::{anonymous, AnonymousOptions},
+    api_key::api_key,
     device_authorization::device_authorization,
     jwt::jwt,
+    mcp::{mcp, McpOptions},
     organization::organization,
+    phone_number::{phone_number, PhoneNumberOptions},
+    siwe::{siwe, SiweOptions},
     two_factor::{two_factor, TwoFactorOptions},
     username::username,
     PLUGIN_IDS,
 };
 use serde::Serialize;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PluginInfo {
     pub id: &'static str,
-    pub schema: bool,
-    pub scaffold_supported: bool,
+    pub official: bool,
+    pub schema_supported: bool,
+    pub snippet_supported: bool,
+    pub migration_impact: bool,
 }
 
 pub fn official_plugins() -> Vec<PluginInfo> {
@@ -25,8 +33,10 @@ pub fn official_plugins() -> Vec<PluginInfo> {
         .iter()
         .map(|id| PluginInfo {
             id,
-            schema: schema_plugin(id).is_some(),
-            scaffold_supported: schema_plugin(id).is_some(),
+            official: true,
+            schema_supported: schema_plugin(id).is_some(),
+            snippet_supported: rust_snippet(id).is_some(),
+            migration_impact: schema_plugin(id).is_some(),
         })
         .collect()
 }
@@ -54,9 +64,26 @@ pub fn schema_plugin(plugin: &str) -> Option<AuthPlugin> {
     match plugin {
         "admin" => Some(admin(AdminOptions::default())),
         "anonymous" => Some(anonymous(AnonymousOptions::default())),
+        "api-key" => Some(api_key()),
         "device-authorization" => Some(device_authorization()),
         "jwt" => jwt().ok(),
+        "mcp" => mcp(McpOptions {
+            login_page: "/login".to_owned(),
+            ..McpOptions::default()
+        })
+        .ok()
+        .map(|plugin| plugin.into_auth_plugin()),
         "organization" => Some(organization()),
+        "phone-number" => Some(phone_number(
+            Arc::new(MemoryAdapter::new()),
+            PhoneNumberOptions::default(),
+        )),
+        "siwe" => siwe(SiweOptions::new(
+            "localhost",
+            || async { Ok("nonce".to_owned()) },
+            |_| async { Ok(true) },
+        ))
+        .ok(),
         "two-factor" => Some(two_factor(TwoFactorOptions::default())),
         "username" => Some(username()),
         _ => None,
