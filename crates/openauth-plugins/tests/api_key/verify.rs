@@ -12,7 +12,7 @@ use openauth_plugins::api_key::{
 };
 use serde_json::json;
 
-use super::helpers::{request_json, sign_up, CountingBackgroundRunner};
+use super::helpers::{request_json, sign_up, CountingBackgroundRunner, DelayedUpdateAdapter};
 
 #[tokio::test]
 async fn verification_decrements_remaining_and_blocks_exhausted_key(
@@ -56,6 +56,67 @@ async fn verification_decrements_remaining_and_blocks_exhausted_key(
     .await?;
     assert_eq!(second.body["valid"], false);
     assert_eq!(second.body["error"]["code"], "USAGE_EXCEEDED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_verification_consumes_remaining_only_once(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let memory = Arc::new(MemoryAdapter::new());
+    let adapter: Arc<dyn DbAdapter> = Arc::new(DelayedUpdateAdapter::new(
+        memory,
+        std::time::Duration::from_millis(50),
+    ));
+    let router = super::helpers::test_router_with_adapter(adapter, vec![api_key()])?;
+    let user = sign_up(&router, "Race", "race-api@example.com").await?;
+
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"single-use","userId": user.user_id, "remaining":1}),
+        None,
+        None,
+    )
+    .await?;
+    let key = created.body["key"]
+        .as_str()
+        .ok_or("missing api key")?
+        .to_owned();
+
+    let (first, second) = tokio::join!(
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/verify",
+            json!({"key": key}),
+            None,
+            None,
+        ),
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/verify",
+            json!({"key": key}),
+            None,
+            None,
+        ),
+    );
+    let responses = [first?, second?];
+    let valid = responses
+        .iter()
+        .filter(|response| response.body["valid"] == true)
+        .count();
+    let usage_exceeded = responses
+        .iter()
+        .filter(|response| response.body["error"]["code"] == "USAGE_EXCEEDED")
+        .count();
+
+    assert_eq!(valid, 1, "only one concurrent verification should succeed");
+    assert_eq!(
+        usage_exceeded, 1,
+        "the second concurrent verification should observe exhausted usage"
+    );
     Ok(())
 }
 
@@ -105,6 +166,68 @@ async fn verification_enforces_rate_limit_window() -> Result<(), Box<dyn std::er
     assert!(second.body["error"]["tryAgainIn"]
         .as_i64()
         .is_some_and(|value| value > 0));
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_verification_enforces_rate_limit_max_once(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let memory = Arc::new(MemoryAdapter::new());
+    let adapter: Arc<dyn DbAdapter> = Arc::new(DelayedUpdateAdapter::new(
+        memory,
+        std::time::Duration::from_millis(50),
+    ));
+    let router = super::helpers::test_router_with_adapter(adapter, vec![api_key()])?;
+    let user = sign_up(&router, "Rate Race", "rate-race-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({
+            "name": "single-request-window",
+            "userId": user.user_id,
+            "rateLimitMax": 1,
+            "rateLimitTimeWindow": 60_000
+        }),
+        None,
+        None,
+    )
+    .await?;
+    let key = created.body["key"]
+        .as_str()
+        .ok_or("missing api key")?
+        .to_owned();
+
+    let (first, second) = tokio::join!(
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/verify",
+            json!({"key": key}),
+            None,
+            None,
+        ),
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/verify",
+            json!({"key": key}),
+            None,
+            None,
+        ),
+    );
+    let responses = [first?, second?];
+    let valid = responses
+        .iter()
+        .filter(|response| response.body["valid"] == true)
+        .count();
+    let rate_limited = responses
+        .iter()
+        .filter(|response| response.body["error"]["code"] == RATE_LIMIT_EXCEEDED)
+        .count();
+
+    assert_eq!(valid, 1, "only one request should fit in the window");
+    assert_eq!(rate_limited, 1, "the competing request should be limited");
     Ok(())
 }
 

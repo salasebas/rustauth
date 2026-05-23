@@ -38,6 +38,9 @@ time.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+openauth-redis.workspace = true
+openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
 tokio.workspace = true
 
 [lints]

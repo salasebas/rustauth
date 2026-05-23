@@ -13,6 +13,8 @@ use crate::api_key::permissions;
 use crate::api_key::rate_limit;
 use crate::api_key::storage::ApiKeyStore;
 
+const MAX_USAGE_UPDATE_ATTEMPTS: usize = 3;
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct VerifyApiKeyRequest {
@@ -116,80 +118,102 @@ pub async fn validate_api_key(
     required_permissions: Option<&ApiKeyPermissions>,
 ) -> Result<ApiKeyRecord, ApiKeyValidationError> {
     let store = ApiKeyStore::new(context, options);
-    let mut api_key = store
-        .get_by_hash(hashed_key)
-        .await
-        .map_err(|_| validation_error(errors::INVALID_API_KEY, StatusCode::UNAUTHORIZED))?
-        .ok_or_else(|| validation_error(errors::INVALID_API_KEY, StatusCode::UNAUTHORIZED))?;
-    if !api_key.enabled {
-        return Err(validation_error(
-            errors::KEY_DISABLED,
-            StatusCode::UNAUTHORIZED,
-        ));
-    }
-    let now = OffsetDateTime::now_utc();
-    if api_key
-        .expires_at
-        .is_some_and(|expires_at| now > expires_at)
-    {
-        let _ = store.delete(&api_key).await;
-        return Err(validation_error(
-            errors::KEY_EXPIRED,
-            StatusCode::UNAUTHORIZED,
-        ));
-    }
-    if !permissions::allows(api_key.permissions.as_ref(), required_permissions) {
-        return Err(validation_error(
-            errors::KEY_NOT_FOUND,
-            StatusCode::UNAUTHORIZED,
-        ));
-    }
-    let mut remaining = api_key.remaining;
-    let mut last_refill_at = api_key.last_refill_at;
-    if api_key.remaining == Some(0) && api_key.refill_amount.is_none() {
-        let _ = store.delete(&api_key).await;
-        return Err(validation_error(
-            errors::USAGE_EXCEEDED,
-            StatusCode::TOO_MANY_REQUESTS,
-        ));
-    }
-    if let Some(current_remaining) = remaining {
-        if let (Some(refill_interval), Some(refill_amount)) =
-            (api_key.refill_interval, api_key.refill_amount)
-        {
-            let last = last_refill_at.unwrap_or(api_key.created_at);
-            if (now - last).whole_milliseconds() > i128::from(refill_interval) {
-                remaining = Some(refill_amount);
-                last_refill_at = Some(now);
-            }
+    for attempt in 0..MAX_USAGE_UPDATE_ATTEMPTS {
+        let mut api_key = store
+            .get_by_hash(hashed_key)
+            .await
+            .map_err(|_| validation_error(errors::INVALID_API_KEY, StatusCode::UNAUTHORIZED))?
+            .ok_or_else(|| validation_error(errors::INVALID_API_KEY, StatusCode::UNAUTHORIZED))?;
+        let expected_updated_at = api_key.updated_at;
+        if !api_key.enabled {
+            return Err(validation_error(
+                errors::KEY_DISABLED,
+                StatusCode::UNAUTHORIZED,
+            ));
         }
-        if remaining == Some(0) {
+        let now = OffsetDateTime::now_utc();
+        if api_key
+            .expires_at
+            .is_some_and(|expires_at| now > expires_at)
+        {
+            let _ = store.delete(&api_key).await;
+            return Err(validation_error(
+                errors::KEY_EXPIRED,
+                StatusCode::UNAUTHORIZED,
+            ));
+        }
+        if !permissions::allows(api_key.permissions.as_ref(), required_permissions) {
+            return Err(validation_error(
+                errors::KEY_NOT_FOUND,
+                StatusCode::UNAUTHORIZED,
+            ));
+        }
+        let mut remaining = api_key.remaining;
+        let mut last_refill_at = api_key.last_refill_at;
+        if api_key.remaining == Some(0) && api_key.refill_amount.is_none() {
+            let _ = store.delete(&api_key).await;
             return Err(validation_error(
                 errors::USAGE_EXCEEDED,
                 StatusCode::TOO_MANY_REQUESTS,
             ));
         }
-        if current_remaining > 0 || remaining.is_some_and(|value| value > 0) {
-            remaining = remaining.map(|value| value.saturating_sub(1));
+        if let Some(current_remaining) = remaining {
+            if let (Some(refill_interval), Some(refill_amount)) =
+                (api_key.refill_interval, api_key.refill_amount)
+            {
+                let last = last_refill_at.unwrap_or(api_key.created_at);
+                if (now - last).whole_milliseconds() > i128::from(refill_interval) {
+                    remaining = Some(refill_amount);
+                    last_refill_at = Some(now);
+                }
+            }
+            if remaining == Some(0) {
+                return Err(validation_error(
+                    errors::USAGE_EXCEEDED,
+                    StatusCode::TOO_MANY_REQUESTS,
+                ));
+            }
+            if current_remaining > 0 || remaining.is_some_and(|value| value > 0) {
+                remaining = remaining.map(|value| value.saturating_sub(1));
+            }
+        }
+        let rate_limit = rate_limit::check(&api_key, options, now);
+        if !rate_limit.success {
+            return Err(ApiKeyValidationError {
+                code: errors::RATE_LIMIT_EXCEEDED,
+                status: StatusCode::UNAUTHORIZED,
+                try_again_in: rate_limit.try_again_in,
+            });
+        }
+        api_key.remaining = remaining;
+        api_key.last_refill_at = last_refill_at;
+        if let Some(last_request) = rate_limit.last_request {
+            api_key.last_request = Some(last_request);
+        }
+        if let Some(request_count) = rate_limit.request_count {
+            api_key.request_count = request_count;
+        }
+        api_key.updated_at = now;
+        if persist_api_key_update(context, options, &store, &api_key, expected_updated_at).await? {
+            return Ok(api_key);
+        }
+        if attempt + 1 == MAX_USAGE_UPDATE_ATTEMPTS {
+            break;
         }
     }
-    let rate_limit = rate_limit::check(&api_key, options, now);
-    if !rate_limit.success {
-        return Err(ApiKeyValidationError {
-            code: errors::RATE_LIMIT_EXCEEDED,
-            status: StatusCode::UNAUTHORIZED,
-            try_again_in: rate_limit.try_again_in,
-        });
-    }
-    api_key.remaining = remaining;
-    api_key.last_refill_at = last_refill_at;
-    if let Some(last_request) = rate_limit.last_request {
-        api_key.last_request = Some(last_request);
-    }
-    if let Some(request_count) = rate_limit.request_count {
-        api_key.request_count = request_count;
-    }
-    api_key.updated_at = now;
+    Err(validation_error(
+        errors::FAILED_TO_UPDATE_API_KEY,
+        StatusCode::INTERNAL_SERVER_ERROR,
+    ))
+}
+
+async fn persist_api_key_update(
+    context: &AuthContext,
+    options: &ApiKeyConfiguration,
+    store: &ApiKeyStore<'_>,
+    api_key: &ApiKeyRecord,
+    expected_updated_at: OffsetDateTime,
+) -> Result<bool, ApiKeyValidationError> {
     if options.defer_updates {
         let updated = api_key.clone();
         let options = options.clone();
@@ -197,25 +221,32 @@ pub async fn validate_api_key(
         let task_context = context.clone();
         if !context.run_background_task(Box::pin(async move {
             let _ = ApiKeyStore::new(&task_context, &options)
-                .update(&updated)
+                .update_if_unchanged(&updated, expected_updated_at)
                 .await;
         })) {
-            store.update(&api_key).await.map_err(|_| {
-                validation_error(
-                    errors::FAILED_TO_UPDATE_API_KEY,
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                )
-            })?;
+            return store
+                .update_if_unchanged(api_key, expected_updated_at)
+                .await
+                .map(|updated| updated.is_some())
+                .map_err(|_| {
+                    validation_error(
+                        errors::FAILED_TO_UPDATE_API_KEY,
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )
+                });
         }
-    } else {
-        store.update(&api_key).await.map_err(|_| {
+        return Ok(true);
+    }
+    store
+        .update_if_unchanged(api_key, expected_updated_at)
+        .await
+        .map(|updated| updated.is_some())
+        .map_err(|_| {
             validation_error(
                 errors::FAILED_TO_UPDATE_API_KEY,
                 StatusCode::INTERNAL_SERVER_ERROR,
             )
-        })?;
-    }
-    Ok(api_key)
+        })
 }
 
 fn validation_error(code: &'static str, status: StatusCode) -> ApiKeyValidationError {

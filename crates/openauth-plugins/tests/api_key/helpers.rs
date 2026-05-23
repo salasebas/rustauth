@@ -7,7 +7,11 @@ use std::sync::{Arc, Mutex};
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context_with_adapter;
-use openauth_core::db::{DbAdapter, MemoryAdapter};
+use openauth_core::db::{AdapterCapabilities, DbSchema, TransactionCallback};
+use openauth_core::db::{
+    AdapterFuture, Count, Create, DbAdapter, DbRecord, Delete, DeleteMany, FindMany, FindOne,
+    MemoryAdapter, SchemaCreation, Update, UpdateMany,
+};
 use openauth_core::options::{
     BackgroundTaskFuture, BackgroundTaskRunner, OpenAuthOptions, SecondaryStorage,
 };
@@ -28,14 +32,20 @@ pub fn test_router(
     adapter: Arc<MemoryAdapter>,
     plugin: openauth_core::plugin::AuthPlugin,
 ) -> Result<AuthRouter, Box<dyn std::error::Error>> {
-    test_router_with_plugins(adapter, vec![plugin])
+    test_router_with_adapter(adapter, vec![plugin])
 }
 
 pub fn test_router_with_plugins(
     adapter: Arc<MemoryAdapter>,
     plugins: Vec<openauth_core::plugin::AuthPlugin>,
 ) -> Result<AuthRouter, Box<dyn std::error::Error>> {
-    let adapter_dyn: Arc<dyn DbAdapter> = adapter;
+    test_router_with_adapter(adapter, plugins)
+}
+
+pub fn test_router_with_adapter(
+    adapter: Arc<dyn DbAdapter>,
+    plugins: Vec<openauth_core::plugin::AuthPlugin>,
+) -> Result<AuthRouter, Box<dyn std::error::Error>> {
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             plugins,
@@ -43,12 +53,12 @@ pub fn test_router_with_plugins(
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             ..OpenAuthOptions::default()
         },
-        adapter_dyn.clone(),
+        adapter.clone(),
     )?;
     Ok(AuthRouter::with_async_endpoints(
         context,
         Vec::new(),
-        core_auth_async_endpoints(adapter_dyn),
+        core_auth_async_endpoints(adapter),
     )?)
 }
 
@@ -245,5 +255,78 @@ impl BackgroundTaskRunner for CountingBackgroundRunner {
     fn spawn(&self, task: BackgroundTaskFuture) {
         self.calls.fetch_add(1, Ordering::SeqCst);
         tokio::spawn(task);
+    }
+}
+
+#[derive(Clone)]
+pub struct DelayedUpdateAdapter {
+    inner: Arc<MemoryAdapter>,
+    delay: std::time::Duration,
+}
+
+impl DelayedUpdateAdapter {
+    pub fn new(inner: Arc<MemoryAdapter>, delay: std::time::Duration) -> Self {
+        Self { inner, delay }
+    }
+}
+
+impl DbAdapter for DelayedUpdateAdapter {
+    fn id(&self) -> &str {
+        "delayed-update-memory"
+    }
+
+    fn capabilities(&self) -> AdapterCapabilities {
+        self.inner.capabilities()
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        self.inner.create(query)
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        self.inner.find_one(query)
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        self.inner.find_many(query)
+    }
+
+    fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {
+        self.inner.count(query)
+    }
+
+    fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        Box::pin(async move {
+            tokio::time::sleep(self.delay).await;
+            self.inner.update(query).await
+        })
+    }
+
+    fn update_many<'a>(&'a self, query: UpdateMany) -> AdapterFuture<'a, u64> {
+        self.inner.update_many(query)
+    }
+
+    fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
+        self.inner.delete(query)
+    }
+
+    fn delete_many<'a>(&'a self, query: DeleteMany) -> AdapterFuture<'a, u64> {
+        self.inner.delete_many(query)
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        self.inner.transaction(callback)
+    }
+
+    fn create_schema<'a>(
+        &'a self,
+        schema: &'a DbSchema,
+        file: Option<&'a str>,
+    ) -> AdapterFuture<'a, Option<SchemaCreation>> {
+        self.inner.create_schema(schema, file)
+    }
+
+    fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
+        self.inner.run_migrations(schema)
     }
 }

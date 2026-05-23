@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
 use http::{header, Method, Request, StatusCode};
-use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
+use openauth_core::api::{
+    core_auth_async_endpoints, create_auth_endpoint, AuthEndpointOptions, AuthRouter,
+    OpenApiOperation,
+};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::plugin::AuthPlugin;
 use openauth_plugins::anonymous::{anonymous, AnonymousOptions};
 use openauth_plugins::api_key::api_key;
 use openauth_plugins::email_otp::{email_otp, EmailOtpOptions};
@@ -253,6 +257,45 @@ async fn reference_endpoint_serves_scalar_html() -> Result<(), Box<dyn std::erro
 }
 
 #[tokio::test]
+async fn reference_endpoint_escapes_schema_json_for_script_context(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let router = router(vec![
+        open_api(OpenApiOptions::default()),
+        dangerous_doc_plugin(),
+    ])?;
+
+    let response = router
+        .handle_async(request(Method::GET, "/api/auth/reference")?)
+        .await?;
+    let body = String::from_utf8(response.body().clone())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!body.contains("</script><script>alert(1)</script>"));
+    assert!(body.contains("\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn reference_endpoint_escapes_theme_for_javascript_context(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let router = router(vec![open_api(
+        OpenApiOptions::default().theme(r#"</script><script>alert("theme")</script>"#),
+    )])?;
+
+    let response = router
+        .handle_async(request(Method::GET, "/api/auth/reference")?)
+        .await?;
+    let body = String::from_utf8(response.body().clone())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!body.contains(r#"</script><script>alert("theme")</script>"#));
+    assert!(body.contains(
+        "\\u003c/script\\u003e\\u003cscript\\u003ealert(\\\"theme\\\")\\u003c/script\\u003e"
+    ));
+    Ok(())
+}
+
+#[tokio::test]
 async fn reference_endpoint_can_be_disabled() -> Result<(), Box<dyn std::error::Error>> {
     let router = router(vec![open_api(
         OpenApiOptions::default().disable_default_reference(true),
@@ -264,6 +307,34 @@ async fn reference_endpoint_can_be_disabled() -> Result<(), Box<dyn std::error::
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     Ok(())
+}
+
+fn dangerous_doc_plugin() -> AuthPlugin {
+    AuthPlugin::new("dangerous-doc").with_endpoint(create_auth_endpoint(
+        "/dangerous-doc",
+        Method::GET,
+        AuthEndpointOptions::new()
+            .operation_id("dangerousDoc")
+            .openapi(
+                OpenApiOperation::new("dangerousDoc")
+                    .summary("Dangerous doc")
+                    .description("</script><script>alert(1)</script>")
+                    .response(
+                        "200",
+                        serde_json::json!({
+                            "description": "Dangerous doc response",
+                        }),
+                    ),
+            ),
+        |_context, _request| {
+            Box::pin(async move {
+                http::Response::builder()
+                    .status(StatusCode::OK)
+                    .body(Vec::new())
+                    .map_err(|error| OpenAuthError::Api(error.to_string()))
+            })
+        },
+    ))
 }
 
 fn router(plugins: Vec<openauth_core::plugin::AuthPlugin>) -> Result<AuthRouter, OpenAuthError> {

@@ -22,6 +22,8 @@ mod email_otp;
 mod generic_oauth;
 #[path = "haveibeenpwned/mod.rs"]
 mod haveibeenpwned;
+#[path = "integration_matrix/mod.rs"]
+mod integration_matrix;
 #[path = "jwt/mod.rs"]
 mod jwt;
 #[path = "last_login_method/mod.rs"]
@@ -53,35 +55,89 @@ mod username;
 
 #[test]
 fn plugin_ids_expose_supported_server_plugins() {
-    assert_eq!(
-        openauth_plugins::PLUGIN_IDS,
-        &[
-            "access",
-            "additional-fields",
-            "admin",
-            "anonymous",
-            "api-key",
-            "bearer",
-            "captcha",
-            "custom-session",
-            "device-authorization",
-            "email-otp",
-            "generic-oauth",
-            "haveibeenpwned",
-            "jwt",
-            "last-login-method",
-            "magic-link",
-            "mcp",
-            "multi-session",
-            "oauth-proxy",
-            "one-tap",
-            "one-time-token",
-            "open-api",
-            "organization",
-            "phone-number",
-            "siwe",
-            "two-factor",
-            "username",
-        ]
-    );
+    let supported = supported_server_plugins();
+    assert_eq!(openauth_plugins::PLUGIN_IDS, supported.as_slice(),);
+}
+
+#[test]
+fn upstream_server_plugin_parity_is_explicit_about_replaced_oidc_provider() {
+    let upstream = upstream_server_plugins();
+    let supported = supported_server_plugins();
+    let replaced = replaced_server_plugins();
+
+    for plugin_id in upstream {
+        assert!(
+            supported.contains(&plugin_id) || replaced.iter().any(|(id, _)| id == &plugin_id),
+            "upstream server plugin `{plugin_id}` is neither supported nor explicitly replaced",
+        );
+    }
+    assert!(replaced.contains(&("oidc-provider", "openauth-oauth-provider")));
+    assert!(!supported.contains(&"oidc-provider"));
+}
+
+fn supported_server_plugins() -> Vec<&'static str> {
+    vec![
+        "access",
+        "additional-fields",
+        "admin",
+        "anonymous",
+        "api-key",
+        "bearer",
+        "captcha",
+        "custom-session",
+        "device-authorization",
+        "email-otp",
+        "generic-oauth",
+        "haveibeenpwned",
+        "jwt",
+        "last-login-method",
+        "magic-link",
+        "mcp",
+        "multi-session",
+        "oauth-proxy",
+        "one-tap",
+        "one-time-token",
+        "open-api",
+        "organization",
+        "phone-number",
+        "siwe",
+        "two-factor",
+        "username",
+    ]
+}
+
+fn upstream_server_plugins() -> Vec<&'static str> {
+    vec![
+        "access",
+        "additional-fields",
+        "admin",
+        "anonymous",
+        "api-key",
+        "bearer",
+        "captcha",
+        "custom-session",
+        "device-authorization",
+        "email-otp",
+        "generic-oauth",
+        "haveibeenpwned",
+        "jwt",
+        "last-login-method",
+        "magic-link",
+        "mcp",
+        "multi-session",
+        "oauth-proxy",
+        "oidc-provider",
+        "one-tap",
+        "one-time-token",
+        "open-api",
+        "organization",
+        "phone-number",
+        "siwe",
+        "two-factor",
+        "username",
+    ]
+}
+
+fn replaced_server_plugins() -> Vec<(&'static str, &'static str)> {
+    vec![("oidc-provider", "openauth-oauth-provider")]
 }

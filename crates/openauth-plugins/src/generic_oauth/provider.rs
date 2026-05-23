@@ -77,7 +77,7 @@ impl GenericOAuthProvider {
             device_id: input.device_id,
             authentication: self.config.authentication,
             headers: super::discovery::headers(&self.config.authorization_headers),
-            additional_params: self.config.token_url_params.clone(),
+            override_params: self.config.token_url_params.clone(),
             ..AuthorizationCodeRequest::default()
         })
     }

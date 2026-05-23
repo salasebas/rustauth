@@ -7,7 +7,10 @@ use openauth_plugins::api_key::{
 };
 use serde_json::json;
 
-use super::helpers::{request_json, sign_up, test_router, TestSecondaryStorage};
+use super::helpers::{
+    request_json, sign_up, test_router, test_router_with_adapter, DelayedUpdateAdapter,
+    TestSecondaryStorage,
+};
 
 #[tokio::test]
 async fn secondary_storage_mode_does_not_write_database_rows(
@@ -211,6 +214,77 @@ async fn secondary_storage_list_fetches_key_records_concurrently(
     assert!(
         storage.max_active_gets() > 1,
         "expected list to fetch multiple API key records concurrently"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn fallback_secondary_storage_keeps_usage_updates_consistent_under_concurrency(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let memory = Arc::new(MemoryAdapter::new());
+    let adapter: Arc<dyn DbAdapter> = Arc::new(DelayedUpdateAdapter::new(
+        memory,
+        std::time::Duration::from_millis(50),
+    ));
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = test_router_with_adapter(
+        adapter,
+        vec![api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                storage: ApiKeyStorageMode::SecondaryStorage,
+                fallback_to_database: true,
+                custom_storage: Some(storage),
+                ..ApiKeyConfiguration::default()
+            },
+        })],
+    )?;
+    let user = sign_up(&router, "Sec Race", "sec-race-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"fallback-single-use","userId": user.user_id, "remaining": 1}),
+        None,
+        None,
+    )
+    .await?;
+    let key = created.body["key"]
+        .as_str()
+        .ok_or("missing api key")?
+        .to_owned();
+
+    let (first, second) = tokio::join!(
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/verify",
+            json!({"key": key}),
+            None,
+            None,
+        ),
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/verify",
+            json!({"key": key}),
+            None,
+            None,
+        ),
+    );
+    let responses = [first?, second?];
+    let valid = responses
+        .iter()
+        .filter(|response| response.body["valid"] == true)
+        .count();
+    let usage_exceeded = responses
+        .iter()
+        .filter(|response| response.body["error"]["code"] == "USAGE_EXCEEDED")
+        .count();
+
+    assert_eq!(valid, 1, "fallback database should serialize usage updates");
+    assert_eq!(
+        usage_exceeded, 1,
+        "second request should observe exhausted usage"
     );
     Ok(())
 }

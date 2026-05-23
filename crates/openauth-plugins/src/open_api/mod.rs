@@ -145,6 +145,8 @@ fn get_html(api_reference: &serde_json::Value, theme: &str, nonce: Option<&str>)
     let nonce_attr = nonce
         .map(|nonce| format!(" nonce=\"{}\"", escape_html_attr(nonce)))
         .unwrap_or_default();
+    let api_reference = escape_script_json(&api_reference.to_string());
+    let theme = escape_js_string(theme);
     format!(
         r#"<!doctype html>
 <html>
@@ -170,7 +172,7 @@ fn get_html(api_reference: &serde_json::Value, theme: &str, nonce: Option<&str>)
   </body>
 </html>"#,
         api_reference = api_reference,
-        theme = escape_js_string(theme),
+        theme = theme,
         nonce_attr = nonce_attr,
     )
 }
@@ -208,5 +210,27 @@ fn escape_html_attr(value: &str) -> String {
 }
 
 fn escape_js_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '&' => escaped.push_str("\\u0026"),
+            '<' => escaped.push_str("\\u003c"),
+            '>' => escaped.push_str("\\u003e"),
+            '\u{2028}' => escaped.push_str("\\u2028"),
+            '\u{2029}' => escaped.push_str("\\u2029"),
+            character => escaped.push(character),
+        }
+    }
+    escaped
+}
+
+fn escape_script_json(value: &str) -> String {
+    value
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
 }
