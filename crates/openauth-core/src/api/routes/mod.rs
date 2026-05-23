@@ -10,7 +10,7 @@ use crate::db::DbAdapter;
 mod account;
 mod change_email;
 mod delete_user;
-mod email_verification;
+pub(in crate::api) mod email_verification;
 mod error;
 mod password;
 mod session;

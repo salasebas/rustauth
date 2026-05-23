@@ -204,6 +204,8 @@ fn validate_rate_limit_storage(options: &OpenAuthOptions) -> Result<(), OpenAuth
 
 fn schema_options_from_auth_options(options: &OpenAuthOptions) -> AuthSchemaOptions {
     AuthSchemaOptions {
+        has_secondary_storage: options.secondary_storage.is_some(),
+        store_session_in_database: options.session.store_session_in_database,
         rate_limit_storage: match options.rate_limit.storage {
             RateLimitStorageOption::Memory => DbRateLimitStorage::Memory,
             RateLimitStorageOption::Database => DbRateLimitStorage::Database,

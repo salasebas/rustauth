@@ -15,12 +15,10 @@ where
     match request_content_type(request) {
         Some("application/json") => parse_json_body(request.body()),
         Some("application/x-www-form-urlencoded") => parse_form_body(request.body()),
-        Some(content_type) => Err(OpenAuthError::Api(format!(
-            "unsupported request content type `{content_type}`"
-        ))),
-        None => Err(OpenAuthError::Api(
-            "unsupported request content type: missing Content-Type".to_owned(),
-        )),
+        Some(content_type) => Err(OpenAuthError::UnsupportedContentType {
+            content_type: content_type.to_owned(),
+        }),
+        None => Err(OpenAuthError::MissingContentType),
     }
 }
 
@@ -28,33 +26,44 @@ fn parse_json_body<T>(body: &[u8]) -> Result<T, OpenAuthError>
 where
     T: DeserializeOwned,
 {
-    serde_json::from_slice(body)
-        .map_err(|error| OpenAuthError::Api(format!("invalid JSON request body: {error}")))
+    serde_json::from_slice(body).map_err(|error| OpenAuthError::InvalidRequestBody {
+        encoding: "JSON",
+        message: error.to_string(),
+    })
 }
 
 fn parse_form_body<T>(body: &[u8]) -> Result<T, OpenAuthError>
 where
     T: DeserializeOwned,
 {
-    let body = std::str::from_utf8(body)
-        .map_err(|error| OpenAuthError::Api(format!("invalid form request body: {error}")))?;
+    let body = std::str::from_utf8(body).map_err(|error| OpenAuthError::InvalidRequestBody {
+        encoding: "form",
+        message: error.to_string(),
+    })?;
     let mut map = Map::new();
 
     if !body.is_empty() {
         for pair in body.split('&') {
             let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
-            let name = decode_form_component(name).map_err(|error| {
-                OpenAuthError::Api(format!("invalid form request body: {error}"))
-            })?;
+            let name =
+                decode_form_component(name).map_err(|error| OpenAuthError::InvalidRequestBody {
+                    encoding: "form",
+                    message: error.to_owned(),
+                })?;
             let value = decode_form_component(value).map_err(|error| {
-                OpenAuthError::Api(format!("invalid form request body: {error}"))
+                OpenAuthError::InvalidRequestBody {
+                    encoding: "form",
+                    message: error.to_owned(),
+                }
             })?;
             map.insert(name, form_value(value));
         }
     }
 
-    serde_json::from_value(Value::Object(map))
-        .map_err(|error| OpenAuthError::Api(format!("invalid form request body: {error}")))
+    serde_json::from_value(Value::Object(map)).map_err(|error| OpenAuthError::InvalidRequestBody {
+        encoding: "form",
+        message: error.to_string(),
+    })
 }
 
 fn request_content_type(request: &ApiRequest) -> Option<&str> {

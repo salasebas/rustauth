@@ -546,9 +546,9 @@ fn store_create_oauth_user_result(
     result: &Mutex<Option<CreateOAuthUserResult>>,
     value: CreateOAuthUserResult,
 ) -> Result<(), OpenAuthError> {
-    let mut guard = result
-        .lock()
-        .map_err(|_| OpenAuthError::Adapter("create OAuth user result lock poisoned".to_owned()))?;
+    let mut guard = result.lock().map_err(|_| OpenAuthError::LockPoisoned {
+        context: "create OAuth user result",
+    })?;
     *guard = Some(value);
     Ok(())
 }
@@ -558,6 +558,8 @@ fn take_create_oauth_user_result(
 ) -> Result<Option<CreateOAuthUserResult>, OpenAuthError> {
     result
         .lock()
-        .map_err(|_| OpenAuthError::Adapter("create OAuth user result lock poisoned".to_owned()))
+        .map_err(|_| OpenAuthError::LockPoisoned {
+            context: "create OAuth user result",
+        })
         .map(|mut guard| guard.take())
 }

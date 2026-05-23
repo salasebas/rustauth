@@ -11,13 +11,9 @@ use crate::utils::ip::{
     create_rate_limit_key, is_valid_ip, normalize_ip_with_options, NormalizeIpOptions,
 };
 use crate::utils::url::normalize_pathname;
-use governor::clock::Clock;
-use governor::middleware::StateInformationMiddleware;
-use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use http::Request;
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,13 +28,18 @@ pub struct RateLimitRejection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RequestClientIp(pub IpAddr);
 
-type GovernorLimiter = DefaultKeyedRateLimiter<String, StateInformationMiddleware>;
-
 #[derive(Default)]
 pub struct GovernorMemoryRateLimitStore {
-    limiters: Mutex<HashMap<(u64, u64), Arc<GovernorLimiter>>>,
+    records: Mutex<HashMap<String, MemoryRateLimitRecord>>,
     cleanup_interval: Option<Duration>,
     last_cleanup: Mutex<Option<Instant>>,
+}
+
+#[derive(Debug, Clone)]
+struct MemoryRateLimitRecord {
+    count: u64,
+    last_request: i64,
+    window_ms: i64,
 }
 
 impl GovernorMemoryRateLimitStore {
@@ -48,38 +49,23 @@ impl GovernorMemoryRateLimitStore {
 
     pub fn with_cleanup_interval(cleanup_interval: Option<Duration>) -> Self {
         Self {
-            limiters: Mutex::new(HashMap::new()),
+            records: Mutex::new(HashMap::new()),
             cleanup_interval,
             last_cleanup: Mutex::new(None),
         }
     }
 
-    fn limiter(&self, rule: &RateLimitRule) -> Result<Arc<GovernorLimiter>, OpenAuthError> {
-        self.cleanup_if_due()?;
-        let quota = quota(rule)?;
-        let mut limiters = self
-            .limiters
-            .lock()
-            .map_err(|_| OpenAuthError::Api("rate limit store lock poisoned".to_owned()))?;
-        let key = (rule.window, rule.max);
-        if let Some(limiter) = limiters.get(&key) {
-            return Ok(Arc::clone(limiter));
-        }
-        let limiter =
-            Arc::new(RateLimiter::keyed(quota).with_middleware::<StateInformationMiddleware>());
-        limiters.insert(key, Arc::clone(&limiter));
-        Ok(limiter)
-    }
-
-    fn cleanup_if_due(&self) -> Result<(), OpenAuthError> {
+    fn cleanup_if_due(&self, now_ms: i64) -> Result<(), OpenAuthError> {
         let Some(interval) = self.cleanup_interval else {
             return Ok(());
         };
 
-        let mut last_cleanup = self
-            .last_cleanup
-            .lock()
-            .map_err(|_| OpenAuthError::Api("rate limit cleanup lock poisoned".to_owned()))?;
+        let mut last_cleanup =
+            self.last_cleanup
+                .lock()
+                .map_err(|_| OpenAuthError::LockPoisoned {
+                    context: "rate limit cleanup",
+                })?;
         let now = Instant::now();
         if last_cleanup
             .as_ref()
@@ -90,17 +76,12 @@ impl GovernorMemoryRateLimitStore {
         *last_cleanup = Some(now);
         drop(last_cleanup);
 
-        let limiters = self
-            .limiters
+        self.records
             .lock()
-            .map_err(|_| OpenAuthError::Api("rate limit store lock poisoned".to_owned()))?
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        for limiter in limiters {
-            limiter.retain_recent();
-            limiter.shrink_to_fit();
-        }
+            .map_err(|_| OpenAuthError::LockPoisoned {
+                context: "rate limit store",
+            })?
+            .retain(|_, record| now_ms.saturating_sub(record.last_request) <= record.window_ms);
         Ok(())
     }
 }
@@ -108,27 +89,41 @@ impl GovernorMemoryRateLimitStore {
 impl RateLimitStore for GovernorMemoryRateLimitStore {
     fn consume<'a>(&'a self, input: RateLimitConsumeInput) -> RateLimitFuture<'a> {
         Box::pin(async move {
-            let limiter = self.limiter(&input.rule)?;
-            match limiter.check_key(&input.key) {
-                Ok(snapshot) => Ok(RateLimitDecision {
-                    permitted: true,
-                    retry_after: 0,
-                    limit: input.rule.max,
-                    remaining: u64::from(snapshot.remaining_burst_capacity()),
-                    reset_after: input.rule.window,
-                }),
-                Err(not_until) => {
-                    let retry_after =
-                        ceil_duration_to_seconds(not_until.wait_time_from(limiter.clock().now()));
-                    Ok(RateLimitDecision {
-                        permitted: false,
-                        retry_after,
-                        limit: input.rule.max,
-                        remaining: 0,
-                        reset_after: retry_after,
-                    })
+            validate_rule(&input.rule)?;
+            self.cleanup_if_due(input.now_ms)?;
+            let window_ms = rule_window_ms(&input.rule)?;
+            let mut records = self
+                .records
+                .lock()
+                .map_err(|_| OpenAuthError::LockPoisoned {
+                    context: "rate limit store",
+                })?;
+            let decision = match records.get_mut(&input.key) {
+                Some(record)
+                    if input.now_ms.saturating_sub(record.last_request) <= window_ms
+                        && record.count >= input.rule.max =>
+                {
+                    denied_decision(&input, record.last_request)
                 }
-            }
+                Some(record) if input.now_ms.saturating_sub(record.last_request) <= window_ms => {
+                    record.count = record.count.saturating_add(1);
+                    record.last_request = input.now_ms;
+                    record.window_ms = window_ms;
+                    allowed_decision(&input, record.count)
+                }
+                _ => {
+                    records.insert(
+                        input.key.clone(),
+                        MemoryRateLimitRecord {
+                            count: 1,
+                            last_request: input.now_ms,
+                            window_ms,
+                        },
+                    );
+                    allowed_decision(&input, 1)
+                }
+            };
+            Ok(decision)
         })
     }
 }
@@ -146,7 +141,8 @@ impl LegacyRateLimitStorageAdapter {
 impl RateLimitStore for LegacyRateLimitStorageAdapter {
     fn consume<'a>(&'a self, input: RateLimitConsumeInput) -> RateLimitFuture<'a> {
         Box::pin(async move {
-            let window_ms = input.rule.window.saturating_mul(1000) as i64;
+            validate_rule(&input.rule)?;
+            let window_ms = rule_window_ms(&input.rule)?;
             let existing = self.storage.get(&input.key)?;
             let decision = match existing {
                 Some(record)
@@ -238,7 +234,7 @@ pub async fn consume_rate_limit(
     let Some(config) = resolve_config(context, request)? else {
         return Ok(None);
     };
-    let store = store(context);
+    let store = store(context)?;
     let decision = store
         .consume(RateLimitConsumeInput {
             key: config.key,
@@ -394,21 +390,25 @@ fn request_ip(context: &AuthContext, request: &Request<Body>) -> Option<String> 
     None
 }
 
-fn store(context: &AuthContext) -> Arc<dyn RateLimitStore> {
+fn store(context: &AuthContext) -> Result<Arc<dyn RateLimitStore>, OpenAuthError> {
     if let Some(store) = &context.rate_limit.custom_store {
         if context.rate_limit.hybrid.enabled {
-            return Arc::new(HybridRateLimitStore::new(
+            return Ok(Arc::new(HybridRateLimitStore::new(
                 Arc::clone(&context.rate_limit.memory_store),
                 Arc::clone(store),
                 context.rate_limit.hybrid.local_multiplier,
-            ));
+            )));
         }
-        return Arc::clone(store);
+        return Ok(Arc::clone(store));
     }
     match context.rate_limit.storage {
-        RateLimitStorageOption::Memory
-        | RateLimitStorageOption::Database
-        | RateLimitStorageOption::SecondaryStorage => context.rate_limit.memory_store.clone(),
+        RateLimitStorageOption::Memory => Ok(context.rate_limit.memory_store.clone()),
+        RateLimitStorageOption::Database => Err(OpenAuthError::InvalidConfig(
+            "database rate limit storage requires a concrete RateLimitStore".to_owned(),
+        )),
+        RateLimitStorageOption::SecondaryStorage => Err(OpenAuthError::InvalidConfig(
+            "secondary-storage rate limit storage requires a concrete RateLimitStore".to_owned(),
+        )),
     }
 }
 
@@ -423,8 +423,9 @@ fn allowed_decision(input: &RateLimitConsumeInput, count: u64) -> RateLimitDecis
 }
 
 fn denied_decision(input: &RateLimitConsumeInput, last_request: i64) -> RateLimitDecision {
+    let window_ms = i64::try_from(input.rule.window.saturating_mul(1000)).unwrap_or(i64::MAX);
     let retry_after = last_request
-        .saturating_add(input.rule.window.saturating_mul(1000) as i64)
+        .saturating_add(window_ms)
         .saturating_sub(input.now_ms)
         .max(0);
     RateLimitDecision {
@@ -436,39 +437,27 @@ fn denied_decision(input: &RateLimitConsumeInput, last_request: i64) -> RateLimi
     }
 }
 
-fn ceil_duration_to_seconds(duration: std::time::Duration) -> u64 {
-    if duration.is_zero() {
-        return 0;
-    }
-    duration
-        .as_secs()
-        .saturating_add(u64::from(duration.subsec_nanos() > 0))
-}
-
-fn quota(rule: &RateLimitRule) -> Result<Quota, OpenAuthError> {
+fn validate_rule(rule: &RateLimitRule) -> Result<(), OpenAuthError> {
     if rule.window == 0 {
         return Err(OpenAuthError::InvalidConfig(
             "rate limit window must be greater than zero".to_owned(),
         ));
     }
-    let max =
-        NonZeroU32::new(u32::try_from(rule.max).map_err(|_| {
-            OpenAuthError::InvalidConfig("rate limit max must fit in u32".to_owned())
-        })?)
-        .ok_or_else(|| {
-            OpenAuthError::InvalidConfig("rate limit max must be greater than zero".to_owned())
-        })?;
-    let mut replenish_interval = Duration::from_secs(rule.window) / max.get();
-    if replenish_interval.is_zero() {
-        replenish_interval = Duration::from_nanos(1);
+    if rule.max == 0 {
+        return Err(OpenAuthError::InvalidConfig(
+            "rate limit max must be greater than zero".to_owned(),
+        ));
     }
-    Quota::with_period(replenish_interval)
-        .map(|quota| quota.allow_burst(max))
-        .ok_or_else(|| {
-            OpenAuthError::InvalidConfig(
-                "rate limit replenish interval must be greater than zero".to_owned(),
-            )
-        })
+    Ok(())
+}
+
+fn rule_window_ms(rule: &RateLimitRule) -> Result<i64, OpenAuthError> {
+    let milliseconds = rule
+        .window
+        .checked_mul(1000)
+        .ok_or_else(|| OpenAuthError::InvalidConfig("rate limit window is too large".to_owned()))?;
+    i64::try_from(milliseconds)
+        .map_err(|_| OpenAuthError::InvalidConfig("rate limit window is too large".to_owned()))
 }
 
 fn ceil_millis_to_seconds(milliseconds: i64) -> u64 {

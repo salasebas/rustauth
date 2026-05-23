@@ -9,6 +9,7 @@ use crate::plugin::AuthPlugin;
 
 use super::account::AccountOptions;
 use super::advanced::AdvancedOptions;
+use super::email_password::EmailPasswordOptions;
 use super::email_verification::EmailVerificationOptions;
 use super::origins::TrustedOriginOptions;
 use super::password::PasswordOptions;
@@ -71,6 +72,7 @@ pub struct OpenAuthOptions {
     pub disabled_paths: Vec<String>,
     pub session: SessionOptions,
     pub user: UserOptions,
+    pub email_password: EmailPasswordOptions,
     pub email_verification: EmailVerificationOptions,
     pub password: PasswordOptions,
     pub account: AccountOptions,
@@ -148,6 +150,12 @@ impl OpenAuthOptions {
     #[must_use]
     pub fn user(mut self, user: UserOptions) -> Self {
         self.user = user;
+        self
+    }
+
+    #[must_use]
+    pub fn email_password(mut self, email_password: EmailPasswordOptions) -> Self {
+        self.email_password = email_password;
         self
     }
 
@@ -248,6 +256,7 @@ impl fmt::Debug for OpenAuthOptions {
             .field("disabled_paths", &self.disabled_paths)
             .field("session", &self.session)
             .field("user", &self.user)
+            .field("email_password", &self.email_password)
             .field("email_verification", &self.email_verification)
             .field("password", &self.password)
             .field("account", &self.account)

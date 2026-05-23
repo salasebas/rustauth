@@ -60,7 +60,7 @@ fn parse_request_body_rejects_unsupported_content_type() -> Result<(), Box<dyn s
 
     assert!(matches!(
         error,
-        Some(OpenAuthError::Api(message)) if message.contains("unsupported request content type")
+        Some(OpenAuthError::UnsupportedContentType { content_type }) if content_type == "text/plain"
     ));
     Ok(())
 }
@@ -73,7 +73,10 @@ fn parse_request_body_rejects_malformed_json() -> Result<(), Box<dyn std::error:
 
     assert!(matches!(
         error,
-        Some(OpenAuthError::Api(message)) if message.contains("invalid JSON request body")
+        Some(OpenAuthError::InvalidRequestBody {
+            encoding: "JSON",
+            ..
+        })
     ));
     Ok(())
 }
@@ -86,7 +89,10 @@ fn parse_request_body_rejects_malformed_form_encoding() -> Result<(), Box<dyn st
 
     assert!(matches!(
         error,
-        Some(OpenAuthError::Api(message)) if message.contains("invalid form request body")
+        Some(OpenAuthError::InvalidRequestBody {
+            encoding: "form",
+            ..
+        })
     ));
     Ok(())
 }

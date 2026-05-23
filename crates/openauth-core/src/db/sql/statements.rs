@@ -180,7 +180,11 @@ pub fn update_one_plan(
             let row_id = match dialect {
                 SqlDialect::Postgres => "ctid",
                 SqlDialect::Sqlite => "rowid",
-                SqlDialect::MySql => unreachable!("mysql handled by outer match"),
+                SqlDialect::MySql => {
+                    return Err(OpenAuthError::Adapter(
+                        "mysql update-one uses a preselect plan".to_owned(),
+                    ));
+                }
             };
             let mut params = assignment.params;
             params.extend(where_sql.params);

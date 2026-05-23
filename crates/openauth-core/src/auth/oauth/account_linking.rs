@@ -8,7 +8,7 @@ use crate::cookies::{ChunkedCookieStore, Cookie};
 use crate::crypto::symmetric_encode_jwt_with_salt;
 use crate::db::{Account, DbAdapter, Session, User};
 use crate::error::OpenAuthError;
-use crate::session::{CreateSessionInput, DbSessionStore};
+use crate::session::{CreateSessionInput, SessionStore};
 use crate::user::{
     CreateOAuthAccountInput, CreateUserInput, DbUserStore, UpdateAccountInput, UpdateUserInput,
 };
@@ -164,7 +164,7 @@ pub async fn handle_oauth_user_info(
     };
     let session = match created_session {
         Some(session) => session,
-        None => DbSessionStore::new(adapter)
+        None => SessionStore::new(adapter, context)
             .create_session(CreateSessionInput::new(
                 &user.id,
                 OffsetDateTime::now_utc()
@@ -199,8 +199,12 @@ async fn create_oauth_session_user(
     let result = Arc::new(Mutex::new(None));
     let result_for_transaction = Arc::clone(&result);
     let expires_in = context.session_config.expires_in;
+    let secondary_storage = context.secondary_storage();
+    let store_session_in_database = context.options.session.store_session_in_database;
+    let preserve_session_in_database = context.options.session.preserve_session_in_database;
     let transaction_status = adapter
         .transaction(Box::new(move |transaction| {
+            let secondary_storage = secondary_storage.clone();
             Box::pin(async move {
                 let users = DbUserStore::new(transaction.as_ref());
                 let created = users
@@ -209,15 +213,18 @@ async fn create_oauth_session_user(
                     .map_err(|_| {
                         OpenAuthError::Adapter("unable to create OAuth user".to_owned())
                     })?;
-                let session = DbSessionStore::new(transaction.as_ref())
-                    .create_session(CreateSessionInput::new(
-                        &created.user.id,
-                        OffsetDateTime::now_utc() + Duration::seconds(expires_in as i64),
-                    ))
-                    .await
-                    .map_err(|_| {
-                        OpenAuthError::Adapter("unable to create OAuth session".to_owned())
-                    })?;
+                let session = SessionStore::with_storage(
+                    transaction.as_ref(),
+                    secondary_storage,
+                    store_session_in_database,
+                    preserve_session_in_database,
+                )
+                .create_session(CreateSessionInput::new(
+                    &created.user.id,
+                    OffsetDateTime::now_utc() + Duration::seconds(expires_in as i64),
+                ))
+                .await
+                .map_err(|_| OpenAuthError::Adapter("unable to create OAuth session".to_owned()))?;
                 store_created_oauth_session_user(
                     &result_for_transaction,
                     CreatedOAuthSessionUser {
@@ -245,8 +252,8 @@ fn store_created_oauth_session_user(
     result: &Mutex<Option<CreatedOAuthSessionUser>>,
     value: CreatedOAuthSessionUser,
 ) -> Result<(), OpenAuthError> {
-    let mut guard = result.lock().map_err(|_| {
-        OpenAuthError::Adapter("create OAuth session result lock poisoned".to_owned())
+    let mut guard = result.lock().map_err(|_| OpenAuthError::LockPoisoned {
+        context: "create OAuth session result",
     })?;
     *guard = Some(value);
     Ok(())
@@ -257,7 +264,9 @@ fn take_created_oauth_session_user(
 ) -> Result<Option<CreatedOAuthSessionUser>, OpenAuthError> {
     result
         .lock()
-        .map_err(|_| OpenAuthError::Adapter("create OAuth session result lock poisoned".to_owned()))
+        .map_err(|_| OpenAuthError::LockPoisoned {
+            context: "create OAuth session result",
+        })
         .map(|mut guard| guard.take())
 }
 

@@ -37,19 +37,25 @@ pub async fn user_output_value(
     user: &User,
 ) -> Result<Value, OpenAuthError> {
     if context.options.user.additional_fields.is_empty() {
-        return serde_json::to_value(user).map_err(|error| OpenAuthError::Api(error.to_string()));
+        return serde_json::to_value(user).map_err(|error| OpenAuthError::Serialization {
+            context: "serializing user output",
+            message: error.to_string(),
+        });
     }
     let record = adapter
         .find_one(
             FindOne::new("user").where_clause(Where::new("id", DbValue::String(user.id.clone()))),
         )
         .await?;
-    let mut value =
-        serde_json::to_value(user).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let mut value = serde_json::to_value(user).map_err(|error| OpenAuthError::Serialization {
+        context: "serializing user output",
+        message: error.to_string(),
+    })?;
     let Some(object) = value.as_object_mut() else {
-        return Err(OpenAuthError::Api(
-            "could not serialize user as an object".to_owned(),
-        ));
+        return Err(OpenAuthError::Serialization {
+            context: "serializing user output",
+            message: "expected JSON object".to_owned(),
+        });
     };
     if let Some(record) = record {
         insert_returned_fields(object, &context.options.user.additional_fields, &record)?;
@@ -63,8 +69,10 @@ pub async fn session_output_value(
     session: &Session,
 ) -> Result<Value, OpenAuthError> {
     if context.options.session.additional_fields.is_empty() {
-        return serde_json::to_value(session)
-            .map_err(|error| OpenAuthError::Api(error.to_string()));
+        return serde_json::to_value(session).map_err(|error| OpenAuthError::Serialization {
+            context: "serializing session output",
+            message: error.to_string(),
+        });
     }
     let record = adapter
         .find_one(
@@ -74,9 +82,10 @@ pub async fn session_output_value(
         .await?;
     match record {
         Some(record) => session_value_from_record(context, &record, session),
-        None => {
-            serde_json::to_value(session).map_err(|error| OpenAuthError::Api(error.to_string()))
-        }
+        None => serde_json::to_value(session).map_err(|error| OpenAuthError::Serialization {
+            context: "serializing session output",
+            message: error.to_string(),
+        }),
     }
 }
 
@@ -86,11 +95,15 @@ pub fn session_value_from_record(
     session: &Session,
 ) -> Result<Value, OpenAuthError> {
     let mut value =
-        serde_json::to_value(session).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        serde_json::to_value(session).map_err(|error| OpenAuthError::Serialization {
+            context: "serializing session output",
+            message: error.to_string(),
+        })?;
     let Some(object) = value.as_object_mut() else {
-        return Err(OpenAuthError::Api(
-            "could not serialize session as an object".to_owned(),
-        ));
+        return Err(OpenAuthError::Serialization {
+            context: "serializing session output",
+            message: "expected JSON object".to_owned(),
+        });
     };
     insert_returned_fields(object, &context.options.session.additional_fields, record)?;
     Ok(value)

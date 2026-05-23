@@ -5,6 +5,34 @@
 pub enum OpenAuthError {
     #[error("invalid configuration: {0}")]
     InvalidConfig(String),
+    #[error("invalid request body: {message}")]
+    InvalidRequestBody {
+        encoding: &'static str,
+        message: String,
+    },
+    #[error("unsupported request content type `{content_type}`")]
+    UnsupportedContentType { content_type: String },
+    #[error("unsupported request content type: missing Content-Type")]
+    MissingContentType,
+    #[error("missing path parameter `{name}`")]
+    MissingPathParam { name: String },
+    #[error("serialization error while {context}: {message}")]
+    Serialization {
+        context: &'static str,
+        message: String,
+    },
+    #[error("{context} lock poisoned")]
+    LockPoisoned { context: &'static str },
+    #[error("{record} record is missing `{field}`")]
+    MissingRecordField { record: &'static str, field: String },
+    #[error("{record} record field `{field}` must be {expected}")]
+    InvalidRecordField {
+        record: &'static str,
+        field: String,
+        expected: &'static str,
+    },
+    #[error("numeric value out of range: {context}")]
+    NumericOutOfRange { context: &'static str },
     #[error("crypto error: {0}")]
     Crypto(String),
     #[error("invalid secret configuration: {0}")]

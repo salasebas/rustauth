@@ -6,22 +6,20 @@ use serde_json::Value;
 
 use super::shared::{
     additional_session_create_values, auth_flow_error_response, auth_session_cookies,
-    email_password_config, error_response, invalid_additional_field_response, json_response,
-    message_openapi_response, password_validation_rejection_response, record_new_session,
-    sign_up_email_openapi_response, user_response_value, RequestMetadata,
+    error_response, invalid_additional_field_response, json_response, message_openapi_response,
+    record_new_session, sign_up_email_openapi_response, user_response_value,
 };
 use crate::api::additional_fields::{create_values, AdditionalFieldError};
-use crate::api::plugin_pipeline::run_password_validators;
+use crate::api::services::email_password as email_password_service;
+use crate::api::services::email_password::{
+    EmailAuthResult, EmailPasswordServiceError, SignUpEmailInput,
+};
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType, OpenApiOperation,
 };
-use crate::auth::email_password::{
-    AuthFlowError, AuthFlowErrorCode, EmailPasswordAuth, SignUpInput,
-};
 use crate::db::DbAdapter;
 use crate::error::OpenAuthError;
-use crate::user::DbUserStore;
 
 #[derive(Debug, Deserialize)]
 struct SignUpEmailBody {
@@ -36,11 +34,13 @@ struct SignUpEmailBody {
     display_username: Option<String>,
     #[serde(default, alias = "rememberMe")]
     remember_me: Option<bool>,
+    #[serde(default, alias = "callbackURL")]
+    callback_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct AuthTokenUserBody {
-    token: String,
+    token: Option<String>,
     user: Value,
 }
 
@@ -66,6 +66,16 @@ pub(super) fn sign_up_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
         move |context, request| {
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {
+                if !context.options.email_password.enabled
+                    || context.options.email_password.disable_sign_up
+                {
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        "EMAIL_PASSWORD_SIGN_UP_DISABLED",
+                        "Email and password sign up is not enabled",
+                    );
+                }
+
                 let raw_body: Value = parse_request_body(&request)?;
                 let Some(body_object) = raw_body.as_object() else {
                     return invalid_additional_field_response(AdditionalFieldError::InvalidType(
@@ -74,84 +84,90 @@ pub(super) fn sign_up_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
                 };
                 let body: SignUpEmailBody =
                     serde_json::from_value(raw_body.clone()).map_err(|error| {
-                        OpenAuthError::Api(format!("invalid request body: {error}"))
+                        OpenAuthError::InvalidRequestBody {
+                            encoding: "JSON",
+                            message: error.to_string(),
+                        }
                     })?;
-                let remember_me = body.remember_me.unwrap_or(true);
-                let mut input =
-                    SignUpInput::new(body.name, body.email, body.password).remember_me(remember_me);
-                if let Some(image) = body.image {
-                    input = input.image(image);
-                }
-                if let Some(username) = body.username {
-                    input = input.username(username);
-                }
-                if let Some(display_username) = body.display_username {
-                    input = input.display_username(display_username);
-                }
                 let additional_user_fields =
                     match create_values(&context.options.user.additional_fields, body_object) {
                         Ok(fields) => fields,
                         Err(error) => return invalid_additional_field_response(error),
                     };
                 let additional_session_fields = additional_session_create_values(context);
-                input = input
-                    .additional_user_fields(additional_user_fields)
-                    .additional_session_fields(additional_session_fields);
-                input = input.with_request_metadata(&request);
-                if context.has_plugin("username") {
-                    if let Some(username) = input.username.as_deref() {
-                        if DbUserStore::new(adapter.as_ref())
-                            .find_user_by_username(username)
-                            .await?
-                            .is_some()
-                        {
-                            return error_response(
-                                StatusCode::BAD_REQUEST,
-                                "USERNAME_IS_ALREADY_TAKEN",
-                                "Username is already taken. Please try another.",
-                            );
-                        }
-                    }
-                }
-                if DbUserStore::new(adapter.as_ref())
-                    .find_user_by_email(&input.email)
-                    .await?
-                    .is_some()
-                {
-                    return auth_flow_error_response(AuthFlowError::new(
-                        AuthFlowErrorCode::UserAlreadyExists,
-                    ));
-                }
-                if let Err(rejection) =
-                    run_password_validators(context, "/sign-up/email", &input.password).await
-                {
-                    return password_validation_rejection_response(rejection);
-                }
-
-                let auth = EmailPasswordAuth::new(
+                let result = match email_password_service::sign_up_email(
                     adapter.as_ref(),
-                    email_password_config(context),
-                    context.password.hash,
-                    context.password.verify,
-                );
-                let result = match auth.sign_up(input).await {
-                    Ok(result) => result,
-                    Err(error) => return auth_flow_error_response(error),
-                };
-                record_new_session(&result.session, &result.user)?;
-                let cookies =
-                    auth_session_cookies(context, &result.session, &result.user, !remember_me)?;
-                json_response(
-                    StatusCode::OK,
-                    &AuthTokenUserBody {
-                        token: result.session.token,
-                        user: user_response_value(adapter.as_ref(), context, &result.user).await?,
+                    context,
+                    &request,
+                    SignUpEmailInput {
+                        name: body.name,
+                        email: body.email,
+                        password: body.password,
+                        image: body.image,
+                        username: body.username,
+                        display_username: body.display_username,
+                        remember_me: body.remember_me.unwrap_or(true),
+                        callback_url: body.callback_url,
+                        additional_user_fields,
+                        additional_session_fields,
                     },
-                    cookies,
                 )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(error) => return email_password_service_error_response(error),
+                };
+                email_sign_up_response(adapter.as_ref(), context, result).await
             })
         },
     )
+}
+
+async fn email_sign_up_response(
+    adapter: &dyn DbAdapter,
+    context: &crate::context::AuthContext,
+    result: EmailAuthResult,
+) -> Result<crate::api::ApiResponse, OpenAuthError> {
+    let mut cookies = Vec::new();
+    let token = if let Some(session) = result.session {
+        record_new_session(&session, &result.user)?;
+        cookies = auth_session_cookies(context, &session, &result.user, !result.remember_me)?;
+        Some(session.token)
+    } else {
+        None
+    };
+    json_response(
+        StatusCode::OK,
+        &AuthTokenUserBody {
+            token,
+            user: user_response_value(adapter, context, &result.user).await?,
+        },
+        cookies,
+    )
+}
+
+fn email_password_service_error_response(
+    error: EmailPasswordServiceError,
+) -> Result<crate::api::ApiResponse, OpenAuthError> {
+    match error {
+        EmailPasswordServiceError::Disabled | EmailPasswordServiceError::SignUpDisabled => {
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "EMAIL_PASSWORD_SIGN_UP_DISABLED",
+                "Email and password sign up is not enabled",
+            )
+        }
+        EmailPasswordServiceError::UsernameTaken => error_response(
+            StatusCode::BAD_REQUEST,
+            "USERNAME_IS_ALREADY_TAKEN",
+            "Username is already taken. Please try another.",
+        ),
+        EmailPasswordServiceError::AuthFlow(error) => auth_flow_error_response(error),
+        EmailPasswordServiceError::PasswordValidation(rejection) => {
+            super::shared::password_validation_rejection_response(rejection)
+        }
+        EmailPasswordServiceError::OpenAuth(error) => Err(error),
+    }
 }
 
 fn sign_up_email_body_schema() -> BodySchema {

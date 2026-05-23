@@ -245,7 +245,7 @@ pub(super) fn verify_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
     )
 }
 
-pub(super) fn create_email_verification_token(
+pub(in crate::api) fn create_email_verification_token(
     context: &crate::context::AuthContext,
     email: &str,
     update_to: Option<&str>,

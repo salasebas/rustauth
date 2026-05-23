@@ -1,5 +1,6 @@
+use openauth_core::options::SecondaryStorage;
 use openauth_core::options::{RateLimitConsumeInput, RateLimitRule, RateLimitStore};
-use openauth_redis::RedisRateLimitStore;
+use openauth_redis::{RedisRateLimitStore, RedisSecondaryStorage};
 
 const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1:6379";
 const DEFAULT_VALKEY_URL: &str = "valkey://127.0.0.1:6380";
@@ -168,6 +169,31 @@ async fn redis_rate_limit_store_allows_exactly_one_concurrent_request(
             "{} target should permit exactly one concurrent call",
             target.name
         );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn redis_secondary_storage_supports_get_set_delete_and_ttl_zero(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in redis_targets() {
+        let storage = RedisSecondaryStorage::connect(&target.url).await?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis();
+        let key = format!("test:{}:{now_ms}:secondary", target.name);
+
+        storage.set(&key, "value".to_owned(), Some(60)).await?;
+        let found = storage.get(&key).await?;
+        storage.delete(&key).await?;
+        let deleted = storage.get(&key).await?;
+
+        assert_eq!(found.as_deref(), Some("value"));
+        assert!(deleted.is_none());
+
+        storage.set(&key, "expired".to_owned(), Some(0)).await?;
+        let expired = storage.get(&key).await?;
+        assert!(expired.is_none());
     }
     Ok(())
 }
