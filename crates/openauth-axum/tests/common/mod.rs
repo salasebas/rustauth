@@ -3,7 +3,9 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{header, HeaderValue, Method, Request};
 use openauth::db::DbValue;
-use openauth::{ApiResponse, AsyncAuthEndpoint, AuthContext, AuthEndpointOptions, MemoryAdapter};
+use openauth::{
+    ApiResponse, AsyncAuthEndpoint, AuthContext, AuthEndpointOptions, MemoryAdapter, OpenAuthError,
+};
 use openauth::{
     OAuth2Tokens, OAuth2UserInfo, OAuthError, OpenAuth, OpenAuthOptions, ProviderOptions,
     SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest, SocialIdTokenRequest,
@@ -50,6 +52,63 @@ pub fn custom_endpoint(path: &'static str) -> AsyncAuthEndpoint {
                 *response.status_mut() = axum::http::StatusCode::OK;
                 Ok(response)
             })
+        },
+    )
+}
+
+pub fn response_contract_endpoint(path: &'static str) -> AsyncAuthEndpoint {
+    openauth::create_auth_endpoint(
+        path,
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context: &AuthContext, request| {
+            Box::pin(async move {
+                let query = request.uri().query().unwrap_or("");
+                let mut response = ApiResponse::new(format!("query={query}").into_bytes());
+                *response.status_mut() = axum::http::StatusCode::CREATED;
+                *response.version_mut() = axum::http::Version::HTTP_2;
+                response.headers_mut().append(
+                    header::SET_COOKIE,
+                    HeaderValue::from_static("a=1; Path=/; HttpOnly"),
+                );
+                response.headers_mut().append(
+                    header::SET_COOKIE,
+                    HeaderValue::from_static("b=2; Path=/; HttpOnly"),
+                );
+                response
+                    .headers_mut()
+                    .append("x-openauth-test", HeaderValue::from_static("one"));
+                response
+                    .headers_mut()
+                    .append("x-openauth-test", HeaderValue::from_static("two"));
+                Ok(response)
+            })
+        },
+    )
+}
+
+pub fn empty_response_endpoint(path: &'static str) -> AsyncAuthEndpoint {
+    openauth::create_auth_endpoint(
+        path,
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context: &AuthContext, _request| {
+            Box::pin(async {
+                let mut response = ApiResponse::new(Vec::new());
+                *response.status_mut() = axum::http::StatusCode::NO_CONTENT;
+                Ok(response)
+            })
+        },
+    )
+}
+
+pub fn failing_endpoint(path: &'static str) -> AsyncAuthEndpoint {
+    openauth::create_auth_endpoint(
+        path,
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context: &AuthContext, _request| {
+            Box::pin(async { Err(OpenAuthError::Api("simulated internal failure".to_owned())) })
         },
     )
 }

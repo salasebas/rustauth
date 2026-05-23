@@ -12,10 +12,10 @@ use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context;
 use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
-    auth_schema, AdapterCapabilities, AuthSchemaOptions, Count, Create, DbAdapter, DbField,
-    DbFieldType, DbRecord, DbSchema, DbTable, DbValue, DeleteMany, FindMany, FindOne, ForeignKey,
-    IdGeneration, IdPolicy, JoinOption, OnDelete, RateLimitStorage, Sort, SortDirection,
-    TableOptions, Update, Where, WhereOperator,
+    adapter_harness::run_adapter_contract, auth_schema, AdapterCapabilities, AuthSchemaOptions,
+    Count, Create, DbAdapter, DbField, DbFieldType, DbRecord, DbSchema, DbTable, DbValue,
+    DeleteMany, FindMany, FindOne, ForeignKey, IdGeneration, IdPolicy, JoinOption, OnDelete,
+    RateLimitStorage, Sort, SortDirection, TableOptions, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -65,6 +65,13 @@ async fn adapter() -> Result<MySqlAdapter, OpenAuthError> {
     let adapter = MySqlAdapter::with_schema(pool, schema.clone());
     adapter.create_schema(&schema, None).await?;
     Ok(adapter)
+}
+
+#[tokio::test]
+async fn mysql_adapter_satisfies_shared_adapter_contract() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+
+    run_adapter_contract(&adapter).await
 }
 
 fn test_schema() -> DbSchema {

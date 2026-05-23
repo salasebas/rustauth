@@ -1,6 +1,8 @@
 //! Database contracts, model metadata, and SQL naming defaults.
 
 mod adapter;
+#[doc(hidden)]
+pub mod adapter_harness;
 mod factory;
 mod hooks;
 mod id;

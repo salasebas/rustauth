@@ -6,7 +6,7 @@ use common::*;
 use openauth::{
     AuthPlugin, DeleteUserOptions, MemoryAdapter, OpenAuth, OpenAuthOptions, UserOptions,
 };
-use openauth_axum::{router, OpenAuthAxumExt};
+use openauth_axum::{router, OpenAuthAxumError, OpenAuthAxumExt};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -35,6 +35,87 @@ async fn custom_base_path_mounts_all_auth_routes() -> Result<(), Box<dyn std::er
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn root_base_path_mounts_auth_routes_at_root() -> Result<(), Box<dyn std::error::Error>> {
+    let app = OpenAuth::builder()
+        .secret(SECRET)
+        .base_path("/")
+        .build()?
+        .into_router()?;
+
+    let response = app.oneshot(request(Method::GET, "/ok", "", None)?).await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn trailing_slash_base_path_is_mounted_without_panicking(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app = OpenAuth::builder()
+        .secret(SECRET)
+        .base_path("/api/auth/")
+        .build()?
+        .into_router()?;
+
+    let response = app
+        .oneshot(request(Method::GET, "/api/auth/ok", "", None)?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn invalid_base_paths_are_rejected_before_mounting() -> Result<(), Box<dyn std::error::Error>>
+{
+    for base_path in ["api/auth", "", "/api/{auth}", "/api/*auth", "/api/auth?x=1"] {
+        let result = OpenAuth::builder()
+            .secret(SECRET)
+            .base_path(base_path)
+            .build()?
+            .into_router();
+        let Err(error) = result else {
+            return Err(std::io::Error::other(format!("{base_path} should be rejected")).into());
+        };
+        assert!(
+            matches!(error, OpenAuthAxumError::InvalidBasePath(_)),
+            "{base_path} should produce InvalidBasePath"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn non_auth_paths_and_wrong_methods_return_not_found(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app = router(auth_with_options(OpenAuthOptions::default())?)?;
+
+    let outside = app
+        .clone()
+        .oneshot(request(Method::GET, "/api/authentication/ok", "", None)?)
+        .await?;
+    assert_eq!(outside.status(), StatusCode::NOT_FOUND);
+
+    let wrong_method = app
+        .clone()
+        .oneshot(request(Method::POST, "/api/auth/ok", "{}", None)?)
+        .await?;
+    assert_eq!(wrong_method.status(), StatusCode::NOT_FOUND);
+
+    let head = app
+        .clone()
+        .oneshot(request(Method::HEAD, "/api/auth/ok", "", None)?)
+        .await?;
+    assert_eq!(head.status(), StatusCode::NOT_FOUND);
+
+    let options = app
+        .oneshot(request(Method::OPTIONS, "/api/auth/ok", "", None)?)
+        .await?;
+    assert_eq!(options.status(), StatusCode::NOT_FOUND);
     Ok(())
 }
 

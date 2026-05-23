@@ -2,7 +2,7 @@ use super::*;
 use std::collections::BTreeMap;
 
 use openauth_core::cookies::{set_cookie_cache, CookieCachePayload};
-use openauth_core::db::DbFieldType;
+use openauth_core::db::{DbFieldType, DbValue};
 use openauth_core::options::{
     CookieCacheOptions, SessionOptions, UserAdditionalField, UserOptions,
 };
@@ -103,6 +103,162 @@ async fn get_session_route_disable_refresh_skips_refresh_cookie(
     assert!(set_cookie_values(&response)
         .iter()
         .all(|value| !value.starts_with("open-auth.session_token=")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_session_route_global_disable_session_refresh_skips_refresh(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    let expires_at = now + Duration::seconds(10);
+    adapter.insert_user(user(now)).await;
+    adapter.insert_session(session(now, expires_at)).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            session: SessionOptions {
+                expires_in: Some(60 * 60),
+                update_age: Some(1),
+                disable_session_refresh: true,
+                ..SessionOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/get-session",
+            "",
+            Some(&signed_session_cookie("token_1")?),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .all(|value| !value.starts_with("open-auth.session_token=")));
+    let stored = record_by_string(&adapter, "session", "token", "token_1")
+        .await?
+        .ok_or("missing session")?;
+    assert_eq!(
+        stored.get("expires_at"),
+        Some(&DbValue::Timestamp(expires_at))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_session_route_post_requires_deferred_refresh() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router(adapter)?;
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/get-session",
+            "",
+            Some(&signed_session_cookie("token_1")?),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "METHOD_NOT_ALLOWED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_session_route_defer_refresh_get_marks_needs_refresh_without_writing(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    let expires_at = now + Duration::seconds(10);
+    adapter.insert_user(user(now)).await;
+    adapter.insert_session(session(now, expires_at)).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            session: SessionOptions {
+                expires_in: Some(60 * 60),
+                update_age: Some(1),
+                defer_session_refresh: true,
+                ..SessionOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/get-session",
+            "",
+            Some(&signed_session_cookie("token_1")?),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["needsRefresh"], true);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .all(|value| !value.starts_with("open-auth.session_token=")));
+    let stored = record_by_string(&adapter, "session", "token", "token_1")
+        .await?
+        .ok_or("missing session")?;
+    assert_eq!(
+        stored.get("expires_at"),
+        Some(&DbValue::Timestamp(expires_at))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_session_route_defer_refresh_post_refreshes_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    let expires_at = now + Duration::seconds(10);
+    adapter.insert_user(user(now)).await;
+    adapter.insert_session(session(now, expires_at)).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            session: SessionOptions {
+                expires_in: Some(60 * 60),
+                update_age: Some(1),
+                defer_session_refresh: true,
+                ..SessionOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/get-session",
+            "",
+            Some(&signed_session_cookie("token_1")?),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert!(body.get("needsRefresh").is_none());
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|value| value.starts_with("open-auth.session_token=")));
+    let stored = record_by_string(&adapter, "session", "token", "token_1")
+        .await?
+        .ok_or("missing session")?;
+    let Some(DbValue::Timestamp(refreshed)) = stored.get("expires_at") else {
+        return Err("missing refreshed expires_at".into());
+    };
+    assert!(*refreshed > expires_at);
     Ok(())
 }
 

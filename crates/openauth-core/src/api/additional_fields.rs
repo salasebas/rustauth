@@ -163,7 +163,10 @@ pub fn db_value_to_json(value: &DbValue) -> Result<Value, OpenAuthError> {
         DbValue::Number(value) => Ok(Value::Number((*value).into())),
         DbValue::Boolean(value) => Ok(Value::Bool(*value)),
         DbValue::Timestamp(value) => {
-            serde_json::to_value(value).map_err(|error| OpenAuthError::Api(error.to_string()))
+            serde_json::to_value(value).map_err(|error| OpenAuthError::Serialization {
+                context: "serializing additional field timestamp",
+                message: error.to_string(),
+            })
         }
         DbValue::Json(value) => Ok(value.clone()),
         DbValue::StringArray(values) => Ok(Value::Array(
@@ -242,19 +245,25 @@ pub async fn user_response_value(
     user: &User,
 ) -> Result<Value, OpenAuthError> {
     if fields.is_empty() {
-        return serde_json::to_value(user).map_err(|error| OpenAuthError::Api(error.to_string()));
+        return serde_json::to_value(user).map_err(|error| OpenAuthError::Serialization {
+            context: "serializing user output",
+            message: error.to_string(),
+        });
     }
     let record = adapter
         .find_one(
             FindOne::new("user").where_clause(Where::new("id", DbValue::String(user.id.clone()))),
         )
         .await?;
-    let mut value =
-        serde_json::to_value(user).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let mut value = serde_json::to_value(user).map_err(|error| OpenAuthError::Serialization {
+        context: "serializing user output",
+        message: error.to_string(),
+    })?;
     let Some(object) = value.as_object_mut() else {
-        return Err(OpenAuthError::Api(
-            "could not serialize user as an object".to_owned(),
-        ));
+        return Err(OpenAuthError::Serialization {
+            context: "serializing user output",
+            message: "expected JSON object".to_owned(),
+        });
     };
     if let Some(record) = record {
         insert_returned_fields(object, fields, &record)?;

@@ -50,7 +50,7 @@ top-level crate, then add feature crates as your application needs them.
 | [OpenAuth SQLx](crates/openauth-sqlx/README.md) | SQLx adapters for SQLite, Postgres, MySQL, and SQL-backed rate limiting. |
 | [OpenAuth Deadpool Postgres](crates/openauth-deadpool-postgres/README.md) | Pooled Postgres adapter recommended for production Postgres deployments. |
 | [OpenAuth Tokio Postgres](crates/openauth-tokio-postgres/README.md) | Minimal `tokio-postgres` adapter for apps that already own a client. |
-| [OpenAuth Redis](crates/openauth-redis/README.md) | Redis/Valkey rate-limit store using `redis-rs`. |
+| [OpenAuth Redis](crates/openauth-redis/README.md) | Redis/Valkey rate-limit and secondary storage using `redis-rs`. |
 | [OpenAuth Fred](crates/openauth-fred/README.md) | Redis/Valkey rate-limit store using the `fred` client. |
 
 ## Repository

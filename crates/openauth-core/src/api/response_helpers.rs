@@ -21,12 +21,18 @@ pub fn json_response<T>(
 where
     T: Serialize,
 {
-    let body = serde_json::to_vec(body).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let body = serde_json::to_vec(body).map_err(|error| OpenAuthError::Serialization {
+        context: "serializing JSON response body",
+        message: error.to_string(),
+    })?;
     let mut response = http::Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
         .body(body)
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building JSON response",
+            message: error.to_string(),
+        })?;
     append_cookies(response.headers_mut(), cookies)?;
     Ok(response)
 }
@@ -39,7 +45,10 @@ pub fn redirect_response(
         .status(StatusCode::FOUND)
         .header(header::LOCATION, location)
         .body(Vec::new())
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building redirect response",
+            message: error.to_string(),
+        })?;
     append_cookies(response.headers_mut(), cookies)?;
     Ok(response)
 }

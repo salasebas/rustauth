@@ -10,6 +10,10 @@ pub struct SessionOptions {
     pub expires_in: Option<u64>,
     pub update_age: Option<u64>,
     pub fresh_age: Option<u64>,
+    pub disable_session_refresh: bool,
+    pub defer_session_refresh: bool,
+    pub store_session_in_database: bool,
+    pub preserve_session_in_database: bool,
     pub cookie_cache: CookieCacheOptions,
     pub additional_fields: BTreeMap<String, SessionAdditionalField>,
 }
@@ -38,6 +42,30 @@ impl SessionOptions {
     #[must_use]
     pub fn fresh_age(mut self, fresh_age: u64) -> Self {
         self.fresh_age = Some(fresh_age);
+        self
+    }
+
+    #[must_use]
+    pub fn disable_session_refresh(mut self, disabled: bool) -> Self {
+        self.disable_session_refresh = disabled;
+        self
+    }
+
+    #[must_use]
+    pub fn defer_session_refresh(mut self, deferred: bool) -> Self {
+        self.defer_session_refresh = deferred;
+        self
+    }
+
+    #[must_use]
+    pub fn store_session_in_database(mut self, enabled: bool) -> Self {
+        self.store_session_in_database = enabled;
+        self
+    }
+
+    #[must_use]
+    pub fn preserve_session_in_database(mut self, enabled: bool) -> Self {
+        self.preserve_session_in_database = enabled;
         self
     }
 

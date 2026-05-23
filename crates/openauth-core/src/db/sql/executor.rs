@@ -148,8 +148,9 @@ where
     pub async fn count(mut self, query: Count) -> Result<u64, OpenAuthError> {
         let statement = count_statement(self.dialect, self.schema, &query)?;
         let count = self.executor.fetch_scalar_i64(statement).await?;
-        u64::try_from(count)
-            .map_err(|_| OpenAuthError::Adapter("sql adapter returned a negative count".to_owned()))
+        u64::try_from(count).map_err(|_| OpenAuthError::NumericOutOfRange {
+            context: "SQL count result",
+        })
     }
 
     pub async fn update(mut self, query: Update) -> Result<Option<DbRecord>, OpenAuthError> {

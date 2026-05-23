@@ -3,6 +3,7 @@
 mod account;
 mod advanced;
 mod cookies;
+mod email_password;
 mod email_verification;
 mod origins;
 mod password;
@@ -18,12 +19,15 @@ pub use advanced::{
     IpAddressOptions,
 };
 pub use cookies::{CookieCacheOptions, CookieCacheStrategy, CookieConfig};
+pub use email_password::{EmailPasswordOptions, ExistingUserSignUpPayload, OnExistingUserSignUp};
 pub use email_verification::{
     AfterEmailVerification, BeforeEmailVerification, EmailVerificationCallbackPayload,
     EmailVerificationOptions, SendVerificationEmail, VerificationEmail,
 };
 pub use origins::{TrustedOriginOptions, TrustedOriginsProvider};
-pub use password::{OnPasswordReset, PasswordOptions, PasswordResetPayload};
+pub use password::{
+    OnPasswordReset, PasswordOptions, PasswordResetEmail, PasswordResetPayload, SendResetPassword,
+};
 pub use rate_limit::{
     DynamicRateLimitPathRule, HybridRateLimitOptions, RateLimitConsumeInput, RateLimitDecision,
     RateLimitFuture, RateLimitOptions, RateLimitPathRule, RateLimitRecord, RateLimitRule,

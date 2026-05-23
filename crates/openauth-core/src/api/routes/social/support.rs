@@ -97,7 +97,9 @@ pub(super) fn path_param<'a>(
         .extensions()
         .get::<PathParams>()
         .and_then(|params| params.get(name))
-        .ok_or_else(|| OpenAuthError::Api(format!("missing path param `{name}`")))
+        .ok_or_else(|| OpenAuthError::MissingPathParam {
+            name: name.to_owned(),
+        })
 }
 
 pub(super) fn redirect_uri(
@@ -128,7 +130,10 @@ pub(super) fn redirect_json_response(
     if redirect {
         response.headers_mut().insert(
             header::LOCATION,
-            HeaderValue::from_str(&url).map_err(|error| OpenAuthError::Api(error.to_string()))?,
+            HeaderValue::from_str(&url).map_err(|error| OpenAuthError::Serialization {
+                context: "building social redirect headers",
+                message: error.to_string(),
+            })?,
         );
     }
     Ok(response)
@@ -142,7 +147,10 @@ pub(super) fn redirect(
         .status(StatusCode::FOUND)
         .header(header::LOCATION, location)
         .body(Vec::new())
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building social redirect response",
+            message: error.to_string(),
+        })?;
     for cookie in cookies {
         response.headers_mut().append(
             header::SET_COOKIE,

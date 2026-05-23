@@ -69,7 +69,10 @@ pub(super) fn update_user_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndp
                 };
                 let body: UpdateUserBody =
                     serde_json::from_value(raw_body.clone()).map_err(|error| {
-                        crate::error::OpenAuthError::Api(format!("invalid request body: {error}"))
+                        crate::error::OpenAuthError::InvalidRequestBody {
+                            encoding: "JSON",
+                            message: error.to_string(),
+                        }
                     })?;
                 if body.email.is_some() {
                     return error_response(
@@ -216,10 +219,14 @@ fn json_to_db_value(value: Value) -> Result<DbValue, OpenAuthError> {
         Value::Null => Ok(DbValue::Null),
         Value::String(value) => Ok(DbValue::String(value)),
         Value::Bool(value) => Ok(DbValue::Boolean(value)),
-        Value::Number(value) => value
-            .as_i64()
-            .map(DbValue::Number)
-            .ok_or_else(|| OpenAuthError::Api("number must fit in i64".to_owned())),
+        Value::Number(value) => {
+            value
+                .as_i64()
+                .map(DbValue::Number)
+                .ok_or(OpenAuthError::NumericOutOfRange {
+                    context: "additional user field number",
+                })
+        }
         other => Ok(DbValue::Json(other)),
     }
 }

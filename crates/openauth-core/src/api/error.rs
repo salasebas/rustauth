@@ -65,7 +65,10 @@ pub fn response(status: StatusCode, body: Body) -> Result<ApiResponse, OpenAuthE
     Response::builder()
         .status(status)
         .body(body)
-        .map_err(|error| OpenAuthError::Api(error.to_string()))
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building API response",
+            message: error.to_string(),
+        })
 }
 
 pub fn api_error(status: StatusCode, code: ApiErrorCode) -> Result<ApiResponse, OpenAuthError> {
@@ -74,13 +77,19 @@ pub fn api_error(status: StatusCode, code: ApiErrorCode) -> Result<ApiResponse, 
         message: code.message().to_owned(),
         original_message: None,
     })
-    .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    .map_err(|error| OpenAuthError::Serialization {
+        context: "serializing API error response",
+        message: error.to_string(),
+    })?;
 
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
         .body(body)
-        .map_err(|error| OpenAuthError::Api(error.to_string()))
+        .map_err(|error| OpenAuthError::Serialization {
+            context: "building API error response",
+            message: error.to_string(),
+        })
 }
 
 pub(super) fn rate_limit_response(
@@ -89,8 +98,12 @@ pub(super) fn rate_limit_response(
     let mut response = api_error(StatusCode::TOO_MANY_REQUESTS, ApiErrorCode::TooManyRequests)?;
     response.headers_mut().insert(
         "X-Retry-After",
-        http::HeaderValue::from_str(&rejection.retry_after.to_string())
-            .map_err(|error| OpenAuthError::Api(error.to_string()))?,
+        http::HeaderValue::from_str(&rejection.retry_after.to_string()).map_err(|error| {
+            OpenAuthError::Serialization {
+                context: "building rate limit response headers",
+                message: error.to_string(),
+            }
+        })?,
     );
     Ok(response)
 }
