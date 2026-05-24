@@ -17,7 +17,9 @@ use openauth_oauth::oauth2::{
     ClientTokenRequest, OAuth2Tokens, ProviderOptions,
 };
 use openidconnect::core::{CoreIdToken, CoreIdTokenVerifier, CoreJsonWebKeySet};
-use openidconnect::{ClientId as OidcClientId, ClientSecret, IssuerUrl, JsonWebKeySetUrl, Nonce};
+use openidconnect::{
+    ClientId as OidcClientId, ClientSecret, IssuerUrl, JsonWebKeySetUrl, Nonce, NonceVerifier,
+};
 use serde_json::Value;
 use std::str::FromStr;
 
@@ -25,10 +27,8 @@ use crate::linking_impl::{
     assign_organization_from_provider, provider_matches_email_domain, provision_sso_user,
     NormalizedSsoProfile,
 };
-use crate::oidc_impl::discovery::{
-    discover_oidc_config_with_origin_validator, validate_configured_oidc_endpoint_origins,
-    PartialOidcDiscoveryConfig,
-};
+use crate::oidc_impl::discovery::ensure_runtime_oidc_config_with_origin_validator;
+pub(super) use crate::oidc_impl::discovery::OidcRuntimeRequirement;
 use crate::oidc_impl::flow::oidc_redirect_uri;
 use crate::openapi::redirect_response;
 use crate::options::{OidcConfig, OidcMapping, SsoOptions, TokenEndpointAuthentication};
@@ -143,23 +143,33 @@ async fn callback(
         Ok(tokens) => tokens,
         Err(_) => return redirect_with_error(&error_url, "invalid_code"),
     };
-    let id_token_payload = match validate_oidc_id_token(&tokens, &config, &provider.issuer).await {
-        Ok(payload) => payload,
-        Err(_) => return redirect_with_error(&error_url, "invalid_id_token"),
-    };
-
     let raw_user_info = if let Some(user_info_endpoint) = config.user_info_endpoint.as_deref() {
         match fetch_oidc_user_info(user_info_endpoint, &tokens, config.mapping.as_ref()).await {
             Ok(user_info) => user_info,
             Err(_) => return redirect_with_error(&error_url, "unable_to_get_user_info"),
         }
-    } else if let Some(payload) = id_token_payload.as_ref() {
+    } else {
+        let id_token_payload = match validate_oidc_id_token(
+            &tokens,
+            &config,
+            &provider.issuer,
+            state_data
+                .additional_data
+                .get("oidcNonce")
+                .and_then(Value::as_str),
+        )
+        .await
+        {
+            Ok(payload) => payload,
+            Err(_) => return redirect_with_error(&error_url, "invalid_id_token"),
+        };
+        let Some(payload) = id_token_payload.as_ref() else {
+            return redirect_with_error(&error_url, "unable_to_get_user_info");
+        };
         match oauth_user_info_from_json(payload, config.mapping.as_ref()) {
             Ok(user_info) => user_info,
             Err(_) => return redirect_with_error(&error_url, "unable_to_get_user_info"),
         }
-    } else {
-        return redirect_with_error(&error_url, "unable_to_get_user_info");
     };
     if !provider_matches_email_domain(&provider, &raw_user_info.email) {
         return redirect_with_error(&error_url, "invalid_email_domain");
@@ -308,6 +318,7 @@ async fn validate_oidc_id_token(
     tokens: &OAuth2Tokens,
     config: &OidcConfig,
     provider_issuer: &str,
+    expected_nonce: Option<&str>,
 ) -> Result<Option<Value>, openauth_core::error::OpenAuthError> {
     let Some(id_token) = tokens.id_token.as_deref() else {
         return Ok(None);
@@ -340,7 +351,7 @@ async fn validate_oidc_id_token(
             jwks.clone(),
         )
         .set_other_audience_verifier_fn(|_| true);
-        match id_token.claims(&verifier, ignore_nonce) {
+        match id_token.claims(&verifier, OptionalNonceVerifier(expected_nonce)) {
             Ok(_) => {
                 validate_oidc_authorized_party(&raw_payload, &config.client_id)?;
                 return Ok(Some(raw_payload));
@@ -353,8 +364,18 @@ async fn validate_oidc_id_token(
     ))
 }
 
-fn ignore_nonce(_nonce: Option<&Nonce>) -> Result<(), String> {
-    Ok(())
+struct OptionalNonceVerifier<'a>(Option<&'a str>);
+
+impl NonceVerifier for OptionalNonceVerifier<'_> {
+    fn verify(self, nonce: Option<&Nonce>) -> Result<(), String> {
+        let (Some(nonce), Some(expected_nonce)) = (nonce, self.0) else {
+            return Ok(());
+        };
+        if nonce.secret() == expected_nonce {
+            return Ok(());
+        }
+        Err("nonce mismatch".to_owned())
+    }
 }
 
 fn jwt_payload_json(token: &str) -> Result<Value, openauth_core::error::OpenAuthError> {
@@ -488,74 +509,79 @@ pub(super) async fn ensure_runtime_oidc_config(
     options: &SsoOptions,
     requirement: OidcRuntimeRequirement,
 ) -> Result<OidcConfig, crate::oidc_impl::discovery::OidcDiscoveryError> {
-    if requirement.is_satisfied(&config) {
-        if options.oidc.strict_manual_endpoint_origins {
-            validate_configured_oidc_endpoint_origins(&config, |url| {
-                is_trusted_oidc_url(context, request, url)
-            })?;
-        }
-        return Ok(config);
-    }
-    let hydrated = discover_oidc_config_with_origin_validator(
+    let config = oidc_config_to_impl(config);
+    ensure_runtime_oidc_config_with_origin_validator(
         issuer,
-        (!config.discovery_endpoint.is_empty()).then_some(config.discovery_endpoint.as_str()),
-        PartialOidcDiscoveryConfig {
-            issuer: Some(config.issuer.as_str()),
-            discovery_endpoint: (!config.discovery_endpoint.is_empty())
-                .then_some(config.discovery_endpoint.as_str()),
-            authorization_endpoint: config.authorization_endpoint.as_deref(),
-            token_endpoint: config.token_endpoint.as_deref(),
-            user_info_endpoint: config.user_info_endpoint.as_deref(),
-            jwks_endpoint: config.jwks_endpoint.as_deref(),
-            revocation_endpoint: config.revocation_endpoint.as_deref(),
-            end_session_endpoint: config.end_session_endpoint.as_deref(),
-            introspection_endpoint: config.introspection_endpoint.as_deref(),
-            token_endpoint_authentication: config.token_endpoint_authentication.map(Into::into),
-        },
+        config,
+        requirement,
         |url| is_trusted_oidc_url(context, request, url),
+        options.oidc.strict_manual_endpoint_origins,
     )
-    .await?;
-    let hydrated_config = OidcConfig {
-        issuer: hydrated.issuer,
+    .await
+    .map(oidc_config_from_impl)
+}
+
+fn oidc_config_to_impl(config: OidcConfig) -> openauth_oidc::OidcConfig {
+    openauth_oidc::OidcConfig {
+        issuer: config.issuer,
         pkce: config.pkce,
         client_id: config.client_id,
-        client_secret: config.client_secret,
-        discovery_endpoint: hydrated.discovery_endpoint,
-        authorization_endpoint: Some(hydrated.authorization_endpoint),
-        token_endpoint: Some(hydrated.token_endpoint),
-        user_info_endpoint: hydrated.user_info_endpoint,
-        jwks_endpoint: Some(hydrated.jwks_endpoint),
-        revocation_endpoint: hydrated.revocation_endpoint,
-        end_session_endpoint: hydrated.end_session_endpoint,
-        introspection_endpoint: hydrated.introspection_endpoint,
-        token_endpoint_authentication: Some(hydrated.token_endpoint_authentication.into()),
-        scopes: config.scopes.or(hydrated.scopes_supported),
-        mapping: config.mapping,
+        client_secret: openauth_oidc::SecretString::new(config.client_secret.into_inner()),
+        discovery_endpoint: config.discovery_endpoint,
+        authorization_endpoint: config.authorization_endpoint,
+        token_endpoint: config.token_endpoint,
+        user_info_endpoint: config.user_info_endpoint,
+        jwks_endpoint: config.jwks_endpoint,
+        revocation_endpoint: config.revocation_endpoint,
+        end_session_endpoint: config.end_session_endpoint,
+        introspection_endpoint: config.introspection_endpoint,
+        token_endpoint_authentication: config.token_endpoint_authentication.map(Into::into),
+        scopes: config.scopes,
+        mapping: config.mapping.map(oidc_mapping_to_impl),
         override_user_info: config.override_user_info,
-    };
-    if options.oidc.strict_manual_endpoint_origins {
-        validate_configured_oidc_endpoint_origins(&hydrated_config, |url| {
-            is_trusted_oidc_url(context, request, url)
-        })?;
     }
-    Ok(hydrated_config)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum OidcRuntimeRequirement {
-    SignIn,
-    Callback,
+fn oidc_config_from_impl(config: openauth_oidc::OidcConfig) -> OidcConfig {
+    OidcConfig {
+        issuer: config.issuer,
+        pkce: config.pkce,
+        client_id: config.client_id,
+        client_secret: config.client_secret.into_inner().into(),
+        discovery_endpoint: config.discovery_endpoint,
+        authorization_endpoint: config.authorization_endpoint,
+        token_endpoint: config.token_endpoint,
+        user_info_endpoint: config.user_info_endpoint,
+        jwks_endpoint: config.jwks_endpoint,
+        revocation_endpoint: config.revocation_endpoint,
+        end_session_endpoint: config.end_session_endpoint,
+        introspection_endpoint: config.introspection_endpoint,
+        token_endpoint_authentication: config.token_endpoint_authentication.map(Into::into),
+        scopes: config.scopes,
+        mapping: config.mapping.map(oidc_mapping_from_impl),
+        override_user_info: config.override_user_info,
+    }
 }
 
-impl OidcRuntimeRequirement {
-    fn is_satisfied(self, config: &OidcConfig) -> bool {
-        match self {
-            Self::SignIn => config.authorization_endpoint.is_some(),
-            Self::Callback => {
-                config.token_endpoint.is_some()
-                    && (config.user_info_endpoint.is_some() || config.jwks_endpoint.is_some())
-            }
-        }
+fn oidc_mapping_to_impl(mapping: OidcMapping) -> openauth_oidc::OidcMapping {
+    openauth_oidc::OidcMapping {
+        id: mapping.id,
+        email: mapping.email,
+        email_verified: mapping.email_verified,
+        name: mapping.name,
+        image: mapping.image,
+        extra_fields: mapping.extra_fields,
+    }
+}
+
+fn oidc_mapping_from_impl(mapping: openauth_oidc::OidcMapping) -> OidcMapping {
+    OidcMapping {
+        id: mapping.id,
+        email: mapping.email,
+        email_verified: mapping.email_verified,
+        name: mapping.name,
+        image: mapping.image,
+        extra_fields: mapping.extra_fields,
     }
 }
 

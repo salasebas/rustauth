@@ -3,9 +3,13 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// Secret string wrapper that redacts its value in `Debug` output.
+///
+/// Serialization intentionally exposes the wrapped value so provider configs
+/// can be persisted and later used for token exchange. Do not serialize this
+/// type into logs, API responses, or other user-visible surfaces.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-/// Secret string wrapper that redacts its value in `Debug` output.
 pub struct SecretString(String);
 
 impl SecretString {

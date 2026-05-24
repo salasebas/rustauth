@@ -1,3 +1,5 @@
+#[cfg(feature = "oidc")]
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use http::Method;
@@ -8,7 +10,7 @@ use openauth_core::api::{
 #[cfg(feature = "oidc")]
 use openauth_core::auth::oauth::{generate_oauth_state, OAuthStateInput};
 use openauth_core::context::AuthContext;
-#[cfg(feature = "saml")]
+#[cfg(any(feature = "oidc", feature = "saml"))]
 use openauth_core::crypto::random::generate_random_string;
 #[cfg(feature = "saml")]
 use openauth_core::db::DbAdapter;
@@ -205,6 +207,7 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         Ok(url) => url,
                         Err(response) => return Ok(response),
                     };
+                    let oidc_nonce = generate_random_string(32);
                     let state = generate_oauth_state(
                         context,
                         Some(adapter),
@@ -213,7 +216,10 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                             error_url,
                             new_user_url,
                             request_sign_up: body.request_sign_up,
-                            additional_data: json!({ "ssoProviderId": provider.provider_id }),
+                            additional_data: json!({
+                                "ssoProviderId": provider.provider_id,
+                                "oidcNonce": oidc_nonce,
+                            }),
                             ..OAuthStateInput::default()
                         },
                     )
@@ -240,6 +246,16 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         code_verifier: config.pkce.then_some(state.data.code_verifier),
                         scopes,
                         login_hint: body.login_hint.or(body.email),
+                        additional_params: BTreeMap::from([(
+                            "nonce".to_owned(),
+                            state
+                                .data
+                                .additional_data
+                                .get("oidcNonce")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or_default()
+                                .to_owned(),
+                        )]),
                         ..AuthorizationUrlRequest::default()
                     })
                     .map_err(|error| {

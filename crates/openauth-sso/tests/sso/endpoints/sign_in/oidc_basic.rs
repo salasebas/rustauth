@@ -64,6 +64,7 @@ async fn sign_in_sso_with_oidc_provider_returns_authorization_url(
         Some("user@example.com")
     );
     assert!(query.contains_key("state"));
+    assert!(query.get("nonce").is_some_and(|value| value.len() >= 32));
     assert_eq!(
         query
             .get("code_challenge_method")
