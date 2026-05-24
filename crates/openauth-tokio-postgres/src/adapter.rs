@@ -103,6 +103,7 @@ impl DbAdapter for TokioPostgresAdapter {
     fn capabilities(&self) -> AdapterCapabilities {
         AdapterCapabilities::new(self.id())
             .named("tokio-postgres")
+            .with_uuid_ids()
             .with_json()
             .with_arrays()
             .with_joins()

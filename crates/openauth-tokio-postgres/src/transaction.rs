@@ -40,6 +40,7 @@ impl DbAdapter for TokioPostgresTxAdapter {
     fn capabilities(&self) -> AdapterCapabilities {
         AdapterCapabilities::new(self.id())
             .named("tokio-postgres transaction")
+            .with_uuid_ids()
             .with_json()
             .with_arrays()
             .with_transactions()

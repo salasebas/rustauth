@@ -44,6 +44,12 @@ let auth = OpenAuth::builder()
 Use `DeadpoolPostgresRateLimitStore::from(&adapter)` when you want the same
 database to provide distributed rate limiting.
 
+`connect`, `connect_with_schema`, and their TLS variants create a pool lazily:
+configuration errors that require opening a database connection are reported on
+the first operation. Use `connect_checked`, `connect_with_schema_checked`,
+`connect_tls_checked`, or call `validate_connection()` when startup should fail
+fast if the pool cannot check out a working connection.
+
 ## Pool Configuration
 
 Use `from_config` or `from_config_with_schema` when you need to configure
@@ -80,6 +86,14 @@ let adapter = DeadpoolPostgresAdapter::connect_tls(
 )
 .await?;
 ```
+
+## Rate Limiting
+
+`DeadpoolPostgresRateLimitStore::from(&adapter)` uses the rate-limit table and
+column names from the adapter schema. For standalone pools, use
+`DeadpoolPostgresRateLimitStore::new(pool)` for the default `rate_limits` table,
+`with_table(pool, table)` for a custom table with default column names, or
+`with_names(pool, names)` when both table and column names are customized.
 
 ## Local Tests
 

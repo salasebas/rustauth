@@ -33,10 +33,11 @@ impl DeadpoolPostgresRateLimitStore {
     }
 
     pub fn with_table(pool: Pool, table: impl Into<String>) -> Self {
-        Self {
-            pool,
-            names: SqlRateLimitNames::new(table),
-        }
+        Self::with_names(pool, SqlRateLimitNames::new(table))
+    }
+
+    pub fn with_names(pool: Pool, names: SqlRateLimitNames) -> Self {
+        Self { pool, names }
     }
 }
 
@@ -73,10 +74,10 @@ async fn consume_deadpool_rate_limit(
     let result = consume_postgres_rate_limit_in_tx(pg_client(&client), &plan, input).await;
     match result {
         Ok(decision) => {
-            client
-                .batch_execute("COMMIT")
-                .await
-                .map_err(postgres_error)?;
+            if let Err(error) = client.batch_execute("COMMIT").await {
+                let _rollback_result = client.batch_execute("ROLLBACK").await;
+                return Err(postgres_error(error));
+            }
             Ok(decision)
         }
         Err(error) => {

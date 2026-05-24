@@ -1,4 +1,4 @@
-use openauth_core::db::{DbFieldType, DbValue, SqlParam};
+use openauth_core::db::{DbFieldType, DbValue, IdGeneration, SqlParam};
 use openauth_core::error::OpenAuthError;
 use tokio_postgres::types::ToSql;
 
@@ -17,6 +17,12 @@ pub fn param_refs(values: &[Box<dyn ToSql + Sync + Send>]) -> Vec<&(dyn ToSql + 
 
 fn postgres_param(param: &SqlParam) -> Result<Box<dyn ToSql + Sync + Send>, OpenAuthError> {
     match &param.value {
+        DbValue::String(value) if param.generated_id == Some(IdGeneration::Uuid) => {
+            let value = uuid::Uuid::parse_str(value).map_err(|error| {
+                OpenAuthError::Adapter(format!("invalid PostgreSQL UUID value `{value}`: {error}"))
+            })?;
+            Ok(Box::new(value))
+        }
         DbValue::String(value) => Ok(Box::new(value.clone())),
         DbValue::Number(value) => Ok(Box::new(*value)),
         DbValue::Boolean(value) => Ok(Box::new(*value)),
@@ -28,6 +34,9 @@ fn postgres_param(param: &SqlParam) -> Result<Box<dyn ToSql + Sync + Send>, Open
             "joined records cannot be bound as SQL values".to_owned(),
         )),
         DbValue::Null => match param.field_type {
+            DbFieldType::String if param.generated_id == Some(IdGeneration::Uuid) => {
+                Ok(Box::new(Option::<uuid::Uuid>::None))
+            }
             DbFieldType::String => Ok(Box::new(Option::<String>::None)),
             DbFieldType::Number => Ok(Box::new(Option::<i64>::None)),
             DbFieldType::Boolean => Ok(Box::new(Option::<bool>::None)),

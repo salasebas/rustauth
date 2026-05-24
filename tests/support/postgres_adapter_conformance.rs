@@ -157,6 +157,90 @@ where
     Ok(())
 }
 
+pub async fn assert_returns_database_generated_uuid_ids<A>(
+    adapter: &A,
+    email: String,
+) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter + ?Sized,
+{
+    let created = adapter
+        .create(
+            Create::new("user")
+                .data("name", DbValue::String("Ada".to_owned()))
+                .data("email", DbValue::String(email))
+                .data("email_verified", DbValue::Boolean(true))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .select(["id", "email"]),
+        )
+        .await?;
+
+    let Some(DbValue::String(id)) = created.get("id") else {
+        return Err(OpenAuthError::Adapter(
+            "missing generated UUID id".to_owned(),
+        ));
+    };
+    uuid::Uuid::parse_str(id)
+        .map_err(|error| OpenAuthError::Adapter(format!("invalid generated UUID: {error}")))?;
+    Ok(())
+}
+
+pub async fn assert_supports_forced_uuid_ids<A>(
+    adapter: &A,
+    forced_id: &str,
+    email: String,
+) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter + ?Sized,
+{
+    let created = adapter
+        .create(
+            Create::new("user")
+                .force_allow_id()
+                .data("id", DbValue::String(forced_id.to_owned()))
+                .data("name", DbValue::String("Ada".to_owned()))
+                .data("email", DbValue::String(email))
+                .data("email_verified", DbValue::Boolean(true))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .select(["id"]),
+        )
+        .await?;
+
+    assert_eq!(
+        created.get("id"),
+        Some(&DbValue::String(forced_id.to_owned()))
+    );
+    Ok(())
+}
+
+pub async fn assert_returns_database_generated_serial_ids<A>(
+    adapter: &A,
+    email: String,
+) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter + ?Sized,
+{
+    let created = adapter
+        .create(
+            Create::new("user")
+                .data("name", DbValue::String("Ada".to_owned()))
+                .data("email", DbValue::String(email))
+                .data("email_verified", DbValue::Boolean(true))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .select(["id"]),
+        )
+        .await?;
+
+    assert!(matches!(created.get("id"), Some(DbValue::Number(id)) if *id > 0));
+    Ok(())
+}
+
 pub async fn assert_filters_sorts_limits_counts_and_mutates<A>(
     adapter: &A,
 ) -> Result<(), OpenAuthError>

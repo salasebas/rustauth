@@ -3,7 +3,7 @@ use std::sync::Arc;
 use deadpool_postgres::Client as DeadpoolClient;
 use openauth_core::db::{
     AdapterCapabilities, AdapterFuture, Count, Create, DbAdapter, DbRecord, Delete, DeleteMany,
-    FindMany, FindOne, TransactionCallback, Update, UpdateMany,
+    FindMany, FindOne, JoinAdapter, TransactionCallback, Update, UpdateMany,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_tokio_postgres::driver::PostgresSqlState;
@@ -41,8 +41,10 @@ impl DbAdapter for DeadpoolPostgresTxAdapter {
     fn capabilities(&self) -> AdapterCapabilities {
         AdapterCapabilities::new(self.id())
             .named("deadpool-postgres transaction")
+            .with_uuid_ids()
             .with_json()
             .with_arrays()
+            .with_joins()
             .with_transactions()
     }
 
@@ -62,8 +64,13 @@ impl DbAdapter for DeadpoolPostgresTxAdapter {
 
     fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
         Box::pin(async move {
-            self.run_with_state(|state| Box::pin(state.find_many(query)))
-                .await
+            if query.joins.len() <= 1 {
+                self.run_with_state(|state| Box::pin(state.find_many(query)))
+                    .await
+            } else {
+                let adapter = JoinAdapter::new(self.schema.as_ref().clone(), Arc::new(self), false);
+                adapter.find_many(query).await
+            }
         })
     }
 

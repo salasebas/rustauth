@@ -49,8 +49,18 @@ impl DeadpoolPostgresAdapter {
         }
     }
 
+    pub fn pool(&self) -> &Pool {
+        &self.pool
+    }
+
     pub async fn connect(database_url: &str) -> Result<Self, OpenAuthError> {
         Self::connect_with_schema(database_url, auth_schema(AuthSchemaOptions::default())).await
+    }
+
+    pub async fn connect_checked(database_url: &str) -> Result<Self, OpenAuthError> {
+        let adapter = Self::connect(database_url).await?;
+        adapter.validate_connection().await?;
+        Ok(adapter)
     }
 
     pub async fn connect_with_schema(
@@ -62,6 +72,15 @@ impl DeadpoolPostgresAdapter {
         Self::from_config_with_schema(config, schema, DEFAULT_POOL_MAX_SIZE)
     }
 
+    pub async fn connect_with_schema_checked(
+        database_url: &str,
+        schema: DbSchema,
+    ) -> Result<Self, OpenAuthError> {
+        let adapter = Self::connect_with_schema(database_url, schema).await?;
+        adapter.validate_connection().await?;
+        Ok(adapter)
+    }
+
     pub async fn connect_tls<T>(database_url: &str, tls: T) -> Result<Self, OpenAuthError>
     where
         T: MakeTlsConnect<Socket> + Clone + Sync + Send + 'static,
@@ -71,6 +90,18 @@ impl DeadpoolPostgresAdapter {
     {
         Self::connect_with_schema_tls(database_url, auth_schema(AuthSchemaOptions::default()), tls)
             .await
+    }
+
+    pub async fn connect_tls_checked<T>(database_url: &str, tls: T) -> Result<Self, OpenAuthError>
+    where
+        T: MakeTlsConnect<Socket> + Clone + Sync + Send + 'static,
+        T::Stream: Sync + Send,
+        T::TlsConnect: Sync + Send,
+        <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
+    {
+        let adapter = Self::connect_tls(database_url, tls).await?;
+        adapter.validate_connection().await?;
+        Ok(adapter)
     }
 
     pub async fn connect_with_schema_tls<T>(
@@ -87,6 +118,22 @@ impl DeadpoolPostgresAdapter {
         let mut config = Config::new();
         config.url = Some(database_url.to_owned());
         Self::from_config_with_schema_tls(config, schema, DEFAULT_POOL_MAX_SIZE, tls)
+    }
+
+    pub async fn connect_with_schema_tls_checked<T>(
+        database_url: &str,
+        schema: DbSchema,
+        tls: T,
+    ) -> Result<Self, OpenAuthError>
+    where
+        T: MakeTlsConnect<Socket> + Clone + Sync + Send + 'static,
+        T::Stream: Sync + Send,
+        T::TlsConnect: Sync + Send,
+        <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
+    {
+        let adapter = Self::connect_with_schema_tls(database_url, schema, tls).await?;
+        adapter.validate_connection().await?;
+        Ok(adapter)
     }
 
     pub fn from_config(config: Config, max_size: usize) -> Result<Self, OpenAuthError> {
@@ -147,6 +194,15 @@ impl DeadpoolPostgresAdapter {
         openauth_tokio_postgres::driver::plan_migrations(pg_client(&client), schema).await
     }
 
+    pub async fn validate_connection(&self) -> Result<(), OpenAuthError> {
+        let client = self.pool.get().await.map_err(deadpool_error)?;
+        client
+            .simple_query("SELECT 1")
+            .await
+            .map_err(postgres_error)?;
+        Ok(())
+    }
+
     pub async fn compile_migrations(&self, schema: &DbSchema) -> Result<String, OpenAuthError> {
         Ok(self.plan_migrations(schema).await?.compile())
     }
@@ -175,6 +231,7 @@ impl DbAdapter for DeadpoolPostgresAdapter {
     fn capabilities(&self) -> AdapterCapabilities {
         AdapterCapabilities::new(self.id())
             .named("deadpool-postgres")
+            .with_uuid_ids()
             .with_json()
             .with_arrays()
             .with_joins()
@@ -259,7 +316,13 @@ impl DbAdapter for DeadpoolPostgresAdapter {
 
             let client = client.lock().await;
             match result {
-                Ok(()) => client.batch_execute("COMMIT").await.map_err(postgres_error),
+                Ok(()) => {
+                    if let Err(error) = client.batch_execute("COMMIT").await {
+                        let _rollback_result = client.batch_execute("ROLLBACK").await;
+                        return Err(postgres_error(error));
+                    }
+                    Ok(())
+                }
                 Err(error) => {
                     let _rollback_result = client.batch_execute("ROLLBACK").await;
                     Err(error)

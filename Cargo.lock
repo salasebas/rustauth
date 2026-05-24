@@ -2569,12 +2569,14 @@ version = "0.0.6"
 dependencies = [
  "deadpool-postgres",
  "http",
+ "indexmap 2.14.0",
  "openauth-core",
  "openauth-tokio-postgres",
  "serde_json",
  "time",
  "tokio",
  "tokio-postgres",
+ "uuid",
 ]
 
 [[package]]
@@ -2863,6 +2865,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-postgres",
+ "uuid",
 ]
 
 [[package]]
@@ -3148,6 +3151,7 @@ dependencies = [
  "serde_core",
  "serde_json",
  "time",
+ "uuid",
 ]
 
 [[package]]
