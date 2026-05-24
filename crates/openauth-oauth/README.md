@@ -35,11 +35,17 @@ Most applications will consume this indirectly through `openauth` or
   authorization-code `additional_params`.
 - HTTP Basic client authentication uses standard Base64 encoding for RFC 7617
   compatibility.
+- Request structs retain public fields and `Default` for low-level
+  compatibility, but `create_*` helpers validate required fields even when a
+  caller bypasses `try_new`.
+- Token responses are parsed strictly: malformed field types, invalid expiry
+  values, and responses without any OAuth token material return typed errors.
 - JWS verification allows asymmetric algorithms by default. HMAC algorithms
   (`HS256`, `HS384`, `HS512`) require explicit opt-in with
   `TokenValidationOptions::allow_hmac_algorithms()`.
 - JWKS responses are cached per URL and refetched when a token references an
-  unknown `kid`; `clear_jwks_cache()` is available for explicit rotation or
+  unknown `kid`; `OAuthJwksCacheConfig` can set TTL and cache size for explicit
+  verification calls, and `clear_jwks_cache()` is available for rotation or
   tests.
 - Required token claims validate both presence and basic type shape for JWT and
   introspection payloads.
@@ -53,6 +59,8 @@ fits Rust server-side boundaries. Intentional differences:
 
 - Authorization-code `additional_params` are additive by default; use
   `override_params` for explicit provider-specific overrides.
+- Fluent request methods are provided as ergonomic wrappers around the public
+  structs, while preserving the existing struct-based API.
 - Remote JWKS verification rejects `HS*` algorithms unless explicitly enabled.
 - Verification code is split by concern (`claims`, `token_validation`, `jwks`,
   `introspection`) while compatibility re-exports remain under `oauth2`.

@@ -58,6 +58,36 @@ impl AuthorizationCodeRequest {
             ..Self::default()
         })
     }
+
+    pub fn code_verifier(mut self, code_verifier: impl Into<String>) -> Self {
+        self.code_verifier = Some(code_verifier.into());
+        self
+    }
+
+    pub fn authentication(mut self, authentication: ClientAuthentication) -> Self {
+        self.authentication = authentication;
+        self
+    }
+
+    pub fn header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn additional_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.additional_params.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn override_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.override_params.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn resource(mut self, resource: impl Into<String>) -> Self {
+        self.resource.push(resource.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +99,7 @@ pub struct ClientTokenRequest<T> {
 pub fn create_authorization_code_request(
     input: AuthorizationCodeRequest,
 ) -> Result<OAuthFormRequest, OAuthError> {
+    validate_authorization_code_request(&input)?;
     let mut request = OAuthFormRequest::new();
     for (key, value) in input.headers {
         request.set_header(key, value);
@@ -105,6 +136,21 @@ pub fn create_authorization_code_request(
         request.set_body(key, value);
     }
     Ok(request)
+}
+
+fn validate_authorization_code_request(input: &AuthorizationCodeRequest) -> Result<(), OAuthError> {
+    if input.code.is_empty() {
+        return Err(OAuthError::InvalidConfiguration(
+            "authorization code cannot be empty".to_owned(),
+        ));
+    }
+    let redirect_uri = input
+        .options
+        .redirect_uri
+        .as_deref()
+        .unwrap_or(&input.redirect_uri);
+    url::Url::parse(redirect_uri)?;
+    Ok(())
 }
 
 pub fn authorization_code_request(

@@ -91,11 +91,15 @@ pub fn apply_client_authentication(
     require_secret: bool,
 ) -> Result<(), OAuthError> {
     let primary_client_id = get_primary_client_id(&options.client_id);
-    let client_secret = options.client_secret.as_deref();
+    let client_secret = non_empty_secret(options);
 
     match authentication {
         ClientAuthentication::Basic => {
-            let client_id = primary_client_id.unwrap_or("");
+            let client_id = primary_client_id.ok_or_else(|| {
+                OAuthError::InvalidClientAuthentication(
+                    "HTTP Basic authentication requires client_id".to_owned(),
+                )
+            })?;
             let client_secret = if require_secret {
                 client_secret.ok_or(OAuthError::MissingOption("client_secret"))?
             } else {
@@ -117,6 +121,13 @@ pub fn apply_client_authentication(
     }
 
     Ok(())
+}
+
+fn non_empty_secret(options: &ProviderOptions) -> Option<&str> {
+    options
+        .client_secret
+        .as_deref()
+        .filter(|secret| !secret.is_empty())
 }
 
 pub async fn post_form(

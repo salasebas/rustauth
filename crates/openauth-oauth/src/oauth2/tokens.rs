@@ -4,6 +4,8 @@ use time::{Duration, OffsetDateTime};
 
 use super::error::OAuthError;
 
+const MAX_TOKEN_EXPIRY_SECONDS: i64 = 10 * 365 * 24 * 60 * 60;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ClientId {
@@ -101,40 +103,80 @@ pub fn get_primary_client_id(client_id: &Option<ClientId>) -> Option<&str> {
 
 pub fn get_oauth2_tokens(data: Value) -> Result<OAuth2Tokens, OAuthError> {
     let object = data.as_object().ok_or_else(|| {
-        OAuthError::InvalidResponse("token response must be a JSON object".to_owned())
+        OAuthError::InvalidTokenResponse("token response must be a JSON object".to_owned())
     })?;
     let now = OffsetDateTime::now_utc();
-    let expires_at = |key: &str| {
-        object
-            .get(key)
-            .and_then(Value::as_i64)
-            .map(|seconds| now + Duration::seconds(seconds))
-    };
+    let access_token = optional_string_field(object, "access_token")?;
+    let refresh_token = optional_string_field(object, "refresh_token")?;
+    let id_token = optional_string_field(object, "id_token")?;
+    if access_token.is_none() && refresh_token.is_none() && id_token.is_none() {
+        return Err(OAuthError::InvalidTokenResponse(
+            "token response must include access_token, refresh_token, or id_token".to_owned(),
+        ));
+    }
 
     Ok(OAuth2Tokens {
-        token_type: string_field(object, "token_type"),
-        access_token: string_field(object, "access_token"),
-        refresh_token: string_field(object, "refresh_token"),
-        access_token_expires_at: expires_at("expires_in"),
-        refresh_token_expires_at: expires_at("refresh_token_expires_in"),
-        scopes: scopes_field(object.get("scope")),
-        id_token: string_field(object, "id_token"),
+        token_type: optional_string_field(object, "token_type")?,
+        access_token,
+        refresh_token,
+        access_token_expires_at: expires_at(object, "expires_in", now)?,
+        refresh_token_expires_at: expires_at(object, "refresh_token_expires_in", now)?,
+        scopes: scopes_field(object.get("scope"))?,
+        id_token,
         raw: data,
     })
 }
 
-fn string_field(object: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
-    object.get(key).and_then(Value::as_str).map(str::to_owned)
+fn optional_string_field(
+    object: &serde_json::Map<String, Value>,
+    key: &'static str,
+) -> Result<Option<String>, OAuthError> {
+    match object.get(key) {
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(OAuthError::InvalidTokenResponse(format!(
+            "`{key}` must be a string"
+        ))),
+        None => Ok(None),
+    }
 }
 
-fn scopes_field(value: Option<&Value>) -> Vec<String> {
+fn expires_at(
+    object: &serde_json::Map<String, Value>,
+    key: &'static str,
+    now: OffsetDateTime,
+) -> Result<Option<OffsetDateTime>, OAuthError> {
+    let Some(value) = object.get(key) else {
+        return Ok(None);
+    };
+    let seconds = value.as_i64().ok_or_else(|| {
+        OAuthError::InvalidTokenResponse(format!("`{key}` must be an integer number of seconds"))
+    })?;
+    if !(0..=MAX_TOKEN_EXPIRY_SECONDS).contains(&seconds) {
+        return Err(OAuthError::InvalidTokenResponse(format!(
+            "`{key}` must be between 0 and {MAX_TOKEN_EXPIRY_SECONDS} seconds"
+        )));
+    }
+    now.checked_add(Duration::seconds(seconds))
+        .ok_or_else(|| OAuthError::InvalidTokenResponse(format!("`{key}` is out of range")))
+        .map(Some)
+}
+
+fn scopes_field(value: Option<&Value>) -> Result<Vec<String>, OAuthError> {
     match value {
-        Some(Value::String(scope)) => scope.split_whitespace().map(str::to_owned).collect(),
+        Some(Value::String(scope)) => Ok(scope.split_whitespace().map(str::to_owned).collect()),
         Some(Value::Array(scopes)) => scopes
             .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
+            .map(|value| {
+                value.as_str().map(str::to_owned).ok_or_else(|| {
+                    OAuthError::InvalidTokenResponse(
+                        "`scope` array values must be strings".to_owned(),
+                    )
+                })
+            })
             .collect(),
-        _ => Vec::new(),
+        Some(_) => Err(OAuthError::InvalidTokenResponse(
+            "`scope` must be a string or string array".to_owned(),
+        )),
+        None => Ok(Vec::new()),
     }
 }

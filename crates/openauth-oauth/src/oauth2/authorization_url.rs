@@ -87,9 +87,35 @@ impl AuthorizationUrlRequest {
             ..Self::default()
         })
     }
+
+    pub fn code_verifier(mut self, code_verifier: impl Into<String>) -> Self {
+        self.code_verifier = Some(code_verifier.into());
+        self
+    }
+
+    pub fn scope(mut self, scope: impl Into<String>) -> Self {
+        self.scopes.push(scope.into());
+        self
+    }
+
+    pub fn scopes(mut self, scopes: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.scopes.extend(scopes.into_iter().map(Into::into));
+        self
+    }
+
+    pub fn claim(mut self, claim: impl Into<String>) -> Self {
+        self.claims.push(claim.into());
+        self
+    }
+
+    pub fn additional_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.additional_params.insert(key.into(), value.into());
+        self
+    }
 }
 
 pub fn create_authorization_url(input: AuthorizationUrlRequest) -> Result<Url, OAuthError> {
+    validate_authorization_url_request(&input)?;
     let endpoint = input
         .options
         .authorization_endpoint
@@ -151,6 +177,29 @@ pub fn create_authorization_url(input: AuthorizationUrlRequest) -> Result<Url, O
         }
     }
     Ok(url)
+}
+
+fn validate_authorization_url_request(input: &AuthorizationUrlRequest) -> Result<(), OAuthError> {
+    get_primary_client_id(&input.options.client_id)
+        .ok_or(OAuthError::MissingOption("client_id"))?;
+    if input.state.is_empty() {
+        return Err(OAuthError::InvalidConfiguration(
+            "authorization state cannot be empty".to_owned(),
+        ));
+    }
+    let endpoint = input
+        .options
+        .authorization_endpoint
+        .as_deref()
+        .unwrap_or(&input.authorization_endpoint);
+    Url::parse(endpoint)?;
+    let redirect_uri = input
+        .options
+        .redirect_uri
+        .as_deref()
+        .unwrap_or(&input.redirect_uri);
+    Url::parse(redirect_uri)?;
+    Ok(())
 }
 
 fn append_optional(

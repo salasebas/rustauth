@@ -43,11 +43,27 @@ impl RefreshAccessTokenRequest {
             ..Self::default()
         })
     }
+
+    pub fn authentication(mut self, authentication: ClientAuthentication) -> Self {
+        self.authentication = authentication;
+        self
+    }
+
+    pub fn extra_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.extra_params.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn resource(mut self, resource: impl Into<String>) -> Self {
+        self.resource.push(resource.into());
+        self
+    }
 }
 
 pub fn create_refresh_access_token_request(
     input: RefreshAccessTokenRequest,
 ) -> Result<OAuthFormRequest, OAuthError> {
+    validate_refresh_access_token_request(&input)?;
     let mut request = OAuthFormRequest::new();
     request.set_body("grant_type", "refresh_token");
     request.set_body("refresh_token", input.refresh_token);
@@ -59,6 +75,15 @@ pub fn create_refresh_access_token_request(
         request.set_body(key, value);
     }
     Ok(request)
+}
+
+fn validate_refresh_access_token_request(
+    input: &RefreshAccessTokenRequest,
+) -> Result<(), OAuthError> {
+    if input.refresh_token.is_empty() {
+        return Err(OAuthError::MissingTokenField("refresh_token"));
+    }
+    Ok(())
 }
 
 pub fn refresh_access_token_request(

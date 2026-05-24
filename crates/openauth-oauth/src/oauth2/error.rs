@@ -26,6 +26,12 @@ pub enum OAuthError {
     InvalidConfiguration(String),
     #[error("invalid OAuth response: {0}")]
     InvalidResponse(String),
+    #[error("invalid OAuth token response: {0}")]
+    InvalidTokenResponse(String),
+    #[error("invalid OAuth client authentication: {0}")]
+    InvalidClientAuthentication(String),
+    #[error("invalid OAuth JWKS cache configuration: {0}")]
+    JwksCache(String),
     #[error("token verification failed: {0}")]
     TokenVerification(String),
     #[error("JOSE operation failed: {0}")]

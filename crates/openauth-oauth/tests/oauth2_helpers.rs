@@ -22,13 +22,14 @@ use openauth_oauth::oauth2::{
     create_authorization_url, create_client_credentials_token_request,
     create_refresh_access_token_request, generate_code_challenge, get_oauth2_tokens,
     get_primary_client_id, refresh_access_token, validate_token, verify_access_token,
-    verify_access_token_with_client, verify_jws_access_token, AuthorizationCodeRequest,
-    AuthorizationEndpoint, AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
+    verify_access_token_with_client, verify_jws_access_token,
+    verify_jws_access_token_with_cache_config, AuthorizationCodeRequest, AuthorizationEndpoint,
+    AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
     ClientCredentialsTokenRequest, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo,
-    OAuthError, OAuthHttpClient, OAuthHttpClientConfig, ProviderOptions, RedirectUri,
-    RefreshAccessTokenRequest, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
-    SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture, TokenEndpoint,
-    TokenValidationOptions, VerifyAccessTokenOptions, VerifyAccessTokenRemote,
+    OAuthError, OAuthHttpClient, OAuthHttpClientConfig, OAuthJwksCacheConfig, ProviderOptions,
+    RedirectUri, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
+    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
+    TokenEndpoint, TokenValidationOptions, VerifyAccessTokenOptions, VerifyAccessTokenRemote,
 };
 use serde_json::json;
 use std::time::Duration;
@@ -278,6 +279,92 @@ fn client_credentials_requires_client_id_and_secret() {
 }
 
 #[test]
+fn direct_request_builders_reject_invalid_required_fields() {
+    let authorization_url = create_authorization_url(AuthorizationUrlRequest {
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            ..ProviderOptions::default()
+        },
+        authorization_endpoint: "notaurl".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        state: String::new(),
+        ..AuthorizationUrlRequest::default()
+    })
+    .expect_err("authorization URL should validate direct struct construction");
+    assert!(authorization_url
+        .to_string()
+        .contains("authorization state"));
+
+    let authorization_code = create_authorization_code_request(AuthorizationCodeRequest {
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        options: provider_options(),
+        ..AuthorizationCodeRequest::default()
+    })
+    .expect_err("authorization code should be required");
+    assert!(authorization_code
+        .to_string()
+        .contains("authorization code"));
+
+    let refresh = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        options: provider_options(),
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect_err("refresh token should be required");
+    assert!(refresh.to_string().contains("refresh_token"));
+
+    let invalid_redirect = create_authorization_code_request(AuthorizationCodeRequest {
+        code: "code".to_owned(),
+        redirect_uri: "notaurl".to_owned(),
+        options: provider_options(),
+        ..AuthorizationCodeRequest::default()
+    })
+    .expect_err("redirect URI should be validated");
+    assert!(invalid_redirect.to_string().contains("OAuth URL"));
+}
+
+#[test]
+fn client_authentication_matrix_handles_public_and_confidential_clients() {
+    let public_refresh = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        refresh_token: "refresh-token".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("public-client".to_owned())),
+            ..ProviderOptions::default()
+        },
+        authentication: ClientAuthentication::Post,
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect("public refresh token request can omit client secret");
+    assert_eq!(
+        public_refresh.form_value("client_id"),
+        Some("public-client")
+    );
+    assert_eq!(public_refresh.form_value("client_secret"), None);
+
+    let missing_basic_client = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        refresh_token: "refresh-token".to_owned(),
+        options: ProviderOptions {
+            client_secret: Some("secret".to_owned()),
+            ..ProviderOptions::default()
+        },
+        authentication: ClientAuthentication::Basic,
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect_err("basic authentication should require a client_id");
+    assert!(missing_basic_client.to_string().contains("client_id"));
+
+    let empty_secret = create_client_credentials_token_request(ClientCredentialsTokenRequest {
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            client_secret: Some(String::new()),
+            ..ProviderOptions::default()
+        },
+        ..ClientCredentialsTokenRequest::default()
+    })
+    .expect_err("client credentials should reject empty secret");
+    assert!(empty_secret.to_string().contains("client_secret"));
+}
+
+#[test]
 fn validated_constructors_reject_invalid_required_values() {
     assert!(AuthorizationEndpoint::new("https://provider.example.com/authorize").is_ok());
     assert!(TokenEndpoint::new("https://provider.example.com/token").is_ok());
@@ -321,6 +408,23 @@ fn oauth_http_client_config_validates_timeout() {
 }
 
 #[test]
+fn token_helpers_reject_malformed_token_responses() {
+    for malformed in [
+        json!({}),
+        json!({ "access_token": 42 }),
+        json!({ "access_token": "access", "scope": ["openid", 42] }),
+        json!({ "access_token": "access", "expires_in": -1 }),
+        json!({ "access_token": "access", "expires_in": i64::MAX }),
+        json!("not-an-object"),
+    ] {
+        assert!(
+            get_oauth2_tokens(malformed).is_err(),
+            "malformed token response should be rejected"
+        );
+    }
+}
+
+#[test]
 fn token_helpers_parse_raw_scopes_expiry_and_pkce() {
     let tokens = get_oauth2_tokens(json!({
         "token_type": "Bearer",
@@ -351,6 +455,75 @@ fn token_helpers_parse_raw_scopes_expiry_and_pkce() {
         generate_code_challenge("verifier").expect("challenge should build"),
         "iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ"
     );
+}
+
+#[tokio::test]
+async fn network_token_helpers_redact_structured_and_plaintext_sensitive_errors() {
+    let json_server = JsonServer::spawn_status(
+        400,
+        json!({
+            "error": "invalid_grant",
+            "error_description": "authorization code rejected",
+            "code": "secret-code",
+            "token": "secret-token",
+            "client_assertion": "secret-assertion",
+            "subject_token": "secret-subject-token",
+            "device_code": "secret-device-code"
+        }),
+    );
+    let json_error = refresh_access_token(ClientTokenRequest {
+        token_endpoint: json_server.url(),
+        request: RefreshAccessTokenRequest {
+            refresh_token: "secret-refresh-token".to_owned(),
+            options: provider_options(),
+            ..RefreshAccessTokenRequest::default()
+        },
+    })
+    .await
+    .expect_err("structured OAuth error should be redacted")
+    .to_string();
+    assert!(json_error.contains("invalid_grant"));
+    assert!(!json_error.contains("secret-code"));
+    assert!(!json_error.contains("secret-token"));
+    assert!(!json_error.contains("secret-assertion"));
+    assert!(!json_error.contains("secret-subject-token"));
+    assert!(!json_error.contains("secret-device-code"));
+
+    let text_server = RawServer::spawn_status(
+        500,
+        "text/plain",
+        "device_code=secret-device-code&token=secret-token",
+    );
+    let text_error = refresh_access_token(ClientTokenRequest {
+        token_endpoint: text_server.url(),
+        request: RefreshAccessTokenRequest {
+            refresh_token: "secret-refresh-token".to_owned(),
+            options: provider_options(),
+            ..RefreshAccessTokenRequest::default()
+        },
+    })
+    .await
+    .expect_err("plaintext OAuth error should be redacted")
+    .to_string();
+    assert!(!text_error.contains("secret-device-code"));
+    assert!(!text_error.contains("secret-token"));
+}
+
+#[tokio::test]
+async fn network_token_helpers_reject_invalid_success_json() {
+    let server = RawServer::spawn_status(200, "application/json", "{not-json");
+    let error = refresh_access_token(ClientTokenRequest {
+        token_endpoint: server.url(),
+        request: RefreshAccessTokenRequest {
+            refresh_token: "refresh-token".to_owned(),
+            options: provider_options(),
+            ..RefreshAccessTokenRequest::default()
+        },
+    })
+    .await
+    .expect_err("invalid success JSON should be rejected");
+
+    assert!(error.to_string().contains("invalid OAuth response"));
 }
 
 #[tokio::test]
@@ -461,6 +634,176 @@ async fn network_token_helpers_redact_sensitive_oauth_error_descriptions() {
 
     assert!(error.to_string().contains("invalid_grant"));
     assert!(!error.to_string().contains("secret-refresh-token"));
+}
+
+#[tokio::test]
+async fn verify_jws_access_token_cache_config_expires_and_limits_entries() {
+    clear_jwks_cache().expect("cache should clear");
+    let (token_a, jwk_a) = signed_hs256_token("ttl-key-a", json!({ "sub": "user-a" }));
+    let server_a = JsonServer::spawn_many(vec![
+        JsonResponse::ok(json!({ "keys": [jwk_a.clone()] })),
+        JsonResponse::ok(json!({ "keys": [jwk_a] })),
+    ]);
+    verify_jws_access_token_with_cache_config(
+        &token_a,
+        &server_a.url(),
+        TokenValidationOptions::default().allow_hmac_algorithms(),
+        OAuthJwksCacheConfig {
+            ttl: Duration::from_millis(1),
+            max_entries: 8,
+        },
+    )
+    .await
+    .expect("first verification should fetch jwks");
+    thread::sleep(Duration::from_millis(5));
+    verify_jws_access_token_with_cache_config(
+        &token_a,
+        &server_a.url(),
+        TokenValidationOptions::default().allow_hmac_algorithms(),
+        OAuthJwksCacheConfig {
+            ttl: Duration::from_millis(1),
+            max_entries: 8,
+        },
+    )
+    .await
+    .expect("expired cache entry should refetch");
+    assert_eq!(server_a.request_count(), 2);
+
+    clear_jwks_cache().expect("cache should clear");
+    let (token_b, jwk_b) = signed_hs256_token("limit-key-b", json!({ "sub": "user-b" }));
+    let (token_c, jwk_c) = signed_hs256_token("limit-key-c", json!({ "sub": "user-c" }));
+    let server_b = JsonServer::spawn_many(vec![
+        JsonResponse::ok(json!({ "keys": [jwk_b.clone()] })),
+        JsonResponse::ok(json!({ "keys": [jwk_b] })),
+    ]);
+    let server_c = JsonServer::spawn(json!({ "keys": [jwk_c] }));
+    let cache_config = OAuthJwksCacheConfig {
+        ttl: Duration::from_secs(60),
+        max_entries: 1,
+    };
+    verify_jws_access_token_with_cache_config(
+        &token_b,
+        &server_b.url(),
+        TokenValidationOptions::default().allow_hmac_algorithms(),
+        cache_config,
+    )
+    .await
+    .expect("first URL should fetch");
+    verify_jws_access_token_with_cache_config(
+        &token_c,
+        &server_c.url(),
+        TokenValidationOptions::default().allow_hmac_algorithms(),
+        cache_config,
+    )
+    .await
+    .expect("second URL should fetch and evict first URL");
+    verify_jws_access_token_with_cache_config(
+        &token_b,
+        &server_b.url(),
+        TokenValidationOptions::default().allow_hmac_algorithms(),
+        cache_config,
+    )
+    .await
+    .expect("evicted first URL should refetch");
+    assert_eq!(server_b.request_count(), 2);
+}
+
+#[tokio::test]
+async fn verify_access_token_remote_fallback_only_for_opaque_or_malformed_jws() {
+    let remote = JsonServer::spawn_many(vec![
+        JsonResponse::ok(json!({
+            "active": true,
+            "sub": "opaque-with-dots",
+            "aud": "api-client",
+            "iss": "https://issuer.example.com",
+            "scope": "read"
+        })),
+        JsonResponse::ok(json!({
+            "active": true,
+            "sub": "malformed-jws",
+            "aud": "api-client",
+            "iss": "https://issuer.example.com",
+            "scope": "read"
+        })),
+    ]);
+    let options = remote_verify_options(remote.url(), vec!["read".to_owned()]);
+    let opaque = verify_access_token("opaque.token.value", options.clone())
+        .await
+        .expect("opaque token with dots should fall back to remote introspection");
+    assert_eq!(opaque["sub"], "opaque-with-dots");
+    let malformed = verify_access_token("not-a-valid-jws.but.three-parts", options)
+        .await
+        .expect("malformed JWS should fall back to remote introspection");
+    assert_eq!(malformed["sub"], "malformed-jws");
+
+    let (expired_token, expired_jwk) = signed_hs256_token(
+        "expired-no-fallback",
+        json!({
+            "sub": "user-123",
+            "exp": OffsetDateTime::now_utc().unix_timestamp() - 120
+        }),
+    );
+    let local = JsonServer::spawn(json!({ "keys": [expired_jwk] }));
+    let remote = JsonServer::spawn_many(Vec::new());
+    let error = verify_access_token(
+        &expired_token,
+        VerifyAccessTokenOptions {
+            jwks_url: Some(local.url()),
+            remote_verify: Some(VerifyAccessTokenRemote {
+                introspect_url: remote.url(),
+                client_id: "client-id".to_owned(),
+                client_secret: "client-secret".to_owned(),
+                force: false,
+            }),
+            verify_options: TokenValidationOptions::default().allow_hmac_algorithms(),
+            scopes: vec!["read".to_owned()],
+        },
+    )
+    .await
+    .expect_err("expired JWS should not fall back to remote introspection");
+    assert!(error.to_string().contains("token expired"));
+    assert_eq!(remote.request_count(), 0);
+}
+
+#[tokio::test]
+async fn verify_access_token_rejects_remote_missing_active_and_missing_audience() {
+    let missing_active = JsonServer::spawn(json!({
+        "sub": "user-123",
+        "scope": "read"
+    }));
+    let error = verify_access_token(
+        "opaque-token",
+        remote_verify_options(missing_active.url(), vec!["read".to_owned()]),
+    )
+    .await
+    .expect_err("remote introspection should require active");
+    assert!(error.to_string().contains("active"));
+
+    let missing_audience = JsonServer::spawn(json!({
+        "active": true,
+        "sub": "user-123",
+        "scope": "read"
+    }));
+    let error = verify_access_token(
+        "opaque-token",
+        VerifyAccessTokenOptions {
+            remote_verify: Some(VerifyAccessTokenRemote {
+                introspect_url: missing_audience.url(),
+                client_id: "client-id".to_owned(),
+                client_secret: "client-secret".to_owned(),
+                force: true,
+            }),
+            verify_options: TokenValidationOptions {
+                audience: vec!["api".to_owned()],
+                ..TokenValidationOptions::default()
+            },
+            scopes: vec!["read".to_owned()],
+            jwks_url: None,
+        },
+    )
+    .await
+    .expect_err("configured audience should require aud in introspection payload");
+    assert!(error.to_string().contains("audience"));
 }
 
 #[tokio::test]
@@ -1189,6 +1532,11 @@ struct JsonServer {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+struct RawServer {
+    url: String,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
 #[derive(Debug, Clone)]
 struct JsonResponse {
     status: u16,
@@ -1267,7 +1615,45 @@ impl JsonServer {
     }
 }
 
+impl RawServer {
+    fn spawn_status(status: u16, content_type: &'static str, body: &'static str) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
+        let url = format!(
+            "http://{}",
+            listener.local_addr().expect("local addr should exist")
+        );
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("connection should accept");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer).expect("request should read");
+            let response = format!(
+                "HTTP/1.1 {status} OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("response should write");
+        });
+        Self {
+            url,
+            handle: Some(handle),
+        }
+    }
+
+    fn url(&self) -> String {
+        self.url.clone()
+    }
+}
+
 impl Drop for JsonServer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for RawServer {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();

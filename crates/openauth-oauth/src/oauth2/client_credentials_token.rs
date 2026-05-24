@@ -36,6 +36,21 @@ impl ClientCredentialsTokenRequest {
             ..Self::default()
         })
     }
+
+    pub fn scope(mut self, scope: impl Into<String>) -> Self {
+        self.scope = Some(scope.into());
+        self
+    }
+
+    pub fn authentication(mut self, authentication: ClientAuthentication) -> Self {
+        self.authentication = authentication;
+        self
+    }
+
+    pub fn resource(mut self, resource: impl Into<String>) -> Self {
+        self.resource.push(resource.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +72,12 @@ pub fn create_client_credentials_token_request(
     }
     get_primary_client_id(&input.options.client_id)
         .ok_or(OAuthError::MissingOption("client_id"))?;
+    input
+        .options
+        .client_secret
+        .as_deref()
+        .filter(|secret| !secret.is_empty())
+        .ok_or(OAuthError::MissingOption("client_secret"))?;
     apply_client_authentication(&mut request, &input.options, input.authentication, true)?;
     Ok(request)
 }

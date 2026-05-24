@@ -9,6 +9,18 @@ use super::request::OAuthFormRequest;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_USER_AGENT: &str = concat!("openauth-oauth/", env!("CARGO_PKG_VERSION"));
+const SENSITIVE_OAUTH_FIELDS: &[&str] = &[
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "client_secret",
+    "client_assertion",
+    "subject_token",
+    "device_code",
+    "code",
+    "token",
+    "authorization",
+];
 
 #[derive(Debug, Clone)]
 pub struct OAuthHttpClient {
@@ -126,19 +138,42 @@ fn http_status_error(status: u16, body: &[u8]) -> OAuthError {
 }
 
 fn redact_body(body: &str) -> String {
-    let mut redacted = body.to_owned();
-    for key in [
-        "access_token",
-        "refresh_token",
-        "id_token",
-        "client_secret",
-        "authorization",
-    ] {
-        if redacted.contains(key) {
-            redacted = format!("<redacted {key} response body>");
-        }
+    if let Ok(mut value) = serde_json::from_str::<Value>(body) {
+        redact_json_value(&mut value);
+        return value.to_string();
     }
-    redacted
+
+    let lower = body.to_ascii_lowercase();
+    if SENSITIVE_OAUTH_FIELDS.iter().any(|key| lower.contains(key))
+        || lower.contains("bearer ")
+        || lower.contains("basic ")
+    {
+        return "<redacted OAuth response body>".to_owned();
+    }
+    body.to_owned()
+}
+
+fn redact_json_value(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if SENSITIVE_OAUTH_FIELDS
+                    .iter()
+                    .any(|sensitive| key.eq_ignore_ascii_case(sensitive))
+                {
+                    *value = Value::String("<redacted>".to_owned());
+                } else {
+                    redact_json_value(value);
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                redact_json_value(value);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn redact_error_description(description: Option<&str>) -> Option<String> {
@@ -149,6 +184,9 @@ fn redact_error_description(description: Option<&str>) -> Option<String> {
         "refresh_token",
         "id_token",
         "client_secret",
+        "client_assertion",
+        "subject_token",
+        "device_code",
         "authorization",
         "bearer ",
         "basic ",

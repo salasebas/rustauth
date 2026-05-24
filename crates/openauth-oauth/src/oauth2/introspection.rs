@@ -77,7 +77,7 @@ pub async fn verify_access_token_with_client(
             .as_ref()
             .is_some_and(|remote| remote.force)
         {
-            if options.remote_verify.is_some() && !looks_like_jws(token) {
+            if options.remote_verify.is_some() && !looks_like_parseable_jws(token) {
                 payload = None;
             } else {
                 match verify_jws_access_token_with_client(
@@ -89,11 +89,6 @@ pub async fn verify_access_token_with_client(
                 .await
                 {
                     Ok(result) => payload = Some(result.payload),
-                    Err(error)
-                        if options.remote_verify.is_some() && is_opaque_token_error(&error) =>
-                    {
-                        payload = None;
-                    }
                     Err(error) => return Err(error),
                 }
             }
@@ -135,10 +130,7 @@ fn validate_introspection_claims(
     };
     validate_temporal_claims_with_leeway(claims, options.leeway_seconds)?;
     validate_required_claims(claims, options)?;
-    if !options.audience.is_empty()
-        && claims.contains_key("aud")
-        && !audience_matches(claims.get("aud"), &options.audience)
-    {
+    if !options.audience.is_empty() && !audience_matches(claims.get("aud"), &options.audience) {
         return Err(OAuthError::TokenVerification(
             "audience mismatch".to_owned(),
         ));
@@ -152,12 +144,11 @@ fn validate_introspection_claims(
     Ok(())
 }
 
-fn looks_like_jws(token: &str) -> bool {
-    token.split('.').count() == 3
-}
-
-fn is_opaque_token_error(error: &OAuthError) -> bool {
-    matches!(error, OAuthError::Jose(message) if message.to_ascii_lowercase().contains("header"))
+fn looks_like_parseable_jws(token: &str) -> bool {
+    if token.split('.').count() != 3 {
+        return false;
+    }
+    josekit::jwt::decode_header(token).is_ok()
 }
 
 fn validate_scopes(payload: &Value, required_scopes: &[String]) -> Result<(), OAuthError> {
