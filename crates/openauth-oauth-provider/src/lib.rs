@@ -35,11 +35,11 @@ pub use options::{
     CustomAccessTokenClaimsResolver, CustomIdTokenClaimsInput, CustomIdTokenClaimsResolver,
     CustomTokenResponseFieldsInput, CustomTokenResponseFieldsResolver, CustomUserInfoClaimsInput,
     CustomUserInfoClaimsResolver, GrantType, OAuthProviderConfigError, OAuthProviderOptions,
-    OAuthProviderPlugin, OAuthTokenPrefixes, PromptRedirectInput, PromptRedirectResolver,
-    RefreshTokenFormatDecodeOutput, RefreshTokenFormatEncodeInput, RefreshTokenFormatter,
-    RequestUriResolver, RequestUriResolverInput, ResolvedOAuthProviderOptions, SecretStorage,
-    StringGeneratorResolver, TokenEndpointAuthMethod, TokenHashInput, TokenHashResolver,
-    TrustedClientCache,
+    OAuthProviderPlugin, OAuthProviderRateLimit, OAuthProviderRateLimits, OAuthTokenPrefixes,
+    PromptRedirectInput, PromptRedirectResolver, RefreshTokenFormatDecodeOutput,
+    RefreshTokenFormatEncodeInput, RefreshTokenFormatter, RequestUriResolver,
+    RequestUriResolverInput, ResolvedOAuthProviderOptions, SecretStorage, StringGeneratorResolver,
+    TokenEndpointAuthMethod, TokenHashInput, TokenHashResolver, TrustedClientCache,
 };
 pub use schema::{
     oauth_provider_schema, OAUTH_ACCESS_TOKEN_MODEL, OAUTH_CLIENT_MODEL, OAUTH_CONSENT_MODEL,
@@ -82,7 +82,7 @@ pub fn oauth_provider(
     for endpoint in endpoints::oauth_provider_endpoints(Arc::clone(&shared)) {
         auth_plugin = auth_plugin.with_endpoint(endpoint);
     }
-    for rule in rate_limit_rules() {
+    for rule in rate_limit_rules(&resolved.rate_limits) {
         auth_plugin = auth_plugin.with_rate_limit(rule);
     }
 
@@ -213,6 +213,7 @@ fn resolve_options(
         advertised_scopes_supported: options.advertised_scopes_supported,
         advertised_claims_supported: options.advertised_claims_supported,
         valid_audiences: options.valid_audiences,
+        rate_limits: options.rate_limits,
     })
 }
 
@@ -281,16 +282,40 @@ fn resolve_client_secret_storage(
     }
 }
 
-fn rate_limit_rules() -> Vec<PluginRateLimitRule> {
+fn rate_limit_rules(options: &OAuthProviderRateLimits) -> Vec<PluginRateLimitRule> {
     [
-        ("/oauth2/token", 60, 20),
-        ("/oauth2/authorize", 60, 30),
-        ("/oauth2/introspect", 60, 100),
-        ("/oauth2/revoke", 60, 30),
-        ("/oauth2/register", 60, 5),
-        ("/oauth2/userinfo", 60, 60),
+        ("/oauth2/token", RateLimitRule::new(60, 20), &options.token),
+        (
+            "/oauth2/authorize",
+            RateLimitRule::new(60, 30),
+            &options.authorize,
+        ),
+        (
+            "/oauth2/introspect",
+            RateLimitRule::new(60, 100),
+            &options.introspect,
+        ),
+        (
+            "/oauth2/revoke",
+            RateLimitRule::new(60, 30),
+            &options.revoke,
+        ),
+        (
+            "/oauth2/register",
+            RateLimitRule::new(60, 5),
+            &options.register,
+        ),
+        (
+            "/oauth2/userinfo",
+            RateLimitRule::new(60, 60),
+            &options.userinfo,
+        ),
     ]
     .into_iter()
-    .map(|(path, window, max)| PluginRateLimitRule::new(path, RateLimitRule { window, max }))
+    .filter_map(|(path, default, setting)| match setting {
+        OAuthProviderRateLimit::Default => Some(PluginRateLimitRule::new(path, default)),
+        OAuthProviderRateLimit::Disabled => None,
+        OAuthProviderRateLimit::Custom(rule) => Some(PluginRateLimitRule::new(path, rule.clone())),
+    })
     .collect()
 }

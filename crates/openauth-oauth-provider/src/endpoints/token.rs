@@ -22,12 +22,16 @@ pub(super) fn token_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> Asyn
                         ));
                     }
                 };
-                if let Some((client_id, client_secret)) = basic_credentials(&request)? {
-                    body.client_id = Some(client_id);
-                    body.client_secret = Some(client_secret);
+                match basic_credentials(&request) {
+                    Ok(Some((client_id, client_secret))) => {
+                        body.client_id = Some(client_id);
+                        body.client_secret = Some(client_secret);
+                    }
+                    Ok(None) => {}
+                    Err(error) => return error_response(error),
                 }
-                match body.grant_type.as_str() {
-                    "client_credentials" => {
+                match body.grant_type.as_deref() {
+                    Some("client_credentials") => {
                         if !options.grant_types.contains(&GrantType::ClientCredentials) {
                             return error_response(OAuthProviderError::new(
                                 StatusCode::BAD_REQUEST,
@@ -66,7 +70,7 @@ pub(super) fn token_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> Asyn
                         };
                         json_response(StatusCode::OK, &response)
                     }
-                    "authorization_code" => {
+                    Some("authorization_code") => {
                         if !options.grant_types.contains(&GrantType::AuthorizationCode) {
                             return error_response(OAuthProviderError::new(
                                 StatusCode::BAD_REQUEST,
@@ -147,7 +151,7 @@ pub(super) fn token_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> Asyn
                         };
                         json_response(StatusCode::OK, &response)
                     }
-                    "refresh_token" => {
+                    Some("refresh_token") => {
                         if !options.grant_types.contains(&GrantType::RefreshToken) {
                             return error_response(OAuthProviderError::new(
                                 StatusCode::BAD_REQUEST,
@@ -194,10 +198,15 @@ pub(super) fn token_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> Asyn
                         };
                         json_response(StatusCode::OK, &response)
                     }
-                    _ => error_response(OAuthProviderError::new(
+                    Some(grant_type) => error_response(OAuthProviderError::new(
                         StatusCode::BAD_REQUEST,
                         "unsupported_grant_type",
-                        format!("unsupported grant_type {}", body.grant_type),
+                        format!("unsupported grant_type {grant_type}"),
+                    )),
+                    None => error_response(OAuthProviderError::new(
+                        StatusCode::BAD_REQUEST,
+                        "unsupported_grant_type",
+                        "unsupported grant_type",
                     )),
                 }
             })

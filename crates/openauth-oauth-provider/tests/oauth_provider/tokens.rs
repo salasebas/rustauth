@@ -1,6 +1,63 @@
 use super::common::*;
 
 #[tokio::test]
+async fn token_endpoint_missing_grant_type_returns_unsupported_grant_type(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let router = router(default_provider()?, adapter())?;
+
+    let response = router
+        .handle_async(form_request(
+            Method::POST,
+            "/api/auth/oauth2/token",
+            "client_id=client_1",
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(response)?;
+    assert_eq!(body["error"], "unsupported_grant_type");
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_token_endpoints_return_oauth_json_for_malformed_basic_auth(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let router = router(default_provider()?, adapter())?;
+    let token_headers = [
+        "Basic not-base64!!!".to_owned(),
+        format!("Basic {}", STANDARD.encode("client-without-colon")),
+        format!("Basic {}", STANDARD.encode([0xff])),
+    ];
+
+    for header_value in token_headers {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!("{BASE_URL}/api/auth/oauth2/token"))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::AUTHORIZATION, header_value)
+            .body(b"grant_type=client_credentials&scope=read".to_vec())?;
+
+        let response = router.handle_async(request).await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(json_body(response)?["error"], "invalid_client");
+    }
+
+    for path in ["/api/auth/oauth2/introspect", "/api/auth/oauth2/revoke"] {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!("{BASE_URL}{path}"))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::AUTHORIZATION, "Basic not-base64!!!")
+            .body(b"token=opaque".to_vec())?;
+
+        let response = router.handle_async(request).await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(json_body(response)?["error"], "invalid_client");
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn client_credentials_token_returns_bearer_token_and_persists_opaque_token(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = adapter();
@@ -814,6 +871,141 @@ async fn custom_access_and_userinfo_claims_are_added() -> Result<(), Box<dyn std
         json_body(userinfo)?["https://example.com/userinfo"],
         "custom"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn userinfo_returns_claims_by_explicit_openid_profile_and_email_scopes(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        adapter,
+    )?;
+    let client = register_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid profile email","skip_consent":true}"#,
+        Some(&cookie),
+    )
+    .await?;
+    let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let client_secret = client["client_secret"]
+        .as_str()
+        .ok_or("missing client_secret")?;
+
+    let openid = exchange_authorization_code_with_scope(
+        &router,
+        &cookie,
+        client_id,
+        client_secret,
+        "openid",
+    )
+    .await?;
+    let response = router
+        .handle_async(bearer_request(
+            Method::GET,
+            "/api/auth/oauth2/userinfo",
+            openid["access_token"]
+                .as_str()
+                .ok_or("missing access_token")?,
+        )?)
+        .await?;
+    let body = json_body(response)?;
+    assert!(body["sub"].is_string());
+    assert!(body.get("name").is_none());
+    assert!(body.get("email").is_none());
+
+    let profile = exchange_authorization_code_with_scope(
+        &router,
+        &cookie,
+        client_id,
+        client_secret,
+        "openid profile",
+    )
+    .await?;
+    let response = router
+        .handle_async(bearer_request(
+            Method::GET,
+            "/api/auth/oauth2/userinfo",
+            profile["access_token"]
+                .as_str()
+                .ok_or("missing access_token")?,
+        )?)
+        .await?;
+    let body = json_body(response)?;
+    assert_eq!(body["name"], "Ada Lovelace");
+    assert!(body.get("email").is_none());
+
+    let email = exchange_authorization_code_with_scope(
+        &router,
+        &cookie,
+        client_id,
+        client_secret,
+        "openid email",
+    )
+    .await?;
+    let response = router
+        .handle_async(bearer_request(
+            Method::GET,
+            "/api/auth/oauth2/userinfo",
+            email["access_token"]
+                .as_str()
+                .ok_or("missing access_token")?,
+        )?)
+        .await?;
+    let body = json_body(response)?;
+    assert_eq!(body["email"], "ada@example.com");
+    assert_eq!(body["email_verified"], true);
+    assert!(body.get("name").is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn userinfo_rejects_tokens_without_openid_scope() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        adapter,
+    )?;
+    let client = register_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"profile","skip_consent":true}"#,
+        Some(&cookie),
+    )
+    .await?;
+    let tokens = exchange_authorization_code_with_scope(
+        &router,
+        &cookie,
+        client["client_id"].as_str().ok_or("missing client_id")?,
+        client["client_secret"]
+            .as_str()
+            .ok_or("missing client_secret")?,
+        "profile",
+    )
+    .await?;
+
+    let response = router
+        .handle_async(bearer_request(
+            Method::GET,
+            "/api/auth/oauth2/userinfo",
+            tokens["access_token"]
+                .as_str()
+                .ok_or("missing access_token")?,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(response)?["error"], "invalid_scope");
     Ok(())
 }
 

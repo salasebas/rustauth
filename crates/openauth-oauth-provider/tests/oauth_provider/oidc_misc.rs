@@ -346,3 +346,47 @@ async fn rp_initiated_logout_deletes_session_and_redirects_to_registered_uri(
     assert_eq!(adapter.len("session").await, 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn rp_initiated_logout_rejects_clients_without_end_session_enabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        Arc::clone(&adapter),
+    )?;
+    let client = create_admin_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"post_logout_redirect_uris":["https://rp.example/logout"],"scope":"openid offline_access","skip_consent":true}"#,
+        &cookie,
+    )
+    .await?;
+    let tokens = exchange_authorization_code(
+        &router,
+        &cookie,
+        client["client_id"].as_str().ok_or("missing client_id")?,
+        client["client_secret"]
+            .as_str()
+            .ok_or("missing client_secret")?,
+    )
+    .await?;
+    let id_token = tokens["id_token"].as_str().ok_or("missing id_token")?;
+    assert!(decode_jwt_payload(id_token)?.get("sid").is_none());
+
+    let logout_path = format!(
+        "/api/auth/oauth2/end-session?id_token_hint={}",
+        query_encode(id_token)
+    );
+    let response = router
+        .handle_async(request(Method::GET, &logout_path, "", None)?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json_body(response)?["error"], "invalid_client");
+    Ok(())
+}

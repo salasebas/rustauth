@@ -97,7 +97,7 @@ pub(crate) fn bearer_token(request: &ApiRequest) -> Option<String> {
 
 pub(crate) fn basic_credentials(
     request: &ApiRequest,
-) -> Result<Option<(String, String)>, OpenAuthError> {
+) -> Result<Option<(String, String)>, OAuthProviderError> {
     let Some(value) = request
         .headers()
         .get(header::AUTHORIZATION)
@@ -110,13 +110,13 @@ pub(crate) fn basic_credentials(
     };
     let decoded = STANDARD
         .decode(encoded)
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
-    let decoded =
-        String::from_utf8(decoded).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .map_err(|_| OAuthProviderError::invalid_client("invalid authorization header format"))?;
+    let decoded = String::from_utf8(decoded)
+        .map_err(|_| OAuthProviderError::invalid_client("invalid authorization header format"))?;
     let Some((client_id, client_secret)) = decoded.split_once(':') else {
-        return Err(
-            OAuthProviderError::invalid_client("invalid authorization header format").into(),
-        );
+        return Err(OAuthProviderError::invalid_client(
+            "invalid authorization header format",
+        ));
     };
     Ok(Some((client_id.to_owned(), client_secret.to_owned())))
 }
@@ -196,7 +196,14 @@ pub(crate) fn join_scope(scopes: &[String]) -> String {
 }
 
 pub(crate) fn validate_url(value: &str) -> bool {
-    url::Url::parse(value).is_ok()
+    let Ok(url) = url::Url::parse(value) else {
+        return false;
+    };
+    match url.scheme() {
+        "javascript" | "data" | "vbscript" => false,
+        "http" => is_loopback_host(url.host_str()),
+        _ => true,
+    }
 }
 
 pub(crate) fn is_loopback_redirect_match(registered: &str, requested: &str) -> bool {
@@ -218,6 +225,20 @@ pub(crate) fn is_loopback_redirect_match(registered: &str, requested: &str) -> b
 fn is_loopback_ip_literal(host: Option<&str>) -> bool {
     host.and_then(|host| host.parse::<IpAddr>().ok())
         .is_some_and(|ip| ip.is_loopback())
+}
+
+fn is_loopback_host(host: Option<&str>) -> bool {
+    let Some(host) = host else {
+        return false;
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let ip_host = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(&host);
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || ip_host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
 pub(crate) fn create_query(model: &str, data: DbRecord) -> Create {

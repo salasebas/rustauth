@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use time::OffsetDateTime;
 
-use crate::authorize::{decide_authorize, AuthorizeDecision};
+use crate::authorize::{decide_authorize, prompt_validation_error, AuthorizeDecision};
 use crate::client::{
     check_oauth_client, create_oauth_client, get_client_cached, schema_to_oauth, update_client,
     CreateOAuthClientInput, OAuthClient,

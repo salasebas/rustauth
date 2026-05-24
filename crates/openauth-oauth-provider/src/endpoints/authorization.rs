@@ -4,6 +4,7 @@ use super::*;
 
 async fn resolve_request_uri_request(
     options: &ResolvedOAuthProviderOptions,
+    base_url: &str,
     mut request: ApiRequest,
 ) -> Result<ApiRequest, OAuthProviderError> {
     let Some(request_uri) = query_param(&request, "request_uri") else {
@@ -27,8 +28,7 @@ async fn resolve_request_uri_request(
             "request_uri is invalid or expired",
         ));
     };
-    let mut url = url::Url::parse(&request.uri().to_string())
-        .map_err(|error| OAuthProviderError::invalid_request(error.to_string()))?;
+    let mut url = request_url(&request, base_url)?;
     url.query_pairs_mut().clear();
     {
         let mut pairs = url.query_pairs_mut();
@@ -63,6 +63,20 @@ async fn resolve_request_uri_request(
     Ok(request)
 }
 
+fn request_url(request: &ApiRequest, base_url: &str) -> Result<url::Url, OAuthProviderError> {
+    let uri = request.uri().to_string();
+    match url::Url::parse(&uri) {
+        Ok(url) => Ok(url),
+        Err(url::ParseError::RelativeUrlWithoutBase) => {
+            let base = url::Url::parse(base_url)
+                .map_err(|error| OAuthProviderError::invalid_request(error.to_string()))?;
+            base.join(&uri)
+                .map_err(|error| OAuthProviderError::invalid_request(error.to_string()))
+        }
+        Err(error) => Err(OAuthProviderError::invalid_request(error.to_string())),
+    }
+}
+
 pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/oauth2/authorize",
@@ -83,10 +97,11 @@ pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> 
                         "database adapter required",
                     ));
                 };
-                let request = match resolve_request_uri_request(&options, request).await {
-                    Ok(request) => request,
-                    Err(error) => return error_response(error),
-                };
+                let request =
+                    match resolve_request_uri_request(&options, &context.base_url, request).await {
+                        Ok(request) => request,
+                        Err(error) => return error_response(error),
+                    };
                 let client_id = match query_param(&request, "client_id") {
                     Some(value) => value,
                     None => {
@@ -164,6 +179,16 @@ pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> 
                 }
                 let state = query_param(&request, "state");
                 let nonce = query_param(&request, "nonce");
+                let prompt = query_param(&request, "prompt");
+                if let Some((error, description)) = prompt_validation_error(prompt.as_deref()) {
+                    return authorization_error_redirect(
+                        &redirect_uri,
+                        error,
+                        description,
+                        state.as_deref(),
+                        &context.base_url,
+                    );
+                }
                 let current_session = current_session(context, adapter.as_ref(), &request).await?;
                 if prompt_contains(&request, "create") {
                     let mut signup_page = options.signup_page.clone();
@@ -298,7 +323,7 @@ pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> 
                             &client,
                             session_user_id,
                             &scopes,
-                            query_param(&request, "prompt").as_deref(),
+                            prompt.as_deref(),
                         )
                         .await?
                         {
@@ -395,12 +420,9 @@ pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> 
                     &request,
                     current_session.as_ref().map(|(session, _, _)| session),
                 ) {
-                    if query_param(&request, "prompt")
-                        .as_deref()
-                        .is_some_and(|prompt| {
-                            prompt.split_whitespace().any(|value| value == "none")
-                        })
-                    {
+                    if prompt.as_deref().is_some_and(|prompt| {
+                        prompt.split_whitespace().any(|value| value == "none")
+                    }) {
                         return authorization_error_redirect(
                             &redirect_uri,
                             "login_required",
@@ -416,7 +438,7 @@ pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> 
                     &client,
                     session_user_id,
                     &scopes,
-                    query_param(&request, "prompt").as_deref(),
+                    prompt.as_deref(),
                 )
                 .await?
                 {

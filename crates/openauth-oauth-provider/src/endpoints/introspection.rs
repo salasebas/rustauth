@@ -103,7 +103,10 @@ async fn authenticate_endpoint_client(
     request: &ApiRequest,
     body: &serde_json::Value,
 ) -> Result<Option<ApiResponse>, OpenAuthError> {
-    let (client_id, client_secret) = request_client_auth(request, body)?;
+    let (client_id, client_secret) = match request_client_auth(request, body) {
+        Ok(credentials) => credentials,
+        Err(error) => return error_response(error).map(Some),
+    };
     let Some(client_id) = client_id else {
         return Ok(Some(error_response(OAuthProviderError::unauthorized(
             "client authentication required",
@@ -127,7 +130,7 @@ async fn authenticate_endpoint_client(
 fn request_client_auth(
     request: &ApiRequest,
     body: &serde_json::Value,
-) -> Result<(Option<String>, Option<String>), OpenAuthError> {
+) -> Result<(Option<String>, Option<String>), OAuthProviderError> {
     let mut client_id = body
         .get("client_id")
         .and_then(|value| value.as_str())

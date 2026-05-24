@@ -449,6 +449,147 @@ async fn authorize_prompt_none_returns_consent_required_without_grant(
 }
 
 #[tokio::test]
+async fn authorize_prompt_none_rejects_supported_prompt_combinations(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        Arc::clone(&adapter),
+    )?;
+    let client = register_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        Some(&cookie),
+    )
+    .await?;
+    let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+
+    let authorize_path = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&state=prompt-state&prompt=none%20login%20unknown"
+    );
+    let response = router
+        .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let redirect = redirect_url(&response)?;
+    assert_eq!(redirect.host_str(), Some("rp.example"));
+    assert_eq!(
+        redirect_query_value(&redirect, "error").as_deref(),
+        Some("invalid_request")
+    );
+    assert_eq!(
+        redirect_query_value(&redirect, "error_description").as_deref(),
+        Some("prompt none must only be used alone")
+    );
+    assert_eq!(
+        redirect_query_value(&redirect, "state").as_deref(),
+        Some("prompt-state")
+    );
+
+    let bad_redirect_path = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Fevil.example%2Fcallback&scope=openid&prompt=none%20login"
+    );
+    let response = router
+        .handle_async(request(Method::GET, &bad_redirect_path, "", Some(&cookie))?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(response.headers().get(header::LOCATION).is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn authorize_ignores_unknown_prompt_values() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        Arc::clone(&adapter),
+    )?;
+    let client = register_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        Some(&cookie),
+    )
+    .await?;
+    let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let authorize_path = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&prompt=unknown"
+    );
+
+    let response = router
+        .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert!(authorization_code_from_location(&response).is_ok());
+    Ok(())
+}
+
+#[tokio::test]
+async fn authorize_request_uri_resolver_handles_origin_form_requests(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            generate_client_id: Some(StringGeneratorResolver::new(|| async {
+                Ok("resolved-client".to_owned())
+            })),
+            request_uri_resolver: Some(RequestUriResolver::new(|_| async {
+                Ok(Some(vec![
+                    ("response_type".to_owned(), "code".to_owned()),
+                    ("client_id".to_owned(), "resolved-client".to_owned()),
+                    (
+                        "redirect_uri".to_owned(),
+                        "https://rp.example/callback".to_owned(),
+                    ),
+                    ("scope".to_owned(), "openid".to_owned()),
+                    ("state".to_owned(), "request-uri-state".to_owned()),
+                ]))
+            })),
+            ..default_options()
+        })?,
+        Arc::clone(&adapter),
+    )?;
+    create_admin_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        &cookie,
+    )
+    .await?;
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/auth/oauth2/authorize?request_uri=urn%3Atest%3Arequest")
+                .header(header::COOKIE, cookie)
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let redirect = redirect_url(&response)?;
+    assert_eq!(
+        redirect_query_value(&redirect, "state").as_deref(),
+        Some("request-uri-state")
+    );
+    assert!(redirect_query_value(&redirect, "code").is_some());
+    Ok(())
+}
+
+#[tokio::test]
 async fn openid_authorization_code_issues_signed_id_token_and_jwks(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = adapter();

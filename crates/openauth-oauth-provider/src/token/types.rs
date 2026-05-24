@@ -7,7 +7,7 @@ use crate::models::SchemaClient;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenRequest {
-    pub grant_type: String,
+    pub grant_type: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub code: Option<String>,

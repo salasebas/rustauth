@@ -12,7 +12,7 @@ pub use openauth_core::db::{
     Create, DbAdapter, DbRecord, DbValue, Delete, FindMany, MemoryAdapter, Session, Update, Where,
 };
 pub use openauth_core::error::OpenAuthError;
-pub use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+pub use openauth_core::options::{AdvancedOptions, OpenAuthOptions, RateLimitRule};
 pub use openauth_oauth_provider::mcp::{
     authorization_server_metadata as mcp_authorization_server_metadata,
     protected_resource_metadata as mcp_protected_resource_metadata, validate_bearer_token,
@@ -23,9 +23,10 @@ pub use openauth_oauth_provider::{
     ClientPrivilegeAction, ClientPrivilegesResolver, ClientReferenceResolver,
     ClientSecretHashResolver, ConsentGrantInput, CustomAccessTokenClaimsResolver,
     CustomIdTokenClaimsResolver, CustomTokenResponseFieldsResolver, CustomUserInfoClaimsResolver,
-    GrantType, OAuthProviderConfigError, OAuthProviderOptions, OAuthTokenPrefixes,
-    PromptRedirectResolver, RefreshTokenFormatDecodeOutput, RefreshTokenFormatter,
-    RequestUriResolver, SecretStorage, StringGeneratorResolver, TokenHashResolver,
+    GrantType, OAuthProviderConfigError, OAuthProviderOptions, OAuthProviderRateLimit,
+    OAuthProviderRateLimits, OAuthTokenPrefixes, PromptRedirectResolver,
+    RefreshTokenFormatDecodeOutput, RefreshTokenFormatter, RequestUriResolver, SecretStorage,
+    StringGeneratorResolver, TokenHashResolver,
 };
 pub use serde_json::{json, Value};
 pub use sha2::{Digest, Sha256};

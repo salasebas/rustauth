@@ -23,6 +23,12 @@ pub async fn decide_authorize(
     prompt: Option<&str>,
 ) -> Result<AuthorizeDecision, OpenAuthError> {
     let prompt = PromptSet::parse(prompt);
+    if prompt.has_none_with_supported_prompt() {
+        return Ok(AuthorizeDecision::RedirectError {
+            error: "invalid_request",
+            description: PROMPT_NONE_EXCLUSIVE_ERROR,
+        });
+    }
     let prompt_none = prompt.contains("none");
     if session_user_id.is_none() || prompt.contains("login") {
         return if prompt_none {
@@ -75,6 +81,17 @@ pub async fn decide_authorize(
     }
 }
 
+pub(crate) fn prompt_validation_error(
+    prompt: Option<&str>,
+) -> Option<(&'static str, &'static str)> {
+    let prompt = PromptSet::parse(prompt);
+    prompt
+        .has_none_with_supported_prompt()
+        .then_some(("invalid_request", PROMPT_NONE_EXCLUSIVE_ERROR))
+}
+
+const PROMPT_NONE_EXCLUSIVE_ERROR: &str = "prompt none must only be used alone";
+
 struct PromptSet<'a> {
     values: Vec<&'a str>,
 }
@@ -85,12 +102,21 @@ impl<'a> PromptSet<'a> {
             values: prompt
                 .unwrap_or_default()
                 .split_whitespace()
-                .filter(|value| !value.is_empty())
+                .filter(|value| {
+                    matches!(
+                        *value,
+                        "none" | "login" | "consent" | "create" | "select_account"
+                    )
+                })
                 .collect(),
         }
     }
 
     fn contains(&self, prompt: &str) -> bool {
         self.values.iter().any(|value| value == &prompt)
+    }
+
+    fn has_none_with_supported_prompt(&self) -> bool {
+        self.contains("none") && self.values.iter().any(|value| *value != "none")
     }
 }

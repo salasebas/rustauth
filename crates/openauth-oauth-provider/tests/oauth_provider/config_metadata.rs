@@ -49,6 +49,66 @@ fn oauth_provider_uses_upstream_default_scopes_grants_and_expirations(
 }
 
 #[test]
+fn oauth_provider_contributes_default_rate_limit_rules() -> Result<(), OAuthProviderConfigError> {
+    let plugin = oauth_provider(OAuthProviderOptions {
+        login_page: "/login".into(),
+        consent_page: "/consent".into(),
+        ..OAuthProviderOptions::default()
+    })?;
+    let rules = &plugin.as_auth_plugin().rate_limit;
+
+    assert_eq!(rules.len(), 6);
+    assert!(rules
+        .iter()
+        .any(|rule| { rule.path == "/oauth2/token" && rule.rule == RateLimitRule::new(60, 20) }));
+    assert!(rules.iter().any(|rule| {
+        rule.path == "/oauth2/authorize" && rule.rule == RateLimitRule::new(60, 30)
+    }));
+    assert!(rules.iter().any(|rule| {
+        rule.path == "/oauth2/introspect" && rule.rule == RateLimitRule::new(60, 100)
+    }));
+    assert!(rules
+        .iter()
+        .any(|rule| { rule.path == "/oauth2/revoke" && rule.rule == RateLimitRule::new(60, 30) }));
+    assert!(rules
+        .iter()
+        .any(|rule| { rule.path == "/oauth2/register" && rule.rule == RateLimitRule::new(60, 5) }));
+    assert!(rules.iter().any(|rule| {
+        rule.path == "/oauth2/userinfo" && rule.rule == RateLimitRule::new(60, 60)
+    }));
+    Ok(())
+}
+
+#[test]
+fn oauth_provider_rate_limit_options_override_and_disable_endpoint_rules(
+) -> Result<(), OAuthProviderConfigError> {
+    let plugin = oauth_provider(OAuthProviderOptions {
+        login_page: "/login".into(),
+        consent_page: "/consent".into(),
+        rate_limits: OAuthProviderRateLimits {
+            token: OAuthProviderRateLimit::Custom(RateLimitRule::new(10, 3)),
+            introspect: OAuthProviderRateLimit::Custom(RateLimitRule::new(30, 7)),
+            revoke: OAuthProviderRateLimit::Disabled,
+            userinfo: OAuthProviderRateLimit::Disabled,
+            ..OAuthProviderRateLimits::default()
+        },
+        ..OAuthProviderOptions::default()
+    })?;
+    let rules = &plugin.as_auth_plugin().rate_limit;
+
+    assert_eq!(rules.len(), 4);
+    assert!(rules
+        .iter()
+        .any(|rule| { rule.path == "/oauth2/token" && rule.rule == RateLimitRule::new(10, 3) }));
+    assert!(rules.iter().any(|rule| {
+        rule.path == "/oauth2/introspect" && rule.rule == RateLimitRule::new(30, 7)
+    }));
+    assert!(!rules.iter().any(|rule| rule.path == "/oauth2/revoke"));
+    assert!(!rules.iter().any(|rule| rule.path == "/oauth2/userinfo"));
+    Ok(())
+}
+
+#[test]
 fn oauth_provider_contributes_plural_snake_case_schema() -> Result<(), Box<dyn std::error::Error>> {
     let context =
         create_auth_context_with_adapter(options_with_provider(default_provider()?), adapter())?;
@@ -89,6 +149,36 @@ fn oauth_provider_contributes_plural_snake_case_schema() -> Result<(), Box<dyn s
             .map(|field| field.name.as_str()),
         Some("redirect_uris")
     );
+    Ok(())
+}
+
+#[test]
+fn oauth_provider_mcp_protected_resource_metadata_rejects_invalid_resource_urls(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = oauth_provider(OAuthProviderOptions {
+        login_page: "/login".into(),
+        consent_page: "/consent".into(),
+        grant_types: vec![GrantType::ClientCredentials],
+        ..OAuthProviderOptions::default()
+    })?;
+    let resolved = plugin.options.clone();
+    let context = create_auth_context_with_adapter(options_with_provider(plugin), adapter())?;
+
+    let metadata =
+        mcp_protected_resource_metadata(&context, &resolved, "https://api.example.com/mcp")?;
+    assert_eq!(metadata["resource"], "https://api.example.com/mcp");
+    assert_eq!(metadata["authorization_servers"], json!([BASE_URL]));
+    assert_eq!(
+        metadata["scopes_supported"],
+        json!(["openid", "profile", "email", "offline_access"])
+    );
+    assert_eq!(
+        metadata["grant_types_supported"],
+        json!(["client_credentials"])
+    );
+
+    let result = mcp_protected_resource_metadata(&context, &resolved, "not a url");
+    assert!(result.is_err());
     Ok(())
 }
 

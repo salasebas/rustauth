@@ -49,6 +49,11 @@ pub fn protected_resource_metadata(
         "resource": parsed.as_str(),
         "authorization_servers": [context.base_url.as_str()],
         "scopes_supported": options.scopes,
+        "grant_types_supported": options
+            .grant_types
+            .iter()
+            .map(|grant| grant.as_str())
+            .collect::<Vec<_>>(),
         "bearer_methods_supported": ["header"],
     }))
 }

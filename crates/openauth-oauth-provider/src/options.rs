@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use openauth_core::db::{Session, User};
 use openauth_core::error::OpenAuthError;
+use openauth_core::options::RateLimitRule;
 use openauth_core::plugin::AuthPlugin;
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -736,6 +737,41 @@ pub enum SecretStorage {
     Encrypted,
 }
 
+/// Per-endpoint OAuth provider rate-limit behavior.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OAuthProviderRateLimit {
+    /// Use the provider's built-in default for this endpoint.
+    Default,
+    /// Do not contribute a plugin rate-limit rule for this endpoint.
+    Disabled,
+    /// Override the built-in default with a custom rule.
+    Custom(RateLimitRule),
+}
+
+/// Rate-limit settings for OAuth provider endpoints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuthProviderRateLimits {
+    pub token: OAuthProviderRateLimit,
+    pub authorize: OAuthProviderRateLimit,
+    pub introspect: OAuthProviderRateLimit,
+    pub revoke: OAuthProviderRateLimit,
+    pub register: OAuthProviderRateLimit,
+    pub userinfo: OAuthProviderRateLimit,
+}
+
+impl Default for OAuthProviderRateLimits {
+    fn default() -> Self {
+        Self {
+            token: OAuthProviderRateLimit::Default,
+            authorize: OAuthProviderRateLimit::Default,
+            introspect: OAuthProviderRateLimit::Default,
+            revoke: OAuthProviderRateLimit::Default,
+            register: OAuthProviderRateLimit::Default,
+            userinfo: OAuthProviderRateLimit::Default,
+        }
+    }
+}
+
 /// User-facing OAuth provider plugin options.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OAuthProviderOptions {
@@ -786,6 +822,7 @@ pub struct OAuthProviderOptions {
     pub advertised_scopes_supported: Vec<String>,
     pub advertised_claims_supported: Vec<String>,
     pub valid_audiences: Vec<String>,
+    pub rate_limits: OAuthProviderRateLimits,
 }
 
 impl Default for OAuthProviderOptions {
@@ -838,6 +875,7 @@ impl Default for OAuthProviderOptions {
             advertised_scopes_supported: Vec::new(),
             advertised_claims_supported: Vec::new(),
             valid_audiences: Vec::new(),
+            rate_limits: OAuthProviderRateLimits::default(),
         }
     }
 }
@@ -894,6 +932,7 @@ pub struct ResolvedOAuthProviderOptions {
     pub advertised_scopes_supported: Vec<String>,
     pub advertised_claims_supported: Vec<String>,
     pub valid_audiences: Vec<String>,
+    pub rate_limits: OAuthProviderRateLimits,
 }
 
 /// OAuth provider extension returned by [`crate::oauth_provider`].

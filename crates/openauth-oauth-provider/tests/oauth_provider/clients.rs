@@ -142,6 +142,89 @@ async fn dynamic_registration_rejects_invalid_client_metadata(
 }
 
 #[tokio::test]
+async fn dynamic_registration_rejects_unsafe_redirect_urls(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        adapter,
+    )?;
+    let invalid_payloads = [
+        r#"{"redirect_uris":["javascript:alert(1)"]}"#,
+        r#"{"redirect_uris":["data:text/html,<script>"]}"#,
+        r#"{"redirect_uris":["vbscript:msgbox"]}"#,
+        r#"{"redirect_uris":[""]}"#,
+        r#"{"redirect_uris":["http://example.com/callback"]}"#,
+        r#"{"redirect_uris":["http://192.168.1.1/callback"]}"#,
+        r#"{"redirect_uris":["http://localhost.evil.com/callback"]}"#,
+        r#"{"redirect_uris":["http://127.0.0.1.evil.com/callback"]}"#,
+        r#"{"redirect_uris":["https://rp.example/callback"],"post_logout_redirect_uris":["javascript:alert(1)"]}"#,
+        r#"{"redirect_uris":["https://rp.example/callback"],"post_logout_redirect_uris":["http://example.com/logout"]}"#,
+    ];
+
+    for payload in invalid_payloads {
+        let response = router
+            .handle_async(request(
+                Method::POST,
+                "/api/auth/oauth2/register",
+                payload,
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "payload should fail: {payload}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_registration_allows_https_loopback_and_custom_scheme_redirects(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        adapter,
+    )?;
+    let valid_payloads = [
+        r#"{"redirect_uris":["https://rp.example/callback"]}"#,
+        r#"{"redirect_uris":["http://localhost:3000/callback"]}"#,
+        r#"{"redirect_uris":["http://127.0.0.1:8080/callback"]}"#,
+        r#"{"redirect_uris":["http://[::1]:3000/callback"]}"#,
+        r#"{"redirect_uris":["myapp://oauth/callback"]}"#,
+    ];
+
+    for payload in valid_payloads {
+        let response = router
+            .handle_async(request(
+                Method::POST,
+                "/api/auth/oauth2/register",
+                payload,
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(
+            response.status(),
+            StatusCode::CREATED,
+            "payload should pass: {payload}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn client_reference_owns_clients_and_flows_into_tokens(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = adapter();
