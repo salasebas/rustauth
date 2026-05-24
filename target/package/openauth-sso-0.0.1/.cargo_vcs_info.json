@@ -1,7 +1,0 @@
-{
-  "git": {
-    "sha1": "22fda86db5eceb7a87685a2054531108495351ef",
-    "dirty": true
-  },
-  "path_in_vcs": "crates/openauth-sso"
-}
