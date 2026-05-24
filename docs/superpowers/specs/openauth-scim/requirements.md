@@ -242,6 +242,7 @@ behavioral and product reference, not a structure to copy mechanically.
 - `PATCH /scim/v2/Users/:userId` supports `add` and `replace` operations for:
   - `/externalId`
   - `/userName`
+  - `/emails` as a whole-attribute replacement
   - `/name/formatted`
   - `/name/givenName`
   - `/name/familyName`
@@ -251,8 +252,10 @@ behavioral and product reference, not a structure to copy mechanically.
     supported fields
 - `PATCH` operation names are case-insensitive and default to `replace` when
   omitted.
-- `PATCH` ignores unsupported fields and `remove`; if no valid fields remain,
-  return SCIM 400 with detail `No valid fields to update`.
+- `PATCH` rejects read-only core attributes with SCIM `mutability`; if no valid
+  fields remain, return SCIM 400 with detail `No valid fields to update`.
+- `PATCH` validates email replacement values, including email address format
+  and at most one primary email.
 - `PATCH` with `add` should skip a user field when the mapped value already
   equals the current value; if that leaves no valid update, return the same
   no-valid-fields error.
@@ -267,22 +270,22 @@ behavioral and product reference, not a structure to copy mechanically.
 
 - Metadata endpoints are public and require neither session auth nor SCIM
   bearer auth.
-- `GET /scim/v2/ServiceProviderConfig` returns support flags matching upstream:
-  patch true, bulk false, filter true, password change false, sort false, etag
-  false, OAuth bearer token auth scheme.
+- `GET /scim/v2/ServiceProviderConfig` returns support flags matching the
+  current Rust surface: patch true, bulk true, filter true, password change
+  false, sort true, etag true, OAuth bearer token auth scheme.
 - The ServiceProviderConfig auth scheme must include name
   `OAuth Bearer Token`, type `oauthbearertoken`, RFC 6750 `specUri`, and
   `primary: true`.
-- `GET /scim/v2/Schemas` returns a SCIM ListResponse with the User schema.
-- `GET /scim/v2/Schemas/:schemaId` returns the User schema or SCIM 404.
-- `GET /scim/v2/ResourceTypes` returns a SCIM ListResponse with User resource
-  type.
-- `GET /scim/v2/ResourceTypes/:resourceTypeId` returns User resource type or
-  SCIM 404.
+- `GET /scim/v2/Schemas` returns a SCIM ListResponse with User, Group, and
+  Enterprise User schemas.
+- `GET /scim/v2/Schemas/:schemaId` returns a supported schema or SCIM 404.
+- `GET /scim/v2/ResourceTypes` returns a SCIM ListResponse with User and Group
+  resource types.
+- `GET /scim/v2/ResourceTypes/:resourceTypeId` returns a supported resource
+  type or SCIM 404.
 - Resource URLs must be resolved against OpenAuth `base_url`.
-- User schema attributes must include upstream-supported attributes only:
-  `id`, `userName`, `displayName`, `active`, `name` with `formatted`,
-  `familyName`, `givenName`, and `emails` with `value` and `primary`.
+- User schema attributes include core SCIM User fields, common multi-valued
+  profile fields, and the Enterprise User extension.
 - User ResourceType must expose id/name `User`, endpoint `/Users`, schema
   `urn:ietf:params:scim:schemas:core:2.0:User`, and location
   `/scim/v2/ResourceTypes/User` resolved against base URL.
@@ -317,14 +320,14 @@ behavioral and product reference, not a structure to copy mechanically.
   behavior: regular members cannot generate or list org-scoped SCIM providers
   by default; admins and owners can.
 
-## SCIM Compatibility Non-Goals
+## SCIM Compatibility Boundaries
 
-- Do not implement SCIM Groups in the first SCIM implementation.
-- Do not implement Bulk, Sort, ETag, password change, or PATCH remove
-  semantics in the first implementation.
-- Do not implement pagination beyond upstream's current fixed list response
-  shape. `startIndex` is 1 and `itemsPerPage` equals the returned resource
-  count.
+- Groups, Bulk, filtering, sorting, ETags, projection, and `startIndex`/`count`
+  pagination are supported by the current Rust crate.
+- Password change and provider-scoped `/Me` are not supported.
+- PATCH remove support is intentionally narrow and does not implement every
+  SCIM path/filter variant.
+- Deactivation or soft-delete is not implemented; DELETE remains hard delete.
 - Do not implement a Rust client SDK in this phase.
 - Do not implement SAML or SSO provider validation in SCIM.
 

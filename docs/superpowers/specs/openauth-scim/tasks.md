@@ -184,9 +184,9 @@
   provider isolation, organization isolation, duplicate account conflict,
   missing user errors, invalid body errors, location header, and 204 responses.
 - [x] Test invalid `emails[].value` errors and create `Location` header.
-- [x] Test list response has `startIndex: 1`, no pagination inputs,
-  `itemsPerPage` equal to returned count, and `totalResults` equal to returned
-  count.
+- [x] Test list response defaults to `startIndex: 1`, validates pagination
+  inputs, applies `startIndex`/`count`, and reports `itemsPerPage` and
+  `totalResults` consistently.
 - [x] Test primary email selection, first-email fallback, `userName` fallback,
   formatted name precedence, given/family name composition, and whitespace-only
   formatted name fallback.
@@ -235,13 +235,15 @@
   - [x] adapter crate tests touched by SCIM coverage
   - [x] `cargo clippy --all-targets --all-features --locked -- -D warnings`
 
-## Explicit Non-Goals For First Implementation
+## Explicit Boundaries For First Implementation
 
 - [x] Do not port upstream `src/client.ts`.
 - [x] Do not add SAML parsing or SSO provider lookup.
 - [x] Do not add Better Auth-style custom field-name mapping for SCIM schema.
-- [x] Do not implement SCIM Groups, Bulk, Sort, password change, or ETags.
-- [x] Do not implement list pagination beyond upstream's fixed response shape.
-- [x] Do not implement PATCH remove semantics beyond accepting it as a no-op.
+- [x] SCIM Groups, Bulk, Sort, ETags, projection, and list pagination are now
+  implemented in the Rust crate.
+- [x] Do not implement password change or provider-scoped `/Me`.
+- [x] Keep PATCH remove semantics narrow; do not implement every SCIM
+  path/filter variant.
 - [x] Do not implement browser-only or TypeScript-only behavior in the Rust
   server crate.
