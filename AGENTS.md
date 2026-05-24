@@ -1,93 +1,68 @@
 # OpenAuth Agent Guide
 
-## Project Intent
+OpenAuth is an unofficial Rust implementation inspired by Better Auth, not a
+line-by-line port. Use `upstream/better-auth/` as the behavioral reference for
+new features, behavior changes, tests, or public APIs, then translate the
+behavior into idiomatic Rust with explicit errors and secure server-side
+boundaries.
 
-OpenAuth is an unofficial Rust implementation inspired by Better Auth. It is not
-a 1:1 port. Preserve the intent and behavior that make sense, but design the
-Rust API around Rust conventions, type safety, explicit errors, and secure
-server-side boundaries.
+Keep modules small and focused. Prefer discovering crate ownership from
+`Cargo.toml`, `crates/*/README.md`, and the existing source tree instead of
+relying on a duplicated structure list in this file.
 
-This project is server-first. Port server behavior, core authentication
-primitives, storage contracts, endpoints, sessions, tokens, OAuth/OIDC, SSO,
-SCIM, SAML, Stripe integrations, validation, and adapters. Do not port
-TypeScript-only or browser-only client code into the Rust core. Client SDKs can
-exist later as thin wrappers around HTTP APIs, preferably generated or kept
-small.
+## Acceptance Guide
 
-Before adding a new feature, behavior, test case, or public API, inspect the
-matching Better Auth upstream implementation under `upstream/better-auth/`.
-Use it as behavioral reference and product guidance, then translate the idea
-into idiomatic Rust rather than copying the structure mechanically.
+Before finishing a change, verify only the modified crate or surface plus
+plausible side effects such as public re-exports, feature gates, adapters,
+examples, or integration crates. Do not run full
+`--workspace --all-targets --all-features` checks by default unless the change
+actually spans the workspace, changes feature composition, or prepares a
+release/CI gate.
 
-## Project Structure
+Use this local loop as the default shape:
 
-- `crates/openauth`: public entry crate and re-export surface.
-- `crates/openauth-core`: shared types, contracts, errors, primitives, and
-  core authentication behavior.
-- `crates/openauth-oauth`: OAuth and OpenID Connect support.
-- `crates/openauth-sso`: enterprise SSO and SAML support.
-- `crates/openauth-scim`: SCIM support.
-- `crates/openauth-stripe`: Stripe billing and webhook integration.
-- `crates/openauth-i18n`: internationalization support.
-- `crates/openauth-telemetry`: telemetry support.
-- `upstream/better-auth/`: upstream reference only. Check it before porting,
-  but do not treat it as code to mirror line by line.
-
-Keep modules small and focused. Split files when a module starts mixing
-unrelated responsibilities or becomes hard to review in one pass.
-
-## Testing
-
-Write tests for security-sensitive and user-facing behavior. Prefer focused
-tests that lock down observable behavior, error handling, validation,
-serialization, and integration contracts.
-
-Use Rust conventions:
-
-- Small unit tests may live beside the implementation with `#[cfg(test)]`.
-- Larger behavior tests should live in the crate-level `tests/` directory.
-- When a feature grows, mirror the source structure under `tests/`.
-
-Example:
-
-```text
-crates/openauth-core/src/plugin/admin/...
-crates/openauth-core/tests/plugin/admin/...
+```bash
+cargo fmt --all --check
+cargo clippy -p <crate> --all-targets -- -D warnings
+cargo nextest run -p <crate>
 ```
 
-When porting behavior from Better Auth, first check the upstream tests for the
-same area and adapt the relevant scenarios to Rust.
+For security-sensitive or user-facing behavior, add focused tests that lock
+down observable behavior, validation, serialization, error handling, and
+integration contracts. When porting from Better Auth, inspect the matching
+upstream tests and adapt the relevant scenarios to Rust.
 
-## Versioning
+## Builds and Artifacts
 
-Implementation crates should share the workspace version with
-`version.workspace = true` for now. This keeps releases coherent while the
-crate boundaries are still evolving.
+Use the local workspace `target/` directory by default. Do not document or use
+`CARGO_TARGET_DIR=/private/tmp/openauth-...` as a normal workflow because it
+creates duplicate build caches outside the repository.
 
-Only split versioning later if a crate has a clear independent release cadence,
-such as CLI tooling, telemetry, or other support packages.
+Use `CARGO_INCREMENTAL=0` for occasional heavy verification runs, not for the
+normal scoped development loop:
 
-## Engineering Rules
+```bash
+CARGO_INCREMENTAL=0 cargo nextest run --workspace --all-features
+CARGO_INCREMENTAL=0 cargo test --workspace --doc --all-features
+```
 
-- Prefer idiomatic Rust APIs over TypeScript-shaped APIs.
-- Model fallible operations with `Result` and typed errors.
-- Do not use `unwrap()` or `expect()` in production code.
-- Validate all external input at API boundaries.
-- Treat redirects, tokens, sessions, secrets, signatures, webhooks, and crypto
-  as security-critical.
-- Keep public APIs small, explicit, and composable.
-- Avoid large files and hidden global state.
-- Use feature flags intentionally; do not force optional integrations into the
-  core path.
-- Preserve compatibility where practical, but prioritize correctness and
-  security over matching upstream implementation details.
+Preview cleanup before deleting artifacts:
+
+```bash
+./scripts/cleanup-build-artifacts.sh --dry-run
+```
+
+Only delete `/private/tmp` artifacts with an explicit command that includes
+`--apply --include-private-tmp`.
+
+## Release Work
+
+Before release-related changes, read `RELEASE.md` and follow its publish order,
+verification commands, and versioning rules. Keep implementation crates on the
+workspace version unless the release process explicitly changes that policy.
 
 ## Dependencies
 
 New dependencies are allowed, but propose them before adding them. Prefer
-libraries that are actively maintained, widely used, documented, and suitable
-for authentication or security-sensitive code.
-
-For official providers, use official SDKs when they exist and are appropriate.
-If no official Rust SDK exists, wrap community crates or direct HTTP calls
-behind OpenAuth-owned interfaces so the public API remains stable.
+maintained, widely used libraries suitable for authentication or
+security-sensitive code, and keep optional integrations behind feature flags.

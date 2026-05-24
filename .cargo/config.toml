@@ -1,6 +1,8 @@
 [alias]
+# Prefer scoped `cargo -p <crate>` commands for daily work; these aliases are explicit gates.
 check-all = "check --workspace --all-targets --all-features --locked"
 format = "fmt --all"
 fmt-check = "fmt --all -- --check"
-lint = "clippy --workspace --all-targets --all-features --locked -- -D warnings"
+lint = "clippy --workspace --locked -- -D warnings"
+lint-all = "clippy --workspace --all-targets --all-features --locked -- -D warnings"
 test-all = "test --workspace --all-targets --all-features --locked"

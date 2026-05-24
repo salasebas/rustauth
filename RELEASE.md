@@ -20,8 +20,8 @@ OpenAuth uses **Cargo** and is released via **GitHub releases** and
 3. Refresh the lockfile: `cargo check` or `cargo build --workspace` so
    `Cargo.lock` reflects the bump (commit the lockfile change when it differs).
 4. Run tests: `./scripts/ensure-test-services.sh postgres mysql redis valkey`,
-   then `cargo nextest run --workspace --all-features`, then
-   `cargo test --workspace --doc --all-features`.
+   then `CARGO_INCREMENTAL=0 cargo nextest run --workspace --all-features`,
+   then `CARGO_INCREMENTAL=0 cargo test --workspace --doc --all-features`.
 5. Update the root `CHANGELOG.md` and each crate-level `CHANGELOG.md` with the
    release notes for the version being published.
 6. Publish crates to crates.io in **dependency order** (dependencies before
