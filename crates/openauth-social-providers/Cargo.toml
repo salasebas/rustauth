@@ -17,7 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 base64.workspace = true
 josekit.workspace = true
-openauth-oauth.workspace = true
+openauth-oauth = { workspace = true, features = ["jose"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
