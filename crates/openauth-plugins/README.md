@@ -82,7 +82,7 @@ Valkey:
 
 ```sh
 ./scripts/ensure-test-services.sh postgres mysql redis valkey
-CARGO_TARGET_DIR=/private/tmp/openauth-plugins-target cargo nextest run -p openauth-plugins integration_matrix --run-ignored ignored-only
+cargo nextest run -p openauth-plugins integration_matrix --run-ignored ignored-only
 ```
 
 MongoDB is not part of the plugin matrix yet because this workspace does not

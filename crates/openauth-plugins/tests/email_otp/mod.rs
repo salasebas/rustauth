@@ -181,6 +181,61 @@ async fn check_otp_tracks_failed_attempts_and_rejects_too_many() {
 }
 
 #[tokio::test]
+async fn check_otp_returns_too_many_attempts_on_limit_attempt() {
+    let adapter = Arc::new(MemoryAdapter::new());
+    create_user(&adapter, "ada@example.com", false).await;
+    let sender = CaptureSender::default();
+    let router = router(
+        adapter,
+        sender,
+        EmailOtpOptions {
+            allowed_attempts: 2,
+            ..EmailOtpOptions::default()
+        },
+    )
+    .unwrap();
+    router
+        .handle_async(
+            json_request(
+                "/email-otp/send-verification-otp",
+                r#"{"email":"ada@example.com","type":"email-verification"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let first = router
+        .handle_async(
+            json_request(
+                "/email-otp/check-verification-otp",
+                r#"{"email":"ada@example.com","type":"email-verification","otp":"000000"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let second = router
+        .handle_async(
+            json_request(
+                "/email-otp/check-verification-otp",
+                r#"{"email":"ada@example.com","type":"email-verification","otp":"000000"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(second.body()).unwrap();
+
+    assert_eq!(first.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(second.status(), StatusCode::FORBIDDEN);
+    assert_eq!(body["code"], "TOO_MANY_ATTEMPTS");
+}
+
+#[tokio::test]
 async fn sign_in_email_otp_existing_user_sets_cookie() {
     let adapter = Arc::new(MemoryAdapter::new());
     create_user(&adapter, "ada@example.com", false).await;

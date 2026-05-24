@@ -3,10 +3,12 @@ use std::sync::Arc;
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::{create_auth_context, create_auth_context_with_adapter};
-use openauth_core::db::{DbAdapter, HookedAdapter, JoinAdapter, MemoryAdapter};
+use openauth_core::db::{
+    DbAdapter, DbValue, FindOne, HookedAdapter, JoinAdapter, MemoryAdapter, Where,
+};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 #[tokio::test]
 async fn sign_up_normalizes_username_and_preserves_display_username(
@@ -123,6 +125,66 @@ async fn sign_up_rejects_duplicate_normalized_username() -> Result<(), Box<dyn s
     Ok(())
 }
 
+#[tokio::test]
+async fn update_user_rejects_duplicate_username_with_different_casing(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router(adapter)?;
+    let _ada = sign_up_username(&router, "Ada", "ada@example.com", "Ada_User").await?;
+    let (_grace, grace_cookie) =
+        sign_up_username(&router, "Grace", "grace@example.com", "grace_user").await?;
+
+    let response = router
+        .handle_async(json_request_with_cookie(
+            Method::POST,
+            "/api/auth/update-user",
+            r#"{"username":"ADA_USER"}"#,
+            Some(&grace_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "USERNAME_IS_ALREADY_TAKEN");
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_user_normalizes_username_and_preserves_display_username(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router(adapter.clone())?;
+    let (body, cookie) = sign_up_username(&router, "Ada", "ada@example.com", "ada_user").await?;
+    let user_id = body["user"]["id"].as_str().ok_or("missing user id")?;
+
+    let response = router
+        .handle_async(json_request_with_cookie(
+            Method::POST,
+            "/api/auth/update-user",
+            r#"{"username":"New_User","displayUsername":"New User"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let user = adapter
+        .find_one(
+            FindOne::new("user")
+                .where_clause(Where::new("id", DbValue::String(user_id.to_owned()))),
+        )
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("username"),
+        Some(&DbValue::String("new_user".to_owned()))
+    );
+    assert_eq!(
+        user.get("display_username"),
+        Some(&DbValue::String("New User".to_owned()))
+    );
+    Ok(())
+}
+
 fn router(adapter: Arc<MemoryAdapter>) -> Result<AuthRouter, OpenAuthError> {
     let options = options();
     let context = create_auth_context(options.clone())?;
@@ -153,9 +215,59 @@ fn options() -> OpenAuthOptions {
 }
 
 fn json_request(method: Method, path: &str, body: &str) -> Result<Request<Vec<u8>>, http::Error> {
-    Request::builder()
+    json_request_with_cookie(method, path, body, None)
+}
+
+fn json_request_with_cookie(
+    method: Method,
+    path: &str,
+    body: &str,
+    cookie: Option<&str>,
+) -> Result<Request<Vec<u8>>, http::Error> {
+    let mut builder = Request::builder()
         .method(method)
         .uri(format!("http://localhost:3000{path}"))
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(body.as_bytes().to_vec())
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, cookie);
+    }
+    builder.body(body.as_bytes().to_vec())
+}
+
+async fn sign_up_username(
+    router: &AuthRouter,
+    name: &str,
+    email: &str,
+    username: &str,
+) -> Result<(Value, String), Box<dyn std::error::Error>> {
+    let request_body = json!({
+        "name": name,
+        "email": email,
+        "password": "secret123",
+        "username": username
+    })
+    .to_string();
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            &request_body,
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = session_cookie(&response)?;
+    let body = serde_json::from_slice(response.body())?;
+    Ok((body, cookie))
+}
+
+fn session_cookie(
+    response: &http::Response<Vec<u8>>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let cookie = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find_map(|value| value.to_str().ok())
+        .ok_or("missing session cookie")?;
+    Ok(cookie.to_owned())
 }

@@ -81,6 +81,31 @@ pub(super) fn accept_invitation(options: OrganizationOptions) -> AsyncAuthEndpoi
                         "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION",
                     );
                 }
+                let invitation_team_ids = if options.teams.enabled {
+                    invitation
+                        .team_id
+                        .as_deref()
+                        .map(parse_team_ids)
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                for team_id in &invitation_team_ids {
+                    let Some(team) = store.team_by_id(team_id).await? else {
+                        return http::organization_error(StatusCode::BAD_REQUEST, "TEAM_NOT_FOUND");
+                    };
+                    if team.organization_id != invitation.organization_id {
+                        return http::organization_error(StatusCode::BAD_REQUEST, "TEAM_NOT_FOUND");
+                    }
+                    if let Some(max) = options.teams.maximum_members_per_team {
+                        if store.count_team_members(team_id).await? as usize >= max {
+                            return http::organization_error(
+                                StatusCode::FORBIDDEN,
+                                "TEAM_MEMBER_LIMIT_REACHED",
+                            );
+                        }
+                    }
+                }
                 let Some(organization) = store
                     .organization_by_id(&invitation.organization_id)
                     .await?
@@ -109,33 +134,19 @@ pub(super) fn accept_invitation(options: OrganizationOptions) -> AsyncAuthEndpoi
                     )
                     .await?;
                 if options.teams.enabled {
-                    if let Some(team_ids) = invitation.team_id.as_deref() {
-                        for team_id in team_ids
-                            .split(',')
-                            .map(str::trim)
-                            .filter(|id| !id.is_empty())
+                    for team_id in invitation_team_ids {
+                        if store
+                            .team_member(&team_id, &session.user.id)
+                            .await?
+                            .is_none()
                         {
-                            if let Some(max) = options.teams.maximum_members_per_team {
-                                if store.count_team_members(team_id).await? as usize >= max {
-                                    return http::organization_error(
-                                        StatusCode::FORBIDDEN,
-                                        "TEAM_MEMBER_LIMIT_REACHED",
-                                    );
-                                }
-                            }
-                            if store
-                                .team_member(team_id, &session.user.id)
-                                .await?
-                                .is_none()
-                            {
-                                store
-                                    .create_team_member(
-                                        team_id,
-                                        &session.user.id,
-                                        openauth_core::db::DbRecord::new(),
-                                    )
-                                    .await?;
-                            }
+                            store
+                                .create_team_member(
+                                    &team_id,
+                                    &session.user.id,
+                                    openauth_core::db::DbRecord::new(),
+                                )
+                                .await?;
                         }
                     }
                 }
@@ -163,6 +174,15 @@ pub(super) fn accept_invitation(options: OrganizationOptions) -> AsyncAuthEndpoi
             })
         },
     )
+}
+
+fn parse_team_ids(team_ids: &str) -> Vec<String> {
+    team_ids
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 pub(super) fn reject_invitation(options: OrganizationOptions) -> AsyncAuthEndpoint {

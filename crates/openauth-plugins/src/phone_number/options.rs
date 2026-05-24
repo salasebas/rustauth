@@ -2,14 +2,26 @@ use std::sync::Arc;
 
 use openauth_core::error::OpenAuthError;
 
+/// Synchronous OTP sender callback.
+///
+/// The Rust plugin intentionally exposes sync callback types today. If the
+/// sender needs async I/O, bridge that work in application code before
+/// returning from the callback.
 pub type PhoneNumberSender =
     Arc<dyn Fn(&str, &str) -> Result<(), OpenAuthError> + Send + Sync + 'static>;
+/// Synchronous OTP verifier callback.
+///
+/// Use this to delegate verification to an external OTP store or provider. The
+/// callback is sync-only in the current Rust API.
 pub type PhoneNumberVerifier =
     Arc<dyn Fn(&str, &str) -> Result<bool, OpenAuthError> + Send + Sync + 'static>;
+/// Synchronous phone-number validation callback.
 pub type PhoneNumberValidator =
     Arc<dyn Fn(&str) -> Result<bool, OpenAuthError> + Send + Sync + 'static>;
+/// Synchronous post-verification callback receiving `(phone_number, user_id)`.
 pub type PhoneNumberCallback =
     Arc<dyn Fn(&str, &str) -> Result<(), OpenAuthError> + Send + Sync + 'static>;
+/// Synchronous temporary value callback used during sign-up-on-verification.
 pub type PhoneNumberTempValue = Arc<dyn Fn(&str) -> String + Send + Sync + 'static>;
 
 #[derive(Clone)]
@@ -24,10 +36,15 @@ pub struct PhoneNumberOptions {
     pub expires_in: u64,
     pub allowed_attempts: u32,
     pub require_verification: bool,
+    /// Sync-only OTP sender callback.
     pub send_otp: Option<PhoneNumberSender>,
+    /// Sync-only custom OTP verifier callback.
     pub verify_otp: Option<PhoneNumberVerifier>,
+    /// Sync-only password-reset OTP sender callback.
     pub send_password_reset_otp: Option<PhoneNumberSender>,
+    /// Sync-only callback invoked after successful phone verification.
     pub callback_on_verification: Option<PhoneNumberCallback>,
+    /// Sync-only phone-number validator callback.
     pub phone_number_validator: Option<PhoneNumberValidator>,
     pub sign_up_on_verification: Option<SignUpOnVerification>,
 }

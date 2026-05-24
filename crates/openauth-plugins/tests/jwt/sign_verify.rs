@@ -98,6 +98,9 @@ async fn verify_returns_none_for_invalid_claim_or_key_cases(
     assert!(verify_jwt(&context, &replace_kid(&valid, "unknown")?, None)
         .await?
         .is_none());
+    assert!(verify_jwt(&context, &replace_alg(&valid, "none")?, None)
+        .await?
+        .is_none());
     Ok(())
 }
 
@@ -143,6 +146,18 @@ fn remove_kid(token: &str) -> Result<String, Box<dyn std::error::Error>> {
         .as_object_mut()
         .ok_or("header must be object")?
         .remove("kid");
+    Ok(format!(
+        "{}.{}.{}",
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header)?),
+        parts.get(1).ok_or("missing payload")?,
+        parts.get(2).ok_or("missing signature")?
+    ))
+}
+
+fn replace_alg(token: &str, alg: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let parts = token.split('.').collect::<Vec<_>>();
+    let mut header: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[0])?)?;
+    header["alg"] = json!(alg);
     Ok(format!(
         "{}.{}.{}",
         URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header)?),

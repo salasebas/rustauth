@@ -121,9 +121,10 @@ async fn session_hook(
         return Ok(PluginBeforeHookAction::Continue(request));
     };
     let now = OffsetDateTime::now_utc();
-    let expires_at = api_key.expires_at.unwrap_or_else(|| {
-        now + Duration::seconds(i64::try_from(context.session_config.expires_in).unwrap_or(0))
-    });
+    let expires_at = match api_key.expires_at {
+        Some(expires_at) => expires_at,
+        None => session_expiration_from_context(context, now)?,
+    };
     let session = Session {
         id: api_key.id.clone(),
         user_id: api_key.reference_id.clone(),
@@ -174,6 +175,18 @@ async fn find_session_key(
         }
     }
     Ok(None)
+}
+
+fn session_expiration_from_context(
+    context: &openauth_core::context::AuthContext,
+    now: OffsetDateTime,
+) -> Result<OffsetDateTime, OpenAuthError> {
+    let seconds = i64::try_from(context.session_config.expires_in).map_err(|_| {
+        OpenAuthError::NumericOutOfRange {
+            context: "session.expires_in",
+        }
+    })?;
+    Ok(now + Duration::seconds(seconds))
 }
 
 #[derive(Serialize)]

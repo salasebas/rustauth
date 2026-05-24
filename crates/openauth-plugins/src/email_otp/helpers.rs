@@ -89,6 +89,12 @@ pub(super) async fn verify_otp(
         let attempts = parts.attempts.saturating_add(1);
         if attempts >= options.allowed_attempts {
             store.delete_verification(identifier).await?;
+            return response::error(
+                StatusCode::FORBIDDEN,
+                "TOO_MANY_ATTEMPTS",
+                "Too many attempts",
+            )
+            .map(Some);
         } else if consume {
             store
                 .create_verification(CreateVerificationInput::new(

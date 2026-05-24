@@ -557,6 +557,11 @@ async fn mcp_get_session_returns_null_without_bearer_and_record_with_valid_beare
         .await?;
     assert_eq!(missing.status(), StatusCode::OK);
     assert_eq!(json_body(&missing)?, Value::Null);
+    assert_eq!(missing.headers()[header::WWW_AUTHENTICATE], "Bearer");
+    assert_eq!(
+        missing.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS],
+        "WWW-Authenticate"
+    );
 
     let found = auth
         .handle_async(

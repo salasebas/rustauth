@@ -27,6 +27,10 @@ pub fn get_session_endpoint() -> AsyncAuthEndpoint {
                         header::WWW_AUTHENTICATE,
                         http::HeaderValue::from_static("Bearer"),
                     );
+                    response.headers_mut().insert(
+                        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+                        http::HeaderValue::from_static("WWW-Authenticate"),
+                    );
                     return Ok(response);
                 };
                 let adapter = adapter(context)?;

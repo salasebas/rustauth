@@ -58,6 +58,50 @@ async fn enable_returns_totp_uri_and_backup_codes_without_enabling_user(
 }
 
 #[tokio::test]
+async fn enable_uses_request_issuer_and_encodes_issuer_parameter(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_adapter, router) = seeded_router().await?;
+    let cookie = sign_in_cookie(&router).await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/two-factor/enable",
+            r#"{"password":"password123","issuer":"Custom App Name"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    let uri = body["totpURI"].as_str().ok_or("missing totpURI")?;
+    assert!(uri.starts_with("otpauth://totp/Custom%20App%20Name:"));
+    assert!(uri.contains("issuer=Custom+App+Name"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn invalid_totp_code_returns_upstream_error_code() -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = seeded_router().await?;
+    let _cookie = enable_totp(&adapter, &router).await?;
+    let (challenge_cookie, _body) = two_factor_challenge_cookie(&router).await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/two-factor/verify-totp",
+            r#"{"code":"invalid-code"}"#,
+            Some(&challenge_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "INVALID_CODE");
+    Ok(())
+}
+
+#[tokio::test]
 async fn verify_totp_enables_user_and_marks_row_verified() -> Result<(), Box<dyn std::error::Error>>
 {
     let (adapter, router) = seeded_router().await?;

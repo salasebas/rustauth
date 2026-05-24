@@ -24,8 +24,8 @@ pub fn verify_totp_code(secret: &str, code: &str, digits: u32, period: u64) -> b
 
 pub fn totp_uri(secret: &str, issuer: &str, account: &str, digits: u32, period: u64) -> String {
     let encoded_secret = BASE32_NOPAD.encode(secret.as_bytes());
-    let encoded_issuer = form_urlencoded::byte_serialize(issuer.as_bytes()).collect::<String>();
-    let encoded_account = form_urlencoded::byte_serialize(account.as_bytes()).collect::<String>();
+    let encoded_issuer = component_encode(issuer);
+    let encoded_account = component_encode(account);
     let encoded_label = format!("{encoded_issuer}:{encoded_account}");
     let query = form_urlencoded::Serializer::new(String::new())
         .append_pair("secret", &encoded_secret)
@@ -35,6 +35,12 @@ pub fn totp_uri(secret: &str, issuer: &str, account: &str, digits: u32, period: 
         .append_pair("period", &period.to_string())
         .finish();
     format!("otpauth://totp/{encoded_label}?{query}")
+}
+
+fn component_encode(value: &str) -> String {
+    form_urlencoded::byte_serialize(value.as_bytes())
+        .collect::<String>()
+        .replace('+', "%20")
 }
 
 fn hotp(secret: &[u8], counter: u64, digits: u32) -> String {

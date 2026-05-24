@@ -291,7 +291,10 @@ async fn callback_get(
         }
         return redirect(&state_data.callback_url, Vec::new());
     }
-    let user_info = normalize_user_info(&user_info)?;
+    let user_info = match normalize_user_info(&user_info) {
+        Ok(user_info) => user_info,
+        Err(_) => return redirect_with_error(&error_url, "user_info_is_missing"),
+    };
     let result = handle_oauth_user_info(
         context,
         adapter.as_ref(),

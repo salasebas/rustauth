@@ -304,6 +304,38 @@ async fn oauth2_callback_redirects_signup_disabled_error() {
 }
 
 #[tokio::test]
+async fn oauth2_callback_redirects_provider_missing_email_error() {
+    let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
+    let mut config = oauth_flow_config("oauth-user-missing-email");
+    config.get_user_info = Some(Arc::new(|_tokens| {
+        Box::pin(async move {
+            Ok(Some(OAuth2UserInfo {
+                id: "oauth-user-missing-email".to_owned(),
+                name: Some("Ada Lovelace".to_owned()),
+                email: None,
+                image: None,
+                email_verified: false,
+            }))
+        })
+    }));
+    let context = context_with_plugin(adapter, oauth_plugin(config));
+    let router = AuthRouter::try_new(context, Vec::new()).unwrap();
+    let state = sign_in_state(&router, "example", "/dashboard", None, false)
+        .await
+        .unwrap();
+
+    let response = oauth_callback(&router, "example", "code-1", &state)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        location(&response),
+        Some("https://app.example.com/error?error=user_info_is_missing")
+    );
+}
+
+#[tokio::test]
 async fn oauth2_callback_allows_request_signup_when_implicit_signup_is_disabled() {
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
     let mut config = oauth_flow_config("oauth-user-4");
