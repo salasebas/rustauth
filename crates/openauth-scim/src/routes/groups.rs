@@ -124,22 +124,27 @@ pub(super) fn list_groups_endpoint(
                         Err(error) => return error.into_response(),
                     };
                 }
+                let sort_order = query_param(&request, "sortOrder");
                 if let Some(sort_by) = query_param(&request, "sortBy") {
-                    if let Err(error) = sort_group_resources(
-                        &mut resources,
-                        &sort_by,
-                        query_param(&request, "sortOrder").as_deref(),
-                    ) {
+                    if let Err(error) =
+                        sort_group_resources(&mut resources, &sort_by, sort_order.as_deref())
+                    {
                         return error.into_response();
                     }
+                } else if let Err(error) = validate_sort_order(sort_order.as_deref()) {
+                    return error.into_response();
                 }
+                let start_index = match query_usize(&request, "startIndex") {
+                    Ok(value) => value,
+                    Err(error) => return error.into_response(),
+                };
+                let count = match query_usize(&request, "count") {
+                    Ok(value) => value,
+                    Err(error) => return error.into_response(),
+                };
                 scim_json_projected(
                     StatusCode::OK,
-                    &group_list_response(
-                        resources,
-                        query_usize(&request, "startIndex"),
-                        query_usize(&request, "count"),
-                    ),
+                    &group_list_response(resources, start_index, count),
                     &request,
                 )
             })
@@ -477,7 +482,10 @@ pub(super) fn search_groups_endpoint(
                 let Some(organization_id) = provider.organization_id.as_deref() else {
                     return groups_require_organization().into_response();
                 };
-                let search = parse_search_request(&request)?;
+                let search = match parse_search_request(&request) {
+                    Ok(search) => search,
+                    Err(error) => return error.into_response(),
+                };
                 let mut resources = load_group_resources(
                     adapter.as_ref(),
                     &context.base_url,

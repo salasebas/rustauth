@@ -25,7 +25,10 @@ pub(super) fn search_resources_endpoint(
                 if let Err(error) = ensure_scim_provider_scope_supported(context, &provider) {
                     return error.into_response();
                 }
-                let search = parse_search_request(&request)?;
+                let search = match parse_search_request(&request) {
+                    Ok(search) => search,
+                    Err(error) => return error.into_response(),
+                };
                 let users =
                     match load_user_resources(adapter.as_ref(), &context.base_url, &provider, None)
                         .await

@@ -226,6 +226,122 @@ async fn users_route_rejects_invalid_email_values() {
 }
 
 #[tokio::test]
+async fn users_route_rejects_reserved_profile_attributes_on_create_and_put() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+
+    let create = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Users",
+            r#"{"userName":"reserved-create@example.com","active":false}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(create.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(create)["scimType"], "mutability");
+
+    let user_id =
+        create_scim_user(&router, &token, "reserved-put@example.com", "Reserved Put").await;
+    let put = router
+        .handle_async(json_request(
+            Method::PUT,
+            &format!("/scim/v2/Users/{user_id}"),
+            r#"{"userName":"reserved-put@example.com","schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"emails":[{"value":"reserved-put@example.com"}],"meta":{"resourceType":"User"}}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(put.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(put)["scimType"], "mutability");
+}
+
+#[tokio::test]
+async fn user_patch_replaces_valid_emails_and_rejects_invalid_email_values() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+    let user_id = create_scim_user(&router, &token, "email-patch@example.com", "Email Patch").await;
+
+    let patch = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Users/{user_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"replace","path":"emails","value":[{"value":"patched-email@example.com","primary":true}]}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(patch.status(), StatusCode::NO_CONTENT);
+
+    let fetched = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{user_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    let body = json_body(fetched);
+    assert_eq!(body["userName"], "patched-email@example.com");
+    assert_eq!(body["emails"][0]["value"], "patched-email@example.com");
+
+    let invalid = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Users/{user_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"replace","path":"emails","value":[{"value":"not-an-email"}]}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(invalid)["scimType"], "invalidValue");
+
+    let multiple_primary = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Users/{user_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"replace","path":"emails","value":[
+                    {"value":"one@example.com","primary":true},
+                    {"value":"two@example.com","primary":true}
+                ]}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(multiple_primary.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(multiple_primary)["scimType"], "invalidValue");
+}
+
+#[tokio::test]
 async fn users_route_uses_user_name_as_external_id_fallback_and_lists_only_provider_users() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     ScimProviderStore::new(adapter.as_ref())
@@ -382,6 +498,42 @@ async fn users_route_supports_sort_and_pagination_parameters() {
     assert_eq!(body["startIndex"], 2);
     assert_eq!(body["itemsPerPage"], 1);
     assert_eq!(body["Resources"][0]["userName"], "charlie@example.com");
+}
+
+#[tokio::test]
+async fn users_route_rejects_invalid_pagination_and_sort_order_inputs() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+    create_scim_user(
+        &router,
+        &token,
+        "query-validation@example.com",
+        "Query Validation",
+    )
+    .await;
+
+    for path in [
+        "/scim/v2/Users?startIndex=0",
+        "/scim/v2/Users?startIndex=abc",
+        "/scim/v2/Users?count=abc",
+        "/scim/v2/Users?sortBy=userName&sortOrder=sideways",
+    ] {
+        let response = router
+            .handle_async(auth_request(Method::GET, path, &token))
+            .await
+            .expect("request should succeed");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(json_body(response)["scimType"], "invalidValue", "{path}");
+    }
 }
 
 #[tokio::test]

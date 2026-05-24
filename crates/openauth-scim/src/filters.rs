@@ -133,7 +133,7 @@ fn evaluate_filter(resource: &Value, expression: &ScimFilterExpression) -> Resul
             value,
         } => Ok(extract_path_values(resource, path)?
             .iter()
-            .any(|candidate| compare_value(candidate, *operator, value))),
+            .any(|candidate| compare_value(candidate, *operator, value, path))),
         ScimFilterExpression::Present(path) => Ok(!extract_path_values(resource, path)?.is_empty()),
         ScimFilterExpression::And(left, right) => {
             Ok(evaluate_filter(resource, left)? && evaluate_filter(resource, right)?)
@@ -204,9 +204,16 @@ fn resolve_extension_attribute<'a>(
     }
 }
 
-fn compare_value(candidate: &Value, operator: ScimCompareOperator, expected: &Value) -> bool {
+fn compare_value(
+    candidate: &Value,
+    operator: ScimCompareOperator,
+    expected: &Value,
+    path: &ScimAttributePath,
+) -> bool {
     match (candidate, expected) {
-        (Value::String(left), Value::String(right)) => compare_strings(left, operator, right),
+        (Value::String(left), Value::String(right)) => {
+            compare_strings(left, operator, right, is_case_exact_path(path))
+        }
         (Value::Bool(left), Value::Bool(right)) => {
             matches!(operator, ScimCompareOperator::Eq) && left == right
                 || matches!(operator, ScimCompareOperator::Ne) && left != right
@@ -220,7 +227,17 @@ fn compare_value(candidate: &Value, operator: ScimCompareOperator, expected: &Va
     }
 }
 
-fn compare_strings(left: &str, operator: ScimCompareOperator, right: &str) -> bool {
+fn compare_strings(
+    left: &str,
+    operator: ScimCompareOperator,
+    right: &str,
+    case_exact: bool,
+) -> bool {
+    if !case_exact {
+        let left = left.to_ascii_lowercase();
+        let right = right.to_ascii_lowercase();
+        return compare_strings(&left, operator, &right, true);
+    }
     match operator {
         ScimCompareOperator::Eq => left == right,
         ScimCompareOperator::Ne => left != right,
@@ -231,6 +248,16 @@ fn compare_strings(left: &str, operator: ScimCompareOperator, right: &str) -> bo
         ScimCompareOperator::Ge => left >= right,
         ScimCompareOperator::Lt => left < right,
         ScimCompareOperator::Le => left <= right,
+    }
+}
+
+fn is_case_exact_path(path: &ScimAttributePath) -> bool {
+    match (path.attribute.as_str(), path.sub_attribute.as_deref()) {
+        ("id", None) | ("externalId", None) | ("meta", _) => true,
+        ("displayName", None) => true,
+        ("groups", Some("value")) => true,
+        (attribute, Some("value")) if attribute.ends_with(":manager") => true,
+        _ => false,
     }
 }
 

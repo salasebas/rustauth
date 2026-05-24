@@ -1,12 +1,28 @@
 use super::*;
 
 pub(super) fn scim_endpoint_options(operation_id: &str, description: &str) -> AuthEndpointOptions {
+    endpoint_options(operation_id, description, "application/scim+json", true)
+}
+
+pub(super) fn management_endpoint_options(
+    operation_id: &str,
+    description: &str,
+) -> AuthEndpointOptions {
+    endpoint_options(operation_id, description, "application/json", false)
+}
+
+fn endpoint_options(
+    operation_id: &str,
+    description: &str,
+    success_content_type: &str,
+    scim_request_body: bool,
+) -> AuthEndpointOptions {
     let mut operation = OpenApiOperation::new(operation_id)
         .description(description)
         .tag("SCIM")
         .response(
             success_status(operation_id),
-            openapi_response(description, "application/scim+json"),
+            openapi_response(description, success_content_type),
         )
         .response("400", openapi_error_response("Bad SCIM request"))
         .response(
@@ -26,7 +42,7 @@ pub(super) fn scim_endpoint_options(operation_id: &str, description: &str) -> Au
         );
 
     if request_body_operation(operation_id) {
-        operation = operation.request_body(openapi_request_body(operation_id));
+        operation = operation.request_body(openapi_request_body(operation_id, scim_request_body));
     }
 
     AuthEndpointOptions::new()
@@ -61,17 +77,22 @@ fn request_body_operation(operation_id: &str) -> bool {
     )
 }
 
-fn openapi_request_body(operation_id: &str) -> serde_json::Value {
+fn openapi_request_body(operation_id: &str, include_scim_json: bool) -> serde_json::Value {
+    let schema = openapi_named_object_schema(operation_id);
+    let mut content = serde_json::Map::new();
+    content.insert(
+        "application/json".to_owned(),
+        serde_json::json!({ "schema": schema.clone() }),
+    );
+    if include_scim_json {
+        content.insert(
+            "application/scim+json".to_owned(),
+            serde_json::json!({ "schema": schema }),
+        );
+    }
     serde_json::json!({
         "required": true,
-        "content": {
-            "application/json": {
-                "schema": openapi_named_object_schema(operation_id)
-            },
-            "application/scim+json": {
-                "schema": openapi_named_object_schema(operation_id)
-            }
-        }
+        "content": content
     })
 }
 
@@ -391,8 +412,21 @@ pub(super) fn query_param(request: &ApiRequest, name: &str) -> Option<String> {
     })
 }
 
-pub(super) fn query_usize(request: &ApiRequest, name: &str) -> Option<usize> {
-    query_param(request, name)?.parse().ok()
+pub(super) fn query_usize(request: &ApiRequest, name: &str) -> Result<Option<usize>, ScimError> {
+    let Some(value) = query_param(request, name) else {
+        return Ok(None);
+    };
+    let parsed = value.parse::<usize>().map_err(|_| {
+        ScimError::bad_request(format!("{name} must be a positive integer"))
+            .with_scim_type("invalidValue")
+    })?;
+    if name == "startIndex" && parsed == 0 {
+        return Err(
+            ScimError::bad_request("startIndex must be greater than or equal to 1")
+                .with_scim_type("invalidValue"),
+        );
+    }
+    Ok(Some(parsed))
 }
 
 pub(super) fn bounded_result_count(count: Option<usize>, total_results: usize) -> usize {
@@ -401,9 +435,14 @@ pub(super) fn bounded_result_count(count: Option<usize>, total_results: usize) -
         .min(metadata::SCIM_FILTER_MAX_RESULTS)
 }
 
-pub(super) fn parse_search_request(request: &ApiRequest) -> Result<SearchRequest, OpenAuthError> {
-    serde_json::from_slice(request.body())
-        .map_err(|error| OpenAuthError::Api(format!("invalid JSON request body: {error}")))
+pub(super) fn parse_search_request(request: &ApiRequest) -> Result<SearchRequest, ScimError> {
+    let search: SearchRequest = serde_json::from_slice(request.body()).map_err(|error| {
+        ScimError::bad_request(format!("invalid JSON request body: {error}"))
+            .with_scim_type("invalidValue")
+    })?;
+    validate_optional_start_index(search.start_index)?;
+    validate_sort_order(search.sort_order.as_deref())?;
+    Ok(search)
 }
 
 pub(super) fn sort_user_resources(
@@ -411,6 +450,7 @@ pub(super) fn sort_user_resources(
     sort_by: &str,
     sort_order: Option<&str>,
 ) -> Result<(), ScimError> {
+    validate_sort_order(sort_order)?;
     match sort_by {
         "id" => resources.sort_by(|left, right| left.id.cmp(&right.id)),
         "userName" => resources.sort_by(|left, right| left.user_name.cmp(&right.user_name)),
@@ -436,6 +476,7 @@ pub(super) fn apply_user_sort(
     sort_by: Option<&str>,
     sort_order: Option<&str>,
 ) -> Result<(), ScimError> {
+    validate_sort_order(sort_order)?;
     match sort_by {
         Some(sort_by) => sort_user_resources(resources, sort_by, sort_order),
         None => Ok(()),
@@ -447,6 +488,7 @@ pub(super) fn sort_group_resources(
     sort_by: &str,
     sort_order: Option<&str>,
 ) -> Result<(), ScimError> {
+    validate_sort_order(sort_order)?;
     match sort_by {
         "id" => resources.sort_by(|left, right| left.id.cmp(&right.id)),
         "displayName" => {
@@ -464,6 +506,29 @@ pub(super) fn sort_group_resources(
         resources.reverse();
     }
     Ok(())
+}
+
+pub(super) fn validate_sort_order(sort_order: Option<&str>) -> Result<(), ScimError> {
+    match sort_order {
+        None => Ok(()),
+        Some(order) if order.eq_ignore_ascii_case("ascending") => Ok(()),
+        Some(order) if order.eq_ignore_ascii_case("descending") => Ok(()),
+        Some(_) => Err(
+            ScimError::bad_request("sortOrder must be ascending or descending")
+                .with_scim_type("invalidValue"),
+        ),
+    }
+}
+
+fn validate_optional_start_index(start_index: Option<usize>) -> Result<(), ScimError> {
+    if start_index == Some(0) {
+        Err(
+            ScimError::bad_request("startIndex must be greater than or equal to 1")
+                .with_scim_type("invalidValue"),
+        )
+    } else {
+        Ok(())
+    }
 }
 
 pub(super) fn sort_json_resources(

@@ -6,7 +6,7 @@ pub(super) fn generate_token_endpoint(
     create_auth_endpoint(
         "/scim/generate-token",
         Method::POST,
-        scim_endpoint_options("generateSCIMToken", "Generate a SCIM bearer token")
+        management_endpoint_options("generateSCIMToken", "Generate a SCIM bearer token")
             .allowed_media_types(["application/json"]),
         move |context, request| {
             let options = Arc::clone(&options);
@@ -148,7 +148,7 @@ pub(super) fn list_provider_connections_endpoint(
     create_auth_endpoint(
         "/scim/list-provider-connections",
         Method::GET,
-        scim_endpoint_options(
+        management_endpoint_options(
             "listSCIMProviderConnections",
             "List SCIM provider connections",
         ),
@@ -188,7 +188,7 @@ pub(super) fn get_provider_connection_endpoint(
     create_auth_endpoint(
         "/scim/get-provider-connection",
         Method::GET,
-        scim_endpoint_options(
+        management_endpoint_options(
             "getSCIMProviderConnection",
             "Get a SCIM provider connection",
         ),
@@ -250,7 +250,7 @@ pub(super) fn delete_provider_connection_endpoint(
     create_auth_endpoint(
         "/scim/delete-provider-connection",
         Method::POST,
-        scim_endpoint_options(
+        management_endpoint_options(
             "deleteSCIMProviderConnection",
             "Delete a SCIM provider connection",
         )

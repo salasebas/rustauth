@@ -588,6 +588,14 @@ async fn bulk_create_user(
             None,
         ));
     }
+    if let Err(error) = validate_scim_user_profile_attributes(&input) {
+        return Ok((
+            error.status,
+            serde_json::to_value(error.body())
+                .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+            None,
+        ));
+    }
     let email = primary_email(&input.user_name, &emails).to_lowercase();
     let name = user_full_name(&email, input.name.as_ref());
     let account_id = account_id(&input.user_name, input.external_id.as_deref());
@@ -757,6 +765,13 @@ async fn bulk_update_user(
         ));
     }
     if let Err(error) = validate_multivalued_primary_attributes(&input.additional_fields) {
+        return Ok((
+            error.status,
+            serde_json::to_value(error.body())
+                .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+        ));
+    }
+    if let Err(error) = validate_scim_user_profile_attributes(&input) {
         return Ok((
             error.status,
             serde_json::to_value(error.body())
@@ -975,16 +990,22 @@ async fn bulk_patch_user(
             ));
         }
     };
+    let email = match patched_email(&user, &patch) {
+        Ok(email) => email,
+        Err(error) => {
+            return Ok((
+                error.status,
+                serde_json::to_value(error.body())
+                    .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+            ));
+        }
+    };
     update_scim_user_account_and_merge_profile(
         adapter,
         &provider.provider_id,
         &user.id,
         &account.id,
-        patch
-            .user
-            .get("email")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned),
+        email,
         patch
             .user
             .get("name")

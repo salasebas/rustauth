@@ -149,3 +149,34 @@ fn evaluates_subattribute_and_value_path_filters() {
     )
     .expect("valuePath filter should evaluate"));
 }
+
+#[test]
+fn resource_filter_honors_case_exact_attribute_policy() {
+    let resource = serde_json::json!({
+        "id": "User-123",
+        "userName": "Ada@Example.com",
+        "displayName": "Ada Lovelace",
+        "emails": [
+            {"value": "ADA@EXAMPLE.COM", "type": "work"}
+        ],
+        "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User": {
+            "department": "Identity"
+        }
+    });
+
+    assert!(
+        resource_matches_filter(&resource, r#"userName eq "ada@example.com""#)
+            .expect("userName should match case-insensitively")
+    );
+    assert!(
+        resource_matches_filter(&resource, r#"emails.value co "example.com""#)
+            .expect("emails.value should match case-insensitively")
+    );
+    assert!(resource_matches_filter(
+        &resource,
+        r#"urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department eq "identity""#,
+    )
+    .expect("enterprise attributes should match case-insensitively"));
+    assert!(!resource_matches_filter(&resource, r#"id eq "user-123""#)
+        .expect("id should remain case-exact"));
+}

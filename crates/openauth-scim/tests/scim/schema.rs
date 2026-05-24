@@ -229,6 +229,12 @@ fn scim_openapi_documents_requests_and_responses() {
     assert!(generate_openapi.request_body.is_some());
     assert!(generate_openapi.responses.contains_key("201"));
     assert!(generate_openapi.responses.contains_key("400"));
+    assert!(generate_openapi.responses["201"]["content"]
+        .get("application/json")
+        .is_some());
+    assert!(generate_openapi.responses["201"]["content"]
+        .get("application/scim+json")
+        .is_none());
 
     let create_user = plugin
         .endpoints
@@ -243,6 +249,9 @@ fn scim_openapi_documents_requests_and_responses() {
     assert!(create_user_openapi.request_body.is_some());
     assert!(create_user_openapi.responses.contains_key("201"));
     assert!(create_user_openapi.responses.contains_key("409"));
+    assert!(create_user_openapi.responses["201"]["content"]
+        .get("application/scim+json")
+        .is_some());
 
     let patch_user = plugin
         .endpoints
