@@ -70,6 +70,7 @@ openauth-social-providers = { path = "crates/openauth-social-providers", version
 openauth-saml = { path = "crates/openauth-saml", version = "0.0.5" }
 openauth-sqlx = { path = "crates/openauth-sqlx", version = "0.0.5", default-features = false }
 openauth-sso = { path = "crates/openauth-sso", version = "0.0.5" }
+openauth-stripe = { path = "crates/openauth-stripe", version = "0.0.5" }
 openauth-telemetry = { path = "crates/openauth-telemetry", version = "0.0.5" }
 openauth-deadpool-postgres = { path = "crates/openauth-deadpool-postgres", version = "0.0.5" }
 openauth-tokio-postgres = { path = "crates/openauth-tokio-postgres", version = "0.0.5" }

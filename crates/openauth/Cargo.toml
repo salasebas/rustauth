@@ -26,6 +26,7 @@ openauth-scim = { workspace = true, optional = true }
 openauth-saml = { workspace = true, optional = true }
 openauth-sqlx = { workspace = true, default-features = false, optional = true }
 openauth-sso = { workspace = true, optional = true }
+openauth-stripe = { workspace = true, optional = true }
 openauth-telemetry.workspace = true
 openauth-tokio-postgres = { workspace = true, optional = true }
 serde_json.workspace = true
@@ -46,6 +47,7 @@ sqlx-mysql = ["sqlx", "openauth-sqlx/mysql"]
 sqlx-postgres = ["sqlx", "openauth-sqlx/postgres"]
 sqlx-sqlite = ["sqlx", "openauth-sqlx/sqlite"]
 sso = ["dep:openauth-sso"]
+stripe = ["dep:openauth-stripe"]
 tokio-postgres = ["dep:openauth-tokio-postgres"]
 
 [dev-dependencies]
