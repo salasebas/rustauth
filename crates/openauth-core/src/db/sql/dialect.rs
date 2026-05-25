@@ -2,12 +2,18 @@ use super::*;
 
 impl SqlDialect {
     pub fn quote_identifier(self, identifier: &str) -> Result<String, OpenAuthError> {
-        validate_identifier(self, identifier)?;
         let quote = match self {
             Self::MySql => '`',
             Self::Postgres | Self::Sqlite => '"',
         };
-        Ok(format!("{quote}{identifier}{quote}"))
+        identifier
+            .split('.')
+            .map(|part| {
+                validate_identifier(self, part)?;
+                Ok(format!("{quote}{part}{quote}"))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|parts| parts.join("."))
     }
 
     pub fn sanitize_identifier(self, identifier: &str) -> Result<String, OpenAuthError> {

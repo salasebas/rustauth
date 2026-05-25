@@ -6,7 +6,7 @@ use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitStore,
 };
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio_postgres::Client;
 
 use crate::adapter::TokioPostgresAdapter;
@@ -15,8 +15,8 @@ use crate::errors::postgres_error;
 
 #[derive(Clone)]
 pub struct TokioPostgresRateLimitStore {
-    client: Arc<Mutex<Client>>,
-    tx_gate: Arc<Mutex<()>>,
+    client: Arc<Client>,
+    tx_gate: Arc<RwLock<()>>,
     names: SqlRateLimitNames,
 }
 
@@ -36,8 +36,8 @@ impl TokioPostgresRateLimitStore {
 
     pub fn with_table(client: Client, table: impl Into<String>) -> Self {
         Self {
-            client: Arc::new(Mutex::new(client)),
-            tx_gate: Arc::new(Mutex::new(())),
+            client: Arc::new(client),
+            tx_gate: Arc::new(RwLock::new(())),
             names: SqlRateLimitNames::new(table),
         }
     }
@@ -69,23 +69,23 @@ async fn consume_postgres_rate_limit(
         &store.names.count,
         &store.names.last_request,
     )?;
-    let _gate = store.tx_gate.lock().await;
-    let client = store.client.lock().await;
-    client
+    let _gate = store.tx_gate.write().await;
+    store
+        .client
         .batch_execute("BEGIN")
         .await
         .map_err(postgres_error)?;
-    let result = consume_postgres_rate_limit_in_tx(&client, &plan, input).await;
+    let result = consume_postgres_rate_limit_in_tx(store.client.as_ref(), &plan, input).await;
     match result {
         Ok(decision) => {
-            if let Err(error) = client.batch_execute("COMMIT").await {
-                let _rollback_result = client.batch_execute("ROLLBACK").await;
+            if let Err(error) = store.client.batch_execute("COMMIT").await {
+                let _rollback_result = store.client.batch_execute("ROLLBACK").await;
                 return Err(postgres_error(error));
             }
             Ok(decision)
         }
         Err(error) => {
-            let _rollback_result = client.batch_execute("ROLLBACK").await;
+            let _rollback_result = store.client.batch_execute("ROLLBACK").await;
             Err(error)
         }
     }

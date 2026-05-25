@@ -7,7 +7,7 @@ use openauth_core::db::{
     TransactionCallback, Update, UpdateMany,
 };
 use openauth_core::error::OpenAuthError;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio_postgres::{Client, NoTls};
 
 use crate::driver::PostgresSqlState;
@@ -20,8 +20,8 @@ use crate::SchemaMigrationPlan;
 
 #[derive(Clone)]
 pub struct TokioPostgresAdapter {
-    pub(crate) client: Arc<Mutex<Client>>,
-    pub(crate) tx_gate: Arc<Mutex<()>>,
+    pub(crate) client: Arc<Client>,
+    pub(crate) tx_gate: Arc<RwLock<()>>,
     pub(crate) schema: Arc<DbSchema>,
 }
 
@@ -41,8 +41,8 @@ impl TokioPostgresAdapter {
 
     pub fn with_schema(client: Client, schema: DbSchema) -> Self {
         Self {
-            client: Arc::new(Mutex::new(client)),
-            tx_gate: Arc::new(Mutex::new(())),
+            client: Arc::new(client),
+            tx_gate: Arc::new(RwLock::new(())),
             schema: Arc::new(schema),
         }
     }
@@ -73,9 +73,8 @@ impl TokioPostgresAdapter {
         &self,
         schema: &DbSchema,
     ) -> Result<SchemaMigrationPlan, OpenAuthError> {
-        let _gate = self.tx_gate.lock().await;
-        let client = self.client.lock().await;
-        plan_schema_migrations(&client, schema).await
+        let _gate = self.tx_gate.write().await;
+        plan_schema_migrations(self.client.as_ref(), schema).await
     }
 
     pub async fn compile_migrations(&self, schema: &DbSchema) -> Result<String, OpenAuthError> {
@@ -89,9 +88,12 @@ impl TokioPostgresAdapter {
     where
         T: Send + 'static,
     {
-        let _gate = self.tx_gate.lock().await;
-        let client = self.client.lock().await;
-        f(PostgresSqlState::new(self.schema.as_ref(), &client)).await
+        let _gate = self.tx_gate.read().await;
+        f(PostgresSqlState::new(
+            self.schema.as_ref(),
+            self.client.as_ref(),
+        ))
+        .await
     }
 }
 
@@ -174,29 +176,26 @@ impl DbAdapter for TokioPostgresAdapter {
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            let _gate = self.tx_gate.lock().await;
-            let client = self.client.lock().await;
-            client
+            let _gate = self.tx_gate.write().await;
+            self.client
                 .batch_execute("BEGIN")
                 .await
                 .map_err(postgres_error)?;
-            drop(client);
 
             let adapter =
                 TokioPostgresTxAdapter::new(Arc::clone(&self.client), Arc::clone(&self.schema));
             let result = callback(Box::new(adapter)).await;
 
-            let client = self.client.lock().await;
             match result {
                 Ok(()) => {
-                    if let Err(error) = client.batch_execute("COMMIT").await {
-                        let _rollback_result = client.batch_execute("ROLLBACK").await;
+                    if let Err(error) = self.client.batch_execute("COMMIT").await {
+                        let _rollback_result = self.client.batch_execute("ROLLBACK").await;
                         return Err(postgres_error(error));
                     }
                     Ok(())
                 }
                 Err(error) => {
-                    let _rollback_result = client.batch_execute("ROLLBACK").await;
+                    let _rollback_result = self.client.batch_execute("ROLLBACK").await;
                     Err(error)
                 }
             }
@@ -209,18 +208,16 @@ impl DbAdapter for TokioPostgresAdapter {
         _file: Option<&'a str>,
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         Box::pin(async move {
-            let _gate = self.tx_gate.lock().await;
-            let client = self.client.lock().await;
-            create_schema(&client, schema).await?;
+            let _gate = self.tx_gate.write().await;
+            create_schema(self.client.as_ref(), schema).await?;
             Ok(None)
         })
     }
 
     fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            let _gate = self.tx_gate.lock().await;
-            let client = self.client.lock().await;
-            execute_migration_plan(&client, schema).await
+            let _gate = self.tx_gate.write().await;
+            execute_migration_plan(self.client.as_ref(), schema).await
         })
     }
 }

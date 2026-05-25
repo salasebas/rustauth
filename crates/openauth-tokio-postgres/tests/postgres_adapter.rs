@@ -6,7 +6,8 @@ use openauth_core::context::create_auth_context;
 use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
     auth_schema, AuthSchemaOptions, Count, DbAdapter, DbField, DbFieldType, DbRecord, DbSchema,
-    DbValue, FindMany, FindOne, IdGeneration, IdPolicy, RateLimitStorage, TableOptions, Where,
+    DbValue, FindMany, FindOne, IdGeneration, IdPolicy, JoinOption, RateLimitStorage, TableOptions,
+    Update, UpdateMany, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -286,6 +287,59 @@ async fn tokio_postgres_adapter_reports_type_mismatch_and_repairs_missing_index(
 }
 
 #[tokio::test]
+async fn tokio_postgres_adapter_supports_postgres_schema_qualified_table_names(
+) -> Result<(), OpenAuthError> {
+    let prefix = unique_prefix();
+    let pg_schema = format!("{prefix}_internal");
+    let raw = raw_client().await?;
+    raw.batch_execute(&format!(r#"CREATE SCHEMA "{pg_schema}""#))
+        .await
+        .map_err(openauth_tokio_postgres::driver::postgres_error)?;
+
+    let table = |name: &str| TableOptions::default().with_name(format!("{pg_schema}.{name}"));
+    let schema = auth_schema(AuthSchemaOptions {
+        user: table("users"),
+        account: table("accounts"),
+        session: table("sessions"),
+        verification: table("verifications"),
+        rate_limit: table("rate_limits"),
+        rate_limit_storage: RateLimitStorage::Database,
+        ..AuthSchemaOptions::default()
+    });
+    let adapter =
+        TokioPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
+
+    adapter.create_schema(&schema, None).await?;
+    conformance::seed_user(
+        &adapter,
+        "schema_user",
+        "schema-user@example.com",
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+    conformance::seed_session(&adapter, "schema_session", "schema_user").await?;
+
+    let found = adapter
+        .find_one(
+            FindOne::new("session")
+                .where_clause(Where::new(
+                    "id",
+                    DbValue::String("schema_session".to_owned()),
+                ))
+                .join("user", JoinOption::enabled()),
+        )
+        .await?
+        .ok_or_else(|| OpenAuthError::Adapter("missing schema-qualified session".to_owned()))?;
+    assert!(matches!(
+        found.get("user"),
+        Some(DbValue::Record(user))
+            if user.get("id") == Some(&DbValue::String("schema_user".to_owned()))
+    ));
+    assert!(adapter.plan_migrations(&schema).await?.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn tokio_postgres_adapter_round_trips_json_arrays_and_create_select(
 ) -> Result<(), OpenAuthError> {
     let prefix = unique_prefix();
@@ -367,6 +421,284 @@ async fn tokio_postgres_transaction_multi_join_uses_fallback() -> Result<(), Ope
     adapter.create_schema(&schema, None).await?;
 
     conformance::assert_transaction_multi_join_uses_fallback(&adapter, schema).await
+}
+
+#[tokio::test]
+async fn tokio_postgres_transaction_adapter_reports_and_supports_joins() -> Result<(), OpenAuthError>
+{
+    let adapter = adapter().await?;
+
+    adapter
+        .transaction(Box::new(|tx| {
+            Box::pin(async move {
+                assert!(tx.capabilities().supports_joins);
+                conformance::seed_user(
+                    tx.as_ref(),
+                    "user_1",
+                    "ada@example.com",
+                    time::OffsetDateTime::now_utc(),
+                )
+                .await?;
+                conformance::seed_account(tx.as_ref(), "account_1", "user_1").await?;
+                conformance::seed_session(tx.as_ref(), "session_1", "user_1").await?;
+
+                let users = tx
+                    .find_many(
+                        FindMany::new("user")
+                            .join("account", JoinOption::enabled())
+                            .join("session", JoinOption::enabled()),
+                    )
+                    .await?;
+                let user = users
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| OpenAuthError::Adapter("missing joined user".to_owned()))?;
+
+                assert!(matches!(
+                    user.get("account"),
+                    Some(DbValue::RecordArray(accounts)) if accounts.len() == 1
+                ));
+                assert!(matches!(
+                    user.get("session"),
+                    Some(DbValue::RecordArray(sessions)) if sessions.len() == 1
+                ));
+                Ok(())
+            })
+        }))
+        .await
+}
+
+#[tokio::test]
+async fn tokio_postgres_adapter_handles_null_predicates_in_and_or_groups(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::seed_user(
+        &adapter,
+        "null_verified",
+        "null-verified@example.com",
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+    conformance::seed_user(
+        &adapter,
+        "null_unverified",
+        "null-unverified@example.com",
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+    conformance::seed_user(
+        &adapter,
+        "image_verified",
+        "image-verified@example.com",
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+    adapter
+        .update(
+            openauth_core::db::Update::new("user")
+                .where_clause(Where::new(
+                    "id",
+                    DbValue::String("null_verified".to_owned()),
+                ))
+                .data("email_verified", DbValue::Boolean(true)),
+        )
+        .await?;
+    adapter
+        .update(
+            openauth_core::db::Update::new("user")
+                .where_clause(Where::new(
+                    "id",
+                    DbValue::String("image_verified".to_owned()),
+                ))
+                .data(
+                    "image",
+                    DbValue::String("https://example.com/avatar.png".to_owned()),
+                )
+                .data("email_verified", DbValue::Boolean(true)),
+        )
+        .await?;
+
+    let null_and_verified = adapter
+        .find_many(
+            FindMany::new("user")
+                .where_clause(Where::new("image", DbValue::Null))
+                .where_clause(Where::new("email_verified", DbValue::Boolean(true))),
+        )
+        .await?;
+    let non_null_and_verified = adapter
+        .find_many(
+            FindMany::new("user")
+                .where_clause(Where::new("image", DbValue::Null).operator(WhereOperator::Ne))
+                .where_clause(Where::new("email_verified", DbValue::Boolean(true))),
+        )
+        .await?;
+    let null_or_target = adapter
+        .find_many(
+            FindMany::new("user")
+                .where_clause(Where::new("image", DbValue::Null).or())
+                .where_clause(
+                    Where::new(
+                        "email",
+                        DbValue::String("image-verified@example.com".to_owned()),
+                    )
+                    .or(),
+                ),
+        )
+        .await?;
+
+    assert_eq!(ids(null_and_verified), vec!["null_verified".to_owned()]);
+    assert_eq!(
+        ids(non_null_and_verified),
+        vec!["image_verified".to_owned()]
+    );
+    assert_eq!(
+        ids(null_or_target),
+        vec![
+            "image_verified".to_owned(),
+            "null_unverified".to_owned(),
+            "null_verified".to_owned(),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn tokio_postgres_adapter_treats_like_wildcards_as_literals() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    let now = time::OffsetDateTime::now_utc();
+    for (id, email) in [
+        ("wild_percent", "literal%name@example.com"),
+        ("wild_underscore", "literal_name@example.com"),
+        ("wild_plain", "literalXname@example.com"),
+    ] {
+        conformance::seed_user(&adapter, id, email, now).await?;
+    }
+
+    let percent = adapter
+        .find_many(FindMany::new("user").where_clause(
+            Where::new("email", DbValue::String("%".to_owned())).operator(WhereOperator::Contains),
+        ))
+        .await?;
+    let underscore = adapter
+        .find_many(FindMany::new("user").where_clause(
+            Where::new("email", DbValue::String("_".to_owned())).operator(WhereOperator::Contains),
+        ))
+        .await?;
+
+    assert_eq!(ids(percent), vec!["wild_percent".to_owned()]);
+    assert_eq!(ids(underscore), vec!["wild_underscore".to_owned()]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn tokio_postgres_adapter_updates_many_with_empty_where() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    let now = time::OffsetDateTime::now_utc();
+    for id in ["bulk_1", "bulk_2", "bulk_3"] {
+        conformance::seed_user(&adapter, id, &format!("{id}@example.com"), now).await?;
+    }
+
+    let count = adapter
+        .update_many(
+            UpdateMany::new("user").data("name", DbValue::String("bulk-updated".to_owned())),
+        )
+        .await?;
+    let renamed = adapter
+        .count(Count::new("user").where_clause(Where::new(
+            "name",
+            DbValue::String("bulk-updated".to_owned()),
+        )))
+        .await?;
+
+    assert_eq!(count, 3);
+    assert_eq!(renamed, 3);
+    Ok(())
+}
+
+#[tokio::test]
+async fn tokio_postgres_adapter_returns_updated_record_when_where_field_changes(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::seed_user(
+        &adapter,
+        "change_where",
+        "before-change@example.com",
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+
+    let updated = adapter
+        .update(
+            Update::new("user")
+                .where_clause(Where::new(
+                    "email",
+                    DbValue::String("before-change@example.com".to_owned()),
+                ))
+                .data(
+                    "email",
+                    DbValue::String("after-change@example.com".to_owned()),
+                )
+                .data("name", DbValue::String("Changed".to_owned())),
+        )
+        .await?
+        .ok_or_else(|| OpenAuthError::Adapter("missing updated user".to_owned()))?;
+
+    assert_eq!(
+        updated.get("email"),
+        Some(&DbValue::String("after-change@example.com".to_owned()))
+    );
+    assert!(adapter
+        .find_one(FindOne::new("user").where_clause(Where::new(
+            "email",
+            DbValue::String("before-change@example.com".to_owned()),
+        )))
+        .await?
+        .is_none());
+    assert!(adapter
+        .find_one(FindOne::new("user").where_clause(Where::new(
+            "email",
+            DbValue::String("after-change@example.com".to_owned()),
+        )))
+        .await?
+        .is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn tokio_postgres_adapter_selects_base_fields_with_join() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::seed_user(
+        &adapter,
+        "select_join_user",
+        "select-join@example.com",
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+    conformance::seed_session(&adapter, "select_join_session", "select_join_user").await?;
+
+    let found = adapter
+        .find_one(
+            FindOne::new("user")
+                .where_clause(Where::new(
+                    "id",
+                    DbValue::String("select_join_user".to_owned()),
+                ))
+                .select(["email"])
+                .join("session", JoinOption::enabled()),
+        )
+        .await?
+        .ok_or_else(|| OpenAuthError::Adapter("missing selected joined user".to_owned()))?;
+
+    assert_eq!(
+        found.get("email"),
+        Some(&DbValue::String("select-join@example.com".to_owned()))
+    );
+    assert!(!found.contains_key("id"));
+    assert!(matches!(
+        found.get("session"),
+        Some(DbValue::RecordArray(sessions)) if sessions.len() == 1
+    ));
+    Ok(())
 }
 
 #[tokio::test]
@@ -598,4 +930,16 @@ fn string_field<'a>(record: &'a DbRecord, field: &str) -> Result<&'a str, OpenAu
             "missing string field `{field}`"
         ))),
     }
+}
+
+fn ids(records: Vec<DbRecord>) -> Vec<String> {
+    let mut ids = records
+        .into_iter()
+        .filter_map(|record| match record.get("id") {
+            Some(DbValue::String(value)) => Some(value.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids
 }

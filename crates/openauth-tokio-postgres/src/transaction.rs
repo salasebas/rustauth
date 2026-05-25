@@ -2,21 +2,20 @@ use std::sync::Arc;
 
 use openauth_core::db::{
     AdapterCapabilities, AdapterFuture, Count, Create, DbAdapter, DbRecord, DbSchema, Delete,
-    DeleteMany, FindMany, FindOne, TransactionCallback, Update, UpdateMany,
+    DeleteMany, FindMany, FindOne, JoinAdapter, TransactionCallback, Update, UpdateMany,
 };
 use openauth_core::error::OpenAuthError;
-use tokio::sync::Mutex;
 use tokio_postgres::Client;
 
 use crate::driver::PostgresSqlState;
 
 pub(crate) struct TokioPostgresTxAdapter {
-    client: Arc<Mutex<Client>>,
+    client: Arc<Client>,
     schema: Arc<DbSchema>,
 }
 
 impl TokioPostgresTxAdapter {
-    pub(crate) fn new(client: Arc<Mutex<Client>>, schema: Arc<DbSchema>) -> Self {
+    pub(crate) fn new(client: Arc<Client>, schema: Arc<DbSchema>) -> Self {
         Self { client, schema }
     }
 
@@ -27,8 +26,11 @@ impl TokioPostgresTxAdapter {
     where
         T: Send + 'static,
     {
-        let client = self.client.lock().await;
-        f(PostgresSqlState::new(self.schema.as_ref(), &client)).await
+        f(PostgresSqlState::new(
+            self.schema.as_ref(),
+            self.client.as_ref(),
+        ))
+        .await
     }
 }
 
@@ -43,6 +45,7 @@ impl DbAdapter for TokioPostgresTxAdapter {
             .with_uuid_ids()
             .with_json()
             .with_arrays()
+            .with_joins()
             .with_transactions()
     }
 
@@ -62,8 +65,13 @@ impl DbAdapter for TokioPostgresTxAdapter {
 
     fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
         Box::pin(async move {
-            self.run_with_state(|state| Box::pin(state.find_many(query)))
-                .await
+            if query.joins.len() <= 1 {
+                self.run_with_state(|state| Box::pin(state.find_many(query)))
+                    .await
+            } else {
+                let adapter = JoinAdapter::new(self.schema.as_ref().clone(), Arc::new(self), false);
+                adapter.find_many(query).await
+            }
         })
     }
 
