@@ -14,7 +14,7 @@ pub(super) fn consent_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> As
                     ));
                 };
                 let body: ConsentDecisionBody = parse_body(&request)?;
-                let Some(pending) =
+                let Some(mut pending) =
                     load_pending_authorization(adapter.as_ref(), &options, &body.request_id)
                         .await?
                 else {
@@ -41,8 +41,9 @@ pub(super) fn consent_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> As
                         "authorization request belongs to another user",
                     ));
                 }
-                delete_pending_authorization(adapter.as_ref(), &options, &body.request_id).await?;
                 if !body.accept {
+                    delete_pending_authorization(adapter.as_ref(), &options, &body.request_id)
+                        .await?;
                     let redirect_uri =
                         pending
                             .authorization
@@ -61,6 +62,15 @@ pub(super) fn consent_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> As
                         &context.base_url,
                     );
                 }
+                let accepted_scopes = match accepted_consent_scopes(
+                    body.scope.as_deref(),
+                    &pending.authorization.scopes,
+                ) {
+                    Ok(scopes) => scopes,
+                    Err(error) => return error_response(error),
+                };
+                pending.authorization.scopes = accepted_scopes;
+                delete_pending_authorization(adapter.as_ref(), &options, &body.request_id).await?;
                 upsert_consent(
                     adapter.as_ref(),
                     ConsentGrantInput {
@@ -295,6 +305,29 @@ fn prompt_after_continue(pending: &PendingAuthorizationValue) -> Option<String> 
 struct ConsentDecisionBody {
     request_id: String,
     accept: bool,
+    scope: Option<String>,
+}
+
+fn accepted_consent_scopes(
+    accepted_scope: Option<&str>,
+    originally_requested: &[String],
+) -> Result<Vec<String>, OAuthProviderError> {
+    let Some(accepted_scope) = accepted_scope else {
+        return Ok(originally_requested.to_vec());
+    };
+    let accepted = split_scope(Some(accepted_scope));
+    if accepted.is_empty()
+        || accepted.iter().any(|scope| {
+            !originally_requested
+                .iter()
+                .any(|requested| requested == scope)
+        })
+    {
+        return Err(OAuthProviderError::invalid_request(
+            "Scope not originally requested",
+        ));
+    }
+    Ok(accepted)
 }
 
 pub(super) fn get_consent_endpoint(

@@ -24,8 +24,10 @@ async fn authorization_code_flow_issues_access_and_refresh_tokens(
     let client_secret = client["client_secret"]
         .as_str()
         .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&state=abc"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&state=abc&code_challenge={challenge}&code_challenge_method=S256"
     );
 
     let response = router
@@ -43,7 +45,7 @@ async fn authorization_code_flow_issues_access_and_refresh_tokens(
         .find_map(|(key, value)| (key == "code").then_some(value.into_owned()))
         .ok_or("missing code")?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_verifier={verifier}"
     );
 
     let response = router
@@ -82,8 +84,10 @@ async fn authorization_code_flow_defaults_missing_scope_to_client_scopes(
     let client_secret = client["client_secret"]
         .as_str()
         .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
@@ -91,7 +95,7 @@ async fn authorization_code_flow_defaults_missing_scope_to_client_scopes(
     assert_eq!(response.status(), StatusCode::FOUND);
     let code = authorization_code_from_location(&response)?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_verifier={verifier}"
     );
 
     let response = router
@@ -140,6 +144,45 @@ async fn authorization_code_flow_enforces_pkce_s256_for_public_clients(
 
     let verifier = "correct-horse-battery-staple";
     let challenge = pkce_challenge(verifier);
+    let authorize_with_challenge_only = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback&scope=openid&code_challenge={challenge}"
+    );
+    let response = router
+        .handle_async(request(
+            Method::GET,
+            &authorize_with_challenge_only,
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let authorize_with_method_only = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback&scope=openid&code_challenge_method=S256"
+    );
+    let response = router
+        .handle_async(request(
+            Method::GET,
+            &authorize_with_method_only,
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let authorize_with_plain_pkce = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback&scope=openid&code_challenge={challenge}&code_challenge_method=plain"
+    );
+    let response = router
+        .handle_async(request(
+            Method::GET,
+            &authorize_with_plain_pkce,
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
     let authorize_with_pkce = format!(
         "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback&scope=openid&code_challenge={challenge}&code_challenge_method=S256"
     );
@@ -186,6 +229,77 @@ async fn authorization_code_flow_enforces_pkce_s256_for_public_clients(
 }
 
 #[tokio::test]
+async fn authorization_code_flow_enforces_upstream_pkce_policy_for_confidential_clients(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            disable_jwt_plugin: true,
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        Arc::clone(&adapter),
+    )?;
+    let default_client = register_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        Some(&cookie),
+    )
+    .await?;
+    let default_client_id = default_client["client_id"]
+        .as_str()
+        .ok_or("missing client_id")?;
+    let without_pkce = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={default_client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid"
+    );
+    let response = router
+        .handle_async(request(Method::GET, &without_pkce, "", Some(&cookie))?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(response)?["error"], "invalid_request");
+
+    let opt_out_client = register_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid offline_access","require_pkce":false,"skip_consent":true}"#,
+        Some(&cookie),
+    )
+    .await?;
+    let opt_out_client_id = opt_out_client["client_id"]
+        .as_str()
+        .ok_or("missing client_id")?;
+    let openid_without_pkce = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={opt_out_client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid"
+    );
+    let response = router
+        .handle_async(request(
+            Method::GET,
+            &openid_without_pkce,
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert!(authorization_code_from_location(&response).is_ok());
+
+    let offline_without_pkce = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={opt_out_client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access"
+    );
+    let response = router
+        .handle_async(request(
+            Method::GET,
+            &offline_without_pkce,
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(response)?["error"], "invalid_request");
+    Ok(())
+}
+
+#[tokio::test]
 async fn authorization_code_flow_rejects_spurious_pkce_verifier(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = adapter();
@@ -201,7 +315,7 @@ async fn authorization_code_flow_rejects_spurious_pkce_verifier(
     )?;
     let client = register_client(
         &router,
-        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","require_pkce":false,"skip_consent":true}"#,
         Some(&cookie),
     )
     .await?;
@@ -254,8 +368,10 @@ async fn authorization_code_flow_requires_active_session_and_user_before_tokens(
     let client_secret = client["client_secret"]
         .as_str()
         .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
@@ -272,7 +388,7 @@ async fn authorization_code_flow_requires_active_session_and_user_before_tokens(
         )
         .await?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={expired_session_code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={expired_session_code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_verifier={verifier}"
     );
     let response = router
         .handle_async(form_request(Method::POST, "/api/auth/oauth2/token", &body)?)
@@ -302,7 +418,7 @@ async fn authorization_code_flow_requires_active_session_and_user_before_tokens(
         )
         .await?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={missing_user_code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={missing_user_code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_verifier={verifier}"
     );
     let response = router
         .handle_async(form_request(Method::POST, "/api/auth/oauth2/token", &body)?)
@@ -348,8 +464,10 @@ async fn authorize_loopback_matching_uses_ip_literals_only(
         Some(&cookie),
     )
     .await?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let ip_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={}&redirect_uri=http%3A%2F%2F127.0.0.2%3A4000%2Fcallback&scope=openid",
+        "/api/auth/oauth2/authorize?response_type=code&client_id={}&redirect_uri=http%3A%2F%2F127.0.0.2%3A4000%2Fcallback&scope=openid&code_challenge={challenge}&code_challenge_method=S256",
         ip_client["client_id"].as_str().ok_or("missing client_id")?
     );
     let response = router
@@ -380,8 +498,9 @@ async fn authorize_prompt_none_returns_login_required_without_session(
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&state=login-state&prompt=none"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&state=login-state&prompt=none&code_challenge={challenge}&code_challenge_method=S256"
     );
 
     let response = router
@@ -424,8 +543,9 @@ async fn authorize_prompt_none_returns_consent_required_without_grant(
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20email&state=consent-state&prompt=none"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20email&state=consent-state&prompt=none&code_challenge={challenge}&code_challenge_method=S256"
     );
 
     let response = router
@@ -463,7 +583,7 @@ async fn authorize_prompt_none_rejects_supported_prompt_combinations(
     )?;
     let client = register_client(
         &router,
-        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","require_pkce":false,"skip_consent":true}"#,
         Some(&cookie),
     )
     .await?;
@@ -522,8 +642,9 @@ async fn authorize_ignores_unknown_prompt_values() -> Result<(), Box<dyn std::er
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&prompt=unknown"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&prompt=unknown&code_challenge={challenge}&code_challenge_method=S256"
     );
 
     let response = router
@@ -557,6 +678,11 @@ async fn authorize_request_uri_resolver_handles_origin_form_requests(
                     ),
                     ("scope".to_owned(), "openid".to_owned()),
                     ("state".to_owned(), "request-uri-state".to_owned()),
+                    (
+                        "code_challenge".to_owned(),
+                        pkce_challenge("correct-horse-battery-staple"),
+                    ),
+                    ("code_challenge_method".to_owned(), "S256".to_owned()),
                 ]))
             })),
             ..default_options()
@@ -655,6 +781,11 @@ async fn authorize_resolves_request_uri_parameters() -> Result<(), Box<dyn std::
                         "https://rp.example/callback".to_owned(),
                     ),
                     ("scope".to_owned(), "openid offline_access".to_owned()),
+                    (
+                        "code_challenge".to_owned(),
+                        pkce_challenge("correct-horse-battery-staple"),
+                    ),
+                    ("code_challenge_method".to_owned(), "S256".to_owned()),
                 ]))
             })),
             ..default_options()
@@ -754,8 +885,10 @@ async fn authorize_max_age_zero_forces_login_redirect() -> Result<(), Box<dyn st
         Some(&cookie),
     )
     .await?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&max_age=0",
+        "/api/auth/oauth2/authorize?response_type=code&client_id={}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&max_age=0&code_challenge={challenge}&code_challenge_method=S256",
         client["client_id"].as_str().ok_or("missing client_id")?
     );
     let response = router
@@ -791,8 +924,9 @@ async fn authorize_prompt_create_redirects_to_signup_page() -> Result<(), Box<dy
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
     let path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&prompt=create"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&prompt=create&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &path, "", None)?)
@@ -828,7 +962,7 @@ async fn authorize_prompt_create_continue_issues_code_when_session_exists(
     )?;
     let client = register_client(
         &router,
-        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","require_pkce":false,"skip_consent":true}"#,
         Some(&cookie),
     )
     .await?;
@@ -883,8 +1017,9 @@ async fn authorize_prompt_select_account_redirects_to_select_account_page(
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
     let path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&prompt=select_account"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&prompt=select_account&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &path, "", Some(&cookie))?)
@@ -913,7 +1048,7 @@ async fn authorize_prompt_select_account_continue_issues_code(
     )?;
     let client = register_client(
         &router,
-        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","skip_consent":true}"#,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid","require_pkce":false,"skip_consent":true}"#,
         Some(&cookie),
     )
     .await?;
@@ -967,8 +1102,9 @@ async fn authorize_post_login_continue_issues_code() -> Result<(), Box<dyn std::
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
     let path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&state=post-login-state"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&state=post-login-state&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &path, "", Some(&cookie))?)
@@ -1021,8 +1157,9 @@ async fn authorize_post_login_redirect_callback_can_choose_custom_page(
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
     let path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &path, "", Some(&cookie))?)

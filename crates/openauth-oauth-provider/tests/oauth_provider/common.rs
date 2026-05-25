@@ -93,8 +93,10 @@ pub async fn exchange_authorization_code_with_scope(
     client_secret: &str,
     scope: &str,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope={}",
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope={}&code_challenge={challenge}&code_challenge_method=S256",
         query_encode(scope)
     );
     let response = router
@@ -103,7 +105,7 @@ pub async fn exchange_authorization_code_with_scope(
     assert_eq!(response.status(), StatusCode::FOUND);
     let code = authorization_code_from_location(&response)?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_verifier={verifier}"
     );
     let response = router
         .handle_async(form_request(Method::POST, "/api/auth/oauth2/token", &body)?)
@@ -123,8 +125,10 @@ pub async fn exchange_authorization_code_with_resource(
         return exchange_authorization_code(router, cookie, client_id, client_secret).await;
     }
 
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(cookie))?)
@@ -132,7 +136,7 @@ pub async fn exchange_authorization_code_with_resource(
     assert_eq!(response.status(), StatusCode::FOUND);
     let code = authorization_code_from_location(&response)?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&resource={}",
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&resource={}&code_verifier={verifier}",
         query_encode(resource.unwrap_or_default())
     );
     let response = router
@@ -149,8 +153,10 @@ pub async fn exchange_authorization_code_with_redirect(
     client_secret: &str,
     redirect_uri: &str,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={}&scope=openid%20offline_access",
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={}&scope=openid%20offline_access&code_challenge={challenge}&code_challenge_method=S256",
         query_encode(redirect_uri)
     );
     let response = router
@@ -159,7 +165,7 @@ pub async fn exchange_authorization_code_with_redirect(
     assert_eq!(response.status(), StatusCode::FOUND);
     let code = authorization_code_from_location(&response)?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri={}",
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri={}&code_verifier={verifier}",
         query_encode(redirect_uri)
     );
     let response = router

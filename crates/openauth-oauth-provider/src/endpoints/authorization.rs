@@ -136,22 +136,8 @@ pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> 
                         client.client_type.as_deref(),
                         Some("native" | "user-agent-based")
                     );
-                let require_pkce = client.require_pkce == Some(true) || is_public_client;
                 let code_challenge = query_param(&request, "code_challenge");
-                let code_challenge_method = query_param(&request, "code_challenge_method")
-                    .or_else(|| code_challenge.as_ref().map(|_| "plain".to_owned()));
-                if require_pkce && code_challenge.is_none() {
-                    return error_response(OAuthProviderError::invalid_request(
-                        "code_challenge is required",
-                    ));
-                };
-                if let Some(method) = code_challenge_method.as_deref() {
-                    if method != "S256" {
-                        return error_response(OAuthProviderError::invalid_request(
-                            "only S256 PKCE code_challenge_method is supported",
-                        ));
-                    }
-                };
+                let code_challenge_method = query_param(&request, "code_challenge_method");
                 let redirect_uri = query_param(&request, "redirect_uri")
                     .or_else(|| client.redirect_uris.first().cloned())
                     .unwrap_or_default();
@@ -177,6 +163,23 @@ pub(super) fn authorize_endpoint(options: Arc<ResolvedOAuthProviderOptions>) -> 
                 if let Err(error) = validate_requested_scopes(&client, &options, &scopes) {
                     return error_response(error);
                 }
+                if let Some(reason) = pkce_required_reason(&client, &scopes, is_public_client) {
+                    if code_challenge.is_none() || code_challenge_method.is_none() {
+                        return error_response(OAuthProviderError::invalid_request(reason));
+                    }
+                }
+                if code_challenge.is_some() != code_challenge_method.is_some() {
+                    return error_response(OAuthProviderError::invalid_request(
+                        "code_challenge and code_challenge_method must both be provided",
+                    ));
+                }
+                if let Some(method) = code_challenge_method.as_deref() {
+                    if method != "S256" {
+                        return error_response(OAuthProviderError::invalid_request(
+                            "invalid code_challenge method, only S256 is supported",
+                        ));
+                    }
+                };
                 let state = query_param(&request, "state");
                 let nonce = query_param(&request, "nonce");
                 let prompt = query_param(&request, "prompt");
@@ -702,6 +705,23 @@ fn page_redirect_with_authorize_query(
     } else {
         Ok(redirect.to_string())
     }
+}
+
+fn pkce_required_reason(
+    client: &crate::models::SchemaClient,
+    scopes: &[String],
+    is_public_client: bool,
+) -> Option<&'static str> {
+    if is_public_client {
+        return Some("pkce is required for public clients");
+    }
+    if scopes.iter().any(|scope| scope == "offline_access") {
+        return Some("pkce is required when requesting offline_access scope");
+    }
+    if client.require_pkce.unwrap_or(true) {
+        return Some("pkce is required for this client");
+    }
+    None
 }
 
 pub(super) fn prompt_contains(request: &ApiRequest, expected: &str) -> bool {

@@ -594,8 +594,10 @@ async fn resource_array_issues_jwt_access_token_with_multiple_audiences(
     let client_secret = client["client_secret"]
         .as_str()
         .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
@@ -607,6 +609,7 @@ async fn resource_array_issues_jwt_access_token_with_multiple_audiences(
         "client_secret": client_secret,
         "code": code,
         "redirect_uri": "https://rp.example/callback",
+        "code_verifier": verifier,
         "resource": ["https://api.example.com", "https://mcp.example.com"]
     });
     let response = router
@@ -657,15 +660,17 @@ async fn resource_form_repeated_issues_multi_audience_and_invalid_json_resource_
     let client_secret = client["client_secret"]
         .as_str()
         .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
         .await?;
     let code = authorization_code_from_location(&response)?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&resource=https%3A%2F%2Fapi.example.com&resource=https%3A%2F%2Ffiles.example.com"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&resource=https%3A%2F%2Fapi.example.com&resource=https%3A%2F%2Ffiles.example.com&code_verifier={verifier}"
     );
     let response = router
         .handle_async(form_request(Method::POST, "/api/auth/oauth2/token", &body)?)
@@ -776,15 +781,17 @@ async fn custom_token_response_failure_does_not_persist_tokens(
     let client_secret = client["client_secret"]
         .as_str()
         .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
         .await?;
     let code = authorization_code_from_location(&response)?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_verifier={verifier}"
     );
 
     let response = router
@@ -1345,8 +1352,10 @@ async fn resource_parameter_rejects_unconfigured_audience() -> Result<(), Box<dy
     let client_secret = client["client_secret"]
         .as_str()
         .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20offline_access&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
@@ -1354,7 +1363,7 @@ async fn resource_parameter_rejects_unconfigured_audience() -> Result<(), Box<dy
     assert_eq!(response.status(), StatusCode::FOUND);
     let code = authorization_code_from_location(&response)?;
     let body = format!(
-        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&resource=https%3A%2F%2Fevil.example"
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&resource=https%3A%2F%2Fevil.example&code_verifier={verifier}"
     );
 
     let response = router

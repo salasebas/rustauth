@@ -75,9 +75,10 @@ async fn consent_endpoint_accepts_rejects_and_continue_without_flag_is_rejected(
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let challenge = pkce_challenge("correct-horse-battery-staple");
 
     let authorize_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20email&state=approve-state"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20email&state=approve-state&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
@@ -107,7 +108,7 @@ async fn consent_endpoint_accepts_rejects_and_continue_without_flag_is_rejected(
     assert_eq!(adapter.len("oauth_consent").await, 1);
 
     let reject_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=email&state=reject-state&prompt=consent"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=email&state=reject-state&prompt=consent&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &reject_path, "", Some(&cookie))?)
@@ -135,7 +136,7 @@ async fn consent_endpoint_accepts_rejects_and_continue_without_flag_is_rejected(
     );
 
     let continue_path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=email&state=continue-state&prompt=consent"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=email&state=continue-state&prompt=consent&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &continue_path, "", Some(&cookie))?)
@@ -153,6 +154,87 @@ async fn consent_endpoint_accepts_rejects_and_continue_without_flag_is_rejected(
         .await?;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_eq!(json_body(response)?["error"], "invalid_request");
+    Ok(())
+}
+
+#[tokio::test]
+async fn consent_endpoint_accepts_subset_and_rejects_unrequested_scope(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = adapter();
+    seed_user_session(adapter.as_ref()).await?;
+    let cookie = signed_session_cookie("token_1")?;
+    let router = router(
+        oauth_provider(OAuthProviderOptions {
+            disable_jwt_plugin: true,
+            allow_dynamic_client_registration: true,
+            ..default_options()
+        })?,
+        Arc::clone(&adapter),
+    )?;
+    let client = register_client(
+        &router,
+        r#"{"redirect_uris":["https://rp.example/callback"],"scope":"openid profile email offline_access"}"#,
+        Some(&cookie),
+    )
+    .await?;
+    let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let client_secret = client["client_secret"]
+        .as_str()
+        .ok_or("missing client_secret")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
+
+    let authorize_path = format!(
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid%20profile%20email&state=narrow-state&prompt=consent&code_challenge={challenge}&code_challenge_method=S256"
+    );
+    let response = router
+        .handle_async(request(Method::GET, &authorize_path, "", Some(&cookie))?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let request_id = redirect_query_value(&redirect_url(&response)?, "request_id")
+        .ok_or("missing request_id")?;
+
+    let response = router
+        .handle_async(request(
+            Method::POST,
+            "/api/auth/oauth2/consent",
+            &format!(r#"{{"request_id":"{request_id}","accept":true,"scope":"openid admin"}}"#),
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(response)?;
+    assert_eq!(body["error"], "invalid_request");
+    assert_eq!(body["error_description"], "Scope not originally requested");
+
+    let response = router
+        .handle_async(request(
+            Method::POST,
+            "/api/auth/oauth2/consent",
+            &format!(r#"{{"request_id":"{request_id}","accept":true,"scope":"openid profile"}}"#),
+            Some(&cookie),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let code = authorization_code_from_location(&response)?;
+
+    let body = format!(
+        "grant_type=authorization_code&client_id={client_id}&client_secret={client_secret}&code={code}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&code_verifier={verifier}"
+    );
+    let response = router
+        .handle_async(form_request(Method::POST, "/api/auth/oauth2/token", &body)?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let token = json_body(response)?;
+    assert_eq!(token["scope"], "openid profile");
+
+    let stored = find_consent(adapter.as_ref(), "user_1", client_id)
+        .await?
+        .ok_or("missing consent")?;
+    assert_eq!(
+        stored.scopes,
+        vec!["openid".to_owned(), "profile".to_owned()]
+    );
     Ok(())
 }
 
@@ -177,8 +259,10 @@ async fn continue_requires_matching_prompt_flag_and_rechecks_consent(
     )
     .await?;
     let client_id = client["client_id"].as_str().ok_or("missing client_id")?;
+    let verifier = "correct-horse-battery-staple";
+    let challenge = pkce_challenge(verifier);
     let path = format!(
-        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&state=select-consent-state&prompt=select_account"
+        "/api/auth/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri=https%3A%2F%2Frp.example%2Fcallback&scope=openid&state=select-consent-state&prompt=select_account&code_challenge={challenge}&code_challenge_method=S256"
     );
     let response = router
         .handle_async(request(Method::GET, &path, "", Some(&cookie))?)
