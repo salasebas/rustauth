@@ -168,6 +168,99 @@ async fn postgres_adapter_filters_sorts_limits_and_counts_records() -> Result<()
 }
 
 #[tokio::test]
+async fn postgres_adapter_treats_like_wildcards_as_literal_user_input() -> Result<(), OpenAuthError>
+{
+    let adapter = adapter().await?;
+    let now = OffsetDateTime::now_utc();
+    for (id, email) in [
+        ("user_percent", "sales%2026@example.com"),
+        ("user_percent_control", "salesX2026@example.com"),
+        ("user_underscore", "team_alpha@example.com"),
+        ("user_underscore_control", "teamXalpha@example.com"),
+    ] {
+        adapter
+            .create(
+                Create::new("user")
+                    .data("id", DbValue::String(id.to_owned()))
+                    .data("name", DbValue::String(id.to_owned()))
+                    .data("email", DbValue::String(email.to_owned()))
+                    .data("email_verified", DbValue::Boolean(false))
+                    .data("image", DbValue::Null)
+                    .data("created_at", DbValue::Timestamp(now))
+                    .data("updated_at", DbValue::Timestamp(now)),
+            )
+            .await?;
+    }
+
+    let percent_matches = adapter
+        .find_many(
+            FindMany::new("user").where_clause(
+                Where::new("email", DbValue::String("sales%2026".to_owned()))
+                    .operator(WhereOperator::Contains),
+            ),
+        )
+        .await?;
+    let underscore_matches = adapter
+        .find_many(
+            FindMany::new("user").where_clause(
+                Where::new("email", DbValue::String("team_".to_owned()))
+                    .operator(WhereOperator::StartsWith),
+            ),
+        )
+        .await?;
+
+    assert_eq!(percent_matches.len(), 1);
+    assert_eq!(
+        percent_matches[0].get("id"),
+        Some(&DbValue::String("user_percent".to_owned()))
+    );
+    assert_eq!(underscore_matches.len(), 1);
+    assert_eq!(
+        underscore_matches[0].get("id"),
+        Some(&DbValue::String("user_underscore".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_adapter_create_schema_writes_requested_schema_file() -> Result<(), OpenAuthError>
+{
+    let schema = test_schema();
+    let pool = test_pool(1).await?;
+    let adapter = PostgresAdapter::with_schema(pool.clone(), schema.clone());
+    let prefix = unique_prefix();
+    let path = std::env::temp_dir().join(format!("{prefix}-postgres-schema.sql"));
+    let path_string = path.to_string_lossy().into_owned();
+
+    let creation = adapter
+        .create_schema(&schema, Some(&path_string))
+        .await?
+        .ok_or_else(|| OpenAuthError::Adapter("missing schema creation metadata".to_owned()))?;
+    let code = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|error| OpenAuthError::Adapter(format!("failed to read schema file: {error}")))?;
+    let users_table_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1",
+    )
+    .bind(schema.table_name("user")?)
+    .fetch_one(&pool)
+    .await
+    .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+
+    let _remove_result = tokio::fs::remove_file(&path).await;
+    assert_eq!(creation.path, path_string);
+    assert_eq!(creation.code, code);
+    assert!(!creation.append);
+    assert!(creation.overwrite);
+    assert!(code.contains(&format!(
+        "CREATE TABLE IF NOT EXISTS \"{}\"",
+        schema.table_name("user")?
+    )));
+    assert_eq!(users_table_count, 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_adapter_updates_and_deletes_matching_records() -> Result<(), OpenAuthError> {
     let adapter = adapter().await?;
     for user_id in ["user_1", "user_2"] {

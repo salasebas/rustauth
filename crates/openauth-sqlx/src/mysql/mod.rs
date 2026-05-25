@@ -241,11 +241,21 @@ impl DbAdapter for MySqlAdapter {
     fn create_schema<'a>(
         &'a self,
         schema: &'a DbSchema,
-        _file: Option<&'a str>,
+        file: Option<&'a str>,
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         Box::pin(async move {
+            let code = if file.is_some() {
+                Some(self.compile_migrations(schema).await?)
+            } else {
+                None
+            };
             create_schema(MySqlExecutor::Pool(&self.pool), schema).await?;
-            Ok(None)
+            match (file, code) {
+                (Some(path), Some(code)) => {
+                    Ok(Some(crate::migration::write_schema_file(path, code).await?))
+                }
+                _ => Ok(None),
+            }
         })
     }
 

@@ -247,15 +247,25 @@ impl DbAdapter for SqliteAdapter {
     fn create_schema<'a>(
         &'a self,
         schema: &'a DbSchema,
-        _file: Option<&'a str>,
+        file: Option<&'a str>,
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         Box::pin(async move {
+            let code = if file.is_some() {
+                Some(self.compile_migrations(schema).await?)
+            } else {
+                None
+            };
             self.pool
                 .execute("PRAGMA foreign_keys = ON")
                 .await
                 .map_err(sql_error)?;
             create_schema(SqliteExecutor::Pool(&self.pool), schema).await?;
-            Ok(None)
+            match (file, code) {
+                (Some(path), Some(code)) => {
+                    Ok(Some(crate::migration::write_schema_file(path, code).await?))
+                }
+                _ => Ok(None),
+            }
         })
     }
 
