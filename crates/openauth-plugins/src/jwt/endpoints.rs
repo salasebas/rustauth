@@ -12,7 +12,10 @@ use serde_json::{json, Value};
 
 use super::claims::JwtClaims;
 use super::keys::{public_jwk_value, Jwks};
-use super::{adapter, keys, sign, verify, JwtOptions, JwtSessionContext};
+use super::{
+    adapter, keys, sign, verify, JwkAlgorithm, JwtJwksOptions, JwtOptions, JwtSessionContext,
+    JwtSigningOptions, TimeInput,
+};
 
 pub(crate) fn jwks_endpoint(options: Arc<JwtOptions>) -> openauth_core::api::AsyncAuthEndpoint {
     let path = options.jwks.jwks_path.clone();
@@ -65,7 +68,13 @@ pub(crate) fn sign_jwt_endpoint(options: Arc<JwtOptions>) -> openauth_core::api:
             let options = Arc::clone(&options);
             Box::pin(async move {
                 let body: SignJwtBody = parse_json(&request)?;
-                let token = sign::sign_jwt_with_options(context, body.payload, &options).await?;
+                let mut effective_options = options.as_ref().clone();
+                if let Some(overrides) = body.override_options {
+                    overrides.apply(&mut effective_options);
+                    effective_options.validate()?;
+                }
+                let token =
+                    sign::sign_jwt_with_options(context, body.payload, &effective_options).await?;
                 json_response(StatusCode::OK, &json!({ "token": token }))
             })
         },
@@ -216,10 +225,139 @@ where
 #[derive(Debug, Deserialize)]
 struct SignJwtBody {
     payload: JwtClaims,
+    #[serde(default, rename = "overrideOptions")]
+    override_options: Option<JwtEndpointOverrideOptions>,
 }
 
 #[derive(Debug, Deserialize)]
 struct VerifyJwtBody {
     token: String,
     issuer: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JwtEndpointOverrideOptions {
+    #[serde(default)]
+    jwt: Option<JwtEndpointSigningOverride>,
+    #[serde(default)]
+    jwks: Option<JwtEndpointJwksOverride>,
+}
+
+impl JwtEndpointOverrideOptions {
+    fn apply(self, options: &mut JwtOptions) {
+        if let Some(jwt) = self.jwt {
+            jwt.apply(&mut options.jwt);
+        }
+        if let Some(jwks) = self.jwks {
+            jwks.apply(&mut options.jwks);
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct JwtEndpointSigningOverride {
+    #[serde(default)]
+    issuer: Option<String>,
+    #[serde(default)]
+    audience: Option<AudienceOverride>,
+    #[serde(default, rename = "expirationTime")]
+    expiration_time: Option<TimeInputOverride>,
+}
+
+impl JwtEndpointSigningOverride {
+    fn apply(self, options: &mut JwtSigningOptions) {
+        if let Some(issuer) = self.issuer {
+            options.issuer = Some(issuer);
+        }
+        if let Some(audience) = self.audience {
+            options.audience = Some(audience.into_vec());
+        }
+        if let Some(expiration_time) = self.expiration_time {
+            options.expiration_time = Some(expiration_time.into_time_input());
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct JwtEndpointJwksOverride {
+    #[serde(default, rename = "remoteUrl")]
+    remote_url: Option<String>,
+    #[serde(default, rename = "keyPairConfig")]
+    key_pair_config: Option<KeyPairConfigOverride>,
+    #[serde(default, rename = "disablePrivateKeyEncryption")]
+    disable_private_key_encryption: Option<bool>,
+    #[serde(default, rename = "rotationInterval")]
+    rotation_interval: Option<i64>,
+    #[serde(default, rename = "gracePeriod")]
+    grace_period: Option<i64>,
+    #[serde(default, rename = "jwksPath")]
+    jwks_path: Option<String>,
+}
+
+impl JwtEndpointJwksOverride {
+    fn apply(self, options: &mut JwtJwksOptions) {
+        if let Some(remote_url) = self.remote_url {
+            options.remote_url = Some(remote_url);
+        }
+        if let Some(key_pair_config) = self.key_pair_config {
+            if let Some(algorithm) = key_pair_config.alg {
+                options.key_pair_algorithm = Some(algorithm);
+            }
+            if let Some(modulus_length) = key_pair_config.modulus_length {
+                options.rsa_modulus_length = Some(modulus_length);
+            }
+        }
+        if let Some(disable_private_key_encryption) = self.disable_private_key_encryption {
+            options.disable_private_key_encryption = disable_private_key_encryption;
+        }
+        if let Some(rotation_interval) = self.rotation_interval {
+            options.rotation_interval = Some(rotation_interval);
+        }
+        if let Some(grace_period) = self.grace_period {
+            options.grace_period = grace_period;
+        }
+        if let Some(jwks_path) = self.jwks_path {
+            options.jwks_path = jwks_path;
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct KeyPairConfigOverride {
+    #[serde(default)]
+    alg: Option<JwkAlgorithm>,
+    #[serde(default, rename = "modulusLength")]
+    modulus_length: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum AudienceOverride {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl AudienceOverride {
+    fn into_vec(self) -> Vec<String> {
+        match self {
+            Self::One(value) => vec![value],
+            Self::Many(values) => values,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum TimeInputOverride {
+    Number(i64),
+    String(String),
+}
+
+impl TimeInputOverride {
+    fn into_time_input(self) -> TimeInput {
+        match self {
+            Self::Number(value) => TimeInput::UnixTimestamp(value),
+            Self::String(value) => TimeInput::Duration(value),
+        }
+    }
 }

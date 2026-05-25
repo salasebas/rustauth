@@ -236,6 +236,11 @@ async fn mcp_helpers_return_metadata_challenge_and_validate_bearer_tokens(
 
     let challenge = www_authenticate_for_resources(["https://mcp.example/sse"])?;
     assert!(challenge.contains(".well-known/oauth-protected-resource/sse"));
+    let non_url = www_authenticate_for_resources(["urn:example:resource"]);
+    assert!(matches!(
+        non_url,
+        Err(err) if err.contains("missing resource_metadata mapping")
+    ));
 
     let client = register_client(
         &router,

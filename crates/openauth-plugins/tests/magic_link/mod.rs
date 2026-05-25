@@ -145,6 +145,20 @@ async fn rejects_reused_expired_and_invalid_tokens() -> Result<(), Box<dyn std::
 }
 
 #[tokio::test]
+async fn missing_or_empty_verify_token_redirects_with_invalid_token(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sent = sent_messages();
+    let (router, _adapter) = build_router(sent.clone(), options(sent))?;
+
+    let missing = get(&router, "/api/auth/magic-link/verify").await?;
+    assert_redirect_error(&missing, "INVALID_TOKEN")?;
+
+    let empty = get(&router, "/api/auth/magic-link/verify?token=").await?;
+    assert_redirect_error(&empty, "INVALID_TOKEN")?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn signs_up_new_users_and_can_disable_sign_up() -> Result<(), Box<dyn std::error::Error>> {
     let sent = sent_messages();
     let (router, adapter) = build_router(sent.clone(), options(sent.clone()))?;

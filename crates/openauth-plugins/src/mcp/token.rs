@@ -7,6 +7,7 @@ use openauth_core::api::{
 };
 use openauth_core::crypto::jwt::sign_jwt;
 use openauth_core::db::{Create, DbValue, Delete, FindOne, Where};
+use openauth_core::error::OpenAuthError;
 use serde::Serialize;
 use serde_json::{json, Value};
 use subtle::ConstantTimeEq;
@@ -137,10 +138,10 @@ async fn refresh_token(
     options: &ResolvedMcpOptions,
     client_id: Option<String>,
     body: &Value,
-) -> Result<TokenResponse, openauth_core::error::OpenAuthError> {
+) -> Result<TokenResponse, TokenEndpointError> {
     let Some(refresh_token) = string_field(body, "refresh_token") else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "refresh_token is required".to_owned(),
+        return Err(TokenEndpointError::invalid_request(
+            "refresh_token is required",
         ));
     };
     let Some(token) = adapter
@@ -150,21 +151,15 @@ async fn refresh_token(
         )
         .await?
     else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "invalid refresh token".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_grant("invalid refresh token"));
     };
     let token_client_id = required_string(&token, "clientId")?;
     if client_id.as_deref() != Some(token_client_id.as_str()) {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "invalid client_id".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_client("invalid client_id"));
     }
     let expires_at = optional_timestamp(&token, "refreshTokenExpiresAt")?;
     if expires_at.is_some_and(|expires_at| expires_at <= OffsetDateTime::now_utc()) {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "refresh token expired".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_grant("refresh token expired"));
     }
     let access_token = random_token();
     let refresh_token = random_token();
@@ -215,11 +210,9 @@ async fn authorization_code(
     client_secret: Option<String>,
     body: &Value,
     additional_id_token_claims: Option<&McpAdditionalIdTokenClaims>,
-) -> Result<TokenResponse, openauth_core::error::OpenAuthError> {
+) -> Result<TokenResponse, TokenEndpointError> {
     let Some(code) = string_field(body, "code") else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "code is required".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_request("code is required"));
     };
     let Some(verification) = adapter
         .find_one(
@@ -228,9 +221,7 @@ async fn authorization_code(
         )
         .await?
     else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "invalid code".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_grant("invalid code"));
     };
     adapter
         .delete(
@@ -241,59 +232,45 @@ async fn authorization_code(
     if optional_timestamp(&verification, "expires_at")?
         .is_some_and(|expires_at| expires_at <= OffsetDateTime::now_utc())
     {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "code expired".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_grant("code expired"));
     }
     let Some(client_id) = client_id else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "client_id is required".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_client("client_id is required"));
     };
     let Some(redirect_uri) = string_field(body, "redirect_uri") else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "redirect_uri is required".to_owned(),
+        return Err(TokenEndpointError::invalid_request(
+            "redirect_uri is required",
         ));
     };
     let Some(client) = find_client(adapter, &client_id).await? else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "invalid client_id".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_client("invalid client_id"));
     };
     if client.disabled {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "client is disabled".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_client("client is disabled"));
     }
     let value = required_string(&verification, "value")?;
     let value: VerificationCodeValue = serde_json::from_str(&value)
-        .map_err(|error| openauth_core::error::OpenAuthError::Api(error.to_string()))?;
+        .map_err(|error| TokenEndpointError::Internal(OpenAuthError::Api(error.to_string())))?;
     if client.client_type == "public" {
         if value.code_challenge.is_none() {
-            return Err(openauth_core::error::OpenAuthError::Api(
-                "code challenge is required for public clients".to_owned(),
+            return Err(TokenEndpointError::invalid_request(
+                "code challenge is required for public clients",
             ));
         }
         if string_field(body, "code_verifier").is_none() {
-            return Err(openauth_core::error::OpenAuthError::Api(
-                "code verifier is required for public clients".to_owned(),
+            return Err(TokenEndpointError::invalid_request(
+                "code verifier is required for public clients",
             ));
         }
     } else if !client_secret_matches(client.client_secret.as_deref(), client_secret.as_deref()) {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "invalid client_secret".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_client("invalid client_secret"));
     }
 
     if value.client_id != client_id {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "invalid client_id".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_client("invalid client_id"));
     }
     if value.redirect_uri != redirect_uri {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "invalid redirect_uri".to_owned(),
-        ));
+        return Err(TokenEndpointError::invalid_client("invalid redirect_uri"));
     }
     validate_pkce(&value, string_field(body, "code_verifier"))?;
 
@@ -327,9 +304,7 @@ async fn authorization_code(
         .await?;
     let id_token = if value.scope.iter().any(|scope| scope == "openid") {
         let Some(user) = find_user(adapter, &value.user_id).await? else {
-            return Err(openauth_core::error::OpenAuthError::Api(
-                "user not found".to_owned(),
-            ));
+            return Err(TokenEndpointError::invalid_grant("user not found"));
         };
         let mut claims = serde_json::Map::new();
         claims.insert("sub".to_owned(), json!(value.user_id));
@@ -382,13 +357,13 @@ fn client_secret_matches(expected: Option<&str>, provided: Option<&str>) -> bool
 fn validate_pkce(
     value: &VerificationCodeValue,
     code_verifier: Option<String>,
-) -> Result<(), openauth_core::error::OpenAuthError> {
+) -> Result<(), TokenEndpointError> {
     let Some(challenge) = &value.code_challenge else {
         return Ok(());
     };
     let Some(verifier) = code_verifier else {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "code verifier is missing".to_owned(),
+        return Err(TokenEndpointError::invalid_request(
+            "code verifier is missing",
         ));
     };
     let method = value
@@ -402,8 +377,10 @@ fn validate_pkce(
         pkce_s256(&verifier)
     };
     if &candidate != challenge {
-        return Err(openauth_core::error::OpenAuthError::Api(
-            "code verification failed".to_owned(),
+        return Err(TokenEndpointError::oauth(
+            StatusCode::UNAUTHORIZED,
+            "invalid_request",
+            "code verification failed",
         ));
     }
     Ok(())
@@ -423,23 +400,52 @@ fn basic_credentials(request: &openauth_core::api::ApiRequest) -> Option<(String
 }
 
 fn token_error_response(
-    error: openauth_core::error::OpenAuthError,
+    error: TokenEndpointError,
 ) -> Result<openauth_core::api::ApiResponse, openauth_core::error::OpenAuthError> {
-    let openauth_core::error::OpenAuthError::Api(message) = error else {
-        return Err(error);
-    };
-    let (status, code) = if message.contains("invalid client")
-        || message.contains("invalid code")
-        || message.contains("expired")
-        || message.contains("verification failed")
-    {
-        (StatusCode::UNAUTHORIZED, "invalid_grant")
-    } else if message.contains("client_secret") {
-        (StatusCode::UNAUTHORIZED, "invalid_client")
-    } else if message.contains("unsupported") {
-        (StatusCode::BAD_REQUEST, "unsupported_grant_type")
-    } else {
-        (StatusCode::BAD_REQUEST, "invalid_request")
-    };
-    oauth_error(status, code, &message)
+    match error {
+        TokenEndpointError::OAuth {
+            status,
+            error,
+            description,
+        } => oauth_error(status, error, &description),
+        TokenEndpointError::Internal(error) => Err(error),
+    }
+}
+
+#[derive(Debug)]
+enum TokenEndpointError {
+    OAuth {
+        status: StatusCode,
+        error: &'static str,
+        description: String,
+    },
+    Internal(OpenAuthError),
+}
+
+impl TokenEndpointError {
+    fn oauth(status: StatusCode, error: &'static str, description: impl Into<String>) -> Self {
+        Self::OAuth {
+            status,
+            error,
+            description: description.into(),
+        }
+    }
+
+    fn invalid_request(description: impl Into<String>) -> Self {
+        Self::oauth(StatusCode::BAD_REQUEST, "invalid_request", description)
+    }
+
+    fn invalid_client(description: impl Into<String>) -> Self {
+        Self::oauth(StatusCode::UNAUTHORIZED, "invalid_client", description)
+    }
+
+    fn invalid_grant(description: impl Into<String>) -> Self {
+        Self::oauth(StatusCode::UNAUTHORIZED, "invalid_grant", description)
+    }
+}
+
+impl From<OpenAuthError> for TokenEndpointError {
+    fn from(error: OpenAuthError) -> Self {
+        Self::Internal(error)
+    }
 }

@@ -337,6 +337,59 @@ async fn sign_in_email_persists_last_login_method_and_get_session_returns_it(
 }
 
 #[tokio::test]
+async fn custom_database_field_name_persists_and_returns_logical_field(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router_with_plugin(
+        adapter.clone(),
+        LastLoginMethodOptions::default().database_field_name("last_auth_method"),
+    )?;
+
+    let sign_up = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_up.status(), StatusCode::OK);
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_in.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_slice(sign_in.body())?;
+    let token = body["token"].as_str().ok_or("missing token")?;
+
+    let user = find_user_by_email(adapter.as_ref(), "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("last_login_method"),
+        Some(&DbValue::String("email".to_owned()))
+    );
+
+    let session = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/get-session",
+            "",
+            Some(&signed_session_cookie(token)?),
+        )?)
+        .await?;
+    assert_eq!(session.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_slice(session.body())?;
+    assert_eq!(body["user"]["last_login_method"], "email");
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_up_email_persists_last_login_method() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     let router = router_with_plugin(adapter.clone(), LastLoginMethodOptions::default())?;
