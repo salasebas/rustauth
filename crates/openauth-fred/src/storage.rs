@@ -40,7 +40,8 @@ impl FredSecondaryStorage {
     }
 
     pub async fn list_keys(&self) -> Result<Vec<String>, OpenAuthError> {
-        let pattern = format!("{}*", self.options.key_prefix);
+        validate_secondary_storage_options(&self.options)?;
+        let pattern = secondary_storage_scan_pattern(&self.options.key_prefix);
         let mut cursor = "0".to_owned();
         let mut keys = Vec::new();
 
@@ -128,5 +129,125 @@ impl SecondaryStorage for FredSecondaryStorage {
                 .map_err(|error| fred_error("secondary delete", error))?;
             Ok(())
         })
+    }
+}
+
+fn secondary_storage_scan_pattern(prefix: &str) -> String {
+    let mut pattern = String::with_capacity(prefix.len() + 1);
+    for character in prefix.chars() {
+        match character {
+            '*' | '?' | '[' | ']' | '\\' => {
+                pattern.push('\\');
+                pattern.push(character);
+            }
+            _ => pattern.push(character),
+        }
+    }
+    pattern.push('*');
+    pattern
+}
+
+fn validate_secondary_storage_options(
+    options: &FredSecondaryStorageOptions,
+) -> Result<(), OpenAuthError> {
+    if options.key_prefix.is_empty() {
+        return Err(OpenAuthError::InvalidConfig(
+            "secondary storage key prefix must not be empty".to_owned(),
+        ));
+    }
+    if options.scan_count == 0 {
+        return Err(OpenAuthError::InvalidConfig(
+            "secondary storage scan count must be greater than zero".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_pattern_escapes_redis_glob_metacharacters() {
+        assert_eq!(
+            secondary_storage_scan_pattern(r"tenant:*?[]\:"),
+            r"tenant:\*\?\[\]\\:*"
+        );
+    }
+
+    #[test]
+    fn scan_pattern_leaves_plain_prefixes_readable() {
+        assert_eq!(
+            secondary_storage_scan_pattern("openauth:test:"),
+            "openauth:test:*"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_keys_rejects_empty_prefix_before_calling_redis() {
+        let storage = FredSecondaryStorage::new(
+            Client::default(),
+            FredSecondaryStorageOptions {
+                key_prefix: String::new(),
+                scan_count: 100,
+            },
+        );
+
+        assert!(matches!(
+            storage.list_keys().await,
+            Err(OpenAuthError::InvalidConfig(message))
+                if message == "secondary storage key prefix must not be empty"
+        ));
+    }
+
+    #[tokio::test]
+    async fn list_keys_rejects_zero_scan_count_before_calling_redis() {
+        let storage = FredSecondaryStorage::new(
+            Client::default(),
+            FredSecondaryStorageOptions {
+                key_prefix: "openauth:test:".to_owned(),
+                scan_count: 0,
+            },
+        );
+
+        assert!(matches!(
+            storage.list_keys().await,
+            Err(OpenAuthError::InvalidConfig(message))
+                if message == "secondary storage scan count must be greater than zero"
+        ));
+    }
+
+    #[tokio::test]
+    async fn clear_rejects_empty_prefix_before_calling_redis() {
+        let storage = FredSecondaryStorage::new(
+            Client::default(),
+            FredSecondaryStorageOptions {
+                key_prefix: String::new(),
+                scan_count: 100,
+            },
+        );
+
+        assert!(matches!(
+            storage.clear().await,
+            Err(OpenAuthError::InvalidConfig(message))
+                if message == "secondary storage key prefix must not be empty"
+        ));
+    }
+
+    #[tokio::test]
+    async fn clear_rejects_zero_scan_count_before_calling_redis() {
+        let storage = FredSecondaryStorage::new(
+            Client::default(),
+            FredSecondaryStorageOptions {
+                key_prefix: "openauth:test:".to_owned(),
+                scan_count: 0,
+            },
+        );
+
+        assert!(matches!(
+            storage.clear().await,
+            Err(OpenAuthError::InvalidConfig(message))
+                if message == "secondary storage scan count must be greater than zero"
+        ));
     }
 }

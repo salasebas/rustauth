@@ -1,7 +1,13 @@
-use http::{Method, Request, StatusCode};
-use openauth::OpenAuth;
+use std::sync::Arc;
+use std::sync::Mutex;
+
+use http::{header, Method, Request, StatusCode};
+use openauth::{
+    AdvancedOptions, MemoryAdapter, OpenAuth, OpenAuthError, OpenAuthOptions, PasswordOptions,
+    SessionOptions,
+};
 use openauth_core::options::{
-    RateLimitConsumeInput, RateLimitRule, RateLimitStore, SecondaryStorage,
+    PasswordResetEmail, RateLimitConsumeInput, RateLimitRule, RateLimitStore, SecondaryStorage,
 };
 use openauth_fred::{FredRateLimitStore, FredSecondaryStorage, FredSecondaryStorageOptions};
 
@@ -286,6 +292,227 @@ async fn openauth_handler_async_uses_fred_rate_limit_store(
 }
 
 #[tokio::test]
+async fn openauth_email_signup_uses_fred_secondary_storage_for_sessions(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let prefix = format!("openauth:test:{}:{}:signup:", target.name, now_ms());
+        let storage = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: prefix,
+                scan_count: 10,
+            },
+        )
+        .await?;
+        storage.clear().await?;
+        let options = OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            secondary_storage: Some(Arc::new(storage.clone())),
+            advanced: AdvancedOptions {
+                disable_csrf_check: true,
+                disable_origin_check: true,
+                ..AdvancedOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        };
+        let auth = OpenAuth::builder()
+            .options(options)
+            .adapter(MemoryAdapter::new())
+            .build()?;
+
+        let signup = auth
+            .handler_async(json_request(
+                Method::POST,
+                "/api/auth/sign-up/email",
+                r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+                None,
+            )?)
+            .await?;
+        assert_eq!(signup.status(), StatusCode::OK);
+
+        let mut keys = storage.list_keys().await?;
+        keys.sort();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.iter().any(|key| key.starts_with("session:")));
+        assert!(keys.iter().any(|key| key.starts_with("session:user:")));
+
+        let cookie = cookie_header(&signup);
+        let session = auth
+            .handler_async(json_request(
+                Method::GET,
+                "/api/auth/get-session",
+                "",
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(session.status(), StatusCode::OK);
+        assert!(String::from_utf8_lossy(session.body()).contains("ada@example.com"));
+
+        storage.clear().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_email_signup_with_database_sessions_still_writes_fred_secondary_storage(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let prefix = format!("openauth:test:{}:{}:signup-db:", target.name, now_ms());
+        let storage = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: prefix,
+                scan_count: 10,
+            },
+        )
+        .await?;
+        storage.clear().await?;
+        let options = OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            secondary_storage: Some(Arc::new(storage.clone())),
+            session: SessionOptions::new()
+                .store_session_in_database(true)
+                .preserve_session_in_database(true),
+            advanced: AdvancedOptions {
+                disable_csrf_check: true,
+                disable_origin_check: true,
+                ..AdvancedOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        };
+        let auth = OpenAuth::builder()
+            .options(options)
+            .adapter(MemoryAdapter::new())
+            .build()?;
+
+        let signup = auth
+            .handler_async(json_request(
+                Method::POST,
+                "/api/auth/sign-up/email",
+                r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+                None,
+            )?)
+            .await?;
+        assert_eq!(signup.status(), StatusCode::OK);
+
+        let cookie = cookie_header(&signup);
+        let session = auth
+            .handler_async(json_request(
+                Method::GET,
+                "/api/auth/get-session",
+                "",
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(session.status(), StatusCode::OK);
+        assert!(String::from_utf8_lossy(session.body()).contains("ada@example.com"));
+
+        let keys = storage.list_keys().await?;
+        let session_key = keys
+            .iter()
+            .find(|key| key.starts_with("session:") && !key.starts_with("session:user:"))
+            .ok_or("missing fred session key")?;
+        assert!(storage.get(session_key).await?.is_some());
+
+        let signout = auth
+            .handler_async(json_request(
+                Method::POST,
+                "/api/auth/sign-out",
+                "",
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(signout.status(), StatusCode::OK);
+        assert_eq!(storage.get(session_key).await?, None);
+        storage.clear().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn openauth_password_reset_uses_fred_secondary_storage_for_verification(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let prefix = format!("openauth:test:{}:{}:password-reset:", target.name, now_ms());
+        let storage = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: prefix,
+                scan_count: 10,
+            },
+        )
+        .await?;
+        storage.clear().await?;
+        let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sent_for_hook = Arc::clone(&sent);
+        let options = OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            secondary_storage: Some(Arc::new(storage.clone())),
+            password: PasswordOptions::new().send_reset_password(
+                move |email: PasswordResetEmail, _request: Option<&Request<Vec<u8>>>| {
+                    sent_for_hook
+                        .lock()
+                        .map_err(|_| OpenAuthError::Api("password reset sink poisoned".to_owned()))?
+                        .push(email.token);
+                    Ok(())
+                },
+            ),
+            advanced: AdvancedOptions {
+                disable_csrf_check: true,
+                disable_origin_check: true,
+                ..AdvancedOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        };
+        let auth = OpenAuth::builder()
+            .options(options)
+            .adapter(MemoryAdapter::new())
+            .build()?;
+
+        let signup = auth
+            .handler_async(json_request(
+                Method::POST,
+                "/api/auth/sign-up/email",
+                r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+                None,
+            )?)
+            .await?;
+        assert_eq!(signup.status(), StatusCode::OK);
+
+        let request_reset = auth
+            .handler_async(json_request(
+                Method::POST,
+                "/api/auth/request-password-reset",
+                r#"{"email":"ada@example.com","redirectTo":"/reset"}"#,
+                None,
+            )?)
+            .await?;
+        assert_eq!(request_reset.status(), StatusCode::OK);
+        let token = sent
+            .lock()
+            .map_err(|_| "password reset sink poisoned")?
+            .first()
+            .cloned()
+            .ok_or("missing reset token")?;
+        let verification_key = format!("verification:reset-password:{token}");
+        assert!(storage.get(&verification_key).await?.is_some());
+
+        let reset = auth
+            .handler_async(json_request(
+                Method::POST,
+                "/api/auth/reset-password",
+                &format!(r#"{{"newPassword":"new-secret123","token":"{token}"}}"#),
+                None,
+            )?)
+            .await?;
+        assert_eq!(reset.status(), StatusCode::OK);
+        assert_eq!(storage.get(&verification_key).await?, None);
+        storage.clear().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn fred_secondary_storage_supports_strings_ttl_delete_list_and_clear(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for target in available_fred_targets().await? {
@@ -332,6 +559,10 @@ async fn fred_secondary_storage_supports_strings_ttl_delete_list_and_clear(
 
         storage.delete("session:token-1").await?;
         assert_eq!(storage.get("session:token-1").await?, None);
+
+        storage.set("ttl-zero", "value".to_owned(), Some(0)).await?;
+        assert_eq!(storage.get("ttl-zero").await?, Some("value".to_owned()));
+        storage.delete("ttl-zero").await?;
 
         storage
             .set("short-lived", "value".to_owned(), Some(1))
@@ -380,6 +611,45 @@ async fn fred_secondary_storage_clear_keeps_other_prefixes(
     Ok(())
 }
 
+#[tokio::test]
+async fn fred_secondary_storage_treats_glob_metacharacters_in_prefix_literally(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let base = format!("openauth:test:{}:{}:glob", target.name, now_ms());
+        let literal_prefix = format!("{base}:*?[]\\:");
+        let neighbor_prefix = format!("{base}:neighbor:");
+        let storage = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: literal_prefix,
+                scan_count: 10,
+            },
+        )
+        .await?;
+        let neighbor = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: neighbor_prefix,
+                scan_count: 10,
+            },
+        )
+        .await?;
+        storage.clear().await?;
+        neighbor.clear().await?;
+
+        storage.set("session", "literal".to_owned(), None).await?;
+        neighbor.set("session", "neighbor".to_owned(), None).await?;
+
+        assert_eq!(storage.list_keys().await?, vec!["session".to_owned()]);
+
+        storage.clear().await?;
+        assert_eq!(storage.get("session").await?, None);
+        assert_eq!(neighbor.get("session").await?, Some("neighbor".to_owned()));
+        neighbor.clear().await?;
+    }
+    Ok(())
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -393,4 +663,33 @@ fn unique_ip(offset: u8) -> String {
     let third = ((seed >> 8) & 0xff) as u8;
     let fourth = ((seed & 0xfe) as u8).saturating_add(offset).max(1);
     format!("10.{second}.{third}.{fourth}")
+}
+
+fn json_request(
+    method: Method,
+    path: &str,
+    body: &str,
+    cookie: Option<&str>,
+) -> Result<Request<Vec<u8>>, http::Error> {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(format!("http://localhost:3000{path}"));
+    if !body.is_empty() {
+        builder = builder.header(header::CONTENT_TYPE, "application/json");
+    }
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, cookie);
+    }
+    builder.body(body.as_bytes().to_vec())
+}
+
+fn cookie_header(response: &http::Response<Vec<u8>>) -> String {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .filter_map(|value| value.split_once(';').map(|(cookie, _)| cookie.to_owned()))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
