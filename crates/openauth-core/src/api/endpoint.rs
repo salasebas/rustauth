@@ -27,6 +27,15 @@ pub type EndpointMiddlewareHandler = Arc<
     dyn for<'a> Fn(&'a AuthContext, &'a ApiRequest) -> EndpointMiddlewareFuture<'a> + Send + Sync,
 >;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestBaseUrl(pub String);
+
+pub fn request_base_url<'a>(context: &'a AuthContext, request: Option<&'a ApiRequest>) -> &'a str {
+    request
+        .and_then(|request| request.extensions().get::<RequestBaseUrl>())
+        .map_or(context.base_url.as_str(), |base_url| base_url.0.as_str())
+}
+
 #[derive(Clone)]
 pub struct EndpointMiddleware {
     pub handler: EndpointMiddlewareHandler,

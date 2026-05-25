@@ -18,9 +18,10 @@ pub(crate) mod services;
 
 pub use body::parse_request_body;
 pub use endpoint::{
-    create_auth_endpoint, ApiRequest, ApiResponse, AsyncAuthEndpoint, AsyncEndpointHandler,
-    AuthEndpoint, AuthEndpointOptions, Body, EndpointFuture, EndpointHandler, EndpointInfo,
-    EndpointKind, EndpointMiddleware, EndpointMiddlewareFuture, EndpointMiddlewareHandler,
+    create_auth_endpoint, request_base_url, ApiRequest, ApiResponse, AsyncAuthEndpoint,
+    AsyncEndpointHandler, AuthEndpoint, AuthEndpointOptions, Body, EndpointFuture, EndpointHandler,
+    EndpointInfo, EndpointKind, EndpointMiddleware, EndpointMiddlewareFuture,
+    EndpointMiddlewareHandler, RequestBaseUrl,
 };
 pub use error::{api_error, response, ApiErrorCode, ApiErrorResponse};
 pub use openapi::{

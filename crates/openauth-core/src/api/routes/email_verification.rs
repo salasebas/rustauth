@@ -10,8 +10,8 @@ use super::shared::{
     status_openapi_response,
 };
 use crate::api::{
-    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
-    BodySchema, JsonSchemaType, OpenApiOperation,
+    create_auth_endpoint, parse_request_body, request_base_url, AsyncAuthEndpoint,
+    AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::crypto::jwt::{sign_jwt, verify_jwt};
 use crate::db::{DbAdapter, User};
@@ -110,7 +110,7 @@ pub(super) fn send_verification_email_endpoint(adapter: Arc<dyn DbAdapter>) -> A
                 let callback_url = body.callback_url.unwrap_or_else(|| "/".to_owned());
                 let url = format!(
                     "{}/verify-email?token={token}&callbackURL={}",
-                    context.base_url,
+                    request_base_url(context, Some(&request)),
                     percent_encode(&callback_url)
                 );
                 sender.send_verification_email(

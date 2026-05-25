@@ -81,3 +81,48 @@ async fn email_verification_routes_work_over_axum() -> Result<(), Box<dyn std::e
     assert_eq!(user.get("email_verified"), Some(&DbValue::Boolean(true)));
     Ok(())
 }
+
+#[tokio::test]
+async fn email_verification_url_uses_inferred_base_url() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = MemoryAdapter::new();
+    let captured_url = Arc::new(Mutex::new(None::<String>));
+    let url_sink = Arc::clone(&captured_url);
+    let app = router(auth_with_adapter(
+        adapter,
+        OpenAuthOptions::default().email_verification(
+            EmailVerificationOptions::default()
+                .send_verification_email(
+                    move |email: VerificationEmail, _request: Option<&ApiRequest>| {
+                        let mut url = url_sink.lock().map_err(|_| {
+                            OpenAuthError::Api("url capture lock poisoned".to_owned())
+                        })?;
+                        *url = Some(email.url);
+                        Ok(())
+                    },
+                )
+                .send_on_sign_up(true),
+        ),
+    )?)?;
+
+    let sign_up = app
+        .oneshot(
+            json_request(
+                Method::POST,
+                "/api/auth/sign-up/email",
+                r#"{"name":"Ada","email":"ada@example.com","password":"secret123","callbackURL":"/verified"}"#,
+                None,
+            )?
+            .with_header(axum::http::header::HOST, "app.example.com")?,
+        )
+        .await?;
+
+    assert_eq!(sign_up.status(), StatusCode::OK);
+    let url = captured_url
+        .lock()
+        .map_err(|_| "url capture lock poisoned")?
+        .clone()
+        .ok_or("missing verification url")?;
+    assert!(url.starts_with("https://app.example.com/api/auth/verify-email?token="));
+    assert!(url.contains("callbackURL=%2Fverified"));
+    Ok(())
+}

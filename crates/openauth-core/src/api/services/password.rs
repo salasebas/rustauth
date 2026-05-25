@@ -1,7 +1,7 @@
 use time::{Duration, OffsetDateTime};
 
 use crate::api::plugin_pipeline::run_password_validators;
-use crate::api::ApiRequest;
+use crate::api::{request_base_url, ApiRequest};
 use crate::context::AuthContext;
 use crate::crypto::random::generate_random_string;
 use crate::db::{DbAdapter, Session, User};
@@ -170,7 +170,7 @@ pub(in crate::api) async fn request_password_reset(
         ))
         .await?;
     if let Some(sender) = &context.options.password.send_reset_password {
-        let url = password_reset_url(context, &token, input.redirect_to.as_deref());
+        let url = password_reset_url(context, request, &token, input.redirect_to.as_deref());
         sender.send_reset_password(PasswordResetEmail { user, url, token }, request)?;
     }
     Ok(())
@@ -259,11 +259,16 @@ fn validate_password_length(
     Ok(())
 }
 
-fn password_reset_url(context: &AuthContext, token: &str, redirect_to: Option<&str>) -> String {
+fn password_reset_url(
+    context: &AuthContext,
+    request: Option<&ApiRequest>,
+    token: &str,
+    redirect_to: Option<&str>,
+) -> String {
     let callback_url = redirect_to.unwrap_or("/");
     format!(
         "{}/reset-password/{token}?callbackURL={}",
-        context.base_url,
+        request_base_url(context, request),
         percent_encode(callback_url)
     )
 }

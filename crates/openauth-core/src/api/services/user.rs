@@ -1,5 +1,6 @@
 use time::OffsetDateTime;
 
+use crate::api::{request_base_url, ApiRequest};
 use crate::context::AuthContext;
 use crate::db::{DbAdapter, Session, User};
 use crate::error::OpenAuthError;
@@ -59,7 +60,7 @@ pub(in crate::api) enum ChangeEmailErrorOrOpenAuth {
 pub(in crate::api) async fn change_email(
     adapter: &dyn DbAdapter,
     context: &AuthContext,
-    request: Option<&crate::api::ApiRequest>,
+    request: Option<&ApiRequest>,
     user: User,
     input: ChangeEmailInput,
 ) -> Result<ChangeEmailResult, ChangeEmailErrorOrOpenAuth> {
@@ -113,7 +114,7 @@ pub(in crate::api) async fn change_email(
     let callback_url = input.callback_url.unwrap_or_else(|| "/".to_owned());
     let url = format!(
         "{}/verify-email?token={token}&callbackURL={}",
-        context.base_url,
+        request_base_url(context, request),
         percent_encode(&callback_url)
     );
     sender.send_verification_email(

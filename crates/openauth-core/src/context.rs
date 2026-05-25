@@ -7,6 +7,7 @@ mod origins;
 mod plugins;
 mod secrets;
 
+use crate::api::RequestBaseUrl;
 use crate::auth::trusted_origins::{matches_origin_pattern, OriginMatchSettings};
 use crate::cookies::AuthCookies;
 use crate::db::{DbAdapter, DbSchema};
@@ -166,6 +167,12 @@ impl AuthContext {
         request: Option<&Request<Vec<u8>>>,
     ) -> Result<Vec<String>, OpenAuthError> {
         let mut origins = self.trusted_origins.clone();
+        if let Some(origin) = request
+            .and_then(|request| request.extensions().get::<RequestBaseUrl>())
+            .and_then(|base_url| origin_from_url(&base_url.0))
+        {
+            push_trusted_origin(&mut origins, origin);
+        }
         if let Some(provider) = self.options.trusted_origins.provider() {
             for origin in provider.trusted_origins(request)? {
                 push_trusted_origin(&mut origins, origin);
@@ -185,4 +192,10 @@ impl AuthContext {
             .iter()
             .any(|origin| matches_origin_pattern(url, origin, settings)))
     }
+}
+
+fn origin_from_url(url: &str) -> Option<String> {
+    let (protocol, rest) = url.split_once("://")?;
+    let host = rest.split('/').next().unwrap_or(rest);
+    (!host.is_empty()).then(|| format!("{protocol}://{host}"))
 }

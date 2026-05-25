@@ -15,6 +15,9 @@ routes under a path such as `/api/auth`.
 - `handle_ref` and `handle_ref_with_options` for custom integration code.
 - Adapter-only options such as request body limits and Axum `ConnectInfo`
   propagation.
+- Per-request base URL inference from `Host` or absolute request URIs when
+  `OpenAuthOptions::base_url` is not configured, with explicit opt-in support
+  for trusted reverse proxy headers.
 - Request and response conversion that preserves headers, extensions, and HTTP
   metadata.
 
@@ -56,7 +59,12 @@ serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
 - Default mount path comes from `OpenAuthOptions::base_path`, falling back to
   `/api/auth`.
+- `base_path("/")` and `base_path("")` mount OpenAuth routes at the application
+  root.
 - Request bodies are collected before core and capped at 10 MiB by default.
+- When `base_url` is omitted, public URLs are inferred from the request. Public
+  `x-forwarded-host` and `x-forwarded-proto` headers are ignored unless
+  `OpenAuthAxumOptions::trust_proxy_headers_for_base_url(true)` is enabled.
 - Do not trust public `x-forwarded-for` headers unless traffic is terminated by
   a trusted reverse proxy.
 

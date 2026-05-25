@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::api::{
-    json_response, serialize_cookie, ApiRequest, ApiResponse, BodyField, BodySchema,
-    JsonSchemaType, PathParams,
+    json_response, request_base_url, serialize_cookie, ApiRequest, ApiResponse, BodyField,
+    BodySchema, JsonSchemaType, PathParams,
 };
 use crate::auth::oauth::OAuthBaseUrlOverride;
 use crate::auth::oauth::OAuthUserInfoError;
@@ -111,7 +111,7 @@ pub(super) fn redirect_uri(
         .extensions()
         .get::<OAuthBaseUrlOverride>()
         .map(|value| value.0.as_str())
-        .unwrap_or(&context.base_url);
+        .unwrap_or_else(|| request_base_url(context, Some(request)));
     format!("{}/callback/{provider_id}", base_url.trim_end_matches('/'))
 }
 

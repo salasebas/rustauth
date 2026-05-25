@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::Request;
+use axum::http::{header, HeaderMap, Request, Uri};
 use axum::response::IntoResponse;
 use axum::routing::any;
 use axum::Router;
-use openauth::{OpenAuth, OpenAuthError};
+use openauth::{auth::oauth::OAuthBaseUrlOverride, OpenAuth, OpenAuthError, RequestBaseUrl};
 
 use crate::error::{internal_error_response, OpenAuthAxumError};
 use crate::request::to_api_request;
@@ -121,13 +121,16 @@ pub async fn handle_ref_with_options(
     request: Request<Body>,
 ) -> axum::response::Response {
     match to_api_request(request, options).await {
-        Ok(request) => match auth.handler_async(request).await {
-            Ok(response) => from_api_response(response),
-            Err(error) => {
-                log_internal_error(auth, &error);
-                internal_error_response()
+        Ok(mut request) => {
+            maybe_insert_base_url(auth, &mut request, options);
+            match auth.handler_async(request).await {
+                Ok(response) => from_api_response(response),
+                Err(error) => {
+                    log_internal_error(auth, &error);
+                    internal_error_response()
+                }
             }
-        },
+        }
         Err(response) => response,
     }
 }
@@ -140,6 +143,9 @@ async fn route_handler(
 }
 
 fn normalize_base_path(base_path: &str) -> Result<String, OpenAuthAxumError> {
+    if base_path.is_empty() {
+        return Ok("/".to_owned());
+    }
     if !is_valid_base_path(base_path) {
         return Err(OpenAuthAxumError::InvalidBasePath(base_path.to_owned()));
     }
@@ -152,9 +158,124 @@ fn normalize_base_path(base_path: &str) -> Result<String, OpenAuthAxumError> {
     }
 }
 
+fn maybe_insert_base_url(
+    auth: &OpenAuth,
+    request: &mut openauth::ApiRequest,
+    options: OpenAuthAxumOptions,
+) {
+    if !options.infer_base_url_from_request
+        || !auth.context().base_url.is_empty()
+        || request.extensions().get::<OAuthBaseUrlOverride>().is_some()
+    {
+        return;
+    }
+
+    if let Some(base_url) = infer_base_url(
+        request.headers(),
+        request.uri(),
+        &auth.context().base_path,
+        options.trust_proxy_headers_for_base_url,
+    ) {
+        request
+            .extensions_mut()
+            .insert(RequestBaseUrl(base_url.clone()));
+        request
+            .extensions_mut()
+            .insert(OAuthBaseUrlOverride(base_url));
+    }
+}
+
+fn infer_base_url(
+    headers: &HeaderMap,
+    uri: &Uri,
+    base_path: &str,
+    trust_proxy_headers: bool,
+) -> Option<String> {
+    let origin = if trust_proxy_headers {
+        forwarded_origin(headers)
+    } else {
+        None
+    }
+    .or_else(|| uri_origin(uri))
+    .or_else(|| host_header_origin(headers))?;
+    Some(with_base_path(origin, base_path))
+}
+
+fn forwarded_origin(headers: &HeaderMap) -> Option<String> {
+    let host = header_str(headers, "x-forwarded-host")?;
+    let proto = header_str(headers, "x-forwarded-proto")?;
+    if !is_valid_host(host) || !is_valid_proto(proto) {
+        return None;
+    }
+    Some(format!("{}://{}", proto.to_ascii_lowercase(), host))
+}
+
+fn uri_origin(uri: &Uri) -> Option<String> {
+    let scheme = uri.scheme_str()?;
+    if !is_valid_proto(scheme) {
+        return None;
+    }
+    let authority = uri.authority()?.as_str();
+    if !is_valid_host(authority) {
+        return None;
+    }
+    Some(format!("{}://{}", scheme, authority))
+}
+
+fn host_header_origin(headers: &HeaderMap) -> Option<String> {
+    let host = header_str(headers, header::HOST.as_str())?;
+    if !is_valid_host(host) {
+        return None;
+    }
+    let scheme = if is_loopback_host(host) {
+        "http"
+    } else {
+        "https"
+    };
+    Some(format!("{scheme}://{host}"))
+}
+
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name)?.to_str().ok()
+}
+
+fn with_base_path(mut origin: String, base_path: &str) -> String {
+    let base_path = base_path.trim_end_matches('/');
+    if !base_path.is_empty() && base_path != "/" {
+        origin.push_str(base_path);
+    }
+    origin
+}
+
+fn is_valid_proto(proto: &str) -> bool {
+    proto.eq_ignore_ascii_case("http") || proto.eq_ignore_ascii_case("https")
+}
+
+fn is_valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b':' | b'[' | b']')
+        })
+        && !host.contains("..")
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host
+        .strip_prefix('[')
+        .and_then(|value| value.split_once(']'))
+        .map_or(host, |(host, _)| host);
+    let host = host
+        .rsplit_once(':')
+        .filter(|(_, port)| port.chars().all(|character| character.is_ascii_digit()))
+        .map_or(host, |(host, _)| host);
+    host.eq_ignore_ascii_case("localhost")
+        || host.to_ascii_lowercase().ends_with(".localhost")
+        || host == "::1"
+        || host.starts_with("127.")
+}
+
 fn is_valid_base_path(base_path: &str) -> bool {
-    !base_path.is_empty()
-        && base_path.starts_with('/')
+    base_path.starts_with('/')
         && !base_path.contains('?')
         && !base_path.contains('#')
         && !base_path.contains('{')
@@ -177,6 +298,7 @@ mod tests {
 
     #[test]
     fn normalize_base_path_trims_trailing_slashes_except_root() -> Result<(), OpenAuthAxumError> {
+        assert_eq!(normalize_base_path("")?, "/");
         assert_eq!(normalize_base_path("/")?, "/");
         assert_eq!(normalize_base_path("/api/auth/")?, "/api/auth");
         assert_eq!(normalize_base_path("/api/auth///")?, "/api/auth");
@@ -185,7 +307,13 @@ mod tests {
 
     #[test]
     fn normalize_base_path_rejects_axum_pattern_syntax_and_non_absolute_paths() {
-        for base_path in ["", "api/auth", "/api/{auth}", "/api/*auth", "/api/auth?x=1"] {
+        for base_path in [
+            "api/auth",
+            "/api/{auth}",
+            "/api/*auth",
+            "/api/auth?x=1",
+            "/api/auth#x",
+        ] {
             assert!(matches!(
                 normalize_base_path(base_path),
                 Err(OpenAuthAxumError::InvalidBasePath(_))

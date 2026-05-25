@@ -1,7 +1,7 @@
 use http::header;
 
 use crate::api::plugin_pipeline::run_password_validators;
-use crate::api::ApiRequest;
+use crate::api::{request_base_url, ApiRequest};
 use crate::auth::email_password::{
     AuthFlowError, AuthFlowErrorCode, EmailPasswordAuth, EmailPasswordConfig, SignInInput,
     SignUpInput,
@@ -284,7 +284,7 @@ fn send_verification_email(
     let callback_url = callback_url.unwrap_or_else(|| "/".to_owned());
     let url = format!(
         "{}/verify-email?token={token}&callbackURL={}",
-        context.base_url,
+        request_base_url(context, Some(request)),
         percent_encode(&callback_url)
     );
     sender.send_verification_email(VerificationEmail { user, url, token }, Some(request))

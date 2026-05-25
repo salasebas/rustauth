@@ -6,7 +6,7 @@ use super::support::{
     body_string, oauth_user_info_error, path_param, percent_encode, redirect, redirect_uri,
     redirect_with_error, IdTokenBody, LinkStatusBody, SocialSessionBody,
 };
-use crate::api::{parse_request_body, ApiRequest, ApiResponse};
+use crate::api::{parse_request_body, request_base_url, ApiRequest, ApiResponse};
 use crate::auth::oauth::{
     handle_oauth_user_info, HandleOAuthUserInfoInput, OAuthAccountInput, OAuthStateLink,
     OAuthUserInfo,
@@ -96,7 +96,10 @@ pub(super) async fn callback_get(
 ) -> Result<ApiResponse, OpenAuthError> {
     let provider_id = path_param(&request, "id")?;
     let provider = lookup_provider(context, provider_id)?;
-    let default_error_url = format!("{}/error", context.base_url.trim_end_matches('/'));
+    let default_error_url = format!(
+        "{}/error",
+        request_base_url(context, Some(&request)).trim_end_matches('/')
+    );
     let state = match query_param(&request, "state") {
         Some(state) => state,
         None => return redirect(&default_error_url, Vec::new()),
@@ -205,7 +208,7 @@ pub(super) fn callback_post_redirect(
     }
     let target = format!(
         "{}/callback/{provider_id}?{}",
-        context.base_url.trim_end_matches('/'),
+        request_base_url(context, Some(request)).trim_end_matches('/'),
         params.join("&")
     );
     redirect(&target, Vec::new())
