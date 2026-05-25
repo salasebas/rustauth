@@ -95,6 +95,18 @@ pub async fn request_json(
     cookie: Option<&str>,
     header_pair: Option<(&str, &str)>,
 ) -> Result<TestResponse, Box<dyn std::error::Error>> {
+    let headers = header_pair.into_iter().collect::<Vec<_>>();
+    request_json_with_headers(router, method, path, body, cookie, &headers).await
+}
+
+pub async fn request_json_with_headers(
+    router: &AuthRouter,
+    method: Method,
+    path: &str,
+    body: Value,
+    cookie: Option<&str>,
+    headers: &[(&str, &str)],
+) -> Result<TestResponse, Box<dyn std::error::Error>> {
     let payload = if matches!(body, Value::Null) {
         Vec::new()
     } else {
@@ -111,8 +123,8 @@ pub async fn request_json(
     if let Some(cookie) = cookie {
         builder = builder.header(header::COOKIE, cookie);
     }
-    if let Some((name, value)) = header_pair {
-        builder = builder.header(name, value);
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
     }
     let response = router.handle_async(builder.body(payload)?).await?;
     let status = response.status();
@@ -166,6 +178,12 @@ impl TestSecondaryStorage {
 
     pub fn max_active_gets(&self) -> usize {
         self.max_active_gets.load(Ordering::SeqCst)
+    }
+
+    pub fn insert_raw(&self, key: impl Into<String>, value: impl Into<String>) {
+        if let Ok(mut values) = self.values.lock() {
+            values.insert(key.into(), value.into());
+        }
     }
 
     async fn maybe_delay_get(&self) {

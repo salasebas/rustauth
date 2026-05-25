@@ -80,7 +80,8 @@ pub fn list_endpoint(
                     if options.reference != expected_reference {
                         Vec::new()
                     } else {
-                        ApiKeyStore::new(context, &options)
+                        let store = ApiKeyStore::new(context, &options);
+                        let mut result = store
                             .list(
                                 &reference_id,
                                 ListOptions {
@@ -97,7 +98,11 @@ pub fn list_endpoint(
                                 },
                             )
                             .await?
-                            .api_keys
+                            .api_keys;
+                        for api_key in &mut result {
+                            store.migrate_metadata_if_needed(api_key).await;
+                        }
+                        result
                     }
                 } else {
                     list_all_configurations(
@@ -149,7 +154,8 @@ async fn list_all_configurations(
             .config_id
             .clone()
             .unwrap_or_else(|| "default".to_owned());
-        let result = ApiKeyStore::new(context, &options)
+        let store = ApiKeyStore::new(context, &options);
+        let mut result = store
             .list(
                 reference_id,
                 ListOptions {
@@ -161,6 +167,9 @@ async fn list_all_configurations(
                 },
             )
             .await?;
+        for api_key in &mut result.api_keys {
+            store.migrate_metadata_if_needed(api_key).await;
+        }
         for api_key in result.api_keys {
             if seen.insert(api_key.id.clone()) {
                 all.push(api_key);

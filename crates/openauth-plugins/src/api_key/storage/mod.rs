@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use openauth_core::context::AuthContext;
 use openauth_core::crypto::random::generate_random_string;
-use openauth_core::db::DbAdapter;
+use openauth_core::db::{DbAdapter, DbValue, Update, Where};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::SecondaryStorage;
 use time::OffsetDateTime;
@@ -160,6 +160,28 @@ impl<'a> ApiKeyStore<'a> {
                 self.delete_database(&api_key.id).await
             }
             ApiKeyStorageMode::SecondaryStorage => self.delete_secondary(api_key).await,
+        }
+    }
+
+    pub async fn migrate_metadata_if_needed(&self, api_key: &mut ApiKeyRecord) {
+        if !api_key.needs_metadata_migration()
+            || matches!(self.options.storage, ApiKeyStorageMode::SecondaryStorage)
+                && !self.options.fallback_to_database
+        {
+            return;
+        }
+        let Some(metadata) = api_key.normalized_metadata() else {
+            return;
+        };
+        let Some(adapter) = &self.adapter else {
+            api_key.metadata = Some(metadata);
+            return;
+        };
+        let update = Update::new(super::API_KEY_MODEL)
+            .where_clause(Where::new("id", DbValue::String(api_key.id.clone())))
+            .data("metadata", DbValue::Json(metadata.clone()));
+        if adapter.update(update).await.is_ok() {
+            api_key.metadata = Some(metadata);
         }
     }
 

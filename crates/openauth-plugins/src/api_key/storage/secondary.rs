@@ -193,12 +193,10 @@ pub(super) async fn get_secondary(
     storage: &dyn SecondaryStorage,
     key: &str,
 ) -> Result<Option<ApiKeyRecord>, OpenAuthError> {
-    storage
-        .get(key)
-        .await?
-        .map(|raw| serde_json::from_str::<ApiKeyRecord>(&raw))
-        .transpose()
-        .map_err(|error| OpenAuthError::Adapter(error.to_string()))
+    let Some(raw) = storage.get(key).await? else {
+        return Ok(None);
+    };
+    Ok(serde_json::from_str::<ApiKeyRecord>(&raw).ok())
 }
 
 fn ttl_seconds(api_key: &ApiKeyRecord) -> Option<u64> {

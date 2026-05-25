@@ -56,6 +56,18 @@ async fn captcha_ignores_non_protected_endpoints() -> Result<(), Box<dyn std::er
 }
 
 #[tokio::test]
+async fn captcha_custom_endpoint_matches_containing_request_path(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
+    let router = router(plugin, "/sign-up/email")?;
+
+    let response = router.handle_async(request("/sign-up/email", &[])?).await?;
+
+    assert_error(response.status(), response.body(), "MISSING_RESPONSE");
+    Ok(())
+}
+
+#[tokio::test]
 async fn captcha_returns_400_when_response_header_is_missing(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret"))?;

@@ -38,10 +38,25 @@ fn custom_session_registers_plugin_metadata() {
     assert_eq!(plugin.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
     assert_eq!(
         plugin.options,
-        Some(json!({ "should_mutate_list_device_sessions_endpoint": false }))
+        Some(json!({ "shouldMutateListDeviceSessionsEndpoint": false }))
     );
     assert_eq!(plugin.hooks.async_after.len(), 1);
     assert_eq!(plugin.hooks.async_after[0].matcher.path, "/get-session");
+}
+
+#[test]
+fn custom_session_options_serialize_with_upstream_camel_case() {
+    let plugin = custom_session_with_options(
+        |input| Box::pin(async move { Ok(input.session) }),
+        CustomSessionOptions {
+            should_mutate_list_device_sessions_endpoint: true,
+        },
+    );
+
+    assert_eq!(
+        plugin.options,
+        Some(json!({ "shouldMutateListDeviceSessionsEndpoint": true }))
+    );
 }
 
 #[tokio::test]

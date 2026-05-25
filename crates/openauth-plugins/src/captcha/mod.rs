@@ -42,36 +42,40 @@ pub fn captcha(options: CaptchaOptions) -> Result<AuthPlugin, CaptchaConfigError
             CaptchaErrorCode::UnknownError.message(),
         ));
 
-    for endpoint in options.endpoints.clone() {
+    plugin = plugin.with_async_middleware("*", move |context, request| {
         let options = Arc::clone(&options);
-        plugin = plugin.with_async_middleware(endpoint, move |context, request| {
-            let options = Arc::clone(&options);
-            Box::pin(async move {
-                let Some(captcha_response) = request
-                    .headers()
-                    .get("x-captcha-response")
-                    .and_then(|value| value.to_str().ok())
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_owned)
-                else {
-                    return error_response(CaptchaErrorCode::MissingResponse).map(Some);
-                };
+        Box::pin(async move {
+            if !options
+                .endpoints
+                .iter()
+                .any(|endpoint| request.uri().to_string().contains(endpoint))
+            {
+                return Ok(None);
+            }
+            let Some(captcha_response) = request
+                .headers()
+                .get("x-captcha-response")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+            else {
+                return error_response(CaptchaErrorCode::MissingResponse).map(Some);
+            };
 
-                let input = VerifyCaptchaInput {
-                    options: options.as_ref(),
-                    captcha_response: &captcha_response,
-                    remote_ip: ip::request_ip(context, request),
-                };
+            let input = VerifyCaptchaInput {
+                options: options.as_ref(),
+                captcha_response: &captcha_response,
+                remote_ip: ip::request_ip(context, request),
+            };
 
-                match verify_captcha(input).await {
-                    Ok(true) => Ok(None),
-                    Ok(false) => error_response(CaptchaErrorCode::VerificationFailed).map(Some),
-                    Err(_) => error_response(CaptchaErrorCode::UnknownError).map(Some),
-                }
-            })
-        });
-    }
+            match verify_captcha(input).await {
+                Ok(true) => Ok(None),
+                Ok(false) => error_response(CaptchaErrorCode::VerificationFailed).map(Some),
+                Err(_) => error_response(CaptchaErrorCode::UnknownError).map(Some),
+            }
+        })
+    });
 
     Ok(plugin)
 }

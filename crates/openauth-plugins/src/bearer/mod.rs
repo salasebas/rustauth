@@ -25,7 +25,7 @@ pub fn bearer_with_options(options: BearerOptions) -> AuthPlugin {
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)
         .with_options(json!({
-            "require_signature": options.require_signature,
+            "requireSignature": options.require_signature,
         }))
         .with_on_request(move |context, request| request::handle(context, request, options))
         .with_on_response(response::handle)

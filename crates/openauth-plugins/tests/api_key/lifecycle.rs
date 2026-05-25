@@ -5,7 +5,8 @@ use openauth_core::db::MemoryAdapter;
 use openauth_plugins::api_key::{
     api_key, api_key_with_options, ApiKeyConfiguration, ApiKeyExpirationOptions, ApiKeyOptions,
     StartingCharactersConfig, API_KEY_MODEL, EXPIRES_IN_IS_TOO_LARGE, EXPIRES_IN_IS_TOO_SMALL,
-    INVALID_PREFIX_LENGTH, NAME_REQUIRED, NO_VALUES_TO_UPDATE, SERVER_ONLY_PROPERTY,
+    INVALID_PREFIX_LENGTH, NAME_REQUIRED, NO_VALUES_TO_UPDATE, REFILL_INTERVAL_AND_AMOUNT_REQUIRED,
+    SERVER_ONLY_PROPERTY,
 };
 use serde_json::{json, Value};
 
@@ -237,6 +238,28 @@ async fn create_rejects_sessionless_and_client_only_inputs(
 }
 
 #[tokio::test]
+async fn create_with_refill_keeps_omitted_remaining_null() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(adapter, api_key())?;
+    let user = sign_up(&router, "Rem", "rem-api@example.com").await?;
+
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"refill-only","refillAmount": 10, "refillInterval": 1000, "userId": user.user_id}),
+        None,
+        None,
+    )
+    .await?;
+
+    assert_eq!(created.status, StatusCode::OK);
+    assert!(created.body["remaining"].is_null());
+    Ok(())
+}
+
+#[tokio::test]
 async fn generated_keys_use_upstream_letter_only_default_charset(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
@@ -406,6 +429,38 @@ async fn update_rejects_empty_patch_and_disabled_keys_do_not_verify(
         verified.body["error"]["code"],
         openauth_plugins::api_key::KEY_DISABLED
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_refill_interval_without_amount_returns_upstream_error(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(adapter, api_key())?;
+    let user = sign_up(&router, "Ria", "ria-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"refill"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    let key_id = created.body["id"].as_str().ok_or("missing api key id")?;
+
+    let updated = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/update",
+        json!({"keyId": key_id, "refillInterval": 1000, "userId": user.user_id}),
+        None,
+        None,
+    )
+    .await?;
+
+    assert_eq!(updated.status, StatusCode::BAD_REQUEST);
+    assert_eq!(updated.body["code"], REFILL_INTERVAL_AND_AMOUNT_REQUIRED);
     Ok(())
 }
 

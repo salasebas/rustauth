@@ -79,11 +79,14 @@ pub fn verify_endpoint(
                 };
                 match validate_api_key(context, &options, &hashed, input.permissions.as_ref()).await
                 {
-                    Ok(api_key) => {
+                    Ok(mut api_key) => {
                         if options.defer_updates {
                             let _ = cleanup::delete_all_expired_api_keys(context, &options, false)
                                 .await;
                         }
+                        ApiKeyStore::new(context, &options)
+                            .migrate_metadata_if_needed(&mut api_key)
+                            .await;
                         json(
                             StatusCode::OK,
                             &VerifyApiKeyResponse {
@@ -195,6 +198,7 @@ pub async fn validate_api_key(
         }
         api_key.updated_at = now;
         if persist_api_key_update(context, options, &store, &api_key, expected_updated_at).await? {
+            store.migrate_metadata_if_needed(&mut api_key).await;
             return Ok(api_key);
         }
         if attempt + 1 == MAX_USAGE_UPDATE_ATTEMPTS {

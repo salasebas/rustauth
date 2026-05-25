@@ -4,6 +4,7 @@ use http::{Method, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_plugins::api_key::{
     api_key_with_configurations, ApiKeyConfiguration, ApiKeyReference,
+    INVALID_REFERENCE_ID_FROM_API_KEY,
 };
 use openauth_plugins::organization::{
     organization, organization_with_options, OrganizationOptions,
@@ -83,8 +84,8 @@ async fn organization_owned_keys_require_membership_and_do_not_mock_sessions(
         Some(("x-api-key", key)),
     )
     .await?;
-    assert_eq!(session.status, StatusCode::OK);
-    assert!(session.body.is_null());
+    assert_eq!(session.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(session.body["code"], INVALID_REFERENCE_ID_FROM_API_KEY);
     Ok(())
 }
 
