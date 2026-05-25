@@ -1,67 +1,28 @@
 # openauth-sso
 
-Enterprise single sign-on support for OpenAuth-RS.
+Enterprise single sign-on plugin for OpenAuth-RS.
 
-## Status
+## What It Is
 
-This package is in experimental beta. OIDC is the recommended path for new SSO
-integrations. SAML endpoints are available for compatibility testing, but SAML is
-not production-ready in the default build: XMLDSig validation, outbound signing,
-and encrypted assertion decryption fail closed until OpenAuth has an auditable
-XML security backend.
+`openauth-sso` is the plugin-level enterprise SSO surface. It stores SSO
+providers, exposes SSO management and login routes, consumes external OIDC
+providers, optionally exposes SAML compatibility routes, verifies domains, and
+links/provisions users and organizations.
+
+Use `openauth-oidc` directly only when you need low-level OIDC discovery/config
+helpers. Use `openauth-oauth-provider` when your OpenAuth server should issue
+OAuth/OIDC tokens.
 
 ## What It Provides
 
-`openauth-sso` exposes a server-side plugin for enterprise SSO. It adds SSO
-provider storage, feature-gated OIDC sign-in, feature-gated SAML
-metadata/ACS/SLO scaffolding, domain verification, account linking helpers,
-organization provisioning, and audit hooks.
+- Provider registration, lookup, update, and deletion.
+- OIDC sign-in and callback routes with discovery support.
+- Optional SAML metadata, ACS, SLO, and logout compatibility routes.
+- Domain verification and organization assignment helpers.
+- Account linking and profile mapping.
+- Audit hooks and rate-limit rules for SSO routes.
 
-Use `openauth-oidc` directly when you only need OpenAuth to consume external
-OIDC IdPs. Use `openauth-saml` directly when you only need SAML. Use this crate
-when you want the convenient enterprise SSO plugin that composes those protocol
-crates with provider management and domain verification.
-
-## Features
-
-- `default = ["oidc"]` keeps the common OIDC SSO path enabled.
-- `oidc` enables external OIDC IdP client routes and helpers.
-- `saml` enables SAML metadata, ACS, and SLO routes.
-- `saml-signed` enables the explicit signed-SAML feature surface and forwards to
-  `openauth-saml/saml-signed`.
-
-OIDC-only builds do not depend on the SAML crate or SAML/XML-specific
-dependencies. SCIM provisioning remains in `openauth-scim` and is not part of
-this login plugin.
-
-## Current Behavior
-
-- OIDC supports provider CRUD, discovery at registration time, runtime discovery
-  for partially stored configs, shared or provider-specific callback URLs,
-  custom profile mappings, lowercase email normalization, standard ID-token
-  claim validation, stable subject-based account linking, callback state
-  mix-up rejection, explicit email-verification trust semantics, and default
-  `client_secret_basic` token authentication.
-- OIDC manual `skipDiscovery` endpoints can opt into strict trusted-origin
-  validation with `SsoOptions::strict_oidc_manual_endpoint_origins(true)`.
-  The compatibility default accepts valid HTTP(S) manual endpoints; strict mode
-  validates registration, updates, and runtime `default_sso`/stored provider use.
-- OIDC compatibility tests cover production-shaped manual endpoint matrices and
-  provider-specific UserInfo/ID-token claims for Okta, Azure/Entra ID, and
-  Google without making network calls to those IdPs.
-- Provider IDs are limited to URL-safe slugs: ASCII letters, digits, `_`, and
-  `-`, 1-128 bytes, starting and ending with an alphanumeric character.
-- `GET /sso/get-provider` accepts `providerId` in the query string. JSON or
-  form bodies remain accepted as a compatibility fallback.
-- SAML unsigned test flows can run when policy allows unsigned assertions, but
-  signed responses, signed logout messages, outbound signing, and encrypted
-  assertions remain unsupported unless a future XML security backend is wired.
-- SAML ACS rejects replayed assertions, corrupt AuthnRequest state, invalid
-  timestamps, invalid destinations/recipients, mismatched `InResponseTo`, and
-  assertion wrapping where `Assertion` or `EncryptedAssertion` is not a direct
-  `Response` child.
-
-## Example
+## Quick Start
 
 ```rust
 use openauth::OpenAuth;
@@ -72,10 +33,30 @@ let auth = OpenAuth::builder()
     .base_url("https://app.example.com/api/auth")
     .plugin(sso(SsoOptions::default()))
     .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Prefer OIDC when the IdP supports it. SAML signed/encrypted flows are not
-published as supported in this beta release.
+The default feature set enables OIDC. Enable the `saml` feature only when you
+are testing SAML compatibility and understand the current SAML limitations.
+
+## Feature Flags
+
+- `oidc`: external OIDC IdP login support. Enabled by default.
+- `saml`: SAML metadata, ACS, SLO, and logout routes.
+- `saml-signed`: forwards the explicit signed-SAML feature surface.
+
+## SAML Status
+
+SAML support is experimental. Unsigned compatibility flows are covered, but
+signed responses, signed logout messages, outbound signing, and encrypted
+assertions are not a production-ready path yet. Prefer OIDC for new IdP
+integrations.
+
+## Status
+
+Experimental beta. OIDC is the recommended path. SAML remains WIP until XML
+signature/encryption support is backed by an auditable implementation.
 
 ## Links
 

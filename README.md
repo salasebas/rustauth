@@ -42,7 +42,7 @@ top-level crate, then add feature crates as your application needs them.
 | [OpenAuth OAuth](crates/openauth-oauth/README.md) | OAuth client primitives and request/response helpers. |
 | [OpenAuth OAuth Provider](crates/openauth-oauth-provider/README.md) | OAuth 2.1 and OpenID Connect provider support. |
 | [OpenAuth OIDC](crates/openauth-oidc/README.md) | Enterprise OIDC relying-party support for external IdPs. |
-| [OpenAuth SAML](crates/openauth-saml/README.md) | SAML 2.0 service-provider support, XML hardening, ACS, metadata, and SLO helpers. |
+| [OpenAuth SAML](crates/openauth-saml/README.md) | Experimental SAML 2.0 service-provider helpers; signed/encrypted production flows are WIP. |
 | [OpenAuth Social Providers](crates/openauth-social-providers/README.md) | Social OAuth provider definitions for GitHub, Google, Discord, Slack, and other providers. |
 | [OpenAuth SSO](crates/openauth-sso/README.md) | Enterprise SSO aggregator, provider management, domain verification, and feature-gated OIDC/SAML route composition. |
 | [OpenAuth SCIM](crates/openauth-scim/README.md) | SCIM provisioning for users and groups, independent from login. |

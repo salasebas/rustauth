@@ -1,66 +1,73 @@
 # openauth-core
 
-Core types and primitives for OpenAuth-RS.
+Core contracts and server primitives for OpenAuth-RS.
 
-## Status
+## What It Is
 
-This package is in experimental beta. Contracts for adapters, plugins, options,
-and HTTP routing may change before stable release.
+`openauth-core` contains the framework-neutral pieces shared by the workspace:
+API routing, auth context, cookies, crypto helpers, database adapter traits,
+schema planning, errors, options, plugin contracts, sessions, users,
+verification storage, and rate limiting.
 
-The current core is usable for prototypes and controlled server-side flows such
-as email/password auth, OAuth social sign-in, sessions, cookies, verification
-tokens, rate limiting, and SQL/Redis-backed storage paths. It is not yet a
-drop-in production-grade replacement for the full Better Auth ecosystem:
-larger plugins, some adapter coverage, and final OpenAPI/error contract
-hardening are still in progress.
+Application code usually starts with `openauth`. Adapter and plugin crates use
+`openauth-core` directly.
 
 ## What It Provides
 
-`openauth-core` contains the shared server contracts used by the rest of the
-workspace: API requests and responses, auth context, cookies, crypto helpers,
-database adapter traits, schemas, errors, options, plugins, sessions, users,
-verification storage, and rate limiting.
+- Core email/password, session, account, social sign-in, and verification route
+  contracts.
+- Database adapter traits and schema/migration metadata.
+- `MemoryAdapter` for tests and local prototypes.
+- Plugin, endpoint, hook, schema, and rate-limit extension contracts.
+- Cookie, JWT/JWE, secret-rotation, and request/response primitives.
 
-## Feature Flags
-
-Default features preserve the current compatibility surface:
-
-- `jose`: enables JOSE/JWE helpers backed by `josekit`, including encrypted
-  cookie cache and account-cookie JWE support.
-- `oauth`: enables OAuth/social route support and the `openauth_core::oauth`
-  re-export.
-- `social-providers`: enables the `openauth_core::social_providers` re-export.
-
-Use `openauth-core --no-default-features` for a minimal core build. That path
-keeps HS256 JWT, password hashing, secret rotation, signed cookies, sessions,
-email verification, and compact/JWT cookie cache available without compiling
-`josekit` or OpenSSL. JWE-only paths fail closed with a typed
-`OpenAuthError::FeatureDisabled { feature: "jose" }` error until `jose` is
-enabled.
-
-## Example
+## Quick Start
 
 ```rust
 use openauth_core::db::{auth_schema, AuthSchemaOptions};
 
 let schema = auth_schema(AuthSchemaOptions::default());
 let user_table = schema.table_name("user")?;
+assert_eq!(user_table, "users");
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Application code usually depends on `openauth`; adapter, plugin, and
-integration crates use `openauth-core` for stable internal contracts.
+For a full auth server, prefer the `openauth` builder:
+
+```rust
+use openauth::OpenAuth;
+
+let auth = OpenAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+## Feature Flags
+
+Default features preserve the broad compatibility surface:
+
+- `jose`: JOSE/JWE helpers backed by `josekit`.
+- `oauth`: OAuth/social route support and OAuth helper re-exports.
+- `social-providers`: social provider re-exports.
+
+Use `default-features = false` for a smaller core build when you do not need
+JOSE or social provider support.
 
 ## Production Notes
 
-- Configure a strong secret and explicit `base_url` in deployed environments.
-- Use a persistent adapter such as SQLx/Postgres or SQLx/MySQL for primary
-  auth data; `MemoryAdapter` is for tests and local development.
-- Use a real distributed rate-limit store for multi-instance deployments.
-- Sensitive routes bypass the signed cookie cache and read the backing session
-  store directly, but deployments should still use HTTPS-only cookies and
-  trusted origins.
-- Secondary storage is supported for sessions and verification tokens when a
-  `SecondaryStorage` implementation is configured.
+- Configure a strong secret and explicit `base_url`.
+- Use a durable adapter such as SQLx, `tokio-postgres`, or
+  `deadpool-postgres`; `MemoryAdapter` is not persistent.
+- Use distributed rate-limit storage for multi-instance deployments.
+- Keep browser/client SDK behavior outside core; core owns server boundaries.
+
+## Status
+
+Experimental beta. Adapter, plugin, option, and route contracts may change
+before stable release.
 
 ## Links
 

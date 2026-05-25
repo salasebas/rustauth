@@ -2,68 +2,67 @@
 
 OAuth client primitives for OpenAuth-RS.
 
-## Status
+## What It Is
 
-This package is in experimental beta. Request builders, provider contracts, and
-token validation helpers may change before stable release.
+`openauth-oauth` contains low-level OAuth 2.0 and OIDC client-side helpers used
+by OpenAuth core and social provider definitions. Most applications consume it
+indirectly through `openauth` or `openauth-social-providers`.
+
+It does not turn your server into an OAuth provider. Use
+`openauth-oauth-provider` for authorization-server behavior.
 
 ## What It Provides
 
-`openauth-oauth` contains OAuth 2.0/OIDC client-side server primitives used by
-social providers and OpenAuth core: authorization URL creation, authorization
-code exchange requests, refresh requests, token parsing, JWKS helpers, PKCE,
-and provider contracts.
+- Authorization URL construction.
+- Authorization-code, refresh-token, and client-credentials request helpers.
+- OAuth token parsing and validation helpers.
+- PKCE code challenge generation.
+- JWKS fetching/cache helpers and JWS verification behind the `jose` feature.
+- Provider traits used by `openauth-social-providers` and OpenAuth core.
 
-## Example
+## Quick Start
 
 ```rust
-use openauth_oauth::oauth2::generate_code_challenge;
+use openauth_oauth::oauth2::{
+    create_authorization_url, AuthorizationUrlRequest, ProviderOptions,
+};
 
-let challenge = generate_code_challenge("a-long-random-code-verifier")?;
+let request = AuthorizationUrlRequest::try_new(
+    "github",
+    ProviderOptions {
+        client_id: Some("github-client-id".into()),
+        client_secret: Some("github-client-secret".into()),
+        ..ProviderOptions::default()
+    },
+    "https://github.com/login/oauth/authorize",
+    "https://app.example.com/api/auth/callback/github",
+    "csrf-state",
+)?
+.scope("read:user")
+.scope("user:email")
+.code_verifier("a-long-random-code-verifier");
+
+let url = create_authorization_url(request)?;
+# let _ = url;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Most applications will consume this indirectly through `openauth` or
-`openauth-social-providers`; provider authors can use it directly.
+Provider authors can use this crate directly. Application code should usually
+configure social providers through `openauth-social-providers`.
 
 ## Security Notes
 
-- HTTP helpers use a reusable `reqwest` client with a default timeout and parse
-  OAuth error response bodies into typed errors.
-- `OAuthHttpClientConfig` can be used to set a custom timeout and user-agent,
-  or callers can inject a prebuilt `reqwest::Client`.
-- Request builders keep standard OAuth fields from being overwritten by
-  authorization-code `additional_params`.
-- HTTP Basic client authentication uses standard Base64 encoding for RFC 7617
-  compatibility.
-- Request structs retain public fields and `Default` for low-level
-  compatibility, but `create_*` helpers validate required fields even when a
-  caller bypasses `try_new`.
-- Token responses are parsed strictly: malformed field types, invalid expiry
-  values, and responses without any OAuth token material return typed errors.
-- JWS verification allows asymmetric algorithms by default. HMAC algorithms
-  (`HS256`, `HS384`, `HS512`) require explicit opt-in with
-  `TokenValidationOptions::allow_hmac_algorithms()`.
-- JWKS responses are cached per URL and refetched when a token references an
-  unknown `kid`; `OAuthJwksCacheConfig` can set TTL and cache size for explicit
-  verification calls, and `clear_jwks_cache()` is available for rotation or
-  tests.
-- Required token claims validate both presence and basic type shape for JWT and
-  introspection payloads.
-- Default provider errors do not include access, refresh, ID, or revocation
-  tokens.
+- Request builders validate required OAuth fields.
+- Token parsing rejects malformed field types and invalid expiry values.
+- JWS verification rejects HMAC algorithms unless explicitly allowed.
+- JWKS responses are cached and refetched when a token references an unknown
+  `kid`.
+- Provider errors avoid returning access, refresh, ID, or revocation tokens.
 
-## Upstream Compatibility Notes
+## Status
 
-This crate follows Better Auth's observable OAuth helper behavior where it
-fits Rust server-side boundaries. Intentional differences:
-
-- Authorization-code `additional_params` are additive by default; use
-  `override_params` for explicit provider-specific overrides.
-- Fluent request methods are provided as ergonomic wrappers around the public
-  structs, while preserving the existing struct-based API.
-- Remote JWKS verification rejects `HS*` algorithms unless explicitly enabled.
-- Verification code is split by concern (`claims`, `token_validation`, `jwks`,
-  `introspection`) while compatibility re-exports remain under `oauth2`.
+Experimental beta. Helper APIs, request builders, and validation behavior may
+change before stable release.
 
 ## Links
 

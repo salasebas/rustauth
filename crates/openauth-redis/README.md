@@ -2,52 +2,67 @@
 
 Redis and Valkey integrations for OpenAuth-RS using `redis-rs`.
 
-## Status
+## What It Is
 
-This package is in experimental beta. URL handling, key layout, Lua script
-behavior, secondary-storage layout, and rate-limit contracts may change before
-stable release.
+`openauth-redis` provides Redis-compatible backing stores for OpenAuth rate
+limiting and secondary key-value storage. Use it when your application already
+uses `redis-rs` or wants a small Redis integration.
+
+Use `openauth-fred` instead when your application standardizes on the `fred`
+client.
 
 ## What It Provides
 
-`openauth-redis` provides Redis/Valkey-backed integrations through `redis-rs`:
+- `RedisRateLimitStore`: distributed atomic rate limiting through Lua.
+- `RedisSecondaryStorage`: secondary storage for sessions, verification state,
+  SSO state, and plugin data that opt into secondary storage.
+- `redis://`, `rediss://`, `valkey://`, and `valkeys://` URL support.
 
-- `RedisRateLimitStore` implements distributed atomic rate limiting using Lua
-  scripting.
-- `RedisSecondaryStorage` implements OpenAuth secondary key-value storage for
-  sessions, verification tokens, and plugin data that opt into secondary
-  storage.
+## Quick Start
 
-Both stores accept `valkey://` and `valkeys://` aliases.
+```rust
+use openauth::{OpenAuth, RateLimitOptions};
+use openauth_redis::RedisRateLimitStore;
 
-## Example
+let store = RedisRateLimitStore::connect("redis://127.0.0.1:6379").await?;
+
+let auth = OpenAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .rate_limit(
+        RateLimitOptions::secondary_storage(store)
+            .enabled(true)
+            .window(60)
+            .max(100),
+    )
+    .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Secondary storage is configured through `OpenAuthOptions`:
 
 ```rust
 use std::sync::Arc;
+use openauth::{OpenAuth, OpenAuthOptions};
+use openauth_redis::RedisSecondaryStorage;
 
-use openauth::{OpenAuth, OpenAuthOptions, RateLimitOptions};
-use openauth_redis::{RedisRateLimitStore, RedisSecondaryStorage};
-
-let rate_limit_store = RedisRateLimitStore::connect("redis://127.0.0.1:6379").await?;
-let secondary_storage = RedisSecondaryStorage::connect("redis://127.0.0.1:6379").await?;
+let storage = RedisSecondaryStorage::connect("redis://127.0.0.1:6379").await?;
 
 let auth = OpenAuth::builder()
     .options(
         OpenAuthOptions::new()
             .secret("secret-a-at-least-32-chars-long!!")
-            .secondary_storage(Arc::new(secondary_storage))
-            .rate_limit(
-                RateLimitOptions::custom_storage(Arc::new(rate_limit_store))
-                    .enabled(true)
-                    .window(60)
-                    .max(100),
-            ),
+            .secondary_storage(Arc::new(storage)),
     )
     .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Use this crate when your application already uses `redis-rs`; use
-`openauth-fred` when you prefer the `fred` client.
+## Status
+
+Experimental beta. URL handling, key layout, Lua script behavior, and storage
+contracts may change before stable release.
 
 ## Links
 

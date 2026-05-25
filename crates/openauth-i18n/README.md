@@ -2,66 +2,67 @@
 
 Internationalization plugin for OpenAuth-RS.
 
-## Status
+## What It Is
 
-This package is in experimental beta. Locale detection, translation keys, and
-plugin behavior may change before stable release.
+`openauth-i18n` localizes OpenAuth JSON error responses. It detects a locale,
+looks up the response `code` in your dictionaries, replaces `message`, and
+preserves the original message as `originalMessage`.
 
 ## What It Provides
 
-`openauth-i18n` adds localized auth error responses through translation
-dictionaries and locale detection strategies. It translates JSON API errors by
-looking up the response `code`, replacing `message`, and preserving the original
-message in `originalMessage`.
+- Translation dictionaries keyed by OpenAuth error code.
+- Locale detection from `Accept-Language`, cookies, session fields, or a
+  synchronous resolver callback.
+- Fallback locale handling.
+- A server-side plugin that can be registered with `OpenAuth::builder()`.
 
-Locale detection supports:
-
-- `Header`: parses `Accept-Language`; exact locale tags such as `pt-BR` are
-  tried before base tags such as `pt`.
-- `Cookie`: reads a configurable locale cookie. Default: `locale`.
-- `Session`: reads a configurable user locale field. Default: `locale`.
-- `Callback`: calls a synchronous Rust resolver. Async callback support is not
-  exposed yet because plugin response hooks are currently synchronous.
-
-If no detected locale is available, the plugin uses explicit `default_locale`,
-then `en` when present, then the first translation locale.
-
-## Example
+## Quick Start
 
 ```rust
 use indexmap::IndexMap;
-use openauth::{OpenAuth, i18n};
+use openauth::OpenAuth;
+use openauth_i18n::{
+    i18n, translation_dictionary, I18nOptions, LocaleDetectionStrategy,
+};
 
 let mut translations = IndexMap::new();
 translations.insert(
     "en".to_owned(),
-    i18n::translation_dictionary([("INVALID_EMAIL", "Invalid email")]),
+    translation_dictionary([("INVALID_EMAIL", "Invalid email")]),
 );
 translations.insert(
-    "fr".to_owned(),
-    i18n::translation_dictionary([("INVALID_EMAIL", "Email invalide")]),
+    "es".to_owned(),
+    translation_dictionary([("INVALID_EMAIL", "Email invalido")]),
 );
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
-    .plugin(i18n::i18n(
-        i18n::I18nOptions::new(translations)
+    .plugin(i18n(
+        I18nOptions::new(translations)
             .default_locale("en")
             .detection([
-                i18n::LocaleDetectionStrategy::Cookie,
-                i18n::LocaleDetectionStrategy::Header,
-            ])
-            .locale_cookie("lang"),
+                LocaleDetectionStrategy::Cookie,
+                LocaleDetectionStrategy::Header,
+            ]),
     )?)
     .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-The `openauth::i18n` reexport is available when the `openauth` crate is built
-with its `i18n` feature. Applications may also depend on `openauth-i18n`
-directly.
+## Notes
 
-Keep application-specific copy in dictionaries and leave authentication logic in
-the core and plugin crates.
+- `Accept-Language` tries exact tags before base tags, for example `pt-BR`
+  before `pt`.
+- Cookie detection defaults to the `locale` cookie.
+- Session detection defaults to a user/session `locale` field.
+- Async locale callbacks are not exposed yet because response hooks are
+  currently synchronous.
+
+## Status
+
+Experimental beta. Locale detection, translation keys, and plugin behavior may
+change before stable release.
 
 ## Links
 

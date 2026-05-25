@@ -2,103 +2,65 @@
 
 SQLx database adapters for OpenAuth-RS.
 
-## Status
+## What It Is
 
-This package is in experimental beta. SQL planning, migration output, feature
-flags, and adapter behavior may change before stable release.
+`openauth-sqlx` provides OpenAuth `DbAdapter` implementations for SQLite,
+Postgres, and MySQL through SQLx. Use it when your application already uses
+SQLx or when SQLite is a good fit for local development and small deployments.
 
-Current practical parity with the Better Auth SQL adapter contract is roughly
-95% for CRUD, filtering, joins, migrations, database-backed rate limits, and
-transactions. SQLite has the strongest local coverage. Postgres and MySQL are
-covered by integration tests, but require a correctly provisioned test database.
-
-| Dialect | Status | Notes |
-| --- | --- | --- |
-| SQLite | Beta, broadly usable for core flows | `connect` and `connect_with_schema` enable `PRAGMA foreign_keys = ON` for pooled connections. Supports database-generated serial IDs. `new(pool)` assumes the caller already configured the pool. |
-| Postgres | Beta, broadly usable for core flows | Supports database-generated serial IDs and native UUID IDs with `pg_catalog.gen_random_uuid()`. |
-| MySQL | Beta | Supports database-generated serial IDs. Requires an InnoDB database/user with privileges to create tables, indexes, and foreign keys. |
+For Postgres production deployments that do not otherwise use SQLx,
+`openauth-deadpool-postgres` may be a smaller operational fit.
 
 ## What It Provides
 
-`openauth-sqlx` provides SQLite, Postgres, and MySQL adapters for OpenAuth-RS,
-plus SQL-backed rate-limit stores. Use the crate feature matching your database:
-`sqlite`, `postgres`, or `mysql`.
+- `SqliteAdapter` behind the `sqlite` feature.
+- `PostgresAdapter` behind the `postgres` feature.
+- `MySqlAdapter` behind the `mysql` feature.
+- SQL-backed rate-limit stores for supported dialects.
+- Schema creation, migration planning, and additive migration execution.
+- SQL filter, sort, pagination, and transaction support used by OpenAuth core
+  and plugins.
 
-The SQL filters support case-insensitive string matching for equality,
-inequality, array membership, and pattern operators. Empty `IN` predicates are
-compiled as no-match predicates, while empty `NOT IN` predicates are compiled as
-match-all predicates to avoid invalid SQL.
-
-`create_schema` and `run_migrations` only apply executable additive plans. If
-migration planning detects warnings such as column type mismatches, they return
-an adapter error before applying statements. Use `plan_migrations` or
-`compile_migrations` to inspect warnings and SQL without changing the database.
-
-## Example
+## Quick Start
 
 ```rust
 use openauth::OpenAuth;
 use openauth_sqlx::SqliteAdapter;
-use sqlx::sqlite::SqlitePoolOptions;
 
-let pool = SqlitePoolOptions::new()
-    .connect("sqlite://openauth.db")
-    .await?;
+let adapter = SqliteAdapter::connect("sqlite://openauth.db").await?;
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
-    .adapter(SqliteAdapter::new(pool))
+    .base_url("https://app.example.com/api/auth")
+    .adapter(adapter)
     .build()?;
+
+auth.run_migrations().await?;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-For Postgres production deployments that do not otherwise use SQLx,
-`openauth-deadpool-postgres` may be the smaller operational fit.
+Enable the matching crate feature for your dialect:
 
-## Testing
-
-SQLite tests can run without Docker:
-
-```sh
-CARGO_TARGET_DIR=/private/tmp/openauth-sqlx-target cargo nextest run -p openauth-sqlx --features sqlite
+```toml
+[dependencies]
+openauth-sqlx = { version = "0.0.6", features = ["sqlite"] }
 ```
 
-Postgres and MySQL tests expect Docker Compose services with an `openauth`
-database and a user with DDL permissions:
+## Migration Notes
 
-```sh
-./scripts/ensure-test-services.sh postgres mysql
-CARGO_TARGET_DIR=/private/tmp/openauth-sqlx-target cargo nextest run -p openauth-sqlx --features postgres --test postgres_adapter
-CARGO_TARGET_DIR=/private/tmp/openauth-sqlx-target cargo nextest run -p openauth-sqlx --features mysql --test mysql_adapter
-```
+- `run_migrations` applies executable additive plans only.
+- Type mismatches, destructive rewrites, renames, and unsafe changes are
+  reported as warnings/errors instead of being applied automatically.
+- `plan_migrations` and `compile_migrations` let you inspect generated SQL
+  before applying it.
+- `SqliteAdapter::connect` enables `PRAGMA foreign_keys = ON`; `new(pool)`
+  assumes the caller configured the pool.
 
-Defaults:
+## Status
 
-```text
-OPENAUTH_TEST_POSTGRES_URL=postgres://user:password@localhost:5432/openauth
-OPENAUTH_TEST_MYSQL_URL=mysql://user:password@localhost:3306/openauth
-```
-
-If a service is reachable but the database or grants are missing, the
-integration tests fail during preflight with an actionable error.
-
-If MySQL was started previously with a stale Docker volume, recreate the volume
-before rerunning the suite:
-
-```sh
-docker compose down -v
-./scripts/ensure-test-services.sh mysql
-```
-
-Known limits:
-
-- The SQL adapters are beta and should be validated against your production
-  dialect before rollout.
-- Schema migrations are additive only; destructive rewrites, renames, and type
-  changes are intentionally reported as warnings instead of being applied.
-- MySQL DDL can cause implicit commits, so migration preflight matters even
-  though the planner blocks known warnings before execution.
-- `SqliteAdapter::new(pool)` does not mutate caller-owned pool options. Enable
-  foreign keys yourself when constructing the pool externally.
+Experimental beta. SQLite has the strongest local coverage. Postgres and MySQL
+are covered by integration tests and should be validated against your
+production schema and privileges before rollout.
 
 ## Links
 

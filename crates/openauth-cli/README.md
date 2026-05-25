@@ -2,18 +2,22 @@
 
 Command-line tools for OpenAuth-RS.
 
-## Status
+## What It Is
 
-This package is in experimental beta. Commands, flags, generated output, and
-workspace detection may change before stable release.
+`openauth-cli` provides local developer tooling for OpenAuth projects. The
+published package exposes the `openauth` binary and cargo-style aliases.
 
 ## What It Provides
 
-`openauth-cli` provides local tooling for project setup, diagnostics, secret
-generation, schema printing, migration planning, and official plugin changes.
-The binary is exposed as `openauth` and also supports cargo-style aliases.
+- Secret generation.
+- Project diagnostics.
+- Workspace and package information.
+- Schema and migration planning output.
+- Project initialization helpers.
+- Plugin inspection and changes for official OpenAuth plugins.
+- Shell completion generation.
 
-## Example
+## Quick Start
 
 ```sh
 openauth secret --bytes 32
@@ -22,8 +26,14 @@ openauth schema print --dialect sqlite
 openauth plugins list
 ```
 
-The CLI is designed to inspect the current workspace and generate OpenAuth-RS
-configuration or database output without hiding the Rust code it affects.
+The CLI is intentionally transparent: it inspects the current Rust workspace
+and prints or writes OpenAuth configuration/migration output without hiding the
+Rust code that owns your application behavior.
+
+## Status
+
+Experimental beta. Commands, flags, generated output, and workspace detection
+may change before stable release.
 
 ## Links
 

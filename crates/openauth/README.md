@@ -1,19 +1,17 @@
 # openauth
 
-Public entry crate for OpenAuth-RS.
+Main application crate for OpenAuth-RS.
 
-## Status
+## What It Is
 
-This package is in experimental beta. Public APIs, re-exports, feature flags,
-and crate boundaries may change before stable release.
+`openauth` is the crate most applications should start with. It re-exports the
+core builder, options, HTTP handler, database contracts, plugin contracts, and
+selected integration crates behind feature flags.
 
-## What It Provides
+Depend on lower-level crates directly when you are building adapters, plugins,
+or very small binaries that do not need the umbrella surface.
 
-`openauth` is the main crate applications should start with. It exposes the
-builder, options, HTTP handler, core types, and optional re-exports for selected
-integration crates behind feature flags.
-
-## Example
+## Quick Start
 
 ```rust
 use openauth::{OpenAuth, RateLimitOptions};
@@ -23,51 +21,57 @@ let auth = OpenAuth::builder()
     .base_url("https://app.example.com/api/auth")
     .rate_limit(RateLimitOptions::memory().enabled(true).window(60).max(100))
     .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Enable feature flags such as `passkey`, `plugins`, `oidc`, `saml`, `sso`,
-`scim`, `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`, `deadpool-postgres`, or
-`tokio-postgres` when you want the top-level crate to re-export those packages.
+Attach an adapter when you need durable users, sessions, accounts, plugin data,
+or migrations:
 
-`openauth` keeps the default `openauth-core` compatibility surface enabled,
-including JOSE/JWE, OAuth route support, and social-provider re-exports. Crates
-that need a minimal core build can depend on `openauth-core` directly with
-`default-features = false`; that avoids `josekit` and OpenSSL unless the `jose`
-feature is explicitly enabled.
+```rust
+use openauth::OpenAuth;
+use openauth_sqlx::SqliteAdapter;
+use sqlx::sqlite::SqlitePoolOptions;
 
-Enterprise login is split by direction and protocol:
+let pool = SqlitePoolOptions::new().connect("sqlite://openauth.db").await?;
 
-- `oidc` re-exports `openauth-oidc`, where OpenAuth consumes external OIDC IdPs.
-- `saml` re-exports `openauth-saml`, where OpenAuth consumes external SAML IdPs.
-- `saml-signed` enables the explicit signed-SAML feature surface.
-- `sso` re-exports the enterprise SSO aggregator plugin with provider
-  management, domain verification, and route composition.
-- OAuth/OIDC authorization-server behavior remains in
-  `openauth-oauth-provider`, not in enterprise OIDC SSO.
-- SCIM remains independent provisioning support behind `scim`.
+let auth = OpenAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .adapter(SqliteAdapter::new(pool))
+    .build()?;
+
+auth.run_migrations().await?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+## Feature Flags
+
+- `i18n`: re-export `openauth-i18n`.
+- `plugins`: re-export `openauth-plugins`.
+- `passkey`: re-export `openauth-passkey`.
+- `sso`: re-export `openauth-sso`.
+- `oidc`: re-export relying-party OIDC helpers.
+- `saml` and `saml-signed`: re-export experimental SAML helpers.
+- `scim`: re-export server-side SCIM provisioning.
+- `stripe`: re-export server-side Stripe billing integration.
+- `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`: SQLx adapters.
+- `tokio-postgres` and `deadpool-postgres`: Postgres adapters.
+
+## Choosing The Right Crate
+
+- Start with `openauth` for applications.
+- Use `openauth-core` for adapter/plugin internals.
+- Use `openauth-sso` to consume external enterprise IdPs.
+- Use `openauth-oauth-provider` when your app must issue OAuth/OIDC tokens.
+- Use `openauth-axum` to mount OpenAuth in Axum.
+
+## Status
+
+Experimental beta. Public re-exports, feature flags, and crate boundaries may
+change before stable release.
 
 ## Links
 
 - [Root README](../../README.md)
-- [openauth](README.md) - main auth crate.
-- [openauth-core](../openauth-core/README.md) - core contracts.
-- [openauth-axum](../openauth-axum/README.md) - Axum adapter.
-- [openauth-cli](../openauth-cli/README.md) - CLI tools.
-- [openauth-plugins](../openauth-plugins/README.md) - auth plugins.
-- [openauth-passkey](../openauth-passkey/README.md) - passkeys.
-- [openauth-oauth](../openauth-oauth/README.md) - OAuth primitives.
-- [openauth-oauth-provider](../openauth-oauth-provider/README.md) - OAuth/OIDC provider.
-- [openauth-oidc](../openauth-oidc/README.md) - enterprise OIDC IdP client.
-- [openauth-saml](../openauth-saml/README.md) - SAML service-provider support.
-- [openauth-social-providers](../openauth-social-providers/README.md) - social OAuth providers.
-- [openauth-sso](../openauth-sso/README.md) - enterprise SSO.
-- [openauth-scim](../openauth-scim/README.md) - SCIM support.
-- [openauth-stripe](../openauth-stripe/README.md) - Stripe integration.
-- [openauth-i18n](../openauth-i18n/README.md) - localized auth.
-- [openauth-telemetry](../openauth-telemetry/README.md) - telemetry hooks.
-- [openauth-sqlx](../openauth-sqlx/README.md) - SQLx adapters.
-- [openauth-deadpool-postgres](../openauth-deadpool-postgres/README.md) - pooled Postgres.
-- [openauth-tokio-postgres](../openauth-tokio-postgres/README.md) - minimal Postgres.
-- [openauth-redis](../openauth-redis/README.md) - Redis rate limits.
-- [openauth-fred](../openauth-fred/README.md) - Fred rate limits.
 - [Repository](https://github.com/sebasxsala/openauth-rs)
