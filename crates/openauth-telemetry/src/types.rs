@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct DetectionInfo {
     pub name: String,
-    pub version: String,
+    pub version: Option<String>,
 }
 
 /// Runtime identification for Rust hosts (replaces Node/Bun/Deno detection).

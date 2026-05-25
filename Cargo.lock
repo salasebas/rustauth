@@ -2860,6 +2860,7 @@ name = "openauth-telemetry"
 version = "0.0.6"
 dependencies = [
  "base64 0.22.1",
+ "http",
  "openauth-core",
  "rand 0.8.6",
  "reqwest",
@@ -2867,6 +2868,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "url",
 ]
 
 [[package]]

@@ -27,6 +27,11 @@ tokio.workspace = true
 [features]
 default = ["http"]
 http = ["dep:reqwest"]
+oauth = ["openauth-core/oauth"]
+
+[dev-dependencies]
+http.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

@@ -19,8 +19,7 @@ fn detect_cargo_package_manager(
         name: "cargo".to_owned(),
         version: cargo_version
             .filter(|version| !version.is_empty())
-            .unwrap_or("unknown")
-            .to_owned(),
+            .map(ToOwned::to_owned),
     })
 }
 
@@ -72,18 +71,18 @@ mod tests {
             detect_cargo_package_manager(true, Some("1.85.0")),
             Some(DetectionInfo {
                 name: "cargo".to_owned(),
-                version: "1.85.0".to_owned(),
+                version: Some("1.85.0".to_owned()),
             })
         );
     }
 
     #[test]
-    fn detects_unknown_cargo_version_when_version_env_is_empty() {
+    fn detects_null_cargo_version_when_version_env_is_empty() {
         assert_eq!(
             detect_cargo_package_manager(true, Some("")),
             Some(DetectionInfo {
                 name: "cargo".to_owned(),
-                version: "unknown".to_owned(),
+                version: None,
             })
         );
     }
@@ -99,7 +98,7 @@ mod tests {
             detect_package_manager(),
             Some(DetectionInfo {
                 name: "cargo".to_owned(),
-                version: "1.85.0".to_owned(),
+                version: Some("1.85.0".to_owned()),
             })
         );
     }

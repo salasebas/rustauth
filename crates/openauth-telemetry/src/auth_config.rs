@@ -5,11 +5,102 @@
 //! defaults as upstream integration tests until the Rust option surface grows.
 
 use openauth_core::options::{
-    CookieCacheStrategy, OpenAuthOptions, RateLimitStorageOption, TrustedOriginOptions,
+    CookieCacheStrategy, OpenAuthOptions, RateLimitStorageOption, SessionAdditionalField,
+    TrustedOriginOptions, UserAdditionalField,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::types::TelemetryContext;
+
+fn user_additional_fields(
+    fields: &std::collections::BTreeMap<String, UserAdditionalField>,
+) -> Value {
+    if fields.is_empty() {
+        return Value::Null;
+    }
+
+    Value::Object(
+        fields
+            .iter()
+            .map(|(name, field)| {
+                (
+                    name.clone(),
+                    json!({
+                        "type": field.field_type,
+                        "required": field.required,
+                        "input": field.input,
+                        "returned": field.returned,
+                        "defaultValue": field.default_value.is_some(),
+                        "dbName": field.db_name.is_some(),
+                    }),
+                )
+            })
+            .collect::<Map<_, _>>(),
+    )
+}
+
+fn session_additional_fields(
+    fields: &std::collections::BTreeMap<String, SessionAdditionalField>,
+) -> Value {
+    if fields.is_empty() {
+        return Value::Null;
+    }
+
+    Value::Object(
+        fields
+            .iter()
+            .map(|(name, field)| {
+                (
+                    name.clone(),
+                    json!({
+                        "type": field.field_type,
+                        "required": field.required,
+                        "input": field.input,
+                        "returned": field.returned,
+                        "defaultValue": field.default_value.is_some(),
+                        "dbName": field.db_name.is_some(),
+                    }),
+                )
+            })
+            .collect::<Map<_, _>>(),
+    )
+}
+
+#[cfg(feature = "oauth")]
+fn social_providers(options: &OpenAuthOptions) -> Value {
+    Value::Array(
+        options
+            .social_providers
+            .iter()
+            .map(|provider| {
+                let provider_options = provider.provider_options();
+                json!({
+                    "id": provider.id(),
+                    "mapProfileToUser": false,
+                    "disableDefaultScope": provider_options.disable_default_scope,
+                    "disableIdTokenSignIn": provider_options.disable_id_token_sign_in,
+                    "disableImplicitSignUp": provider_options.disable_implicit_sign_up,
+                    "disableSignUp": provider_options.disable_sign_up,
+                    "getUserInfo": true,
+                    "overrideUserInfoOnSignIn": provider_options.override_user_info_on_sign_in,
+                    "prompt": provider_options.prompt,
+                    "verifyIdToken": false,
+                    "scope": if provider_options.scope.is_empty() {
+                        Value::Null
+                    } else {
+                        json!(provider_options.scope)
+                    },
+                    "refreshAccessToken": false,
+                })
+            })
+            .collect(),
+    )
+}
+
+#[cfg(not(feature = "oauth"))]
+fn social_providers(_options: &OpenAuthOptions) -> Value {
+    Value::Array(vec![])
+}
 
 pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryContext) -> Value {
     let trusted_origins_len = match &options.trusted_origins {
@@ -35,27 +126,27 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
         "adapter": context.adapter,
         "emailVerification": {
             "sendVerificationEmail": options.email_verification.send_verification_email.is_some(),
-            "sendOnSignUp": false,
-            "sendOnSignIn": false,
+            "sendOnSignUp": options.email_verification.send_on_sign_up,
+            "sendOnSignIn": options.email_verification.send_on_sign_in,
             "autoSignInAfterVerification": options.email_verification.auto_sign_in_after_verification,
             "expiresIn": options.email_verification.expires_in,
-            "onEmailVerification": false,
-            "afterEmailVerification": false,
+            "beforeEmailVerification": options.email_verification.before_email_verification.is_some(),
+            "afterEmailVerification": options.email_verification.after_email_verification.is_some(),
         },
         "emailAndPassword": {
-            "enabled": false,
-            "disableSignUp": false,
-            "requireEmailVerification": false,
+            "enabled": options.email_password.enabled,
+            "disableSignUp": options.email_password.disable_sign_up,
+            "requireEmailVerification": options.email_password.require_email_verification,
             "maxPasswordLength": options.password.max_password_length,
             "minPasswordLength": options.password.min_password_length,
-            "sendResetPassword": false,
-            "resetPasswordTokenExpiresIn": Value::Null,
-            "onPasswordReset": false,
+            "sendResetPassword": options.password.send_reset_password.is_some(),
+            "resetPasswordTokenExpiresIn": options.password.reset_password_token_expires_in,
+            "onPasswordReset": options.password.on_password_reset.is_some(),
             "password": { "hash": false, "verify": false },
-            "autoSignIn": false,
-            "revokeSessionsOnPasswordReset": false,
+            "autoSignIn": options.email_password.auto_sign_in,
+            "revokeSessionsOnPasswordReset": options.password.revoke_sessions_on_password_reset,
         },
-        "socialProviders": Value::Array(vec![]),
+        "socialProviders": social_providers(options),
         "plugins": if options.plugins.is_empty() {
             Value::Null
         } else {
@@ -64,10 +155,10 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
         "user": {
             "modelName": Value::Null,
             "fields": Value::Null,
-            "additionalFields": Value::Null,
+            "additionalFields": user_additional_fields(&options.user.additional_fields),
             "changeEmail": {
                 "enabled": options.user.change_email.enabled,
-                "sendChangeEmailVerification": false,
+                "sendChangeEmailConfirmation": false,
             },
         },
         "verification": {
@@ -77,34 +168,34 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
         },
         "session": {
             "modelName": Value::Null,
-            "additionalFields": Value::Null,
+            "additionalFields": session_additional_fields(&options.session.additional_fields),
             "cookieCache": {
                 "enabled": options.session.cookie_cache.enabled,
                 "maxAge": options.session.cookie_cache.max_age,
                 "strategy": cookie_strategy,
             },
-            "disableSessionRefresh": Value::Null,
+            "disableSessionRefresh": options.session.disable_session_refresh,
             "expiresIn": options.session.expires_in,
             "fields": Value::Null,
             "freshAge": options.session.fresh_age,
-            "preserveSessionInDatabase": Value::Null,
-            "storeSessionInDatabase": Value::Null,
+            "preserveSessionInDatabase": options.session.preserve_session_in_database,
+            "storeSessionInDatabase": options.session.store_session_in_database,
             "updateAge": options.session.update_age,
         },
         "account": {
             "modelName": Value::Null,
             "fields": Value::Null,
-            "encryptOAuthTokens": Value::Null,
-            "updateAccountOnSignIn": Value::Null,
+            "encryptOAuthTokens": options.account.encrypt_oauth_tokens,
+            "updateAccountOnSignIn": options.account.update_account_on_sign_in,
             "accountLinking": {
-                "enabled": Value::Null,
-                "trustedProviders": Value::Null,
-                "updateUserInfoOnLink": Value::Null,
-                "allowUnlinkingAll": Value::Null,
+                "enabled": options.account.account_linking.enabled,
+                "trustedProviders": options.account.account_linking.trusted_providers,
+                "updateUserInfoOnLink": options.account.account_linking.update_user_info_on_link,
+                "allowUnlinkingAll": options.account.account_linking.allow_unlinking_all,
             },
         },
         "hooks": { "after": false, "before": false },
-        "secondaryStorage": false,
+        "secondaryStorage": options.secondary_storage.is_some(),
         "advanced": {
             "cookiePrefix": options.advanced.cookie_prefix.is_some(),
             "cookies": false,
@@ -114,7 +205,6 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
                 "additionalCookies": Value::Null,
             },
             "database": {
-                "useNumberId": false,
                 "generateId": Value::Null,
                 "defaultFindManyLimit": Value::Null,
             },

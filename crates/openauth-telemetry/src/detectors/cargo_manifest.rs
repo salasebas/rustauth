@@ -16,7 +16,7 @@ pub(super) fn detect_from_manifest(
     candidates.iter().find_map(|(package, name)| {
         dependency_version(manifest, package).map(|version| DetectionInfo {
             name: (*name).to_owned(),
-            version,
+            version: Some(version),
         })
     })
 }

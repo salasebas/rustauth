@@ -41,7 +41,7 @@ mod tests {
             detect_framework_from_manifest(manifest),
             Some(DetectionInfo {
                 name: "axum".to_owned(),
-                version: "0.8".to_owned(),
+                version: Some("0.8".to_owned()),
             })
         );
     }

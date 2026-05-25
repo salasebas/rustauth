@@ -90,6 +90,7 @@ pub use openauth_sqlx as sqlx;
 pub use openauth_sso as sso;
 #[cfg(feature = "stripe")]
 pub use openauth_stripe as stripe;
+#[cfg(feature = "telemetry")]
 pub use openauth_telemetry::{
     create_telemetry, get_telemetry_auth_config, TelemetryContext, TelemetryEvent,
     TelemetryPublisher, TelemetryTestHooks,

@@ -41,6 +41,10 @@ publisher
 Without an endpoint or custom sink this remains a no-op, even when telemetry is
 enabled in options.
 
+The root `openauth` crate also re-exports telemetry helpers when its
+`telemetry` feature is enabled. Without that feature, import this crate
+directly as shown above.
+
 ## Environment
 
 - `OPENAUTH_TELEMETRY`: master switch.

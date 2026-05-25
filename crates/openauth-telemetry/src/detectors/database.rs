@@ -46,7 +46,7 @@ mod tests {
             detect_database_from_manifest(manifest),
             Some(DetectionInfo {
                 name: "sqlx".to_owned(),
-                version: "0.8".to_owned(),
+                version: Some("0.8".to_owned()),
             })
         );
     }
@@ -65,7 +65,7 @@ mod tests {
             detect_database_from_manifest(manifest),
             Some(DetectionInfo {
                 name: "postgresql".to_owned(),
-                version: "workspace".to_owned(),
+                version: Some("workspace".to_owned()),
             })
         );
     }
