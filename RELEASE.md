@@ -45,10 +45,10 @@ The current workspace packages must be published in this order:
 
 1. `openauth-oauth` — no OpenAuth workspace dependencies.
 2. `openauth-oidc` — no OpenAuth workspace dependencies.
-3. `openauth-stripe` — no OpenAuth workspace dependencies.
-4. `openauth-social-providers` — depends on `openauth-oauth`.
-5. `openauth-core` — depends on `openauth-oauth` and
+3. `openauth-social-providers` — depends on `openauth-oauth`.
+4. `openauth-core` — depends on `openauth-oauth` and
    `openauth-social-providers`.
+5. `openauth-stripe` — depends on `openauth-core`.
 6. `openauth-saml` — depends on `openauth-core`.
 7. `openauth-scim` — depends on `openauth-core`.
 8. `openauth-i18n` — depends on `openauth-core`.
@@ -68,7 +68,7 @@ The current workspace packages must be published in this order:
 18. `openauth` — depends on `openauth-core`,
     `openauth-deadpool-postgres`, `openauth-i18n`, `openauth-oidc`,
     `openauth-passkey`, `openauth-plugins`, `openauth-saml`,
-    `openauth-scim`, `openauth-sqlx`, `openauth-sso`,
+    `openauth-scim`, `openauth-sqlx`, `openauth-sso`, `openauth-stripe`,
     `openauth-telemetry`, and `openauth-tokio-postgres`.
 19. `openauth-fred` — depends on `openauth-core`, and its publish
     verification uses a dev-dependency on `openauth`.
