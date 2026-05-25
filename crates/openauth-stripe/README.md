@@ -24,6 +24,13 @@ let stripe_crate_version = openauth_stripe::VERSION;
 Keep Stripe-facing implementation behind this crate so the core authentication
 path does not require billing dependencies.
 
+## Client SDK Scope
+
+The Better Auth Stripe package includes a browser client helper. OpenAuth keeps
+this crate server-side only: future client SDKs should be thin wrappers around
+the HTTP endpoints exposed by this plugin, not browser-only logic ported into
+the Rust core.
+
 ## Links
 
 - [Root README](../../README.md)

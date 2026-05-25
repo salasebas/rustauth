@@ -2484,6 +2484,7 @@ dependencies = [
  "openauth-scim",
  "openauth-sqlx",
  "openauth-sso",
+ "openauth-stripe",
  "openauth-telemetry",
  "openauth-tokio-postgres",
  "serde_json",
@@ -2838,7 +2839,20 @@ dependencies = [
 name = "openauth-stripe"
 version = "0.0.6"
 dependencies = [
+ "hex",
+ "hmac 0.12.1",
+ "http",
+ "indexmap 2.14.0",
+ "openauth-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "thiserror 2.0.18",
+ "time",
  "tokio",
+ "url",
 ]
 
 [[package]]
