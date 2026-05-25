@@ -61,6 +61,7 @@ async fn handle_callback(
         return redirect_error(error_url, "user_creation_failed");
     };
     let _ = parse_oauth_state(context, Some(adapter.as_ref()), &payload.state).await;
+    let trusted_provider = is_trusted_provider(context, &payload.account.provider_id);
     let result = handle_oauth_user_info(
         context,
         adapter.as_ref(),
@@ -70,7 +71,7 @@ async fn handle_callback(
             callback_url: Some(payload.callback_url.clone()),
             disable_sign_up: payload.disable_sign_up,
             override_user_info: false,
-            is_trusted_provider: true,
+            is_trusted_provider: trusted_provider,
             require_trusted_provider_for_implicit_link: false,
         },
     )
@@ -88,4 +89,14 @@ async fn handle_callback(
         &payload.callback_url
     };
     redirect_response(final_url, cookies)
+}
+
+fn is_trusted_provider(context: &openauth_core::context::AuthContext, provider_id: &str) -> bool {
+    context
+        .options
+        .account
+        .account_linking
+        .trusted_providers
+        .iter()
+        .any(|trusted| trusted == provider_id)
 }

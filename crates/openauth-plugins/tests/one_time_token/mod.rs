@@ -2,6 +2,11 @@ mod helpers;
 
 use helpers::*;
 use http::{header, Method, StatusCode};
+use openauth_core::db::{DbFieldType, DbValue};
+use openauth_core::options::{
+    CookieCacheOptions, OpenAuthOptions, SessionAdditionalField, SessionOptions,
+    UserAdditionalField, UserOptions,
+};
 use openauth_plugins::one_time_token::{
     default_key_hasher, one_time_token, one_time_token_with_options, OneTimeTokenOptions,
     StoreToken,
@@ -54,6 +59,29 @@ async fn endpoints_expose_openapi_metadata() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+#[test]
+fn plugin_options_metadata_uses_upstream_camel_case_names() -> Result<(), Box<dyn std::error::Error>>
+{
+    let plugin = one_time_token_with_options(
+        OneTimeTokenOptions::default()
+            .expires_in_minutes(10)
+            .disable_client_request(true)
+            .disable_set_session_cookie(true)
+            .store_token(StoreToken::Hashed)
+            .set_ott_header_on_new_session(true),
+    );
+    let options = plugin
+        .options
+        .ok_or("plugin options should be serialized")?;
+
+    assert_eq!(options["expiresIn"], 10);
+    assert_eq!(options["disableClientRequest"], true);
+    assert_eq!(options["disableSetSessionCookie"], true);
+    assert_eq!(options["storeToken"], "hashed");
+    assert_eq!(options["setOttHeaderOnNewSession"], true);
+    Ok(())
+}
+
 #[tokio::test]
 async fn generated_token_verifies_once_and_sets_session_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -101,6 +129,111 @@ async fn generated_token_verifies_once_and_sets_session_cookie(
     assert_eq!(second.status(), StatusCode::BAD_REQUEST);
     let second_body: Value = serde_json::from_slice(second.body())?;
     assert_eq!(second_body["message"], "Invalid token");
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_returns_configured_additional_fields() -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) =
+        router_with_plugin_and_options(one_time_token(), additional_field_options())?;
+    seed_user_and_session(&adapter, default_session_expires_at()).await?;
+    seed_verification(
+        &adapter,
+        "one-time-token:valid-token",
+        "session-token",
+        OffsetDateTime::now_utc() + Duration::minutes(5),
+    )
+    .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            r#"{"token":"valid-token"}"#,
+            None,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["user"]["role"], "member");
+    assert_eq!(body["session"]["deviceLabel"], "primary");
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_sets_cookie_cache_when_enabled() -> Result<(), Box<dyn std::error::Error>> {
+    let options = OpenAuthOptions {
+        session: SessionOptions {
+            cookie_cache: CookieCacheOptions {
+                enabled: true,
+                ..CookieCacheOptions::default()
+            },
+            ..SessionOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    };
+    let (adapter, router) = router_with_plugin_and_options(one_time_token(), options)?;
+    seed_user_and_session(&adapter, default_session_expires_at()).await?;
+    seed_verification(
+        &adapter,
+        "one-time-token:cache-token",
+        "session-token",
+        OffsetDateTime::now_utc() + Duration::minutes(5),
+    )
+    .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            r#"{"token":"cache-token"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.starts_with("open-auth.session_data=")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn generate_preserves_refresh_cookies_from_session_lookup(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = OpenAuthOptions {
+        session: SessionOptions {
+            expires_in: Some(60 * 60 * 24),
+            update_age: Some(0),
+            cookie_cache: CookieCacheOptions {
+                enabled: true,
+                ..CookieCacheOptions::default()
+            },
+            ..SessionOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    };
+    let cookie = signed_session_cookie_with_options("session-token", options.clone())?;
+    let (adapter, router) = router_with_plugin_and_options(one_time_token(), options)?;
+    seed_user_and_session(&adapter, OffsetDateTime::now_utc() + Duration::hours(1)).await?;
+
+    let response = router
+        .handle_async(request(
+            Method::GET,
+            "/api/auth/one-time-token/generate",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.starts_with("open-auth.session_data=")));
     Ok(())
 }
 
@@ -319,4 +452,26 @@ async fn set_ott_header_on_new_sign_in_session() -> Result<(), Box<dyn std::erro
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.headers().get("set-ott").is_some());
     Ok(())
+}
+
+fn additional_field_options() -> OpenAuthOptions {
+    OpenAuthOptions {
+        user: UserOptions {
+            additional_fields: std::collections::BTreeMap::from([(
+                "role".to_owned(),
+                UserAdditionalField::new(DbFieldType::String)
+                    .default_value(DbValue::String("member".to_owned())),
+            )]),
+            ..UserOptions::default()
+        },
+        session: SessionOptions {
+            additional_fields: std::collections::BTreeMap::from([(
+                "deviceLabel".to_owned(),
+                SessionAdditionalField::new(DbFieldType::String)
+                    .default_value(DbValue::String("primary".to_owned())),
+            )]),
+            ..SessionOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use http::{header, HeaderValue, Method, StatusCode};
+use openauth_core::api::output::{session_response_cookies, session_user_output};
 use openauth_core::api::{
     create_auth_endpoint, parse_request_body, ApiErrorResponse, ApiRequest, ApiResponse,
     AsyncAuthEndpoint, AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType,
@@ -8,7 +9,7 @@ use openauth_core::api::{
 };
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::context::AuthContext;
-use openauth_core::cookies::{set_session_cookie, Cookie, CookieOptions, SessionCookieOptions};
+use openauth_core::cookies::Cookie;
 use openauth_core::crypto::random::generate_random_string;
 use openauth_core::db::{DbAdapter, Session, User};
 use openauth_core::error::OpenAuthError;
@@ -16,7 +17,7 @@ use openauth_core::session::DbSessionStore;
 use openauth_core::user::DbUserStore;
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use time::{Duration, OffsetDateTime};
 
 use super::hashing::default_key_hasher;
@@ -34,8 +35,8 @@ struct VerifyBody {
 
 #[derive(Debug, Serialize)]
 struct VerifyResponse {
-    session: Session,
-    user: User,
+    session: Value,
+    user: Value,
 }
 
 pub fn generate_endpoint(options: OneTimeTokenOptions) -> AsyncAuthEndpoint {
@@ -60,7 +61,7 @@ pub fn generate_endpoint(options: OneTimeTokenOptions) -> AsyncAuthEndpoint {
                     );
                 }
                 let adapter = required_adapter(context)?;
-                let Some((session, user, _cookies)) =
+                let Some((session, user, cookies)) =
                     current_session(adapter.as_ref(), context, &request).await?
                 else {
                     return error_response(
@@ -76,7 +77,7 @@ pub fn generate_endpoint(options: OneTimeTokenOptions) -> AsyncAuthEndpoint {
                     &options,
                 )
                 .await?;
-                json_response(StatusCode::OK, &GenerateResponse { token }, Vec::new())
+                json_response(StatusCode::OK, &GenerateResponse { token }, cookies)
             })
         },
     )
@@ -146,17 +147,18 @@ pub fn verify_endpoint(options: OneTimeTokenOptions) -> AsyncAuthEndpoint {
                 let cookies = if options.disable_set_session_cookie {
                     Vec::new()
                 } else {
-                    set_session_cookie(
-                        &context.auth_cookies,
-                        &context.secret,
-                        &session.token,
-                        SessionCookieOptions {
-                            dont_remember: false,
-                            overrides: CookieOptions::default(),
-                        },
-                    )?
+                    session_response_cookies(context, &session, &user, false)?
                 };
-                json_response(StatusCode::OK, &VerifyResponse { session, user }, cookies)
+                let output =
+                    session_user_output(adapter.as_ref(), context, &session, &user).await?;
+                json_response(
+                    StatusCode::OK,
+                    &VerifyResponse {
+                        session: output.session,
+                        user: output.user,
+                    },
+                    cookies,
+                )
             })
         },
     )

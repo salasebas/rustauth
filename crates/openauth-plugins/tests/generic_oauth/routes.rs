@@ -265,6 +265,77 @@ async fn oauth2_callback_creates_user_account_session_and_cookie() {
 }
 
 #[tokio::test]
+async fn oauth2_callback_rejects_unverified_existing_email_when_provider_is_not_trusted() {
+    let memory = Arc::new(MemoryAdapter::new());
+    let adapter = memory.clone() as Arc<dyn DbAdapter>;
+    seed_user(adapter.as_ref(), "user_1", "ada@example.com").await;
+    let context = context_with_plugin(
+        adapter.clone(),
+        oauth_plugin(unverified_oauth_flow_config("oauth-user-untrusted")),
+    );
+    let router = AuthRouter::try_new(context, Vec::new()).unwrap();
+    let state = sign_in_state(&router, "example", "/dashboard", None, false)
+        .await
+        .unwrap();
+
+    let response = oauth_callback(&router, "example", "code-1", &state)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        location(&response),
+        Some("https://app.example.com/error?error=account_not_linked")
+    );
+    assert!(DbUserStore::new(adapter.as_ref())
+        .find_account_by_provider_account("oauth-user-untrusted", "example")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(memory.len("session").await, 0);
+}
+
+#[tokio::test]
+async fn oauth2_callback_links_unverified_existing_email_when_provider_is_trusted() {
+    let memory = Arc::new(MemoryAdapter::new());
+    let adapter = memory.clone() as Arc<dyn DbAdapter>;
+    seed_user(adapter.as_ref(), "user_1", "ada@example.com").await;
+    let context = context_with_plugin_options(
+        adapter.clone(),
+        oauth_plugin(unverified_oauth_flow_config("oauth-user-trusted")),
+        OpenAuthOptions {
+            account: AccountOptions {
+                account_linking: AccountLinkingOptions::default().trusted_provider("example"),
+                ..AccountOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    );
+    let router = AuthRouter::try_new(context.clone(), Vec::new()).unwrap();
+    let state = sign_in_state(&router, "example", "/dashboard", None, false)
+        .await
+        .unwrap();
+
+    let response = oauth_callback(&router, "example", "code-1", &state)
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(location(&response), Some("/dashboard"));
+    assert!(DbUserStore::new(adapter.as_ref())
+        .find_account_by_provider_account("oauth-user-trusted", "example")
+        .await
+        .unwrap()
+        .is_some());
+    let token = session_token_from_response(&context, &response);
+    assert!(DbSessionStore::new(adapter.as_ref())
+        .find_session(&token)
+        .await
+        .unwrap()
+        .is_some());
+}
+
+#[tokio::test]
 async fn oauth2_callback_redirects_new_user_to_new_user_callback_url() {
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
     let context = context_with_plugin(adapter, oauth_plugin(oauth_flow_config("oauth-user-2")));
@@ -279,6 +350,24 @@ async fn oauth2_callback_redirects_new_user_to_new_user_callback_url() {
 
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(location(&response), Some("/welcome"));
+}
+
+fn unverified_oauth_flow_config(user_id: &str) -> GenericOAuthConfig {
+    let mut config = oauth_flow_config(user_id);
+    let user_id = user_id.to_owned();
+    config.get_user_info = Some(Arc::new(move |_tokens| {
+        let user_id = user_id.clone();
+        Box::pin(async move {
+            Ok(Some(OAuth2UserInfo {
+                id: user_id,
+                name: Some("Ada Lovelace".to_owned()),
+                email: Some("ada@example.com".to_owned()),
+                image: Some("https://img.example.com/ada.png".to_owned()),
+                email_verified: false,
+            }))
+        })
+    }));
+    config
 }
 
 #[tokio::test]

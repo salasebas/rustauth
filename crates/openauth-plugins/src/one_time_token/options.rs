@@ -95,4 +95,24 @@ impl OneTimeTokenOptions {
         self.set_ott_header_on_new_session = set_header;
         self
     }
+
+    pub(crate) fn to_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "expiresIn": self.expires_in,
+            "disableClientRequest": self.disable_client_request,
+            "disableSetSessionCookie": self.disable_set_session_cookie,
+            "storeToken": self.store_token.as_metadata_value(),
+            "setOttHeaderOnNewSession": self.set_ott_header_on_new_session,
+        })
+    }
+}
+
+impl StoreToken {
+    fn as_metadata_value(&self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::Hashed => "hashed",
+            Self::Custom(_) => "custom-hasher",
+        }
+    }
 }

@@ -20,6 +20,7 @@ pub fn one_time_token() -> AuthPlugin {
 pub fn one_time_token_with_options(options: OneTimeTokenOptions) -> AuthPlugin {
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)
+        .with_options(options.to_value())
         .with_endpoint(endpoints::generate_endpoint(options.clone()))
         .with_endpoint(endpoints::verify_endpoint(options.clone()))
         .with_async_after_hook("*", move |context, _request, response| {

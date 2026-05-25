@@ -305,7 +305,7 @@ async fn callback_get(
             disable_sign_up: (config.disable_implicit_sign_up && !state_data.request_sign_up)
                 || config.disable_sign_up,
             override_user_info: config.override_user_info,
-            is_trusted_provider: true,
+            is_trusted_provider: false,
             require_trusted_provider_for_implicit_link: false,
         },
     )

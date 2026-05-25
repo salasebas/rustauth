@@ -7,7 +7,8 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::crypto::{symmetric_decrypt, symmetric_encrypt};
 use openauth_core::db::{Count, DbAdapter, MemoryAdapter};
 use openauth_core::options::{
-    AccountOptions, AdvancedOptions, OAuthStateStoreStrategy, OpenAuthOptions,
+    AccountLinkingOptions, AccountOptions, AdvancedOptions, OAuthStateStoreStrategy,
+    OpenAuthOptions,
 };
 use openauth_core::user::{CreateUserInput, DbUserStore};
 use openauth_oauth::oauth2::{
@@ -754,6 +755,80 @@ async fn existing_preview_user_links_account_without_duplicate(
     assert_eq!(preview_callback.status(), StatusCode::FOUND);
     assert_eq!(preview_adapter.count(Count::new("user")).await?, 1);
     assert_eq!(preview_adapter.count(Count::new("account")).await?, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_callback_rejects_unverified_existing_user_when_google_is_not_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let preview_adapter = Arc::new(MemoryAdapter::default());
+    DbUserStore::new(preview_adapter.as_ref())
+        .create_user(CreateUserInput::new("Existing Ada", "ada@example.com").id("user_1"))
+        .await?;
+    let preview = router(
+        preview_adapter.clone(),
+        "http://preview.example.com/api/auth",
+        OAuthProxyOptions::new(),
+    )?;
+    let mut payload = passthrough_payload_json();
+    payload["user_info"]["email_verified"] = Value::Bool(false);
+    let encrypted = symmetric_encrypt(SECRET, &payload.to_string())?;
+
+    let response = preview
+        .handle_async(json_request(
+            Method::GET,
+            &format!(
+                "http://preview.example.com/api/auth/oauth-proxy-callback?callbackURL=/dashboard&profile={}",
+                url_encode(&encrypted)
+            ),
+            "",
+        )?)
+        .await?;
+
+    assert!(location(&response)?.contains("error=user_creation_failed"));
+    assert_eq!(preview_adapter.count(Count::new("account")).await?, 0);
+    assert_eq!(preview_adapter.count(Count::new("session")).await?, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn preview_callback_links_unverified_existing_user_when_google_is_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let preview_adapter = Arc::new(MemoryAdapter::default());
+    DbUserStore::new(preview_adapter.as_ref())
+        .create_user(CreateUserInput::new("Existing Ada", "ada@example.com").id("user_1"))
+        .await?;
+    let preview = router_with_options(
+        preview_adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("http://preview.example.com/api/auth".to_owned()),
+            account: AccountOptions {
+                account_linking: AccountLinkingOptions::default().trusted_provider("google"),
+                ..AccountOptions::default()
+            },
+            plugins: vec![oauth_proxy(OAuthProxyOptions::new())],
+            ..test_options()
+        },
+    )?;
+    let mut payload = passthrough_payload_json();
+    payload["user_info"]["email_verified"] = Value::Bool(false);
+    let encrypted = symmetric_encrypt(SECRET, &payload.to_string())?;
+
+    let response = preview
+        .handle_async(json_request(
+            Method::GET,
+            &format!(
+                "http://preview.example.com/api/auth/oauth-proxy-callback?callbackURL=/dashboard&profile={}",
+                url_encode(&encrypted)
+            ),
+            "",
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(location(&response)?, "/dashboard");
+    assert_eq!(preview_adapter.count(Count::new("account")).await?, 1);
+    assert_eq!(preview_adapter.count(Count::new("session")).await?, 1);
     Ok(())
 }
 

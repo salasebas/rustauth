@@ -117,6 +117,105 @@ async fn callback_oauth_creates_user_account_session_and_redirects(
 }
 
 #[tokio::test]
+async fn callback_oauth_rejects_unverified_existing_email_when_provider_is_not_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(OffsetDateTime::now_utc())).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("github").email_verified(false))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/social",
+            r#"{"provider":"github","callbackURL":"/dashboard"}"#,
+            None,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(sign_in.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/callback/github?code=ok&state={state}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback
+            .headers()
+            .get(header::LOCATION)
+            .ok_or("missing location")?,
+        "http://localhost:3000/api/auth/error?error=account_not_linked"
+    );
+    assert_eq!(adapter.len("account").await, 0);
+    assert_eq!(adapter.len("session").await, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn callback_oauth_links_unverified_existing_email_when_provider_is_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(OffsetDateTime::now_utc())).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("github").email_verified(false))],
+            account: openauth_core::options::AccountOptions {
+                account_linking: openauth_core::options::AccountLinkingOptions::default()
+                    .trusted_provider("github"),
+                ..openauth_core::options::AccountOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/social",
+            r#"{"provider":"github","callbackURL":"/dashboard"}"#,
+            None,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(sign_in.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/callback/github?code=ok&state={state}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback
+            .headers()
+            .get(header::LOCATION)
+            .ok_or("missing location")?,
+        "/dashboard"
+    );
+    assert_eq!(adapter.len("account").await, 1);
+    assert_eq!(adapter.len("session").await, 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn link_social_requires_session_and_generates_link_state(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
@@ -191,6 +290,72 @@ async fn sign_in_social_id_token_flow_returns_session_payload(
     Ok(())
 }
 
+#[tokio::test]
+async fn sign_in_social_id_token_rejects_unverified_existing_email_when_provider_is_not_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(OffsetDateTime::now_utc())).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            social_providers: vec![Arc::new(FakeProvider::new("google").email_verified(false))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/social",
+            r#"{"provider":"google","idToken":{"token":"valid-id-token"}}"#,
+            None,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], "OAUTH_LINK_ERROR");
+    assert_eq!(body["message"], "account_not_linked");
+    assert_eq!(adapter.len("account").await, 0);
+    assert_eq!(adapter.len("session").await, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_in_social_id_token_links_unverified_existing_email_when_provider_is_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(OffsetDateTime::now_utc())).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            social_providers: vec![Arc::new(FakeProvider::new("google").email_verified(false))],
+            account: openauth_core::options::AccountOptions {
+                account_linking: openauth_core::options::AccountLinkingOptions::default()
+                    .trusted_provider("google"),
+                ..openauth_core::options::AccountOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/social",
+            r#"{"provider":"google","idToken":{"token":"valid-id-token"}}"#,
+            None,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["user"]["email"], "ada@example.com");
+    assert_eq!(adapter.len("account").await, 1);
+    assert_eq!(adapter.len("session").await, 1);
+    Ok(())
+}
+
 fn query_value(url: &str, key: &str) -> Option<String> {
     let query = url.split_once('?')?.1;
     query.split('&').find_map(|pair| {
@@ -203,6 +368,7 @@ fn query_value(url: &str, key: &str) -> Option<String> {
 struct FakeProvider {
     id: String,
     options: ProviderOptions,
+    email_verified: bool,
 }
 
 impl FakeProvider {
@@ -214,7 +380,13 @@ impl FakeProvider {
                 client_secret: Some("client-secret".to_owned()),
                 ..ProviderOptions::default()
             },
+            email_verified: true,
         }
+    }
+
+    fn email_verified(mut self, email_verified: bool) -> Self {
+        self.email_verified = email_verified;
+        self
     }
 }
 
@@ -262,13 +434,14 @@ impl SocialOAuthProvider for FakeProvider {
         _provider_user: Option<serde_json::Value>,
     ) -> SocialProviderFuture<'_, Option<OAuth2UserInfo>> {
         let id = format!("{}_ada", self.id);
+        let email_verified = self.email_verified;
         Box::pin(async move {
             Ok(Some(OAuth2UserInfo {
                 id,
                 name: Some("Ada Lovelace".to_owned()),
                 email: Some("ada@example.com".to_owned()),
                 image: None,
-                email_verified: true,
+                email_verified,
             }))
         })
     }

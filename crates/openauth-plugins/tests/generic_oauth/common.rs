@@ -5,7 +5,9 @@ pub(super) use openauth_core::cookies::{
     get_session_cookie, set_session_cookie, verify_cookie_value, Cookie, SessionCookieOptions,
 };
 pub(super) use openauth_core::db::{DbAdapter, MemoryAdapter};
-pub(super) use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+pub(super) use openauth_core::options::{
+    AccountLinkingOptions, AccountOptions, AdvancedOptions, OpenAuthOptions,
+};
 pub(super) use openauth_core::plugin::AuthPlugin;
 pub(super) use openauth_core::session::{CreateSessionInput, DbSessionStore};
 pub(super) use openauth_core::user::{CreateOAuthAccountInput, CreateUserInput, DbUserStore};
@@ -167,6 +169,14 @@ pub(super) fn oauth_plugin(config: GenericOAuthConfig) -> AuthPlugin {
 }
 
 pub(super) fn context_with_plugin(adapter: Arc<dyn DbAdapter>, plugin: AuthPlugin) -> AuthContext {
+    context_with_plugin_options(adapter, plugin, OpenAuthOptions::default())
+}
+
+pub(super) fn context_with_plugin_options(
+    adapter: Arc<dyn DbAdapter>,
+    plugin: AuthPlugin,
+    options: OpenAuthOptions,
+) -> AuthContext {
     create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("https://app.example.com".to_owned()),
@@ -177,7 +187,7 @@ pub(super) fn context_with_plugin(adapter: Arc<dyn DbAdapter>, plugin: AuthPlugi
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
-            ..OpenAuthOptions::default()
+            ..options
         },
         adapter,
     )

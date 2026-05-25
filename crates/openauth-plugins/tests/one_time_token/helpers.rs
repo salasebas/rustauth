@@ -17,6 +17,13 @@ pub(super) type TestAdapter = MemoryAdapter;
 pub(super) fn router_with_plugin(
     plugin: openauth_core::plugin::AuthPlugin,
 ) -> Result<(Arc<TestAdapter>, AuthRouter), OpenAuthError> {
+    router_with_plugin_and_options(plugin, OpenAuthOptions::default())
+}
+
+pub(super) fn router_with_plugin_and_options(
+    plugin: openauth_core::plugin::AuthPlugin,
+    options: OpenAuthOptions,
+) -> Result<(Arc<TestAdapter>, AuthRouter), OpenAuthError> {
     let adapter = Arc::new(TestAdapter::default());
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -27,7 +34,7 @@ pub(super) fn router_with_plugin(
                 ..AdvancedOptions::default()
             },
             plugins: vec![plugin],
-            ..OpenAuthOptions::default()
+            ..options
         },
         adapter.clone(),
     )?;
@@ -37,6 +44,23 @@ pub(super) fn router_with_plugin(
         core_auth_async_endpoints(adapter.clone()),
     )?;
     Ok((adapter, router))
+}
+
+pub(super) fn signed_session_cookie_with_options(
+    token: &str,
+    options: OpenAuthOptions,
+) -> Result<String, OpenAuthError> {
+    let context = openauth_core::context::create_auth_context(OpenAuthOptions {
+        secret: Some(secret().to_owned()),
+        ..options
+    })?;
+    let cookies = set_session_cookie(
+        &context.auth_cookies,
+        &context.secret,
+        token,
+        SessionCookieOptions::default(),
+    )?;
+    Ok(cookie_header(&cookies))
 }
 
 pub(super) fn request(

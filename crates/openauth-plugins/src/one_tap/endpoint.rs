@@ -126,7 +126,7 @@ async fn handle_one_tap_callback(
             user_info: normalized,
             disable_sign_up: options.disable_signup,
             override_user_info: provider.provider_options().override_user_info_on_sign_in,
-            is_trusted_provider: true,
+            is_trusted_provider: is_trusted_provider(context, GOOGLE_PROVIDER_ID),
             ..HandleOAuthUserInfoInput::default()
         },
     )
@@ -174,6 +174,16 @@ fn google_provider(
     context.social_provider(GOOGLE_PROVIDER_ID).ok_or_else(|| {
         OpenAuthError::InvalidConfig("one-tap requires a configured google provider".to_owned())
     })
+}
+
+fn is_trusted_provider(context: &AuthContext, provider_id: &str) -> bool {
+    context
+        .options
+        .account
+        .account_linking
+        .trusted_providers
+        .iter()
+        .any(|trusted| trusted == provider_id)
 }
 
 fn normalize_user_info(info: &OAuth2UserInfo) -> Option<OAuthUserInfo> {

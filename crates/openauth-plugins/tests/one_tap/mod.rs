@@ -194,6 +194,59 @@ async fn callback_rejects_unlinked_existing_user_when_account_linking_is_disable
 }
 
 #[tokio::test]
+async fn callback_rejects_unverified_existing_user_when_google_is_not_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    adapter.insert_user(test_user()).await?;
+    let router = router(adapter.clone(), OneTapOptions::default())?;
+
+    let response = router
+        .handle_async(json_request(
+            "/api/auth/one-tap/callback",
+            r#"{"idToken":"unverified-id-token"}"#,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], "ACCOUNT_NOT_LINKED");
+    assert_eq!(adapter.len("account").await, 0);
+    assert_eq!(adapter.len("session").await, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn callback_links_unverified_existing_user_when_google_is_trusted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    adapter.insert_user(test_user()).await?;
+    let router = router_with_options(
+        adapter.clone(),
+        OneTapOptions::default(),
+        OpenAuthOptions {
+            account: AccountOptions {
+                account_linking: AccountLinkingOptions::default().trusted_provider("google"),
+                ..AccountOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+        vec![],
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            "/api/auth/one-tap/callback",
+            r#"{"idToken":"unverified-id-token"}"#,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(adapter.len("account").await, 1);
+    assert_eq!(adapter.len("session").await, 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn callback_links_google_account_for_existing_verified_user(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
@@ -544,6 +597,13 @@ impl SocialOAuthProvider for FakeGoogleProvider {
                     image: Some("https://example.com/ada.png".to_owned()),
                     email_verified: true,
                 })),
+                Some("unverified-id-token") => Ok(Some(OAuth2UserInfo {
+                    id: "google_ada".to_owned(),
+                    name: Some("Ada Lovelace".to_owned()),
+                    email: Some("ada@example.com".to_owned()),
+                    image: Some("https://example.com/ada.png".to_owned()),
+                    email_verified: false,
+                })),
                 Some("no-email-token") => Ok(Some(OAuth2UserInfo {
                     id: "google_no_email".to_owned(),
                     name: Some("No Email".to_owned()),
@@ -560,7 +620,7 @@ impl SocialOAuthProvider for FakeGoogleProvider {
         Box::pin(async move {
             Ok(matches!(
                 input.token.as_str(),
-                "valid-id-token" | "no-email-token"
+                "valid-id-token" | "unverified-id-token" | "no-email-token"
             ))
         })
     }
