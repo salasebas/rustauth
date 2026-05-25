@@ -241,3 +241,30 @@ async fn saml_acs_rejects_deprecated_runtime_signature_algorithm(
 
     Ok(())
 }
+
+#[tokio::test]
+async fn saml_acs_rejects_audience_restriction_mismatch() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (adapter, router) = router_with_options(SsoOptions::default())?;
+    let cookie = seed_session(&adapter).await?;
+    register_saml_provider_allowing_unsigned_assertions(&router, &cookie).await?;
+    let relay_state = saml_sign_in_relay_state(&router).await?;
+    let saml_response = valid_saml_response(&relay_state, "assertion-audience-mismatch")?;
+    let saml_response = tamper_base64_xml(
+        &saml_response,
+        "<saml:Audience>https://app.example.com/saml/sp</saml:Audience>",
+        "<saml:Audience>https://other.example.com/saml/sp</saml:Audience>",
+    )?;
+
+    let response = post_saml_acs(&router, &saml_response, &relay_state).await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers().get(header::LOCATION),
+        Some(&http::HeaderValue::from_static(
+            "/login-error?error=saml_audience_mismatch"
+        ))
+    );
+
+    Ok(())
+}

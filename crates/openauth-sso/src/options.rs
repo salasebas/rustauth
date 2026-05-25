@@ -663,11 +663,13 @@ pub type SamlProviderConfig = SamlConfig;
 pub struct SamlIdpMetadata {
     /// Raw IdP metadata XML.
     pub metadata: Option<String>,
-    #[serde(alias = "entityID")]
+    #[serde(rename = "entityID", alias = "entityId")]
     /// IdP entity id.
     pub entity_id: Option<String>,
+    #[serde(rename = "entityURL", alias = "entityUrl")]
     /// URL where metadata can be fetched.
     pub entity_url: Option<String>,
+    #[serde(rename = "redirectURL", alias = "redirectUrl")]
     /// IdP redirect binding SSO URL.
     pub redirect_url: Option<String>,
     /// IdP signing certificate.
@@ -707,7 +709,7 @@ pub struct SamlService {
 pub struct SamlSpMetadata {
     /// Raw service provider metadata XML returned as-is when configured.
     pub metadata: Option<String>,
-    #[serde(alias = "entityID")]
+    #[serde(rename = "entityID", alias = "entityId")]
     /// Service provider entity id.
     pub entity_id: Option<String>,
     /// Preferred SAML binding URI.
@@ -743,4 +745,50 @@ pub struct SamlMapping {
     pub last_name: Option<String>,
     /// Additional attribute mappings exposed to hooks as raw attributes.
     pub extra_fields: Option<BTreeMap<String, String>>,
+}
+
+#[cfg(all(test, not(feature = "saml")))]
+mod fallback_saml_tests {
+    use super::*;
+
+    #[test]
+    fn fallback_saml_config_uses_upstream_acronym_wire_names_and_accepts_legacy_aliases(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let config: SamlConfig = serde_json::from_value(serde_json::json!({
+            "issuer": "https://sp.example.com/metadata",
+            "entryPoint": "https://idp.example.com/sso",
+            "cert": "CERTIFICATE",
+            "callbackUrl": "https://sp.example.com/acs",
+            "spMetadata": {
+                "entityId": "https://sp.example.com/legacy"
+            },
+            "idpMetadata": {
+                "entityId": "https://idp.example.com/legacy",
+                "entityUrl": "https://idp.example.com/legacy-metadata",
+                "redirectUrl": "https://idp.example.com/legacy-redirect"
+            },
+            "wantAssertionsSigned": false,
+            "authnRequestsSigned": false
+        }))?;
+
+        let serialized = serde_json::to_value(&config)?;
+
+        assert_eq!(
+            serialized["spMetadata"]["entityID"],
+            "https://sp.example.com/legacy"
+        );
+        assert_eq!(
+            serialized["idpMetadata"]["entityID"],
+            "https://idp.example.com/legacy"
+        );
+        assert_eq!(
+            serialized["idpMetadata"]["entityURL"],
+            "https://idp.example.com/legacy-metadata"
+        );
+        assert_eq!(
+            serialized["idpMetadata"]["redirectURL"],
+            "https://idp.example.com/legacy-redirect"
+        );
+        Ok(())
+    }
 }

@@ -52,11 +52,7 @@ fn configured_idp_entry_point(config: &SamlConfig) -> Option<String> {
     if let Some(location) = metadata
         .single_sign_on_service
         .as_ref()
-        .and_then(|services| {
-            services
-                .iter()
-                .find_map(|service| valid_location(&service.location))
-        })
+        .and_then(|services| configured_single_sign_on_service_location(services))
     {
         return Some(location);
     }
@@ -66,6 +62,20 @@ fn configured_idp_entry_point(config: &SamlConfig) -> Option<String> {
         .and_then(|xml| crate::saml_impl::metadata::first_single_sign_on_service_location(xml).ok())
         .flatten()
         .and_then(|location| valid_location(&location))
+}
+
+fn configured_single_sign_on_service_location(
+    services: &[crate::options::SamlService],
+) -> Option<String> {
+    services
+        .iter()
+        .find(|service| service.binding.ends_with("HTTP-Redirect"))
+        .and_then(|service| valid_location(&service.location))
+        .or_else(|| {
+            services
+                .iter()
+                .find_map(|service| valid_location(&service.location))
+        })
 }
 
 fn valid_location(location: &str) -> Option<String> {

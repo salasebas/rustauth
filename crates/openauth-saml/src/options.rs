@@ -62,9 +62,11 @@ pub type SamlConfig = SamlProviderConfig;
 /// IdP metadata fields accepted by SAML provider configuration.
 pub struct SamlIdpMetadata {
     pub metadata: Option<String>,
-    #[serde(alias = "entityID")]
+    #[serde(rename = "entityID", alias = "entityId")]
     pub entity_id: Option<String>,
+    #[serde(rename = "entityURL", alias = "entityUrl")]
     pub entity_url: Option<String>,
+    #[serde(rename = "redirectURL", alias = "redirectUrl")]
     pub redirect_url: Option<String>,
     pub cert: Option<String>,
     pub private_key: Option<SecretString>,
@@ -90,7 +92,7 @@ pub struct SamlService {
 /// Service provider metadata overrides.
 pub struct SamlSpMetadata {
     pub metadata: Option<String>,
-    #[serde(alias = "entityID")]
+    #[serde(rename = "entityID", alias = "entityId")]
     pub entity_id: Option<String>,
     pub binding: Option<String>,
     pub private_key: Option<SecretString>,
