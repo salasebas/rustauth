@@ -7,6 +7,8 @@ use openauth_core::api::{
 };
 use openauth_core::db::DbAdapter;
 use openauth_core::error::OpenAuthError;
+use openauth_core::options::PasswordResetPayload;
+use openauth_core::session::SessionStore;
 use openauth_core::user::{CreateCredentialAccountInput, DbUserStore};
 use openauth_core::verification::{DbVerificationStore, UpdateVerificationInput};
 use serde::{Deserialize, Serialize};
@@ -138,6 +140,20 @@ pub(crate) fn reset_endpoint(
                 DbVerificationStore::new(adapter.as_ref())
                     .delete_verification(&reset_identifier(&body.phone_number))
                     .await?;
+                let user = users.find_user_by_id(&user.id).await?.ok_or_else(|| {
+                    OpenAuthError::Adapter("failed to load reset user".to_owned())
+                })?;
+                if let Some(callback) = &context.options.password.on_password_reset {
+                    callback.on_password_reset(
+                        PasswordResetPayload { user: user.clone() },
+                        Some(&request),
+                    )?;
+                }
+                if context.options.password.revoke_sessions_on_password_reset {
+                    SessionStore::new(adapter.as_ref(), context)
+                        .delete_user_sessions(&user.id)
+                        .await?;
+                }
                 json_response(StatusCode::OK, &StatusResponse { status: true }, Vec::new())
             })
         },

@@ -77,9 +77,10 @@ pub(crate) async fn create_user_with_phone(
     name: String,
     email: String,
     phone_number: &str,
+    additional_fields: DbRecord,
 ) -> Result<PhoneUser, OpenAuthError> {
     let user = DbUserStore::new(adapter)
-        .create_user(CreateUserInput::new(name, email))
+        .create_user(CreateUserInput::new(name, email).additional_fields(additional_fields))
         .await?;
     update_phone(adapter, &user.id, Some(phone_number), true)
         .await?

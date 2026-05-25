@@ -6,9 +6,9 @@ use openauth_core::api::{
     OpenApiOperation,
 };
 use openauth_core::context::create_auth_context_with_adapter;
-use openauth_core::db::MemoryAdapter;
+use openauth_core::db::{DbFieldType, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, OpenAuthOptions, UserAdditionalField, UserOptions};
 use openauth_core::plugin::AuthPlugin;
 use openauth_plugins::anonymous::{anonymous, AnonymousOptions};
 use openauth_plugins::api_key::api_key;
@@ -103,6 +103,59 @@ async fn generated_schema_includes_detailed_plugin_metadata(
         .as_str()
         .is_some_and(|value| !value.is_empty()));
     assert!(anonymous["responses"]["200"].is_object());
+    Ok(())
+}
+
+#[tokio::test]
+async fn generated_schema_uses_runtime_database_schema_components(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let router = router_with_options(OpenAuthOptions {
+        base_url: Some("http://localhost:3000".to_owned()),
+        secret: Some("test-secret-123456789012345678901234".to_owned()),
+        advanced: AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
+        },
+        user: UserOptions::new().additional_field(
+            "role",
+            UserAdditionalField::new(DbFieldType::String)
+                .default_value(DbValue::String("user".to_owned())),
+        ),
+        plugins: vec![
+            open_api(OpenApiOptions::default()),
+            organization_with_options(OrganizationOptions::default()),
+            phone_number(
+                Arc::new(MemoryAdapter::new()),
+                PhoneNumberOptions::default(),
+            ),
+        ],
+        ..OpenAuthOptions::default()
+    })?;
+
+    let response = router
+        .handle_async(request(Method::GET, "/api/auth/open-api/generate-schema")?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+    let schemas = &body["components"]["schemas"];
+
+    assert_eq!(schemas["User"]["properties"]["role"]["type"], "string");
+    assert_eq!(schemas["User"]["properties"]["role"]["default"], "user");
+    assert!(schemas["User"]["required"]
+        .as_array()
+        .is_some_and(|required| required.iter().any(|field| field == "role")));
+    assert_eq!(
+        schemas["User"]["properties"]["phoneNumber"]["type"],
+        serde_json::json!(["string", "null"])
+    );
+    assert_eq!(
+        schemas["Session"]["properties"]["activeOrganizationId"]["type"],
+        serde_json::json!(["string", "null"])
+    );
+    assert_eq!(
+        schemas["Organization"]["properties"]["slug"]["type"],
+        "string"
+    );
     Ok(())
 }
 
@@ -338,21 +391,22 @@ fn dangerous_doc_plugin() -> AuthPlugin {
 }
 
 fn router(plugins: Vec<openauth_core::plugin::AuthPlugin>) -> Result<AuthRouter, OpenAuthError> {
-    let adapter = Arc::new(MemoryAdapter::default());
-    let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
-            base_url: Some("http://localhost:3000".to_owned()),
-            secret: Some("test-secret-123456789012345678901234".to_owned()),
-            advanced: AdvancedOptions {
-                disable_csrf_check: true,
-                disable_origin_check: true,
-                ..AdvancedOptions::default()
-            },
-            plugins,
-            ..OpenAuthOptions::default()
+    router_with_options(OpenAuthOptions {
+        base_url: Some("http://localhost:3000".to_owned()),
+        secret: Some("test-secret-123456789012345678901234".to_owned()),
+        advanced: AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
         },
-        adapter.clone(),
-    )?;
+        plugins,
+        ..OpenAuthOptions::default()
+    })
+}
+
+fn router_with_options(options: OpenAuthOptions) -> Result<AuthRouter, OpenAuthError> {
+    let adapter = Arc::new(MemoryAdapter::default());
+    let context = create_auth_context_with_adapter(options, adapter.clone())?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
 }
 

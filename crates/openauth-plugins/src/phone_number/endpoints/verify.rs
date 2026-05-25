@@ -2,14 +2,15 @@ use std::sync::Arc;
 
 use http::{Method, StatusCode};
 use openauth_core::api::{
-    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
-    BodySchema, JsonSchemaType,
+    additional_fields, create_auth_endpoint, parse_request_body, AsyncAuthEndpoint,
+    AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType,
 };
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
-use openauth_core::db::DbAdapter;
+use openauth_core::db::{DbAdapter, DbRecord};
 use openauth_core::error::OpenAuthError;
 use openauth_core::verification::DbVerificationStore;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use time::OffsetDateTime;
 
 use super::{create_session_cookies, validate_phone_number};
@@ -29,6 +30,8 @@ struct VerifyBody {
     disable_session: Option<bool>,
     #[serde(default, alias = "updatePhoneNumber")]
     update_phone_number: Option<bool>,
+    #[serde(flatten)]
+    additional_fields: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,8 +72,8 @@ pub(crate) fn endpoint(
                 }
 
                 if body.update_phone_number.unwrap_or(false) {
-                    let Some(user_id) =
-                        current_user_id(adapter.as_ref(), context, &request).await?
+                    let Some(current_session) =
+                        current_session_identity(adapter.as_ref(), context, &request).await?
                     else {
                         return error_response(StatusCode::UNAUTHORIZED, unexpected_error());
                     };
@@ -82,7 +85,7 @@ pub(crate) fn endpoint(
                     }
                     let user = store::update_phone(
                         adapter.as_ref(),
-                        &user_id,
+                        &current_session.user_id,
                         Some(&body.phone_number),
                         true,
                     )
@@ -93,7 +96,7 @@ pub(crate) fn endpoint(
                         StatusCode::OK,
                         &VerifyResponse {
                             status: true,
-                            token: None,
+                            token: Some(current_session.token),
                             user,
                         },
                         Vec::new(),
@@ -107,10 +110,26 @@ pub(crate) fn endpoint(
                             OpenAuthError::Adapter("failed to update user".to_owned())
                         })?,
                     None => {
+                        let additional_fields = match additional_fields::create_values(
+                            &context.options.user.additional_fields,
+                            &body.additional_fields,
+                        ) {
+                            Ok(fields) => fields,
+                            Err(error) => {
+                                return error_response(
+                                    StatusCode::BAD_REQUEST,
+                                    openauth_core::plugin::PluginErrorCode::new(
+                                        "INVALID_REQUEST_BODY",
+                                        error.message(),
+                                    ),
+                                );
+                            }
+                        };
                         let Some(user) = create_user_on_verification(
                             adapter.as_ref(),
                             &options,
                             &body.phone_number,
+                            additional_fields,
                         )
                         .await?
                         else {
@@ -159,6 +178,11 @@ async fn verify_code(
 ) -> Result<Option<openauth_core::api::ApiResponse>, OpenAuthError> {
     if let Some(verifier) = &options.verify_otp {
         if verifier(phone_number, code)? {
+            if otp::find_raw(adapter, phone_number).await?.is_some() {
+                DbVerificationStore::new(adapter)
+                    .delete_verification(phone_number)
+                    .await?;
+            }
             return Ok(None);
         }
         return error_response(StatusCode::BAD_REQUEST, invalid_otp()).map(Some);
@@ -190,11 +214,16 @@ async fn verify_code(
     Ok(None)
 }
 
-async fn current_user_id(
+struct CurrentSessionIdentity {
+    token: String,
+    user_id: String,
+}
+
+async fn current_session_identity(
     adapter: &dyn DbAdapter,
     context: &openauth_core::context::AuthContext,
     request: &openauth_core::api::ApiRequest,
-) -> Result<Option<String>, OpenAuthError> {
+) -> Result<Option<CurrentSessionIdentity>, OpenAuthError> {
     let cookie = request
         .headers()
         .get(http::header::COOKIE)
@@ -207,16 +236,20 @@ async fn current_user_id(
     else {
         return Ok(None);
     };
-    let Some(user) = result.user else {
+    let (Some(session), Some(user)) = (result.session, result.user) else {
         return Ok(None);
     };
-    Ok(Some(user.id))
+    Ok(Some(CurrentSessionIdentity {
+        token: session.token,
+        user_id: user.id,
+    }))
 }
 
 async fn create_user_on_verification(
     adapter: &dyn DbAdapter,
     options: &PhoneNumberOptions,
     phone_number: &str,
+    additional_fields: DbRecord,
 ) -> Result<Option<store::PhoneUser>, OpenAuthError> {
     let Some(sign_up) = &options.sign_up_on_verification else {
         return Ok(None);
@@ -227,7 +260,7 @@ async fn create_user_on_verification(
         .as_ref()
         .map(|get_name| get_name(phone_number))
         .unwrap_or_else(|| phone_number.to_owned());
-    store::create_user_with_phone(adapter, name, email, phone_number)
+    store::create_user_with_phone(adapter, name, email, phone_number, additional_fields)
         .await
         .map(Some)
 }
