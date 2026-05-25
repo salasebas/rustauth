@@ -331,7 +331,10 @@ impl SalesforceProvider {
             return Ok(None);
         }
 
-        let profile = response.json::<SalesforceProfile>().await?;
+        let profile = match response.json::<SalesforceProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(self.map_profile(profile)))
     }
 
@@ -412,5 +415,73 @@ fn salesforce_endpoints(options: &SalesforceOptions) -> SalesforceEndpoints {
             token: SALESFORCE_SANDBOX_TOKEN_ENDPOINT.to_owned(),
             userinfo: SALESFORCE_SANDBOX_USERINFO_ENDPOINT.to_owned(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        reason = "provider tests use local HTTP fixtures and fail fast on setup errors"
+    )]
+
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[tokio::test]
+    async fn get_user_info_returns_none_for_invalid_json() {
+        let server = RawServer::spawn("not-json");
+        let provider = SalesforceProvider {
+            options: SalesforceOptions::default(),
+            authorization_endpoint: "http://127.0.0.1/unused".to_owned(),
+            token_endpoint: "http://127.0.0.1/unused".to_owned(),
+            userinfo_endpoint: server.url(),
+            http_client: reqwest::Client::new(),
+        };
+
+        let result = provider
+            .get_user_info(&OAuth2Tokens {
+                access_token: Some("access-token".to_owned()),
+                ..OAuth2Tokens::default()
+            })
+            .await
+            .expect("invalid userinfo JSON should not error");
+
+        assert_eq!(result, None);
+    }
+
+    struct RawServer {
+        url: String,
+    }
+
+    impl RawServer {
+        fn spawn(body: &'static str) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind local test server");
+            let address = listener.local_addr().expect("local address");
+            thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept request");
+                let mut buffer = [0_u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write response");
+            });
+
+            Self {
+                url: format!("http://{address}"),
+            }
+        }
+
+        fn url(&self) -> String {
+            self.url.clone()
+        }
     }
 }

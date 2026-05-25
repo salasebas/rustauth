@@ -102,6 +102,7 @@ impl From<ProviderOptions> for VercelOptions {
 #[derive(Clone)]
 pub struct VercelProvider {
     options: VercelOptions,
+    userinfo_endpoint: String,
     http_client: reqwest::Client,
 }
 
@@ -113,6 +114,7 @@ impl VercelProvider {
     pub fn new(options: impl Into<VercelOptions>) -> Self {
         Self {
             options: options.into(),
+            userinfo_endpoint: VERCEL_USERINFO_ENDPOINT.to_owned(),
             http_client: reqwest::Client::new(),
         }
     }
@@ -138,7 +140,7 @@ impl VercelProvider {
     }
 
     pub fn userinfo_endpoint(&self) -> &str {
-        VERCEL_USERINFO_ENDPOINT
+        &self.userinfo_endpoint
     }
 
     pub fn create_authorization_url(
@@ -209,17 +211,24 @@ impl VercelProvider {
             return Ok(None);
         };
 
-        let response = self
+        let response = match self
             .http_client
-            .get(VERCEL_USERINFO_ENDPOINT)
+            .get(&self.userinfo_endpoint)
             .bearer_auth(access_token)
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
         if !response.status().is_success() {
             return Ok(None);
         }
 
-        let profile = response.json::<VercelProfile>().await?;
+        let profile = match response.json::<VercelProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(self.map_profile(profile)))
     }
 
@@ -265,5 +274,71 @@ impl OAuthProviderContract for VercelProvider {
 
     fn name(&self) -> &str {
         self.name()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        reason = "provider tests use local HTTP fixtures and fail fast on setup errors"
+    )]
+
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[tokio::test]
+    async fn get_user_info_returns_none_for_invalid_json() {
+        let server = RawServer::spawn("not-json");
+        let provider = VercelProvider {
+            options: VercelOptions::default(),
+            userinfo_endpoint: server.url(),
+            http_client: reqwest::Client::new(),
+        };
+
+        let result = provider
+            .get_user_info(&OAuth2Tokens {
+                access_token: Some("access-token".to_owned()),
+                ..OAuth2Tokens::default()
+            })
+            .await
+            .expect("invalid userinfo JSON should not error");
+
+        assert_eq!(result, None);
+    }
+
+    struct RawServer {
+        url: String,
+    }
+
+    impl RawServer {
+        fn spawn(body: &'static str) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind local test server");
+            let address = listener.local_addr().expect("local address");
+            thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept request");
+                let mut buffer = [0_u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write response");
+            });
+
+            Self {
+                url: format!("http://{address}"),
+            }
+        }
+
+        fn url(&self) -> String {
+            self.url.clone()
+        }
     }
 }

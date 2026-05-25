@@ -229,16 +229,24 @@ impl WeChatProvider {
         let Some(url) = self.user_info_url(tokens)? else {
             return Ok(None);
         };
-        let response = reqwest::Client::new().get(url).send().await?;
+        let response = match reqwest::Client::new().get(url).send().await {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
         if !response.status().is_success() {
             return Ok(None);
         }
-        let data = response.json::<Value>().await?;
+        let data = match response.json::<Value>().await {
+            Ok(data) => data,
+            Err(_) => return Ok(None),
+        };
         if wechat_error_message(&data).is_some() {
             return Ok(None);
         }
-        let profile = serde_json::from_value::<WeChatProfile>(data)
-            .map_err(|error| OAuthError::InvalidResponse(error.to_string()))?;
+        let profile = match serde_json::from_value::<WeChatProfile>(data) {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(Self::map_profile(profile)))
     }
 

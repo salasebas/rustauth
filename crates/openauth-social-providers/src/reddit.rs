@@ -171,22 +171,28 @@ impl RedditProvider {
         &self,
         token: &OAuth2Tokens,
     ) -> Result<Option<RedditUserInfo>, OAuthError> {
-        let access_token = token
-            .access_token
-            .as_deref()
-            .ok_or(OAuthError::MissingOption("access_token"))?;
-        let response = reqwest::Client::new()
+        let Some(access_token) = token.access_token.as_deref() else {
+            return Ok(None);
+        };
+        let response = match reqwest::Client::new()
             .get(REDDIT_USERINFO_ENDPOINT)
             .bearer_auth(access_token)
             .header("User-Agent", USER_AGENT)
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
 
         if !response.status().is_success() {
             return Ok(None);
         }
 
-        let profile = response.json::<RedditProfile>().await?;
+        let profile = match response.json::<RedditProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(Self::map_profile(profile)))
     }
 

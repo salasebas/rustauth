@@ -184,20 +184,27 @@ impl RobloxProvider {
         token: &OAuth2Tokens,
     ) -> Result<Option<RobloxUserInfo>, OAuthError> {
         let Some(access_token) = token.access_token.as_deref() else {
-            return Err(OAuthError::MissingOption("access_token"));
+            return Ok(None);
         };
 
-        let response = reqwest::Client::new()
+        let response = match reqwest::Client::new()
             .get(ROBLOX_USER_INFO_ENDPOINT)
             .header("authorization", format!("Bearer {access_token}"))
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
 
         if !response.status().is_success() {
             return Ok(None);
         }
 
-        let profile = response.json::<RobloxProfile>().await?;
+        let profile = match response.json::<RobloxProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(Self::map_profile(profile)))
     }
 

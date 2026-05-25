@@ -1,4 +1,6 @@
-use openauth_oauth::oauth2::{ClientId, OAuthError, OAuthProviderContract, ProviderOptions};
+use openauth_oauth::oauth2::{
+    ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
+};
 use openauth_social_providers::reddit::{
     reddit, RedditAuthorizationUrlRequest, RedditOptions, RedditProfile, RedditProvider,
     REDDIT_AUTHORIZATION_ENDPOINT, REDDIT_DEFAULT_SCOPE, REDDIT_ID, REDDIT_NAME,
@@ -150,6 +152,16 @@ fn reddit_profile_without_icon_maps_to_no_image() {
 
     assert_eq!(mapped.user.image, None);
     assert!(!mapped.user.email_verified);
+}
+
+#[tokio::test]
+async fn reddit_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = reddit(reddit_options());
+
+    let user_info = provider.get_user_info(&OAuth2Tokens::default()).await?;
+
+    assert_eq!(user_info, None);
+    Ok(())
 }
 
 fn reddit_options() -> RedditOptions {

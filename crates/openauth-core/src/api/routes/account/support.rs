@@ -293,6 +293,18 @@ pub(super) fn access_token_response_from_tokens(
 }
 
 #[cfg(feature = "oauth")]
+pub(super) fn account_cookie(
+    context: &crate::context::AuthContext,
+    account: &Account,
+) -> Result<Vec<crate::cookies::Cookie>, OpenAuthError> {
+    if context.options.account.store_account_cookie {
+        crate::auth::oauth::account_linking::set_account_cookie(context, account)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(feature = "oauth")]
 pub(super) fn tokens_from_account(
     context: &crate::context::AuthContext,
     account: &Account,

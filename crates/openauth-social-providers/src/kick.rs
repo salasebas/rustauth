@@ -153,10 +153,9 @@ impl KickProvider {
         &self,
         tokens: &OAuth2Tokens,
     ) -> Result<Option<KickUserInfo>, OAuthError> {
-        let access_token = tokens
-            .access_token
-            .as_deref()
-            .ok_or(OAuthError::MissingOption("access_token"))?;
+        let Some(access_token) = tokens.access_token.as_deref() else {
+            return Ok(None);
+        };
         let response = reqwest::Client::new()
             .get(KICK_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
@@ -171,7 +170,10 @@ impl KickProvider {
             return Ok(None);
         }
 
-        let response = response.json::<KickUserInfoResponse>().await?;
+        let response = match response.json::<KickUserInfoResponse>().await {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
         Ok(Self::map_profiles_to_user_info(response.data))
     }
 

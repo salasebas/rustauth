@@ -158,21 +158,27 @@ impl SpotifyProvider {
         &self,
         token: &OAuth2Tokens,
     ) -> Result<Option<SpotifyUserInfo>, OAuthError> {
-        let access_token = token
-            .access_token
-            .as_deref()
-            .ok_or(OAuthError::MissingOption("access_token"))?;
-        let response = reqwest::Client::new()
+        let Some(access_token) = token.access_token.as_deref() else {
+            return Ok(None);
+        };
+        let response = match reqwest::Client::new()
             .get(SPOTIFY_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
 
         if !response.status().is_success() {
             return Ok(None);
         }
 
-        let profile = response.json::<SpotifyProfile>().await?;
+        let profile = match response.json::<SpotifyProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(Self::user_info_from_profile(profile)))
     }
 

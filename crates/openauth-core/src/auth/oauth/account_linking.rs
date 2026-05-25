@@ -313,7 +313,7 @@ async fn update_linked_account(
     Ok(updated.unwrap_or_else(|| linked_account.clone()))
 }
 
-fn set_account_cookie(
+pub(crate) fn set_account_cookie(
     context: &AuthContext,
     account: &Account,
 ) -> Result<Vec<Cookie>, OpenAuthError> {

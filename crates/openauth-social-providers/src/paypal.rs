@@ -260,19 +260,26 @@ impl PayPalProvider {
             return Ok(None);
         };
 
-        let profile = self
+        let response = match self
             .http_client
             .get(self.user_info_url())
             .bearer_auth(access_token)
             .header("accept", "application/json")
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
 
-        if !profile.status().is_success() {
+        if !response.status().is_success() {
             return Ok(None);
         }
 
-        let profile = profile.json::<PayPalProfile>().await?;
+        let profile = match response.json::<PayPalProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(self.map_profile(profile)))
     }
 

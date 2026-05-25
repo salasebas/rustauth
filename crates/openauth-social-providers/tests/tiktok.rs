@@ -1,4 +1,4 @@
-use openauth_oauth::oauth2::{OAuthError, ProviderOptions};
+use openauth_oauth::oauth2::{OAuth2Tokens, OAuthError, ProviderOptions};
 use openauth_social_providers::tiktok::{
     tiktok, TiktokAuthorizationUrlRequest, TiktokProfile, TiktokProfileData, TiktokProvider,
     TiktokUser, TiktokValidateAuthorizationCodeRequest, TIKTOK_AUTHORIZATION_ENDPOINT, TIKTOK_ID,
@@ -159,6 +159,17 @@ fn tiktok_profile_uses_username_when_display_name_is_empty() {
     let mapped = TiktokProvider::user_info_from_profile(profile);
 
     assert_eq!(mapped.user.name.as_deref(), Some("ada_lovelace"));
+}
+
+#[tokio::test]
+async fn tiktok_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = TiktokProvider::new(provider_options());
+
+    assert!(provider
+        .get_user_info(&OAuth2Tokens::default())
+        .await?
+        .is_none());
+    Ok(())
 }
 
 fn provider_options() -> ProviderOptions {

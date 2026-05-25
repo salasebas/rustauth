@@ -1,6 +1,8 @@
-//! Social provider structure for OpenAuth.
+//! Server-side social OAuth provider definitions for OpenAuth.
 //!
-//! Provider modules are placeholders in the initial core port.
+//! This crate mirrors Better Auth's built-in social provider catalog while
+//! exposing Rust-native typed options, explicit errors, and provider runtime
+//! implementations used by OpenAuth social sign-in.
 
 pub mod apple;
 pub mod atlassian;
@@ -44,37 +46,37 @@ pub const PROVIDER_IDS: &[&str] = &[
     "atlassian",
     "cognito",
     "discord",
-    "dropbox",
     "facebook",
     "figma",
     "github",
-    "gitlab",
+    "microsoft",
     "google",
     "huggingface",
-    "kakao",
+    "slack",
+    "spotify",
+    "twitch",
+    "twitter",
+    "dropbox",
     "kick",
-    "line",
     "linear",
     "linkedin",
-    "microsoft",
-    "naver",
+    "gitlab",
+    "tiktok",
+    "reddit",
+    "roblox",
+    "salesforce",
+    "vk",
+    "zoom",
     "notion",
+    "kakao",
+    "naver",
+    "line",
     "paybin",
     "paypal",
     "polar",
     "railway",
-    "reddit",
-    "roblox",
-    "salesforce",
-    "slack",
-    "spotify",
-    "tiktok",
-    "twitch",
-    "twitter",
     "vercel",
-    "vk",
     "wechat",
-    "zoom",
 ];
 
 /// Current crate version.

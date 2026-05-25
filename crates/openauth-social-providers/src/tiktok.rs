@@ -221,10 +221,9 @@ impl TiktokProvider {
         &self,
         token: &OAuth2Tokens,
     ) -> Result<Option<TiktokUserInfo>, OAuthError> {
-        let access_token = token
-            .access_token
-            .as_deref()
-            .ok_or(OAuthError::MissingOption("access_token"))?;
+        let Some(access_token) = token.access_token.as_deref() else {
+            return Ok(None);
+        };
         let response = self
             .http_client
             .get(TIKTOK_USERINFO_ENDPOINT)
@@ -241,7 +240,10 @@ impl TiktokProvider {
             return Ok(None);
         }
 
-        let profile = response.json::<TiktokProfile>().await?;
+        let profile = match response.json::<TiktokProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(Self::user_info_from_profile(profile)))
     }
 

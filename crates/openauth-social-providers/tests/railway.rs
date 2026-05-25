@@ -5,7 +5,7 @@
     reason = "provider tests intentionally fail fast with contextual setup errors"
 )]
 
-use openauth_oauth::oauth2::{ClientId, OAuthError, ProviderOptions};
+use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthError, ProviderOptions};
 use openauth_social_providers::railway::{
     railway, RailwayAuthorizationUrlRequest, RailwayProfile, RAILWAY_AUTHORIZATION_ENDPOINT,
     RAILWAY_ID, RAILWAY_NAME, RAILWAY_TOKEN_ENDPOINT,
@@ -168,6 +168,16 @@ fn railway_profile_maps_to_unverified_user_info() {
         user.image.as_deref(),
         Some("https://avatars.example.com/railway.png")
     );
+}
+
+#[tokio::test]
+async fn railway_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = railway(provider_options());
+
+    let user_info = provider.get_user_info(&OAuth2Tokens::default()).await?;
+
+    assert_eq!(user_info, None);
+    Ok(())
 }
 
 fn provider_options() -> ProviderOptions {

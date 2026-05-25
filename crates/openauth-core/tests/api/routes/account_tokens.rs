@@ -94,6 +94,103 @@ async fn refresh_token_uses_provider_and_persists_new_tokens(
 }
 
 #[tokio::test]
+async fn refresh_token_sets_account_cookie_when_enabled() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(oauth_account_record(
+            now,
+            Some("old-access-token"),
+            Some("stored-refresh-token"),
+            Some(now - Duration::minutes(1)),
+        ))
+        .await?;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            account: openauth_core::options::AccountOptions {
+                store_account_cookie: true,
+                ..openauth_core::options::AccountOptions::default()
+            },
+            social_providers: vec![Arc::new(TokenProvider)],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/refresh-token",
+            r#"{"providerId":"github","accountId":"github_ada"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let cookies = set_cookie_values(&response);
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(cookies
+        .iter()
+        .any(|value| value.starts_with("open-auth.account_data=")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_access_token_auto_refresh_sets_account_cookie_when_enabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(oauth_account_record(
+            now,
+            Some("old-access-token"),
+            Some("stored-refresh-token"),
+            Some(now - Duration::minutes(1)),
+        ))
+        .await?;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            account: openauth_core::options::AccountOptions {
+                store_account_cookie: true,
+                ..openauth_core::options::AccountOptions::default()
+            },
+            social_providers: vec![Arc::new(TokenProvider)],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/get-access-token",
+            r#"{"providerId":"github","accountId":"github_ada"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+    let cookies = set_cookie_values(&response);
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["accessToken"], "new-access-token");
+    assert_eq!(body["idToken"], "new-id-token");
+    assert!(cookies
+        .iter()
+        .any(|value| value.starts_with("open-auth.account_data=")));
+    Ok(())
+}
+
+#[tokio::test]
 async fn account_info_returns_provider_user_info_for_current_session(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
