@@ -9,16 +9,30 @@ use crate::options::{
     CustomerCreateContext, CustomerCreateInput, CustomerCreateParamsInput,
     OrganizationCustomerCreateInput, OrganizationCustomerCreateParamsInput, StripeOptions,
 };
-use crate::stripe_api::StripeClient;
+use crate::stripe_api::{StripeApiError, StripeClient};
 use crate::utils::escape_stripe_search_value;
+
+#[derive(Debug)]
+pub enum CustomerEnsureError {
+    Stripe(StripeApiError),
+    OrganizationNotFound,
+    Other(OpenAuthError),
+}
+
+impl From<OpenAuthError> for CustomerEnsureError {
+    fn from(error: OpenAuthError) -> Self {
+        Self::Other(error)
+    }
+}
 
 pub async fn ensure_user_customer(
     adapter: &dyn DbAdapter,
     options: &StripeOptions,
     hook_context: CustomerCreateContext,
     user: &User,
-) -> Result<String, OpenAuthError> {
-    ensure_user_customer_from_user(adapter, options, hook_context, user).await
+    request_metadata: Option<Value>,
+) -> Result<String, CustomerEnsureError> {
+    ensure_user_customer_from_user(adapter, options, hook_context, user, request_metadata).await
 }
 
 pub async fn ensure_user_customer_from_record(
@@ -33,9 +47,20 @@ pub async fn ensure_user_customer_from_record(
     let Some(user) = user_from_record(user) else {
         return Ok(None);
     };
-    ensure_user_customer_from_user(adapter, options, hook_context, &user)
+    ensure_user_customer_from_user(adapter, options, hook_context, &user, None)
         .await
         .map(Some)
+        .map_err(customer_ensure_error_to_open_auth)
+}
+
+fn customer_ensure_error_to_open_auth(error: CustomerEnsureError) -> OpenAuthError {
+    match error {
+        CustomerEnsureError::Stripe(stripe_error) => OpenAuthError::Api(stripe_error.to_string()),
+        CustomerEnsureError::OrganizationNotFound => {
+            OpenAuthError::Api(StripeErrorCode::OrganizationNotFound.message().to_owned())
+        }
+        CustomerEnsureError::Other(error) => error,
+    }
 }
 
 pub async fn sync_user_customer_email_from_record(
@@ -103,23 +128,27 @@ pub async fn ensure_organization_customer(
     options: &StripeOptions,
     hook_context: CustomerCreateContext,
     organization_id: &str,
-) -> Result<String, OpenAuthError> {
+    request_metadata: Option<Value>,
+) -> Result<String, CustomerEnsureError> {
     let Some(organization) = adapter
         .find_one(FindOne::new("organization").where_clause(Where::new(
             "id",
             DbValue::String(organization_id.to_owned()),
         )))
-        .await?
+        .await
+        .map_err(CustomerEnsureError::Other)?
     else {
-        return Err(OpenAuthError::Api(
-            StripeErrorCode::OrganizationNotFound.message().to_owned(),
-        ));
+        return Err(CustomerEnsureError::OrganizationNotFound);
     };
     if let Some(customer_id) = record_string(&organization, "stripe_customer_id") {
         return Ok(customer_id.to_owned());
     }
-    if let Some(customer) =
-        find_existing_organization_customer(&options.stripe_client, organization_id).await?
+    if let Some(customer) = find_existing_organization_customer(
+        &options.stripe_client,
+        &hook_context.logger,
+        organization_id,
+    )
+    .await?
     {
         let customer_id = customer_id(&customer)?;
         persist_organization_customer_id(adapter, organization_id, &customer_id).await?;
@@ -142,12 +171,13 @@ pub async fn ensure_organization_customer(
         )
         .await?;
     }
-    let customer_params = organization_customer_create_params(&organization, extra_params)?;
+    let customer_params =
+        organization_customer_create_params(&organization, extra_params, request_metadata)?;
     let customer = options
         .stripe_client
         .create_customer(customer_params)
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .map_err(CustomerEnsureError::Stripe)?;
     let customer_id = customer_id(&customer)?;
     persist_organization_customer_id(adapter, organization_id, &customer_id).await?;
     call_organization_customer_create_hook(options, hook_context, organization, customer).await?;
@@ -159,13 +189,19 @@ async fn ensure_user_customer_from_user(
     options: &StripeOptions,
     hook_context: CustomerCreateContext,
     user: &User,
-) -> Result<String, OpenAuthError> {
+    request_metadata: Option<Value>,
+) -> Result<String, CustomerEnsureError> {
     if let Some(customer_id) = stored_user_customer_id(adapter, &user.id).await? {
         return Ok(customer_id);
     }
 
-    if let Some(customer) =
-        find_existing_user_customer(&options.stripe_client, &user.id, &user.email).await?
+    if let Some(customer) = find_existing_user_customer(
+        &options.stripe_client,
+        &hook_context.logger,
+        &user.id,
+        &user.email,
+    )
+    .await?
     {
         let customer_id = customer_id(&customer)?;
         persist_user_customer_id(adapter, &user.id, &customer_id).await?;
@@ -181,12 +217,12 @@ async fn ensure_user_customer_from_user(
         )
         .await?;
     }
-    let customer_params = customer_create_params(user, extra_params)?;
+    let customer_params = customer_create_params(user, extra_params, request_metadata)?;
     let customer = options
         .stripe_client
         .create_customer(customer_params)
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .map_err(CustomerEnsureError::Stripe)?;
     let customer_id = customer_id(&customer)?;
     persist_user_customer_id(adapter, &user.id, &customer_id).await?;
     call_user_customer_create_hook(options, hook_context, user.clone(), customer).await?;
@@ -212,7 +248,11 @@ async fn call_user_customer_create_hook(
     Ok(())
 }
 
-fn customer_create_params(user: &User, extra_params: Value) -> Result<Value, OpenAuthError> {
+fn customer_create_params(
+    user: &User,
+    extra_params: Value,
+    request_metadata: Option<Value>,
+) -> Result<Value, OpenAuthError> {
     let mut object = match extra_params {
         Value::Null => Map::new(),
         Value::Object(object) => object,
@@ -225,12 +265,11 @@ fn customer_create_params(user: &User, extra_params: Value) -> Result<Value, Ope
     let metadata = object.remove("metadata").unwrap_or(Value::Null);
     object.insert("email".to_owned(), Value::String(user.email.clone()));
     object.insert("name".to_owned(), Value::String(user.name.clone()));
-    object.insert(
-        "metadata".to_owned(),
-        json!(CustomerMetadata::user(&user.id)
-            .merge_user_metadata(metadata)
-            .into_map()),
-    );
+    let mut customer_metadata = CustomerMetadata::user(&user.id).merge_user_metadata(metadata);
+    if let Some(request_metadata) = request_metadata {
+        customer_metadata = customer_metadata.merge_user_metadata(request_metadata);
+    }
+    object.insert("metadata".to_owned(), json!(customer_metadata.into_map()));
     Ok(Value::Object(object))
 }
 
@@ -244,19 +283,24 @@ fn customer_id(customer: &Value) -> Result<String, OpenAuthError> {
 
 async fn find_existing_organization_customer(
     stripe_client: &StripeClient,
+    logger: &openauth_core::env::logger::Logger,
     organization_id: &str,
-) -> Result<Option<Value>, OpenAuthError> {
+) -> Result<Option<Value>, CustomerEnsureError> {
     let escaped_organization_id = escape_stripe_search_value(organization_id);
     let query = format!(
         "metadata[\"organizationId\"]:\"{escaped_organization_id}\" AND metadata[\"customerType\"]:\"organization\""
     );
     match stripe_client.search_customers(&query).await {
         Ok(search_result) => Ok(find_organization_customer(&search_result, organization_id)),
-        Err(_) => {
+        Err(error) => {
+            logger.warn(
+                "Stripe customers.search failed, falling back to customers.list",
+                &[&error.to_string()],
+            );
             let list_result = stripe_client
                 .list_customers(json!({ "limit": 100 }))
                 .await
-                .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                .map_err(CustomerEnsureError::Stripe)?;
             Ok(find_organization_customer(&list_result, organization_id))
         }
     }
@@ -284,6 +328,7 @@ fn find_organization_customer(customers: &Value, organization_id: &str) -> Optio
 fn organization_customer_create_params(
     organization: &DbRecord,
     extra_params: Value,
+    request_metadata: Option<Value>,
 ) -> Result<Value, OpenAuthError> {
     let mut object = match extra_params {
         Value::Null => Map::new(),
@@ -303,12 +348,12 @@ fn organization_customer_create_params(
         "name".to_owned(),
         Value::String(organization_name.to_owned()),
     );
-    object.insert(
-        "metadata".to_owned(),
-        json!(CustomerMetadata::organization(organization_id)
-            .merge_user_metadata(metadata)
-            .into_map()),
-    );
+    let mut customer_metadata =
+        CustomerMetadata::organization(organization_id).merge_user_metadata(metadata);
+    if let Some(request_metadata) = request_metadata {
+        customer_metadata = customer_metadata.merge_user_metadata(request_metadata);
+    }
+    object.insert("metadata".to_owned(), json!(customer_metadata.into_map()));
     Ok(Value::Object(object))
 }
 
@@ -327,9 +372,10 @@ async fn stored_user_customer_id(
 
 async fn find_existing_user_customer(
     stripe_client: &StripeClient,
+    logger: &openauth_core::env::logger::Logger,
     _user_id: &str,
     email: &str,
-) -> Result<Option<Value>, OpenAuthError> {
+) -> Result<Option<Value>, CustomerEnsureError> {
     let escaped_email = escape_stripe_search_value(email);
     let query =
         format!("email:\"{escaped_email}\" AND -metadata[\"customerType\"]:\"organization\"");
@@ -339,14 +385,18 @@ async fn find_existing_user_customer(
                 return Ok(Some(customer));
             }
         }
-        Err(_) => {
+        Err(error) => {
+            logger.warn(
+                "Stripe customers.search failed, falling back to customers.list",
+                &[&error.to_string()],
+            );
             let list_result = stripe_client
                 .list_customers(json!({
                     "email": email,
                     "limit": 100,
                 }))
                 .await
-                .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                .map_err(CustomerEnsureError::Stripe)?;
             if let Some(customer) = find_user_customer(&list_result) {
                 return Ok(Some(customer));
             }

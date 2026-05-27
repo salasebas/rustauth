@@ -13,3 +13,10 @@ coverage/
 .tmp/
 tmp/
 temp/
+
+# Environment secrets (never commit). Example templates stay tracked.
+.env
+.env.*
+!.env.example
+!**/.env.example
+!**/.env*.example

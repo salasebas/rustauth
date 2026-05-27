@@ -6,6 +6,7 @@ use openauth_core::plugin::{
 };
 
 use crate::errors::StripeErrorCode;
+use crate::logging;
 use crate::options::StripeOptions;
 use crate::{customers, utils};
 
@@ -13,7 +14,7 @@ pub(crate) fn sync_customer_name_hook(options: StripeOptions) -> PluginDatabaseH
     PluginDatabaseHook::after_async(
         "stripe-sync-organization-customer-name",
         PluginDatabaseOperation::Update,
-        move |_context, input| {
+        move |context, input| {
             let options = options.clone();
             Box::pin(async move {
                 let PluginDatabaseAfterInput::Update { query, result } = input else {
@@ -25,11 +26,18 @@ pub(crate) fn sync_customer_name_hook(options: StripeOptions) -> PluginDatabaseH
                 let Some(result) = result else {
                     return Ok(());
                 };
-                let _ = customers::sync_organization_customer_name_from_record(
+                if let Err(error) = customers::sync_organization_customer_name_from_record(
                     &options.stripe_client,
                     &result,
                 )
-                .await;
+                .await
+                {
+                    logging::hook_error(
+                        &context,
+                        "Failed to sync organization name to Stripe customer",
+                        &error.to_string(),
+                    );
+                }
                 Ok(())
             })
         },
@@ -135,7 +143,7 @@ async fn has_active_subscription(
                 DbValue::String(status) => Some(status.as_str()),
                 _ => None,
             })
-            .is_some_and(utils::is_active_or_trialing)
+            .is_some_and(utils::is_non_terminal_subscription_status)
     }))
 }
 
@@ -155,7 +163,10 @@ fn sync_seats_after_member_create_hook(options: StripeOptions) -> PluginDatabase
                 let Some(organization_id) = record_string(&result, "organization_id") else {
                     return Ok(());
                 };
-                let _ = sync_subscription_seats(context.adapter, &options, organization_id).await;
+                log_seat_sync_error(
+                    &context,
+                    sync_subscription_seats(context.adapter, &options, organization_id).await,
+                );
                 Ok(())
             })
         },
@@ -179,8 +190,10 @@ fn sync_seats_after_member_delete_hook(options: StripeOptions) -> PluginDatabase
                     let Some(organization_id) = record_string(&member, "organization_id") else {
                         continue;
                     };
-                    let _ =
-                        sync_subscription_seats(context.adapter, &options, organization_id).await;
+                    log_seat_sync_error(
+                        &context,
+                        sync_subscription_seats(context.adapter, &options, organization_id).await,
+                    );
                 }
                 Ok(())
             })
@@ -217,11 +230,27 @@ fn sync_seats_after_invitation_accept_hook(options: StripeOptions) -> PluginData
                 let Some(organization_id) = record_string(&result, "organization_id") else {
                     return Ok(());
                 };
-                let _ = sync_subscription_seats(context.adapter, &options, organization_id).await;
+                log_seat_sync_error(
+                    &context,
+                    sync_subscription_seats(context.adapter, &options, organization_id).await,
+                );
                 Ok(())
             })
         },
     )
+}
+
+fn log_seat_sync_error(
+    context: &openauth_core::plugin::PluginDatabaseHookContext<'_>,
+    result: Result<(), OpenAuthError>,
+) {
+    if let Err(error) = result {
+        logging::hook_error(
+            context,
+            "Failed to sync seats to Stripe",
+            &error.to_string(),
+        );
+    }
 }
 
 async fn sync_subscription_seats(
@@ -275,6 +304,13 @@ async fn sync_subscription_seats(
         .retrieve_subscription(stripe_subscription_id)
         .await
         .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let stripe_status = stripe_subscription
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if !utils::is_active_or_trialing(stripe_status) {
+        return Ok(());
+    }
     let seat_item_id = stripe_subscription
         .get("items")
         .and_then(|items| items.get("data"))

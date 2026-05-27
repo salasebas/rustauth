@@ -553,6 +553,9 @@ fn openauth_crate_reexports_core_contract_types() {
     let _hooked_adapter_type: Option<HookedAdapter> = None;
     let memory_adapter = MemoryAdapter::new();
     let _plugin_db_operation = PluginDatabaseOperation::Create;
+    let hook_logger = openauth_core::env::logger::create_logger(
+        openauth_core::env::logger::LoggerOptions::default(),
+    );
     let _plugin_db_context = PluginDatabaseHookContext {
         plugin_id: "test-plugin".to_owned(),
         hook_name: "audit".to_owned(),
@@ -560,6 +563,7 @@ fn openauth_crate_reexports_core_contract_types() {
         model: "user".to_owned(),
         adapter: &memory_adapter,
         request_path: None,
+        logger: &hook_logger,
     };
     let _plugin_db_before_input: Option<PluginDatabaseBeforeInput> = None;
     let _plugin_db_after_input: Option<PluginDatabaseAfterInput> = None;

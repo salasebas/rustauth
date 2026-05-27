@@ -9,6 +9,7 @@ use super::{
     FindMany, FindOne, SchemaCreation, TransactionCallback, Update, UpdateMany,
 };
 use crate::db::DbSchema;
+use crate::env::logger::{create_logger, Logger, LoggerOptions};
 use crate::plugin::PluginDatabaseHook;
 use pipeline::{
     hooked_create, hooked_delete, hooked_delete_many, hooked_update, hooked_update_many,
@@ -20,14 +21,20 @@ use pipeline::{
 pub struct HookedAdapter<A = Arc<dyn DbAdapter>> {
     inner: A,
     hooks: Arc<Vec<PluginDatabaseHook>>,
+    logger: Logger,
     after_queue: Option<AfterHookQueue>,
 }
 
 impl<A> HookedAdapter<A> {
     pub fn new(inner: A, hooks: Vec<PluginDatabaseHook>) -> Self {
+        Self::with_logger(inner, hooks, create_logger(LoggerOptions::default()))
+    }
+
+    pub fn with_logger(inner: A, hooks: Vec<PluginDatabaseHook>, logger: Logger) -> Self {
         Self {
             inner,
             hooks: Arc::new(hooks),
+            logger,
             after_queue: None,
         }
     }
@@ -39,11 +46,13 @@ impl<A> HookedAdapter<A> {
     fn with_after_queue(
         inner: A,
         hooks: Arc<Vec<PluginDatabaseHook>>,
+        logger: Logger,
         after_queue: AfterHookQueue,
     ) -> Self {
         Self {
             inner,
             hooks,
+            logger,
             after_queue: Some(after_queue),
         }
     }
@@ -65,6 +74,7 @@ where
         hooked_create(
             &self.inner,
             Arc::clone(&self.hooks),
+            self.logger.clone(),
             self.after_queue.clone(),
             query,
         )
@@ -86,6 +96,7 @@ where
         hooked_update(
             &self.inner,
             Arc::clone(&self.hooks),
+            self.logger.clone(),
             self.after_queue.clone(),
             query,
         )
@@ -95,6 +106,7 @@ where
         hooked_update_many(
             &self.inner,
             Arc::clone(&self.hooks),
+            self.logger.clone(),
             self.after_queue.clone(),
             query,
         )
@@ -104,6 +116,7 @@ where
         hooked_delete(
             &self.inner,
             Arc::clone(&self.hooks),
+            self.logger.clone(),
             self.after_queue.clone(),
             query,
         )
@@ -113,6 +126,7 @@ where
         hooked_delete_many(
             &self.inner,
             Arc::clone(&self.hooks),
+            self.logger.clone(),
             self.after_queue.clone(),
             query,
         )
@@ -124,18 +138,22 @@ where
             let after_queue = self.after_queue.clone().unwrap_or_default();
             let transaction_queue = after_queue.clone();
             let hooks = Arc::clone(&self.hooks);
+            let logger = self.logger.clone();
             self.inner
                 .transaction(Box::new(move |transaction| {
                     let adapter = HookedAdapter::with_after_queue(
                         transaction,
                         Arc::clone(&hooks),
+                        logger.clone(),
                         transaction_queue,
                     );
                     callback(Box::new(adapter))
                 }))
                 .await?;
             if should_run_after_hooks {
-                after_queue.run(self.hooks.as_slice(), &self.inner).await?;
+                after_queue
+                    .run(self.hooks.as_slice(), &self.logger, &self.inner)
+                    .await?;
             }
             Ok(())
         })

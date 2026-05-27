@@ -486,6 +486,92 @@ async fn subscription_upgrade_uses_billing_portal_for_simple_active_plan_change(
 }
 
 #[tokio::test]
+async fn subscription_upgrade_org_seat_plan_portal_omits_item_quantity(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transport = Arc::new(CaptureTransport::default());
+    let options = StripeOptions::new(
+        StripeClient::with_transport(
+            "sk_test",
+            Arc::clone(&transport) as Arc<dyn StripeTransport>,
+        ),
+        "whsec_test",
+    )
+    .organization(openauth_stripe::options::OrganizationStripeOptions::enabled())
+    .subscription(
+        SubscriptionOptions::enabled(vec![StripePlan::new("pro")
+            .price_id("price_pro_monthly")
+            .annual_discount_price_id("price_pro_yearly")
+            .seat_price_id("price_team_seat")])
+        .authorize_reference(|input, _| Box::pin(async move { Ok(input.reference_id == "org_1") })),
+    );
+    let plugin = stripe(options);
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/subscription/upgrade")
+        .ok_or("upgrade endpoint")?;
+    let (context, adapter, cookie_header) = authenticated_context().await?;
+    adapter
+        .create(
+            Create::new("organization")
+                .data("id", DbValue::String("org_1".to_owned()))
+                .data("name", DbValue::String("Acme".to_owned()))
+                .data("slug", DbValue::String("acme".to_owned()))
+                .data("stripe_customer_id", DbValue::String("cus_org".to_owned()))
+                .force_allow_id(),
+        )
+        .await?;
+    openauth_core::db::DbAdapter::update(
+        &adapter,
+        openauth_core::db::Update::new("user")
+            .where_clause(openauth_core::db::Where::new(
+                "id",
+                DbValue::String("user_1".to_owned()),
+            ))
+            .data("stripe_customer_id", DbValue::String("cus_org".to_owned())),
+    )
+    .await?;
+    create_subscription_record(&adapter, "sub_active", "org_1", "active", Some("cus_org")).await?;
+    openauth_core::db::DbAdapter::update(
+        &adapter,
+        openauth_core::db::Update::new("subscription")
+            .where_clause(openauth_core::db::Where::new(
+                "id",
+                DbValue::String("sub_active".to_owned()),
+            ))
+            .data("plan", DbValue::String("pro".to_owned()))
+            .data(
+                "stripe_subscription_id",
+                DbValue::String("stripe_sub_active".to_owned()),
+            ),
+    )
+    .await?;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/subscription/upgrade")
+        .header("content-type", "application/json")
+        .header("cookie", cookie_header)
+        .body(
+            br#"{"customerType":"organization","referenceId":"org_1","plan":"pro","annual":true,"successUrl":"/ok","cancelUrl":"/pricing","disableRedirect":true}"#
+                .to_vec(),
+        )?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let portal_request = transport
+        .requests()?
+        .into_iter()
+        .find(|request| request.path == "/v1/billing_portal/sessions")
+        .ok_or("billing portal request")?;
+    assert!(portal_request.body.contains(
+        "flow_data%5Bsubscription_update_confirm%5D%5Bitems%5D%5B0%5D%5Bprice%5D=price_pro_yearly"
+    ));
+    assert!(!portal_request.body.contains("quantity"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn subscription_upgrade_maps_billing_portal_failure_to_plugin_error(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(ActiveUpgradeTransport::with_billing_portal_failure());
@@ -520,9 +606,9 @@ async fn subscription_upgrade_maps_billing_portal_failure_to_plugin_error(
 
     let response = (endpoint.handler)(&context, request).await?;
 
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     let body: Value = serde_json::from_slice(response.body())?;
-    assert_eq!(body["code"], "UNABLE_TO_CREATE_BILLING_PORTAL");
+    assert_eq!(body["code"], "FAILED_TO_FETCH_PLANS");
     Ok(())
 }
 

@@ -4,6 +4,7 @@ use serde_json::json;
 use time::OffsetDateTime;
 
 use crate::errors::StripeErrorCode;
+use crate::logging;
 use crate::models::StripeEvent;
 use crate::options::StripeOptions;
 
@@ -37,15 +38,14 @@ pub fn stripe_webhook(options: StripeOptions) -> openauth_core::api::AsyncAuthEn
                     );
                 }
                 let now = OffsetDateTime::now_utc().unix_timestamp();
-                if crate::stripe_api::verify_webhook_signature(
+                if let Err(error) = crate::stripe_api::verify_webhook_signature(
                     request.body(),
                     signature,
                     &options.stripe_webhook_secret,
                     300,
                     now,
-                )
-                .is_err()
-                {
+                ) {
+                    logging::webhook_error(context, &error.to_string());
                     return error_response(
                         StatusCode::BAD_REQUEST,
                         StripeErrorCode::FailedToConstructStripeEvent,
@@ -53,24 +53,24 @@ pub fn stripe_webhook(options: StripeOptions) -> openauth_core::api::AsyncAuthEn
                 }
                 let event = match serde_json::from_slice::<StripeEvent>(request.body()) {
                     Ok(event) => event,
-                    Err(_) => {
+                    Err(error) => {
+                        logging::webhook_error(
+                            context,
+                            &format!("Failed to parse Stripe event JSON: {error}"),
+                        );
                         return error_response(
                             StatusCode::BAD_REQUEST,
                             StripeErrorCode::FailedToConstructStripeEvent,
                         );
                     }
                 };
-                if crate::hooks::handle_stripe_event(context, &options, &event)
-                    .await
-                    .is_err()
-                {
-                    return error_response(
-                        StatusCode::BAD_REQUEST,
-                        StripeErrorCode::StripeWebhookError,
-                    );
-                }
+                crate::hooks::handle_stripe_event(context, &options, &event).await?;
                 if let Some(on_event) = &options.on_event {
-                    if on_event(event).await.is_err() {
+                    if let Err(error) = on_event(event).await {
+                        logging::webhook_error(
+                            context,
+                            &format!("Stripe on_event hook failed: {error}"),
+                        );
                         return error_response(
                             StatusCode::BAD_REQUEST,
                             StripeErrorCode::StripeWebhookError,

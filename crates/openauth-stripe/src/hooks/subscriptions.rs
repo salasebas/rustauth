@@ -3,6 +3,7 @@ use openauth_core::crypto::random::generate_random_string;
 use openauth_core::db::{Create, DbValue, FindMany, FindOne, Update, Where};
 use openauth_core::error::OpenAuthError;
 
+use crate::logging;
 use crate::metadata::SubscriptionMetadata;
 use crate::models::{StripeEvent, StripeSubscription};
 use crate::options::{StripeOptions, SubscriptionLifecycleInput, SubscriptionUpdateInput};
@@ -37,6 +38,13 @@ pub(super) async fn on_subscription_deleted(
         )))
         .await?
     else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: Subscription not found for stripeSubscriptionId: {}",
+                subscription.id
+            ),
+        );
         return Ok(());
     };
     let Some(local_subscription_id) = record_string(&existing, "id") else {
@@ -104,6 +112,13 @@ pub(super) async fn on_subscription_updated(
     let Some(resolved) =
         crate::utils::resolve_plan_item(&subscription_options, &subscription.items.data)
     else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: Subscription {} has no items matching a configured plan",
+                subscription.id
+            ),
+        );
         return Ok(());
     };
     let Some(adapter) = context.adapter() else {
@@ -287,6 +302,10 @@ pub(super) async fn on_subscription_created(
     let subscription = serde_json::from_value::<StripeSubscription>(event.data.object.clone())
         .map_err(|error| OpenAuthError::Api(error.to_string()))?;
     let Some(customer_id) = customer_id_from_stripe_subscription(&subscription) else {
+        logging::webhook_warn(
+            context,
+            "Stripe webhook warning: customer.subscription.created event received without customer ID",
+        );
         return Ok(());
     };
     let metadata = SubscriptionMetadata::get(&subscription.metadata);
@@ -308,7 +327,15 @@ pub(super) async fn on_subscription_created(
             )))
             .await?
     };
-    if existing.is_some() {
+    if let Some(existing) = existing {
+        if let Some(subscription_id) = record_string(&existing, "id") {
+            logging::webhook_info(
+                context,
+                &format!(
+                    "Stripe webhook: Subscription already exists in database (id: {subscription_id}), skipping creation"
+                ),
+            );
+        }
         return Ok(());
     }
     let prefer_organization = options.organization.as_ref().is_some_and(|org| org.enabled);
@@ -316,14 +343,34 @@ pub(super) async fn on_subscription_created(
         find_reference_by_stripe_customer_id(adapter.as_ref(), &customer_id, prefer_organization)
             .await?
     else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: No user or organization found with stripeCustomerId: {customer_id}"
+            ),
+        );
         return Ok(());
     };
     let Some(resolved) =
         crate::utils::resolve_plan_item(&subscription_options, &subscription.items.data)
     else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: Subscription {} has no items matching a configured plan",
+                subscription.id
+            ),
+        );
         return Ok(());
     };
     let Some(plan) = resolved.plan else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: No matching plan found for subscription {}",
+                subscription.id
+            ),
+        );
         return Ok(());
     };
     let quantity = crate::utils::resolve_quantity(

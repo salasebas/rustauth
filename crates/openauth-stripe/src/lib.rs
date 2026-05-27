@@ -3,6 +3,7 @@
 pub mod customers;
 pub mod errors;
 pub mod hooks;
+mod logging;
 pub mod metadata;
 pub mod models;
 pub mod options;
@@ -15,6 +16,7 @@ mod organization;
 
 use openauth_core::plugin::{
     AuthPlugin, PluginDatabaseAfterInput, PluginDatabaseHook, PluginDatabaseOperation,
+    PluginInitOutput,
 };
 
 pub use errors::{error_codes, StripeErrorCode};
@@ -33,10 +35,16 @@ pub fn stripe(options: StripeOptions) -> AuthPlugin {
 }
 
 pub fn stripe_with_options(options: StripeOptions) -> AuthPlugin {
+    let init_options = options.clone();
     let subscription_enabled = options.subscription.as_ref().is_some_and(|s| s.enabled);
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(VERSION)
         .with_options(options.to_metadata())
+        .with_init(move |context| {
+            warn_if_empty_webhook_secret(context, &init_options);
+            warn_if_seat_pricing_without_organization(context, &init_options);
+            Ok(PluginInitOutput::default())
+        })
         .with_endpoint(routes::stripe_webhook(options.clone()))
         .with_database_hook(sync_user_customer_email_hook(options.clone()));
 
@@ -73,6 +81,43 @@ pub fn stripe_with_options(options: StripeOptions) -> AuthPlugin {
     plugin
 }
 
+fn warn_if_empty_webhook_secret(
+    context: &openauth_core::context::AuthContext,
+    options: &StripeOptions,
+) {
+    if options.stripe_webhook_secret.is_empty() {
+        logging::init_warn(
+            context,
+            "stripe_webhook_secret is empty",
+            "Stripe webhooks will reject events until stripe_webhook_secret is configured",
+        );
+    }
+}
+
+fn warn_if_seat_pricing_without_organization(
+    context: &openauth_core::context::AuthContext,
+    options: &StripeOptions,
+) {
+    let org_enabled = options.organization.as_ref().is_some_and(|org| org.enabled);
+    let Some(subscription) = options.subscription.as_ref() else {
+        return;
+    };
+    if !subscription.enabled || org_enabled {
+        return;
+    }
+    if subscription
+        .plans
+        .iter()
+        .any(|plan| plan.seat_price_id.is_some())
+    {
+        logging::init_error(
+            context,
+            "seatPriceId is configured on a plan but stripe organization option is not enabled",
+            "Seat-based billing requires organization: { enabled: true } in stripe plugin options",
+        );
+    }
+}
+
 fn create_customer_on_sign_up_hook(options: StripeOptions) -> PluginDatabaseHook {
     PluginDatabaseHook::after_async(
         "stripe-create-customer-on-sign-up",
@@ -86,13 +131,24 @@ fn create_customer_on_sign_up_hook(options: StripeOptions) -> PluginDatabaseHook
                 if query.model != "user" {
                     return Ok(());
                 }
-                let _ = customers::ensure_user_customer_from_record(
+                // Best-effort: sign-up must not fail if Stripe is unavailable.
+                if let Err(error) = customers::ensure_user_customer_from_record(
                     context.adapter,
                     &options,
-                    options::CustomerCreateContext::database_hook(context.request_path.clone()),
+                    options::CustomerCreateContext::database_hook(
+                        context.request_path.clone(),
+                        context.logger,
+                    ),
                     &result,
                 )
-                .await;
+                .await
+                {
+                    logging::hook_error(
+                        &context,
+                        "Failed to create or link Stripe customer on sign-up",
+                        &error.to_string(),
+                    );
+                }
                 Ok(())
             })
         },
@@ -103,7 +159,7 @@ fn sync_user_customer_email_hook(options: StripeOptions) -> PluginDatabaseHook {
     PluginDatabaseHook::after_async(
         "stripe-sync-user-customer-email",
         PluginDatabaseOperation::Update,
-        move |_context, input| {
+        move |context, input| {
             let options = options.clone();
             Box::pin(async move {
                 let PluginDatabaseAfterInput::Update { query, result } = input else {
@@ -115,11 +171,17 @@ fn sync_user_customer_email_hook(options: StripeOptions) -> PluginDatabaseHook {
                 let Some(result) = result else {
                     return Ok(());
                 };
-                let _ = customers::sync_user_customer_email_from_record(
-                    &options.stripe_client,
-                    &result,
-                )
-                .await;
+                // Best-effort: user updates should succeed even when Stripe sync fails.
+                if let Err(error) =
+                    customers::sync_user_customer_email_from_record(&options.stripe_client, &result)
+                        .await
+                {
+                    logging::hook_error(
+                        &context,
+                        "Failed to sync email to Stripe customer",
+                        &error.to_string(),
+                    );
+                }
                 Ok(())
             })
         },

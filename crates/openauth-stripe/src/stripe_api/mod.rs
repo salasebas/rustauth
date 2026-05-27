@@ -2,12 +2,16 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
+use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use reqwest::Method;
 use serde_json::Value;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
+
+use http::StatusCode;
 
 use crate::errors::StripeErrorCode;
 
@@ -52,6 +56,69 @@ impl StripeApiError {
             Self::Transport(_) => "STRIPE_TRANSPORT_ERROR",
             Self::Webhook(code) => code.code(),
         }
+    }
+
+    pub fn is_already_scheduled_cancel(&self) -> bool {
+        match self {
+            Self::Stripe { code, message, .. } => {
+                matches!(
+                    code.as_deref(),
+                    Some(
+                        "subscription_already_canceled"
+                            | "resource_already_exists"
+                            | "invalid_request_error"
+                    )
+                ) || message.contains("already set to be canceled")
+            }
+            _ => false,
+        }
+    }
+
+    pub fn plugin_response(&self, default: StripeErrorCode) -> (StatusCode, StripeErrorCode) {
+        match self {
+            Self::Webhook(code) => (StatusCode::BAD_REQUEST, *code),
+            Self::Transport(_) => (StatusCode::BAD_GATEWAY, StripeErrorCode::FailedToFetchPlans),
+            Self::Stripe { status, code, .. } if *status >= 500 => {
+                (StatusCode::BAD_GATEWAY, StripeErrorCode::FailedToFetchPlans)
+            }
+            Self::Stripe { code, .. } => (
+                StatusCode::BAD_REQUEST,
+                map_stripe_code_to_plugin(default, code.as_deref()),
+            ),
+        }
+    }
+}
+
+fn map_stripe_code_to_plugin(
+    default: StripeErrorCode,
+    stripe_code: Option<&str>,
+) -> StripeErrorCode {
+    match (default, stripe_code) {
+        (StripeErrorCode::UnableToCreateCustomer, Some("resource_missing")) => {
+            StripeErrorCode::CustomerNotFound
+        }
+        (StripeErrorCode::UnableToCreateBillingPortal, Some("resource_missing")) => {
+            StripeErrorCode::SubscriptionNotFound
+        }
+        (StripeErrorCode::SubscriptionNotFound, Some("resource_missing")) => {
+            StripeErrorCode::SubscriptionNotFound
+        }
+        _ => default,
+    }
+}
+
+/// Signing key bytes for Stripe webhook HMAC verification.
+///
+/// `whsec_` suffix is base64-encoded (Dashboard and Stripe CLI `listen`).
+pub fn webhook_signing_key(secret: &str) -> Result<Vec<u8>, StripeApiError> {
+    if let Some(encoded) = secret.strip_prefix("whsec_") {
+        match base64::engine::general_purpose::STANDARD.decode(encoded) {
+            Ok(bytes) => Ok(bytes),
+            // Test secrets such as `whsec_test` are not dashboard-style base64 payloads.
+            Err(_) => Ok(secret.as_bytes().to_vec()),
+        }
+    } else {
+        Ok(secret.as_bytes().to_vec())
     }
 }
 
@@ -279,10 +346,20 @@ pub struct ReqwestStripeTransport {
     api_base: String,
 }
 
+const DEFAULT_STRIPE_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
 impl ReqwestStripeTransport {
     pub fn new(api_base: impl Into<String>) -> Self {
+        Self::with_timeout(api_base, DEFAULT_STRIPE_HTTP_TIMEOUT)
+    }
+
+    pub fn with_timeout(api_base: impl Into<String>, timeout: Duration) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             api_base: api_base.into(),
         }
     }
@@ -411,7 +488,8 @@ fn webhook_signature(
     secret: &str,
     timestamp: i64,
 ) -> Result<Vec<u8>, StripeApiError> {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|error| {
+    let signing_key = webhook_signing_key(secret)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&signing_key).map_err(|error| {
         StripeApiError::Transport(format!("failed to initialize webhook verifier: {error}"))
     })?;
     mac.update(timestamp.to_string().as_bytes());

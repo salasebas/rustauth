@@ -4,6 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::db::DbAdapter;
+use crate::env::logger::Logger;
 use crate::error::OpenAuthError;
 use crate::plugin::{
     PluginDatabaseAfterInput, PluginDatabaseBeforeAction, PluginDatabaseBeforeInput,
@@ -19,6 +20,8 @@ pub struct PluginDatabaseHookContext<'a> {
     pub model: String,
     pub adapter: &'a dyn DbAdapter,
     pub request_path: Option<String>,
+    /// Application logger (same instance as [`crate::context::AuthContext::logger`]).
+    pub logger: &'a Logger,
 }
 
 impl fmt::Debug for PluginDatabaseHookContext<'_> {

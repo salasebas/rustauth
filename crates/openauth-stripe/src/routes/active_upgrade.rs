@@ -5,7 +5,9 @@ use openauth_core::db::{DbAdapter, DbRecord, DbValue, Update, Where};
 use openauth_core::error::OpenAuthError;
 use serde_json::{json, Value};
 
-use super::support::{db_string, error_response, json_response, validate_redirect_url};
+use super::support::{
+    db_string, error_response, json_response, respond_stripe_api_error, validate_redirect_url,
+};
 use crate::errors::StripeErrorCode;
 use crate::models::{StripeSubscription, StripeSubscriptionItem};
 use crate::options::{StripeOptions, StripePlan, SubscriptionOptions};
@@ -38,12 +40,17 @@ pub(super) async fn handle(input: ActiveUpgradeInput<'_>) -> Result<ApiResponse,
             StripeErrorCode::SubscriptionNotFound,
         );
     };
-    let active_stripe_subscriptions = input
+    let active_stripe_subscriptions = match input
         .options
         .stripe_client
         .list_subscriptions(json!({ "customer": input.customer_id }))
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    {
+        Ok(active_stripe_subscriptions) => active_stripe_subscriptions,
+        Err(error) => {
+            return respond_stripe_api_error(error, StripeErrorCode::SubscriptionNotFound)
+        }
+    };
     let Some(active_stripe_subscription) = active_stripe_subscriptions
         .get("data")
         .and_then(Value::as_array)
@@ -61,8 +68,15 @@ pub(super) async fn handle(input: ActiveUpgradeInput<'_>) -> Result<ApiResponse,
         );
     };
     let active_stripe_subscription =
-        serde_json::from_value::<StripeSubscription>(active_stripe_subscription)
-            .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        match serde_json::from_value::<StripeSubscription>(active_stripe_subscription) {
+            Ok(subscription) => subscription,
+            Err(_) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    StripeErrorCode::SubscriptionNotFound,
+                );
+            }
+        };
     let Some(current_item) = crate::utils::resolve_plan_item(
         input.subscription_options,
         &active_stripe_subscription.items.data,
@@ -74,7 +88,11 @@ pub(super) async fn handle(input: ActiveUpgradeInput<'_>) -> Result<ApiResponse,
             StripeErrorCode::SubscriptionNotFound,
         );
     };
-    release_plugin_schedule_if_needed(&input, &active_stripe_subscription).await?;
+    if let Some(response) =
+        release_plugin_schedule_if_needed(&input, &active_stripe_subscription).await?
+    {
+        return Ok(response);
+    }
     let return_url = validate_redirect_url(
         input.context,
         input.request,
@@ -110,18 +128,21 @@ pub(super) async fn handle(input: ActiveUpgradeInput<'_>) -> Result<ApiResponse,
 async fn release_plugin_schedule_if_needed(
     input: &ActiveUpgradeInput<'_>,
     active_subscription: &StripeSubscription,
-) -> Result<(), OpenAuthError> {
+) -> Result<Option<ApiResponse>, OpenAuthError> {
     if active_subscription.schedule.is_none() {
-        return Ok(());
+        return Ok(None);
     }
-    let schedules = input
+    let schedules = match input
         .options
         .stripe_client
         .list_subscription_schedules(json!({
             "customer": input.customer_id,
         }))
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    {
+        Ok(schedules) => schedules,
+        Err(_) => return Ok(None),
+    };
     let Some(schedule_id) = schedules
         .get("data")
         .and_then(Value::as_array)
@@ -146,14 +167,19 @@ async fn release_plugin_schedule_if_needed(
             })
         })
     else {
-        return Ok(());
+        return Ok(None);
     };
-    input
+    if let Err(error) = input
         .options
         .stripe_client
         .release_subscription_schedule(&schedule_id)
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    {
+        return Ok(Some(respond_stripe_api_error(
+            error,
+            StripeErrorCode::SubscriptionNotFound,
+        )?));
+    }
     if let Some(local_subscription_id) = input.local_subscription.get("id").and_then(db_string) {
         input
             .adapter
@@ -167,7 +193,7 @@ async fn release_plugin_schedule_if_needed(
             )
             .await?;
     }
-    Ok(())
+    Ok(None)
 }
 
 fn schedule_subscription_id(schedule: &Value) -> Option<String> {
@@ -191,7 +217,10 @@ async fn billing_portal_update(
         "id": current_item.id,
         "price": input.price_id,
     });
-    if !super::upgrade::is_metered_price(&input.options.stripe_client, input.price_id).await {
+    let auto_managed_seats = input.plan.seat_price_id.is_some();
+    if !super::upgrade::is_metered_price(&input.options.stripe_client, input.price_id).await
+        && !auto_managed_seats
+    {
         if let Value::Object(map) = &mut update_item {
             map.insert("quantity".to_owned(), json!(input.seats));
         }
@@ -219,11 +248,8 @@ async fn billing_portal_update(
         .await
     {
         Ok(portal) => portal,
-        Err(_) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                StripeErrorCode::UnableToCreateBillingPortal,
-            );
+        Err(error) => {
+            return respond_stripe_api_error(error, StripeErrorCode::UnableToCreateBillingPortal);
         }
     };
     let mut response = portal;
@@ -247,7 +273,7 @@ async fn direct_subscription_update(
         .proration_behavior
         .as_deref()
         .unwrap_or("create_prorations");
-    input
+    if let Err(error) = input
         .options
         .stripe_client
         .update_subscription(
@@ -258,7 +284,9 @@ async fn direct_subscription_update(
             }),
         )
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    {
+        return respond_stripe_api_error(error, StripeErrorCode::UnableToCreateBillingPortal);
+    }
     if let Some(local_subscription_id) = input.local_subscription.get("id").and_then(db_string) {
         input
             .adapter
@@ -291,23 +319,35 @@ async fn schedule_period_end_change(
     current_item: &StripeSubscriptionItem,
     return_url: &str,
 ) -> Result<ApiResponse, OpenAuthError> {
-    let schedule = input
+    let schedule = match input
         .options
         .stripe_client
         .create_subscription_schedule(json!({
             "from_subscription": active_subscription.id,
         }))
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
-    let schedule_id = schedule
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpenAuthError::Api("subscription schedule id missing".to_owned()))?;
-    let current_phase = schedule
+    {
+        Ok(schedule) => schedule,
+        Err(error) => {
+            return respond_stripe_api_error(error, StripeErrorCode::UnableToCreateBillingPortal)
+        }
+    };
+    let Some(schedule_id) = schedule.get("id").and_then(Value::as_str) else {
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            StripeErrorCode::UnableToCreateBillingPortal,
+        );
+    };
+    let Some(current_phase) = schedule
         .get("phases")
         .and_then(Value::as_array)
         .and_then(|phases| phases.first())
-        .ok_or_else(|| OpenAuthError::Api("subscription schedule has no phases".to_owned()))?;
+    else {
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            StripeErrorCode::UnableToCreateBillingPortal,
+        );
+    };
     let current_items = normalize_schedule_phase_items(current_phase);
     let start_date = current_phase
         .get("start_date")
@@ -320,7 +360,7 @@ async fn schedule_period_end_change(
     let is_metered =
         super::upgrade::is_metered_price(&input.options.stripe_client, input.price_id).await;
     let new_items = scheduled_phase_items(&input, active_subscription, current_item, is_metered);
-    input
+    if let Err(error) = input
         .options
         .stripe_client
         .update_subscription_schedule(
@@ -345,7 +385,9 @@ async fn schedule_period_end_change(
             }),
         )
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    {
+        return respond_stripe_api_error(error, StripeErrorCode::UnableToCreateBillingPortal);
+    }
     if let Some(local_subscription_id) = input.local_subscription.get("id").and_then(db_string) {
         input
             .adapter

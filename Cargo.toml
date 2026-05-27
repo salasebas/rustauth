@@ -23,6 +23,7 @@ members = [
     "crates/openauth-deadpool-postgres",
     "crates/openauth-tokio-postgres",
     "examples/full-app",
+    "examples/stripe-smoke-server",
 ]
 
 [workspace.package]

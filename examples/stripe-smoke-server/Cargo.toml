@@ -1,0 +1,22 @@
+[package]
+name = "openauth-example-stripe-smoke"
+version = "0.0.6"
+edition.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+openauth = { path = "../../crates/openauth", features = ["stripe"] }
+openauth-axum = { path = "../../crates/openauth-axum" }
+openauth-core = { workspace = true }
+openauth-stripe = { path = "../../crates/openauth-stripe" }
+hex.workspace = true
+hmac.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "net", "time"] }
+
+[lints]
+workspace = true

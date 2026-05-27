@@ -156,9 +156,10 @@ pub fn create_auth_context_with_environment_and_adapter(
     initialize_plugins(&mut context)?;
     if !context.plugin_database_hooks.is_empty() {
         if let Some(adapter) = context.adapter.clone() {
-            context.adapter = Some(Arc::new(HookedAdapter::new(
+            context.adapter = Some(Arc::new(HookedAdapter::with_logger(
                 adapter,
                 context.plugin_database_hooks.clone(),
+                context.logger.clone(),
             )));
         }
     }

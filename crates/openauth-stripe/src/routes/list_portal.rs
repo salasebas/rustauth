@@ -12,11 +12,13 @@ use super::reference::{authorize_reference_for_customer_type, ReferenceResolutio
 use super::support::{
     active_subscription_customer, active_subscription_records, db_string, error_response,
     json_response, query_param, redirect_response, require_session,
-    resolve_subscription_options_for_endpoint, subscription_record_to_json, validate_redirect_url,
+    resolve_subscription_options_for_endpoint, respond_stripe_api_error,
+    subscription_record_to_json, validate_redirect_url,
 };
 use crate::errors::StripeErrorCode;
 use crate::metadata::SubscriptionMetadata;
 use crate::models::StripeSubscription;
+use crate::models::StripeSubscriptionItem;
 use crate::options::{AuthorizeReferenceAction, StripeOptions};
 use crate::utils::{get_plan_by_name, resolve_plan_item, resolve_quantity};
 
@@ -92,6 +94,9 @@ fn subscription_record_with_plan_metadata(
             if let Some(limits) = &plan.limits {
                 map.insert("limits".to_owned(), limits.clone());
             }
+            if let Some(group) = &plan.group {
+                map.insert("group".to_owned(), Value::String(group.clone()));
+            }
             let price_id = if billing_interval.as_deref() == Some("year") {
                 plan.annual_discount_price_id
                     .as_ref()
@@ -163,8 +168,8 @@ pub fn subscription_success(options: StripeOptions) -> openauth_core::api::Async
                             .collect::<std::collections::BTreeMap<_, _>>()
                     })
                     .unwrap_or_default();
-                let Some(subscription_id) = SubscriptionMetadata::get(&metadata).subscription_id
-                else {
+                let checkout_metadata = SubscriptionMetadata::get(&metadata);
+                let Some(subscription_id) = checkout_metadata.subscription_id else {
                     return redirect_response(&callback);
                 };
                 let Some(subscription) =
@@ -177,6 +182,19 @@ pub fn subscription_success(options: StripeOptions) -> openauth_core::api::Async
                 else {
                     return redirect_response(&callback);
                 };
+                if checkout_metadata
+                    .reference_id
+                    .as_deref()
+                    .is_some_and(|reference_id| {
+                        subscription
+                            .get("reference_id")
+                            .and_then(|value| db_string(value))
+                            != Some(reference_id)
+                    })
+                {
+                    return redirect_response(&callback);
+                }
+                let _ = current_session;
                 if super::support::record_is_active_or_trialing(&subscription) {
                     return redirect_response(&callback);
                 }
@@ -192,7 +210,7 @@ pub fn subscription_success(options: StripeOptions) -> openauth_core::api::Async
                     .stripe_client
                     .list_subscriptions(json!({
                         "customer": customer_id,
-                        "status": "active",
+                        "status": "active"
                     }))
                     .await
                 else {
@@ -201,7 +219,14 @@ pub fn subscription_success(options: StripeOptions) -> openauth_core::api::Async
                 let Some(stripe_subscription_value) = stripe_subscriptions
                     .get("data")
                     .and_then(Value::as_array)
-                    .and_then(|subscriptions| subscriptions.first())
+                    .and_then(|subscriptions| {
+                        subscriptions.iter().find(|stripe_subscription| {
+                            stripe_subscription
+                                .get("status")
+                                .and_then(Value::as_str)
+                                .is_some_and(crate::utils::is_active_or_trialing)
+                        })
+                    })
                     .cloned()
                 else {
                     return redirect_response(&callback);
@@ -235,6 +260,7 @@ pub fn subscription_success(options: StripeOptions) -> openauth_core::api::Async
                         resolved.item,
                         plan.seat_price_id.as_deref(),
                     ),
+                    resolved.item,
                 )
                 .await?;
                 redirect_response(&callback)
@@ -250,11 +276,11 @@ async fn update_subscription_from_stripe(
     plan: String,
     billing_interval: Option<String>,
     seats: i64,
+    plan_item: &StripeSubscriptionItem,
 ) -> Result<(), OpenAuthError> {
     let Some(subscription_id) = subscription.get("id").and_then(|value| db_string(value)) else {
         return Ok(());
     };
-    let first_item = stripe_subscription.items.data.first();
     let mut update = Update::new("subscription")
         .where_clause(Where::new(
             "id",
@@ -281,20 +307,17 @@ async fn update_subscription_from_stripe(
             "canceled_at",
             optional_unix_timestamp(stripe_subscription.canceled_at)?,
         )
-        .data("seats", DbValue::Number(seats));
+        .data("seats", DbValue::Number(seats))
+        .data(
+            "period_start",
+            optional_unix_timestamp(plan_item.current_period_start)?,
+        )
+        .data(
+            "period_end",
+            optional_unix_timestamp(plan_item.current_period_end)?,
+        );
     if let Some(interval) = billing_interval {
         update = update.data("billing_interval", DbValue::String(interval));
-    }
-    if let Some(item) = first_item {
-        update = update
-            .data(
-                "period_start",
-                optional_unix_timestamp(item.current_period_start)?,
-            )
-            .data(
-                "period_end",
-                optional_unix_timestamp(item.current_period_end)?,
-            );
     }
     if stripe_subscription.trial_start.is_some() || stripe_subscription.trial_end.is_some() {
         update = update
@@ -428,9 +451,9 @@ pub fn create_billing_portal(options: StripeOptions) -> openauth_core::api::Asyn
                     .await
                 {
                     Ok(portal) => portal,
-                    Err(_) => {
-                        return error_response(
-                            StatusCode::INTERNAL_SERVER_ERROR,
+                    Err(error) => {
+                        return respond_stripe_api_error(
+                            error,
                             StripeErrorCode::UnableToCreateBillingPortal,
                         );
                     }

@@ -1,4 +1,3 @@
-use hmac::{Hmac, Mac};
 use http::{Method, Request, StatusCode};
 use openauth_core::context::{create_auth_context, create_auth_context_with_adapter, AuthContext};
 use openauth_core::cookies::{set_session_cookie, CookieOptions, SessionCookieOptions};
@@ -13,7 +12,6 @@ use openauth_stripe::stripe_api::{
     StripeClient, StripeRequest, StripeResponse, StripeTransport, StripeTransportFuture,
 };
 use serde_json::{json, Value};
-use sha2::Sha256;
 use std::sync::{Arc, Mutex};
 use time::{Duration, OffsetDateTime};
 
@@ -239,12 +237,34 @@ fn stripe_options_with_authorized_references(transport: Arc<CaptureTransport>) -
     )
 }
 
+mod common;
+
 #[path = "routes/active_upgrade.rs"]
 mod active_upgrade;
+#[path = "routes/cancel_already_canceled.rs"]
+mod cancel_already_canceled;
+#[path = "routes/cross_user.rs"]
+mod cross_user;
+#[path = "routes/customer_metadata.rs"]
+mod customer_metadata;
+#[path = "routes/list_limits.rs"]
+mod list_limits;
 #[path = "routes/manage.rs"]
 mod manage;
+#[path = "routes/reference.rs"]
+mod reference;
+#[path = "routes/reuse_incomplete.rs"]
+mod reuse_incomplete;
+#[path = "routes/trial_abuse.rs"]
+mod trial_abuse;
 #[path = "routes/upgrade.rs"]
 mod upgrade;
+#[path = "routes/upgrade_errors.rs"]
+mod upgrade_errors;
+#[path = "routes/upgrade_lookup.rs"]
+mod upgrade_lookup;
+#[path = "routes/upgrade_trial_validation.rs"]
+mod upgrade_trial_validation;
 #[tokio::test]
 async fn subscription_list_returns_active_records_for_authenticated_reference(
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -763,6 +783,35 @@ async fn restore_subscription_clears_pending_cancel_for_owned_subscription(
 }
 
 #[tokio::test]
+async fn webhook_endpoint_rejects_missing_stripe_signature_header(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = stripe(StripeOptions::new(
+        StripeClient::new("sk_test"),
+        "whsec_test",
+    ));
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/stripe/webhook")
+        .ok_or("webhook endpoint")?;
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/stripe/webhook")
+        .body(br#"{"id":"evt_123","type":"invoice.paid","data":{"object":{}}}"#.to_vec())?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "STRIPE_SIGNATURE_NOT_FOUND");
+    Ok(())
+}
+
+#[tokio::test]
 async fn webhook_endpoint_verifies_signature_and_calls_on_event(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let seen = Arc::new(Mutex::new(Vec::new()));
@@ -789,14 +838,11 @@ async fn webhook_endpoint_verifies_signature_and_calls_on_event(
     })?;
     let payload = br#"{"id":"evt_123","type":"invoice.paid","data":{"object":{"id":"in_123"}}}"#;
     let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-    let mut mac = Hmac::<Sha256>::new_from_slice(b"whsec_test")?;
-    mac.update(format!("{timestamp}.").as_bytes());
-    mac.update(payload);
-    let signature = hex::encode(mac.finalize().into_bytes());
+    let signature = common::webhook::sign_webhook_payload("whsec_test", payload, timestamp)?;
     let request = Request::builder()
         .method(Method::POST)
         .uri("http://localhost:3000/api/auth/stripe/webhook")
-        .header("stripe-signature", format!("t={timestamp},v1={signature}"))
+        .header("stripe-signature", signature)
         .body(payload.to_vec())?;
 
     let response = (endpoint.handler)(&context, request).await?;
@@ -888,14 +934,11 @@ async fn webhook_endpoint_maps_invalid_json_to_construct_event_error(
     })?;
     let payload = br#"{"id":"evt_123","type":"invoice.paid""#;
     let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-    let mut mac = Hmac::<Sha256>::new_from_slice(b"whsec_test")?;
-    mac.update(format!("{timestamp}.").as_bytes());
-    mac.update(payload);
-    let signature = hex::encode(mac.finalize().into_bytes());
+    let signature = common::webhook::sign_webhook_payload("whsec_test", payload, timestamp)?;
     let request = Request::builder()
         .method(Method::POST)
         .uri("http://localhost:3000/api/auth/stripe/webhook")
-        .header("stripe-signature", format!("t={timestamp},v1={signature}"))
+        .header("stripe-signature", signature)
         .body(payload.to_vec())?;
 
     let response = (endpoint.handler)(&context, request).await?;
@@ -923,14 +966,11 @@ async fn webhook_endpoint_wraps_event_hook_errors() -> Result<(), Box<dyn std::e
     })?;
     let payload = br#"{"id":"evt_123","type":"invoice.paid","data":{"object":{"id":"in_123"}}}"#;
     let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-    let mut mac = Hmac::<Sha256>::new_from_slice(b"whsec_test")?;
-    mac.update(format!("{timestamp}.").as_bytes());
-    mac.update(payload);
-    let signature = hex::encode(mac.finalize().into_bytes());
+    let signature = common::webhook::sign_webhook_payload("whsec_test", payload, timestamp)?;
     let request = Request::builder()
         .method(Method::POST)
         .uri("http://localhost:3000/api/auth/stripe/webhook")
-        .header("stripe-signature", format!("t={timestamp},v1={signature}"))
+        .header("stripe-signature", signature)
         .body(payload.to_vec())?;
 
     let response = (endpoint.handler)(&context, request).await?;

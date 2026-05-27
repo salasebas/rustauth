@@ -1,5 +1,7 @@
-use hmac::{Hmac, Mac};
 use http::{Method, Request, StatusCode};
+
+#[path = "common/mod.rs"]
+mod common;
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{Create, DbAdapter, DbValue, FindOne, MemoryAdapter, Where};
 use openauth_core::options::OpenAuthOptions;
@@ -8,7 +10,6 @@ use openauth_stripe::stripe;
 use openauth_stripe::stripe_api::{
     StripeClient, StripeRequest, StripeResponse, StripeTransport, StripeTransportFuture,
 };
-use sha2::Sha256;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -389,13 +390,10 @@ async fn create_local_subscription(
 
 fn signed_webhook_request(payload: &[u8]) -> Result<Request<Vec<u8>>, Box<dyn std::error::Error>> {
     let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-    let mut mac = Hmac::<Sha256>::new_from_slice(b"whsec_test")?;
-    mac.update(format!("{timestamp}.").as_bytes());
-    mac.update(payload);
-    let signature = hex::encode(mac.finalize().into_bytes());
+    let signature = common::webhook::sign_webhook_payload("whsec_test", payload, timestamp)?;
     Ok(Request::builder()
         .method(Method::POST)
         .uri("http://localhost:3000/api/auth/stripe/webhook")
-        .header("stripe-signature", format!("t={timestamp},v1={signature}"))
+        .header("stripe-signature", signature)
         .body(payload.to_vec())?)
 }

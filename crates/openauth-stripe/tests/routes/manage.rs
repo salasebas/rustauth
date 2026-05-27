@@ -298,9 +298,8 @@ async fn cancel_subscription_syncs_pending_cancel_when_portal_says_already_cance
         .header("cookie", cookie_header)
         .body(br#"{"returnUrl":"/account"}"#.to_vec())?;
 
-    let result = (endpoint.handler)(&context, request).await;
-
-    assert!(result.is_err());
+    let response = (endpoint.handler)(&context, request).await?;
+    assert_eq!(response.status(), StatusCode::OK);
     let records = adapter.records("subscription").await;
     let subscription = records
         .iter()
@@ -528,9 +527,10 @@ async fn billing_portal_maps_stripe_failure_to_plugin_error(
 
     let response = (endpoint.handler)(&context, request).await?;
 
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     let body: Value = serde_json::from_slice(response.body())?;
-    assert_eq!(body["code"], "UNABLE_TO_CREATE_BILLING_PORTAL");
+    assert_eq!(body["code"], "FAILED_TO_FETCH_PLANS");
+    assert_eq!(body["originalMessage"], "portal unavailable");
     assert!(transport
         .requests()?
         .iter()
@@ -807,6 +807,140 @@ async fn cancel_subscription_for_organization_uses_org_subscription_customer(
     assert!(portal_request
         .body
         .contains("flow_data%5Bsubscription_cancel%5D%5Bsubscription%5D=stripe_sub_active"));
+    Ok(())
+}
+
+#[derive(Default)]
+struct CancelAtRestoreTransport {
+    requests: Mutex<Vec<StripeRequest>>,
+}
+
+impl CancelAtRestoreTransport {
+    fn requests(&self) -> Result<Vec<StripeRequest>, String> {
+        self.requests
+            .lock()
+            .map(|requests| requests.clone())
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl StripeTransport for CancelAtRestoreTransport {
+    fn send<'a>(&'a self, request: StripeRequest) -> StripeTransportFuture<'a> {
+        let response = match request.path.as_str() {
+            "/v1/subscriptions" => json!({
+                "object": "list",
+                "data": [{
+                    "id": "stripe_sub_active",
+                    "object": "subscription",
+                    "status": "active",
+                    "cancel_at_period_end": false,
+                    "cancel_at": 1_702_592_000
+                }]
+            }),
+            "/v1/subscriptions/stripe_sub_active" => json!({
+                "id": "stripe_sub_active",
+                "object": "subscription",
+                "status": "active",
+                "cancel_at_period_end": false,
+                "cancel_at": null
+            }),
+            _ => json!({ "id": "ok" }),
+        };
+        if let Err(error) = self
+            .requests
+            .lock()
+            .map(|mut requests| requests.push(request))
+        {
+            let message = error.to_string();
+            return Box::pin(async move {
+                Err(openauth_stripe::stripe_api::StripeApiError::Transport(
+                    message,
+                ))
+            });
+        }
+        Box::pin(async move {
+            Ok(StripeResponse {
+                status: 200,
+                body: response,
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn restore_subscription_clears_cancel_at_timestamp() -> Result<(), Box<dyn std::error::Error>>
+{
+    let transport = Arc::new(CancelAtRestoreTransport::default());
+    let options = StripeOptions::new(
+        StripeClient::with_transport(
+            "sk_test",
+            Arc::clone(&transport) as Arc<dyn StripeTransport>,
+        ),
+        "whsec_test",
+    )
+    .subscription(SubscriptionOptions::enabled(vec![
+        StripePlan::new("pro").price_id("price_pro")
+    ]));
+    let plugin = stripe(options);
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/subscription/restore")
+        .ok_or("restore endpoint")?;
+    let (context, adapter, cookie_header) = authenticated_context().await?;
+    create_subscription_record(&adapter, "sub_active", "user_1", "active", Some("cus_123")).await?;
+    openauth_core::db::DbAdapter::update(
+        &adapter,
+        openauth_core::db::Update::new("subscription")
+            .where_clause(openauth_core::db::Where::new(
+                "id",
+                DbValue::String("sub_active".to_owned()),
+            ))
+            .data(
+                "stripe_subscription_id",
+                DbValue::String("stripe_sub_active".to_owned()),
+            )
+            .data("cancel_at_period_end", DbValue::Boolean(false))
+            .data(
+                "cancel_at",
+                DbValue::Timestamp(OffsetDateTime::from_unix_timestamp(1_702_592_000)?),
+            )
+            .data(
+                "canceled_at",
+                DbValue::Timestamp(OffsetDateTime::from_unix_timestamp(1_700_000_000)?),
+            ),
+    )
+    .await?;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/subscription/restore")
+        .header("content-type", "application/json")
+        .header("cookie", cookie_header)
+        .body(br#"{"subscriptionId":"stripe_sub_active"}"#.to_vec())?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let update_request = transport
+        .requests()?
+        .into_iter()
+        .find(|request| {
+            request.method == "POST" && request.path == "/v1/subscriptions/stripe_sub_active"
+        })
+        .ok_or("stripe update")?;
+    assert!(update_request.body.contains("cancel_at="));
+    assert!(!update_request.body.contains("cancel_at_period_end"));
+    let subscription = adapter.records("subscription").await;
+    let record = subscription
+        .iter()
+        .find(|record| record.get("id") == Some(&DbValue::String("sub_active".to_owned())))
+        .ok_or("subscription")?;
+    assert_eq!(record.get("cancel_at"), Some(&DbValue::Null));
+    assert_eq!(
+        record.get("cancel_at_period_end"),
+        Some(&DbValue::Boolean(false))
+    );
+    assert_eq!(record.get("canceled_at"), Some(&DbValue::Null));
     Ok(())
 }
 

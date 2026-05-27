@@ -14,11 +14,12 @@ use super::support::{
     clear_subscription_cancel, clear_subscription_schedule, db_string, error_response,
     find_active_stripe_subscription, find_subscription_for_reference, json_response,
     record_has_pending_cancel, record_is_active_or_trialing, require_session,
-    resolve_subscription_options_for_endpoint, stripe_list_has_active_subscription,
-    validate_redirect_url,
+    resolve_subscription_options_for_endpoint, respond_stripe_api_error,
+    stripe_list_has_active_subscription, validate_redirect_url,
 };
 use crate::errors::StripeErrorCode;
 use crate::options::{AuthorizeReferenceAction, StripeOptions};
+use crate::stripe_api::StripeApiError;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,11 +142,19 @@ pub fn cancel_subscription(options: StripeOptions) -> openauth_core::api::AsyncA
                     .get("id")
                     .and_then(db_string)
                     .map(str::to_owned);
-                let active_subscriptions = options
+                let active_subscriptions = match options
                     .stripe_client
                     .list_subscriptions(json!({ "customer": customer_id.clone() }))
                     .await
-                    .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                {
+                    Ok(active_subscriptions) => active_subscriptions,
+                    Err(error) => {
+                        return respond_stripe_api_error(
+                            error,
+                            StripeErrorCode::SubscriptionNotFound,
+                        )
+                    }
+                };
                 if !stripe_list_has_any_active_subscription(&active_subscriptions) {
                     adapter
                         .delete_many(DeleteMany::new("subscription").where_clause(Where::new(
@@ -183,20 +192,30 @@ pub fn cancel_subscription(options: StripeOptions) -> openauth_core::api::AsyncA
                 {
                     Ok(portal) => portal,
                     Err(error) => {
-                        if stripe_error_is_already_canceled(&error)
+                        if error.is_already_scheduled_cancel()
                             && !record_has_pending_cancel(&subscription)
                         {
                             if let Some(local_subscription_id) = local_subscription_id.as_deref() {
-                                sync_pending_cancel_from_stripe(
+                                let _ = sync_pending_cancel_from_stripe(
                                     adapter.as_ref(),
                                     &options,
                                     local_subscription_id,
                                     &stripe_subscription_id,
                                 )
-                                .await?;
+                                .await;
                             }
+                            return json_response(
+                                StatusCode::OK,
+                                &json!({
+                                    "url": Value::Null,
+                                    "redirect": !body.disable_redirect,
+                                }),
+                            );
                         }
-                        return Err(OpenAuthError::Api(error.to_string()));
+                        return respond_stripe_api_error(
+                            error,
+                            StripeErrorCode::UnableToCreateBillingPortal,
+                        );
                     }
                 };
                 json_response(
@@ -209,10 +228,6 @@ pub fn cancel_subscription(options: StripeOptions) -> openauth_core::api::AsyncA
             })
         },
     )
-}
-
-fn stripe_error_is_already_canceled(error: &crate::stripe_api::StripeApiError) -> bool {
-    error.to_string().contains("already set to be canceled")
 }
 
 fn stripe_list_has_any_active_subscription(list: &Value) -> bool {
@@ -233,12 +248,11 @@ async fn sync_pending_cancel_from_stripe(
     options: &StripeOptions,
     local_subscription_id: &str,
     stripe_subscription_id: &str,
-) -> Result<(), OpenAuthError> {
+) -> Result<(), StripeApiError> {
     let stripe_subscription = options
         .stripe_client
         .retrieve_subscription(stripe_subscription_id)
-        .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        .await?;
     adapter
         .update(
             Update::new("subscription")
@@ -257,21 +271,26 @@ async fn sync_pending_cancel_from_stripe(
                 )
                 .data(
                     "cancel_at",
-                    optional_unix_timestamp(
+                    optional_unix_timestamp_stripe(
                         stripe_subscription.get("cancel_at").and_then(Value::as_i64),
                     )?,
                 )
                 .data(
                     "canceled_at",
-                    optional_unix_timestamp(
+                    optional_unix_timestamp_stripe(
                         stripe_subscription
                             .get("canceled_at")
                             .and_then(Value::as_i64),
                     )?,
                 ),
         )
-        .await?;
+        .await
+        .map_err(|error| StripeApiError::Transport(error.to_string()))?;
     Ok(())
+}
+
+fn optional_unix_timestamp_stripe(timestamp: Option<i64>) -> Result<DbValue, StripeApiError> {
+    optional_unix_timestamp(timestamp).map_err(|error| StripeApiError::Transport(error.to_string()))
 }
 
 pub fn restore_subscription(options: StripeOptions) -> openauth_core::api::AsyncAuthEndpoint {
@@ -378,24 +397,45 @@ pub fn restore_subscription(options: StripeOptions) -> openauth_core::api::Async
                     .and_then(db_string)
                     .map(str::to_owned)
                 {
-                    let schedule = options
+                    let schedule = match options
                         .stripe_client
                         .retrieve_subscription_schedule(&schedule_id)
                         .await
-                        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                    {
+                        Ok(schedule) => schedule,
+                        Err(error) => {
+                            return respond_stripe_api_error(
+                                error,
+                                StripeErrorCode::SubscriptionNotFound,
+                            )
+                        }
+                    };
                     if schedule.get("status").and_then(Value::as_str) == Some("active") {
-                        options
+                        if let Err(error) = options
                             .stripe_client
                             .release_subscription_schedule(&schedule_id)
                             .await
-                            .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                        {
+                            return respond_stripe_api_error(
+                                error,
+                                StripeErrorCode::SubscriptionNotFound,
+                            );
+                        }
                     }
                     clear_subscription_schedule(adapter.as_ref(), &local_subscription_id).await?;
-                    let released = options
+                    let released = match options
                         .stripe_client
                         .retrieve_subscription(&stripe_subscription_id)
                         .await
-                        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                    {
+                        Ok(released) => released,
+                        Err(error) => {
+                            return respond_stripe_api_error(
+                                error,
+                                StripeErrorCode::SubscriptionNotFound,
+                            )
+                        }
+                    };
                     return json_response(StatusCode::OK, &released);
                 }
                 if !record_has_pending_cancel(&subscription) {
@@ -404,11 +444,19 @@ pub fn restore_subscription(options: StripeOptions) -> openauth_core::api::Async
                         StripeErrorCode::SubscriptionNotPendingChange,
                     );
                 }
-                let active_subscriptions = options
+                let active_subscriptions = match options
                     .stripe_client
                     .list_subscriptions(json!({ "customer": customer_id }))
                     .await
-                    .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                {
+                    Ok(active_subscriptions) => active_subscriptions,
+                    Err(error) => {
+                        return respond_stripe_api_error(
+                            error,
+                            StripeErrorCode::SubscriptionNotFound,
+                        )
+                    }
+                };
                 let Some(active_subscription) =
                     find_active_stripe_subscription(&active_subscriptions, &stripe_subscription_id)
                 else {
@@ -426,11 +474,19 @@ pub fn restore_subscription(options: StripeOptions) -> openauth_core::api::Async
                 } else {
                     json!({ "cancel_at_period_end": false })
                 };
-                let restored = options
+                let restored = match options
                     .stripe_client
                     .update_subscription(&stripe_subscription_id, update_params)
                     .await
-                    .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                {
+                    Ok(restored) => restored,
+                    Err(error) => {
+                        return respond_stripe_api_error(
+                            error,
+                            StripeErrorCode::SubscriptionNotFound,
+                        )
+                    }
+                };
                 clear_subscription_cancel(adapter.as_ref(), &local_subscription_id).await?;
                 json_response(StatusCode::OK, &restored)
             })

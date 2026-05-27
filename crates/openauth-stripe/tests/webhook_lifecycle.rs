@@ -1,5 +1,7 @@
-use hmac::{Hmac, Mac};
 use http::{Method, Request, StatusCode};
+
+#[path = "common/mod.rs"]
+mod common;
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{Create, DbAdapter, DbValue, FindOne, MemoryAdapter, Where};
 use openauth_core::error::OpenAuthError;
@@ -12,7 +14,6 @@ use openauth_stripe::stripe_api::{
     StripeClient, StripeRequest, StripeResponse, StripeTransport, StripeTransportFuture,
 };
 use serde_json::json;
-use sha2::Sha256;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc, Mutex,
@@ -106,18 +107,7 @@ async fn checkout_completed_webhook_updates_local_subscription(
         adapter_arc,
     )?;
     let payload = br#"{"id":"evt_123","type":"checkout.session.completed","data":{"object":{"id":"cs_123","mode":"subscription","customer":"cus_123","subscription":"stripe_sub_123","client_reference_id":"user_1","metadata":{"userId":"user_1","referenceId":"user_1","subscriptionId":"sub_local"}}}}"#;
-    let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-    let mut mac = Hmac::<Sha256>::new_from_slice(b"whsec_test")?;
-    mac.update(format!("{timestamp}.").as_bytes());
-    mac.update(payload);
-    let signature = hex::encode(mac.finalize().into_bytes());
-    let request = Request::builder()
-        .method(Method::POST)
-        .uri("http://localhost:3000/api/auth/stripe/webhook")
-        .header("stripe-signature", format!("t={timestamp},v1={signature}"))
-        .body(payload.to_vec())?;
-
-    let response = (endpoint.handler)(&context, request).await?;
+    let response = (endpoint.handler)(&context, signed_webhook_request(payload)?).await?;
 
     assert_eq!(response.status(), StatusCode::OK);
     let subscription = adapter
@@ -248,9 +238,10 @@ async fn subscription_webhook_wraps_dynamic_plan_provider_failure(
 
     let response = (endpoint.handler)(&context, request).await?;
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    // Better Auth logs handler errors and still returns 200 to Stripe.
+    assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value = serde_json::from_slice(response.body())?;
-    assert_eq!(body["code"], "STRIPE_WEBHOOK_ERROR");
+    assert_eq!(body["success"], true);
     Ok(())
 }
 
@@ -793,13 +784,10 @@ async fn subscription_deleted_webhook_marks_local_subscription_canceled(
 
 fn signed_webhook_request(payload: &[u8]) -> Result<Request<Vec<u8>>, Box<dyn std::error::Error>> {
     let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-    let mut mac = Hmac::<Sha256>::new_from_slice(b"whsec_test")?;
-    mac.update(format!("{timestamp}.").as_bytes());
-    mac.update(payload);
-    let signature = hex::encode(mac.finalize().into_bytes());
+    let signature = common::webhook::sign_webhook_payload("whsec_test", payload, timestamp)?;
     Ok(Request::builder()
         .method(Method::POST)
         .uri("http://localhost:3000/api/auth/stripe/webhook")
-        .header("stripe-signature", format!("t={timestamp},v1={signature}"))
+        .header("stripe-signature", signature)
         .body(payload.to_vec())?)
 }

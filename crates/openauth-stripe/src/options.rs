@@ -3,6 +3,7 @@ use std::sync::Arc;
 use openauth_core::api::ApiRequest;
 use openauth_core::context::AuthContext;
 use openauth_core::db::{Session, User};
+use openauth_core::env::logger::Logger;
 use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::PluginSchemaContribution;
 use serde_json::json;
@@ -46,10 +47,21 @@ pub type GetCustomerCreateParamsHook = Arc<
         + Sync,
 >;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct CustomerCreateContext {
     pub base_url: Option<String>,
     pub request_path: Option<String>,
+    pub logger: Logger,
+}
+
+impl std::fmt::Debug for CustomerCreateContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CustomerCreateContext")
+            .field("base_url", &self.base_url)
+            .field("request_path", &self.request_path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CustomerCreateContext {
@@ -57,13 +69,15 @@ impl CustomerCreateContext {
         Self {
             base_url: Some(context.base_url.clone()),
             request_path: None,
+            logger: context.logger.clone(),
         }
     }
 
-    pub fn database_hook(request_path: Option<String>) -> Self {
+    pub fn database_hook(request_path: Option<String>, logger: &Logger) -> Self {
         Self {
             base_url: None,
             request_path,
+            logger: logger.clone(),
         }
     }
 }
@@ -488,6 +502,11 @@ impl StripePlan {
 
     pub fn limits(mut self, limits: serde_json::Value) -> Self {
         self.limits = Some(limits);
+        self
+    }
+
+    pub fn group(mut self, group: impl Into<String>) -> Self {
+        self.group = Some(group.into());
         self
     }
 

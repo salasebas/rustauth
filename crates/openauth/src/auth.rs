@@ -340,9 +340,10 @@ pub fn open_auth_with_adapter_and_endpoints(
     async_endpoints: Vec<AsyncAuthEndpoint>,
 ) -> Result<OpenAuth, OpenAuthError> {
     let context = create_auth_context(options.clone())?;
-    let hooked_adapter: Arc<dyn DbAdapter> = Arc::new(HookedAdapter::new(
+    let hooked_adapter: Arc<dyn DbAdapter> = Arc::new(HookedAdapter::with_logger(
         adapter,
         context.plugin_database_hooks.clone(),
+        context.logger.clone(),
     ));
     let adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
         context.db_schema.clone(),

@@ -3,7 +3,7 @@ use openauth_core::api::{
     create_auth_endpoint, parse_request_body, AuthEndpointOptions, BodyField, BodySchema,
     JsonSchemaType, OpenApiOperation,
 };
-use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindMany, Where};
+use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindMany, FindOne, Where};
 use openauth_core::error::OpenAuthError;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -11,14 +11,18 @@ use time::OffsetDateTime;
 
 use super::reference::{authorize_reference_for_customer_type, ReferenceResolutionInput};
 use super::support::{
-    active_subscription_records, create_incomplete_subscription, db_string, error_response,
-    find_subscription_for_reference, json_response, reference_has_ever_trialed, require_session,
-    resolve_subscription_options_for_endpoint, validate_redirect_url,
+    active_subscription_records, db_string, error_response, find_subscription_for_reference,
+    json_response, link_stripe_subscription_id, reference_has_ever_trialed, require_session,
+    resolve_subscription_options_for_endpoint, respond_stripe_api_error,
+    reuse_or_create_incomplete_subscription, subscription_records_for_reference,
+    validate_redirect_url,
 };
 use crate::errors::StripeErrorCode;
 use crate::metadata::SubscriptionMetadata;
 use crate::models::{StripeSubscription, Subscription};
+use crate::options::StripePlan;
 use crate::options::{AuthorizeReferenceAction, CheckoutSessionParamsInput, StripeOptions};
+use crate::stripe_api::StripeApiError;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,20 +122,43 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
                         );
                     }
                 }
-                let plan = crate::utils::get_plan_by_name(&subscription_options, &body.plan)
-                    .ok_or_else(|| {
-                        OpenAuthError::Api(
-                            StripeErrorCode::SubscriptionPlanNotFound
-                                .message()
-                                .to_owned(),
-                        )
-                    })?;
-                let price_id = resolve_plan_price_id(&options, plan, body.annual).await;
-                let Some(price_id) = price_id else {
+                let Some(plan) = crate::utils::get_plan_by_name(&subscription_options, &body.plan)
+                else {
                     return error_response(
                         StatusCode::BAD_REQUEST,
                         StripeErrorCode::SubscriptionPlanNotFound,
                     );
+                };
+                if !plan_has_configured_price(plan, body.annual) {
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        StripeErrorCode::SubscriptionPlanNotFound,
+                    );
+                }
+                if plan
+                    .free_trial
+                    .as_ref()
+                    .is_some_and(|free_trial| free_trial.days <= 0)
+                {
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        StripeErrorCode::InvalidRequestBody,
+                    );
+                }
+                let price_id = match resolve_plan_price_id(&options, plan, body.annual).await {
+                    Ok(Some(price_id)) => price_id,
+                    Ok(None) => {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            StripeErrorCode::SubscriptionPlanNotFound,
+                        );
+                    }
+                    Err(error) => {
+                        return respond_stripe_api_error(
+                            error,
+                            StripeErrorCode::FailedToFetchPlans,
+                        );
+                    }
                 };
                 let billing_interval = if body.annual { "year" } else { "month" };
                 let adapter = context.adapter().ok_or_else(|| {
@@ -187,11 +214,11 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
                         StripeErrorCode::InvalidRequestBody,
                     );
                 };
-                let explicit_subscription = if let Some(subscription_id) = body.subscription_id {
+                let explicit_subscription = if let Some(subscription_id) = &body.subscription_id {
                     let Some(subscription) = find_subscription_for_reference(
                         adapter.as_ref(),
                         &reference_id,
-                        Some(&subscription_id),
+                        Some(subscription_id.as_str()),
                     )
                     .await?
                     else {
@@ -256,19 +283,24 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
                         &options,
                         crate::options::CustomerCreateContext::from_auth_context(context),
                         &reference_id,
+                        body.metadata.clone(),
                     )
                     .await
                     {
                         Ok(customer_id) => customer_id,
-                        Err(OpenAuthError::Api(message))
-                            if message == StripeErrorCode::OrganizationNotFound.message() =>
-                        {
+                        Err(crate::customers::CustomerEnsureError::OrganizationNotFound) => {
                             return error_response(
                                 StatusCode::BAD_REQUEST,
                                 StripeErrorCode::OrganizationNotFound,
                             );
                         }
-                        Err(_) => {
+                        Err(crate::customers::CustomerEnsureError::Stripe(error)) => {
+                            return respond_stripe_api_error(
+                                error,
+                                StripeErrorCode::UnableToCreateCustomer,
+                            );
+                        }
+                        Err(crate::customers::CustomerEnsureError::Other(_)) => {
                             return error_response(
                                 StatusCode::BAD_REQUEST,
                                 StripeErrorCode::UnableToCreateCustomer,
@@ -281,11 +313,24 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
                         &options,
                         crate::options::CustomerCreateContext::from_auth_context(context),
                         &current_session.user,
+                        body.metadata.clone(),
                     )
                     .await
                     {
                         Ok(customer_id) => customer_id,
-                        Err(_) => {
+                        Err(crate::customers::CustomerEnsureError::Stripe(error)) => {
+                            return respond_stripe_api_error(
+                                error,
+                                StripeErrorCode::UnableToCreateCustomer,
+                            );
+                        }
+                        Err(crate::customers::CustomerEnsureError::OrganizationNotFound) => {
+                            return error_response(
+                                StatusCode::BAD_REQUEST,
+                                StripeErrorCode::OrganizationNotFound,
+                            );
+                        }
+                        Err(crate::customers::CustomerEnsureError::Other(_)) => {
                             return error_response(
                                 StatusCode::BAD_REQUEST,
                                 StripeErrorCode::UnableToCreateCustomer,
@@ -293,38 +338,62 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
                         }
                     }
                 };
-                if let Some(active_subscription) = active_subscriptions.iter().find(|record| {
-                    record
-                        .get("stripe_subscription_id")
-                        .and_then(db_string)
-                        .is_some()
-                }) {
-                    return super::active_upgrade::handle(
-                        super::active_upgrade::ActiveUpgradeInput {
-                            context,
-                            request: &request,
-                            adapter: adapter.as_ref(),
-                            options: &options,
-                            subscription_options: &subscription_options,
-                            local_subscription: active_subscription,
-                            plan,
-                            price_id: &price_id,
-                            customer_id: &customer_id,
-                            seats,
-                            return_url: body.return_url,
-                            disable_redirect: body.disable_redirect,
-                            schedule_at_period_end: body.schedule_at_period_end,
-                        },
-                    )
-                    .await;
+                let local_records =
+                    subscription_records_for_reference(adapter.as_ref(), &reference_id).await?;
+                let has_active_or_trialing = local_records
+                    .iter()
+                    .any(super::support::record_is_active_or_trialing);
+                let stripe_id_hint = active_subscriptions
+                    .first()
+                    .and_then(|record| record.get("stripe_subscription_id").and_then(db_string))
+                    .or(body.subscription_id.as_deref());
+                match reconcile_active_upgrade_record(
+                    adapter.as_ref(),
+                    &options,
+                    &customer_id,
+                    stripe_id_hint,
+                    active_subscriptions.first(),
+                    &local_records,
+                )
+                .await
+                {
+                    Ok(Some(local_for_upgrade)) => {
+                        return super::active_upgrade::handle(
+                            super::active_upgrade::ActiveUpgradeInput {
+                                context,
+                                request: &request,
+                                adapter: adapter.as_ref(),
+                                options: &options,
+                                subscription_options: &subscription_options,
+                                local_subscription: &local_for_upgrade,
+                                plan,
+                                price_id: &price_id,
+                                customer_id: &customer_id,
+                                seats,
+                                return_url: body.return_url,
+                                disable_redirect: body.disable_redirect,
+                                schedule_at_period_end: body.schedule_at_period_end,
+                            },
+                        )
+                        .await;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        return respond_stripe_api_error(
+                            error,
+                            StripeErrorCode::SubscriptionNotFound,
+                        );
+                    }
                 }
-                let subscription_id = create_incomplete_subscription(
+                let subscription_id = reuse_or_create_incomplete_subscription(
                     adapter.as_ref(),
                     &plan.name,
                     &reference_id,
                     Some(&customer_id),
                     body.annual,
                     seats,
+                    &local_records,
+                    has_active_or_trialing,
                 )
                 .await?;
                 let subscription = checkout_subscription(
@@ -353,10 +422,9 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
                     };
                 let has_ever_trialed =
                     reference_has_ever_trialed(adapter.as_ref(), &reference_id).await?;
-                let trial_period_days = plan
-                    .free_trial
-                    .as_ref()
-                    .and_then(|free_trial| (!has_ever_trialed).then_some(free_trial.days));
+                let trial_period_days = plan.free_trial.as_ref().and_then(|free_trial| {
+                    (!has_ever_trialed && free_trial.days > 0).then_some(free_trial.days)
+                });
                 let metadata = SubscriptionMetadata::new(
                     &current_session.user.id,
                     &subscription_id,
@@ -385,11 +453,19 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
                     trial_period_days,
                     custom_params: custom_checkout_params,
                 })?;
-                let checkout = options
+                let checkout = match options
                     .stripe_client
                     .create_checkout_session(checkout_params)
                     .await
-                    .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+                {
+                    Ok(checkout) => checkout,
+                    Err(error) => {
+                        return respond_stripe_api_error(
+                            error,
+                            StripeErrorCode::UnableToCreateBillingPortal,
+                        );
+                    }
+                };
                 let mut response = checkout;
                 if let Value::Object(map) = &mut response {
                     map.insert("redirect".to_owned(), Value::Bool(!body.disable_redirect));
@@ -400,11 +476,22 @@ pub fn upgrade_subscription(options: StripeOptions) -> openauth_core::api::Async
     )
 }
 
+fn plan_has_configured_price(plan: &StripePlan, annual: bool) -> bool {
+    if annual {
+        plan.annual_discount_price_id.is_some()
+            || plan.price_id.is_some()
+            || plan.annual_discount_lookup_key.is_some()
+            || plan.lookup_key.is_some()
+    } else {
+        plan.price_id.is_some() || plan.lookup_key.is_some()
+    }
+}
+
 async fn resolve_plan_price_id(
     options: &StripeOptions,
-    plan: &crate::options::StripePlan,
+    plan: &StripePlan,
     annual: bool,
-) -> Option<String> {
+) -> Result<Option<String>, StripeApiError> {
     let (price_id, lookup_key) = if annual {
         (
             plan.annual_discount_price_id
@@ -418,19 +505,21 @@ async fn resolve_plan_price_id(
         (plan.price_id.as_ref(), plan.lookup_key.as_ref())
     };
     if let Some(lookup_key) = lookup_key {
-        if let Ok(prices) = options.stripe_client.price_by_lookup_key(lookup_key).await {
-            if let Some(resolved) = prices
-                .get("data")
-                .and_then(Value::as_array)
-                .and_then(|prices| prices.first())
-                .and_then(|price| price.get("id"))
-                .and_then(Value::as_str)
-            {
-                return Some(resolved.to_owned());
-            }
+        let prices = options
+            .stripe_client
+            .price_by_lookup_key(lookup_key)
+            .await?;
+        if let Some(resolved) = prices
+            .get("data")
+            .and_then(Value::as_array)
+            .and_then(|prices| prices.first())
+            .and_then(|price| price.get("id"))
+            .and_then(Value::as_str)
+        {
+            return Ok(Some(resolved.to_owned()));
         }
     }
-    price_id.cloned()
+    Ok(price_id.cloned())
 }
 
 fn db_timestamp(value: &DbValue) -> Option<OffsetDateTime> {
@@ -438,6 +527,79 @@ fn db_timestamp(value: &DbValue) -> Option<OffsetDateTime> {
         DbValue::Timestamp(value) => Some(*value),
         _ => None,
     }
+}
+
+async fn reconcile_active_upgrade_record(
+    adapter: &dyn DbAdapter,
+    options: &StripeOptions,
+    customer_id: &str,
+    stripe_id_hint: Option<&str>,
+    active_local_hint: Option<&DbRecord>,
+    local_records: &[DbRecord],
+) -> Result<Option<DbRecord>, StripeApiError> {
+    let stripe_list = options
+        .stripe_client
+        .list_subscriptions(json!({ "customer": customer_id }))
+        .await?;
+    let Some(stripe_data) = stripe_list.get("data").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let active_stripe_sub = stripe_data.iter().find(|sub| {
+        let Some(status) = sub.get("status").and_then(Value::as_str) else {
+            return false;
+        };
+        if !crate::utils::is_active_or_trialing(status) {
+            return false;
+        }
+        if let Some(hint) = stripe_id_hint {
+            return sub.get("id").and_then(Value::as_str) == Some(hint);
+        }
+        if let Some(local) = active_local_hint {
+            if let Some(local_stripe) = local.get("stripe_subscription_id").and_then(db_string) {
+                return sub.get("id").and_then(Value::as_str) == Some(local_stripe);
+            }
+        }
+        false
+    });
+    let Some(stripe_sub) = active_stripe_sub else {
+        return Ok(None);
+    };
+    let Some(stripe_subscription_id) = stripe_sub.get("id").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if let Some(record) = local_records.iter().find(|record| {
+        record.get("stripe_subscription_id").and_then(db_string) == Some(stripe_subscription_id)
+    }) {
+        return Ok(Some(record.clone()));
+    }
+    let local_active = active_local_hint.or_else(|| {
+        local_records
+            .iter()
+            .find(|record| super::support::record_is_active_or_trialing(record))
+    });
+    if let Some(local) = local_active {
+        if local
+            .get("stripe_subscription_id")
+            .and_then(db_string)
+            .is_none()
+        {
+            let Some(local_id) = local.get("id").and_then(db_string) else {
+                return Ok(None);
+            };
+            link_stripe_subscription_id(adapter, local_id, stripe_subscription_id)
+                .await
+                .map_err(|error| StripeApiError::Transport(error.to_string()))?;
+            let updated = adapter
+                .find_one(
+                    FindOne::new("subscription")
+                        .where_clause(Where::new("id", DbValue::String(local_id.to_owned()))),
+                )
+                .await
+                .map_err(|error| StripeApiError::Transport(error.to_string()))?;
+            return Ok(updated);
+        }
+    }
+    Ok(None)
 }
 
 async fn stripe_subscription_matches_requested_price(
@@ -456,11 +618,14 @@ async fn stripe_subscription_matches_requested_price(
     let Some(customer_id) = subscription.get("stripe_customer_id").and_then(db_string) else {
         return Ok(None);
     };
-    let stripe_subscriptions = options
+    let stripe_subscriptions = match options
         .stripe_client
         .list_subscriptions(json!({ "customer": customer_id }))
         .await
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    {
+        Ok(stripe_subscriptions) => stripe_subscriptions,
+        Err(_) => return Ok(None),
+    };
     let Some(stripe_subscription_value) = stripe_subscriptions
         .get("data")
         .and_then(Value::as_array)

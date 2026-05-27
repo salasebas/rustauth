@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use crate::errors::StripeErrorCode;
 use crate::options::SubscriptionOptions;
+use crate::stripe_api::StripeApiError;
 
 pub(super) async fn require_session(
     context: &AuthContext,
@@ -152,6 +153,104 @@ pub(super) async fn clear_subscription_schedule(
         )
         .await?;
     Ok(())
+}
+
+pub(super) async fn subscription_records_for_reference(
+    adapter: &dyn openauth_core::db::DbAdapter,
+    reference_id: &str,
+) -> Result<Vec<DbRecord>, OpenAuthError> {
+    Ok(adapter
+        .find_many(FindMany::new("subscription").where_clause(Where::new(
+            "reference_id",
+            DbValue::String(reference_id.to_owned()),
+        )))
+        .await?)
+}
+
+pub(super) fn find_incomplete_subscription_record(records: &[DbRecord]) -> Option<&DbRecord> {
+    records.iter().find(|record| {
+        record
+            .get("status")
+            .and_then(db_string)
+            .is_some_and(|status| status == "incomplete")
+    })
+}
+
+pub(super) async fn link_stripe_subscription_id(
+    adapter: &dyn openauth_core::db::DbAdapter,
+    local_subscription_id: &str,
+    stripe_subscription_id: &str,
+) -> Result<(), OpenAuthError> {
+    adapter
+        .update(
+            Update::new("subscription")
+                .where_clause(Where::new(
+                    "id",
+                    DbValue::String(local_subscription_id.to_owned()),
+                ))
+                .data(
+                    "stripe_subscription_id",
+                    DbValue::String(stripe_subscription_id.to_owned()),
+                ),
+        )
+        .await?;
+    Ok(())
+}
+
+pub(super) async fn reuse_or_create_incomplete_subscription(
+    adapter: &dyn openauth_core::db::DbAdapter,
+    plan: &str,
+    reference_id: &str,
+    stripe_customer_id: Option<&str>,
+    annual: bool,
+    seats: i64,
+    local_records: &[DbRecord],
+    has_active_or_trialing: bool,
+) -> Result<String, OpenAuthError> {
+    if !has_active_or_trialing {
+        if let Some(incomplete) = find_incomplete_subscription_record(local_records) {
+            let Some(local_id) = incomplete.get("id").and_then(db_string) else {
+                return create_incomplete_subscription(
+                    adapter,
+                    plan,
+                    reference_id,
+                    stripe_customer_id,
+                    annual,
+                    seats,
+                )
+                .await;
+            };
+            let billing_interval = if annual { "year" } else { "month" };
+            adapter
+                .update(
+                    Update::new("subscription")
+                        .where_clause(Where::new("id", DbValue::String(local_id.to_owned())))
+                        .data("plan", DbValue::String(plan.to_owned()))
+                        .data("seats", DbValue::Number(seats))
+                        .data(
+                            "billing_interval",
+                            DbValue::String(billing_interval.to_owned()),
+                        )
+                        .data(
+                            "stripe_customer_id",
+                            stripe_customer_id
+                                .map(|customer_id| DbValue::String(customer_id.to_owned()))
+                                .unwrap_or(DbValue::Null),
+                        ),
+                )
+                .await?;
+            return Ok(local_id.to_owned());
+        }
+    }
+    create_incomplete_subscription(
+        adapter,
+        plan,
+        reference_id,
+        stripe_customer_id,
+        annual,
+        seats,
+    )
+    .await
 }
 
 pub(super) async fn create_incomplete_subscription(
@@ -385,12 +484,36 @@ pub(super) fn error_response(
     status: StatusCode,
     code: StripeErrorCode,
 ) -> Result<ApiResponse, OpenAuthError> {
+    plugin_error_response(status, code, None)
+}
+
+pub(super) fn plugin_error_response(
+    status: StatusCode,
+    code: StripeErrorCode,
+    original_message: Option<String>,
+) -> Result<ApiResponse, OpenAuthError> {
     json_response(
         status,
         &ApiErrorResponse {
             code: code.code().to_owned(),
             message: code.message().to_owned(),
-            original_message: None,
+            original_message,
         },
     )
+}
+
+pub(super) fn respond_stripe_api_error(
+    error: StripeApiError,
+    default: StripeErrorCode,
+) -> Result<ApiResponse, OpenAuthError> {
+    let (status, code) = error.plugin_response(default);
+    plugin_error_response(status, code, stripe_original_message(&error))
+}
+
+fn stripe_original_message(error: &StripeApiError) -> Option<String> {
+    match error {
+        StripeApiError::Stripe { message, .. } => Some(message.clone()),
+        StripeApiError::Transport(message) => Some(message.clone()),
+        StripeApiError::Webhook(_) => None,
+    }
 }

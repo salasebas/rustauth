@@ -9,6 +9,11 @@ pub fn is_active_or_trialing(status: &str) -> bool {
     matches!(status, "active" | "trialing")
 }
 
+/// Subscription statuses that should block organization deletion (aligned with upstream Stripe list filter).
+pub fn is_non_terminal_subscription_status(status: &str) -> bool {
+    !matches!(status, "canceled" | "incomplete" | "incomplete_expired")
+}
+
 pub fn is_pending_cancel(cancel_at_period_end: bool, cancel_at: Option<i64>) -> bool {
     cancel_at_period_end || cancel_at.is_some()
 }

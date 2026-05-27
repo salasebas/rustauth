@@ -1,7 +1,8 @@
 use openauth_core::context::AuthContext;
-use openauth_core::db::{DbValue, FindOne, Update, Where};
+use openauth_core::db::{DbAdapter, DbValue, FindMany, FindOne, Update, Where};
 use openauth_core::error::OpenAuthError;
 
+use crate::logging;
 use crate::metadata::SubscriptionMetadata;
 use crate::models::{StripeCheckoutSession, StripeEvent, StripeSubscription};
 use crate::options::{StripeOptions, SubscriptionLifecycleInput};
@@ -53,16 +54,38 @@ pub(super) async fn on_checkout_session_completed(
     let Some(resolved) =
         crate::utils::resolve_plan_item(&subscription_options, &stripe_subscription.items.data)
     else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: Subscription {} has no items matching a configured plan",
+                stripe_subscription.id
+            ),
+        );
         return Ok(());
     };
     let Some(plan) = resolved.plan else {
-        return Ok(());
-    };
-    let metadata = SubscriptionMetadata::get(&checkout_session.metadata);
-    let Some(local_subscription_id) = metadata.subscription_id else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: Subscription {} has no items matching a configured plan",
+                stripe_subscription.id
+            ),
+        );
         return Ok(());
     };
     let Some(adapter) = context.adapter() else {
+        return Ok(());
+    };
+    let Some(local_subscription_id) =
+        resolve_local_subscription_id(adapter.as_ref(), &checkout_session).await?
+    else {
+        logging::webhook_warn(
+            context,
+            &format!(
+                "Stripe webhook warning: checkout.session.completed could not resolve local subscription (session {})",
+                checkout_session.id
+            ),
+        );
         return Ok(());
     };
     let customer_id = checkout_session
@@ -178,4 +201,45 @@ pub(super) async fn on_checkout_session_completed(
         }
     }
     Ok(())
+}
+
+async fn resolve_local_subscription_id(
+    adapter: &dyn DbAdapter,
+    checkout_session: &StripeCheckoutSession,
+) -> Result<Option<String>, OpenAuthError> {
+    let metadata = SubscriptionMetadata::get(&checkout_session.metadata);
+    if let Some(subscription_id) = metadata.subscription_id {
+        return Ok(Some(subscription_id));
+    }
+    let reference_id = checkout_session
+        .client_reference_id
+        .clone()
+        .or(metadata.reference_id);
+    let Some(reference_id) = reference_id else {
+        return Ok(None);
+    };
+    let records = adapter
+        .find_many(
+            FindMany::new("subscription")
+                .where_clause(Where::new("reference_id", DbValue::String(reference_id))),
+        )
+        .await?;
+    Ok(records.into_iter().find_map(|record| {
+        let incomplete =
+            record_string(&record, "status").is_some_and(|status| status == "incomplete");
+        let missing_stripe_subscription = match record.get("stripe_subscription_id") {
+            None => true,
+            Some(DbValue::Null) => true,
+            Some(_) => false,
+        };
+        (incomplete || missing_stripe_subscription)
+            .then(|| record_string(&record, "id").map(str::to_owned))?
+    }))
+}
+
+fn record_string<'a>(record: &'a openauth_core::db::DbRecord, field: &str) -> Option<&'a str> {
+    record.get(field).and_then(|value| match value {
+        DbValue::String(value) => Some(value.as_str()),
+        _ => None,
+    })
 }

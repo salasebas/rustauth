@@ -2602,6 +2602,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "openauth-example-stripe-smoke"
+version = "0.0.6"
+dependencies = [
+ "axum",
+ "hex",
+ "hmac 0.12.1",
+ "openauth",
+ "openauth-axum",
+ "openauth-core",
+ "openauth-stripe",
+ "reqwest",
+ "serde_json",
+ "sha2 0.10.9",
+ "time",
+ "tokio",
+]
+
+[[package]]
 name = "openauth-fred"
 version = "0.0.6"
 dependencies = [
@@ -2841,6 +2859,7 @@ dependencies = [
 name = "openauth-stripe"
 version = "0.0.6"
 dependencies = [
+ "base64 0.22.1",
  "hex",
  "hmac 0.12.1",
  "http",
@@ -4596,6 +4615,7 @@ dependencies = [
  "libc",
  "mio 1.2.0",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2 0.6.3",
  "tokio-macros",
  "windows-sys 0.61.2",

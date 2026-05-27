@@ -4,6 +4,7 @@ use super::super::{
     AdapterFuture, Create, DbAdapter, DbRecord, Delete, DeleteMany, FindMany, Update, UpdateMany,
 };
 use crate::context::request_state::current_request_path;
+use crate::env::logger::Logger;
 use crate::error::OpenAuthError;
 use crate::plugin::{
     PluginDatabaseAfterInput, PluginDatabaseBeforeAction, PluginDatabaseBeforeInput,
@@ -29,6 +30,7 @@ impl AfterHookQueue {
     pub(super) async fn run<A>(
         &self,
         hooks: &[PluginDatabaseHook],
+        logger: &Logger,
         adapter: &A,
     ) -> Result<(), OpenAuthError>
     where
@@ -44,7 +46,7 @@ impl AfterHookQueue {
             std::mem::take(&mut *guard)
         };
         for input in inputs {
-            run_after_hooks(hooks, input, adapter).await?;
+            run_after_hooks(hooks, input, logger, adapter).await?;
         }
         Ok(())
     }
@@ -53,6 +55,7 @@ impl AfterHookQueue {
 pub(super) fn hooked_create<'a, A>(
     inner: &'a A,
     hooks: Arc<Vec<PluginDatabaseHook>>,
+    logger: Logger,
     after_queue: Option<AfterHookQueue>,
     query: Create,
 ) -> AdapterFuture<'a, DbRecord>
@@ -63,6 +66,7 @@ where
         let query = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::Create(query),
+            &logger,
             inner,
         )
         .await?
@@ -83,6 +87,7 @@ where
                 query,
                 result: result.clone(),
             },
+            &logger,
             inner,
         )
         .await?;
@@ -93,6 +98,7 @@ where
 pub(super) fn hooked_update<'a, A>(
     inner: &'a A,
     hooks: Arc<Vec<PluginDatabaseHook>>,
+    logger: Logger,
     after_queue: Option<AfterHookQueue>,
     query: Update,
 ) -> AdapterFuture<'a, Option<DbRecord>>
@@ -103,6 +109,7 @@ where
         let query = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::Update(query),
+            &logger,
             inner,
         )
         .await?
@@ -123,6 +130,7 @@ where
                 query,
                 result: result.clone(),
             },
+            &logger,
             inner,
         )
         .await?;
@@ -133,6 +141,7 @@ where
 pub(super) fn hooked_update_many<'a, A>(
     inner: &'a A,
     hooks: Arc<Vec<PluginDatabaseHook>>,
+    logger: Logger,
     after_queue: Option<AfterHookQueue>,
     query: UpdateMany,
 ) -> AdapterFuture<'a, u64>
@@ -143,6 +152,7 @@ where
         let query = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::UpdateMany(query),
+            &logger,
             inner,
         )
         .await?
@@ -160,6 +170,7 @@ where
             after_queue.as_ref(),
             hooks.as_slice(),
             PluginDatabaseAfterInput::UpdateMany { query, result },
+            &logger,
             inner,
         )
         .await?;
@@ -170,6 +181,7 @@ where
 pub(super) fn hooked_delete<'a, A>(
     inner: &'a A,
     hooks: Arc<Vec<PluginDatabaseHook>>,
+    logger: Logger,
     after_queue: Option<AfterHookQueue>,
     query: Delete,
 ) -> AdapterFuture<'a, ()>
@@ -187,6 +199,7 @@ where
         let (query, snapshots) = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::Delete { query, snapshots },
+            &logger,
             inner,
         )
         .await?
@@ -204,6 +217,7 @@ where
             after_queue.as_ref(),
             hooks.as_slice(),
             PluginDatabaseAfterInput::Delete { query, snapshots },
+            &logger,
             inner,
         )
         .await?;
@@ -214,6 +228,7 @@ where
 pub(super) fn hooked_delete_many<'a, A>(
     inner: &'a A,
     hooks: Arc<Vec<PluginDatabaseHook>>,
+    logger: Logger,
     after_queue: Option<AfterHookQueue>,
     query: DeleteMany,
 ) -> AdapterFuture<'a, u64>
@@ -231,6 +246,7 @@ where
         let (query, snapshots) = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::DeleteMany { query, snapshots },
+            &logger,
             inner,
         )
         .await?
@@ -252,6 +268,7 @@ where
                 snapshots,
                 result,
             },
+            &logger,
             inner,
         )
         .await?;
@@ -277,6 +294,7 @@ where
 async fn run_before_hooks<A>(
     hooks: &[PluginDatabaseHook],
     mut input: PluginDatabaseBeforeInput,
+    logger: &Logger,
     adapter: &A,
 ) -> Result<PluginDatabaseBeforeInput, OpenAuthError>
 where
@@ -288,7 +306,7 @@ where
             continue;
         };
         let model = input.model().to_owned();
-        let context = hook_context(hook, operation, &model, adapter);
+        let context = hook_context(hook, operation, &model, logger, adapter);
         input = match handler(context, input).await? {
             PluginDatabaseBeforeAction::Continue(next) => next,
             PluginDatabaseBeforeAction::Cancel(error) => return Err(error),
@@ -303,6 +321,7 @@ where
 async fn run_after_hooks<A>(
     hooks: &[PluginDatabaseHook],
     input: PluginDatabaseAfterInput,
+    logger: &Logger,
     adapter: &A,
 ) -> Result<(), OpenAuthError>
 where
@@ -313,7 +332,7 @@ where
         let Some(handler) = &hook.after else {
             continue;
         };
-        let context = hook_context(hook, operation, input.model(), adapter);
+        let context = hook_context(hook, operation, input.model(), logger, adapter);
         handler(context, input.clone()).await?;
     }
     Ok(())
@@ -323,6 +342,7 @@ async fn run_or_queue_after_hooks<A>(
     queue: Option<&AfterHookQueue>,
     hooks: &[PluginDatabaseHook],
     input: PluginDatabaseAfterInput,
+    logger: &Logger,
     adapter: &A,
 ) -> Result<(), OpenAuthError>
 where
@@ -331,7 +351,7 @@ where
     if let Some(queue) = queue {
         queue.push(input)
     } else {
-        run_after_hooks(hooks, input, adapter).await
+        run_after_hooks(hooks, input, logger, adapter).await
     }
 }
 
@@ -339,6 +359,7 @@ fn hook_context<'a, A>(
     hook: &PluginDatabaseHook,
     operation: PluginDatabaseOperation,
     model: &str,
+    logger: &'a Logger,
     adapter: &'a A,
 ) -> PluginDatabaseHookContext<'a>
 where
@@ -351,6 +372,7 @@ where
         model: model.to_owned(),
         adapter,
         request_path: current_request_path().ok().flatten(),
+        logger,
     }
 }
 
