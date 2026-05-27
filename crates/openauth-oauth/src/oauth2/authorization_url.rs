@@ -124,57 +124,56 @@ pub fn create_authorization_url(input: AuthorizationUrlRequest) -> Result<Url, O
     let mut url = Url::parse(endpoint)?;
     let client_id = get_primary_client_id(&input.options.client_id)
         .ok_or(OAuthError::MissingOption("client_id"))?;
-    {
-        let mut query = url.query_pairs_mut();
-        query.append_pair(
-            "response_type",
-            input.response_type.as_deref().unwrap_or("code"),
-        );
-        query.append_pair("client_id", client_id);
-        query.append_pair("state", &input.state);
-        if !input.scopes.is_empty() {
-            query.append_pair("scope", &input.scopes.join(&input.scope_joiner));
-        }
-        query.append_pair(
-            "redirect_uri",
-            input
-                .options
-                .redirect_uri
-                .as_deref()
-                .unwrap_or(&input.redirect_uri),
-        );
-        append_optional(&mut query, "duration", input.duration.as_deref());
-        append_optional(&mut query, "display", input.display.as_deref());
-        append_optional(&mut query, "login_hint", input.login_hint.as_deref());
-        append_optional(&mut query, "prompt", input.prompt.as_deref());
-        append_optional(&mut query, "hd", input.hd.as_deref());
-        append_optional(&mut query, "access_type", input.access_type.as_deref());
-        append_optional(&mut query, "response_mode", input.response_mode.as_deref());
-        if let Some(code_verifier) = input.code_verifier {
-            query.append_pair("code_challenge_method", "S256");
-            query.append_pair("code_challenge", &generate_code_challenge(&code_verifier)?);
-        }
-        if !input.claims.is_empty() {
-            let mut id_token = serde_json::Map::from_iter([
-                ("email".to_owned(), serde_json::Value::Null),
-                ("email_verified".to_owned(), serde_json::Value::Null),
-            ]);
-            for claim in input.claims {
-                id_token.insert(claim, serde_json::Value::Null);
-            }
-            query.append_pair("claims", &json!({ "id_token": id_token }).to_string());
-        }
+    set_query_pair(
+        &mut url,
+        "response_type",
+        input.response_type.as_deref().unwrap_or("code"),
+    );
+    set_query_pair(&mut url, "client_id", client_id);
+    set_query_pair(&mut url, "state", &input.state);
+    if !input.scopes.is_empty() {
+        set_query_pair(&mut url, "scope", &input.scopes.join(&input.scope_joiner));
     }
-    if !input.additional_params.is_empty() {
-        let mut pairs = url.query_pairs().into_owned().collect::<Vec<_>>();
-        for (key, value) in input.additional_params {
-            pairs.retain(|(existing, _)| existing != &key);
-            pairs.push((key, value));
+    set_query_pair(
+        &mut url,
+        "redirect_uri",
+        input
+            .options
+            .redirect_uri
+            .as_deref()
+            .unwrap_or(&input.redirect_uri),
+    );
+    set_optional_query_pair(&mut url, "duration", input.duration.as_deref());
+    set_optional_query_pair(&mut url, "display", input.display.as_deref());
+    set_optional_query_pair(&mut url, "login_hint", input.login_hint.as_deref());
+    set_optional_query_pair(&mut url, "prompt", input.prompt.as_deref());
+    set_optional_query_pair(&mut url, "hd", input.hd.as_deref());
+    set_optional_query_pair(&mut url, "access_type", input.access_type.as_deref());
+    set_optional_query_pair(&mut url, "response_mode", input.response_mode.as_deref());
+    if let Some(code_verifier) = input.code_verifier {
+        set_query_pair(&mut url, "code_challenge_method", "S256");
+        set_query_pair(
+            &mut url,
+            "code_challenge",
+            &generate_code_challenge(&code_verifier)?,
+        );
+    }
+    if !input.claims.is_empty() {
+        let mut id_token = serde_json::Map::from_iter([
+            ("email".to_owned(), serde_json::Value::Null),
+            ("email_verified".to_owned(), serde_json::Value::Null),
+        ]);
+        for claim in input.claims {
+            id_token.insert(claim, serde_json::Value::Null);
         }
-        url.set_query(None);
-        for (key, value) in pairs {
-            url.query_pairs_mut().append_pair(&key, &value);
-        }
+        set_query_pair(
+            &mut url,
+            "claims",
+            &json!({ "id_token": id_token }).to_string(),
+        );
+    }
+    for (key, value) in input.additional_params {
+        set_query_pair(&mut url, &key, &value);
     }
     Ok(url)
 }
@@ -202,12 +201,18 @@ fn validate_authorization_url_request(input: &AuthorizationUrlRequest) -> Result
     Ok(())
 }
 
-fn append_optional(
-    query: &mut url::form_urlencoded::Serializer<'_, url::UrlQuery<'_>>,
-    key: &str,
-    value: Option<&str>,
-) {
+fn set_optional_query_pair(url: &mut Url, key: &str, value: Option<&str>) {
     if let Some(value) = value {
-        query.append_pair(key, value);
+        set_query_pair(url, key, value);
+    }
+}
+
+fn set_query_pair(url: &mut Url, key: &str, value: &str) {
+    let mut pairs = url.query_pairs().into_owned().collect::<Vec<_>>();
+    pairs.retain(|(existing, _)| existing != key);
+    pairs.push((key.to_owned(), value.to_owned()));
+    url.set_query(None);
+    for (key, value) in pairs {
+        url.query_pairs_mut().append_pair(&key, &value);
     }
 }

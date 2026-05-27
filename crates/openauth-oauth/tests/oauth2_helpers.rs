@@ -150,6 +150,53 @@ fn create_authorization_url_additional_params_overwrite_existing_params() {
 }
 
 #[test]
+fn create_authorization_url_standard_params_overwrite_endpoint_query_params() {
+    let url = create_authorization_url(AuthorizationUrlRequest {
+        id: "generic".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            ..ProviderOptions::default()
+        },
+        authorization_endpoint: concat!(
+            "https://auth.example.com/authorize?",
+            "client_id=stale-client&",
+            "scope=stale-scope&",
+            "redirect_uri=https%3A%2F%2Fstale.example.com%2Fcallback&",
+            "code_challenge_method=plain&",
+            "code_challenge=stale-challenge&",
+            "tenant=kept"
+        )
+        .to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        state: "state".to_owned(),
+        code_verifier: Some("verifier".to_owned()),
+        scopes: vec!["openid".to_owned(), "email".to_owned()],
+        ..AuthorizationUrlRequest::default()
+    })
+    .expect("authorization url should build");
+
+    let values = |key: &str| {
+        url.query_pairs()
+            .filter(|(param, _)| param == key)
+            .map(|(_, value)| value.into_owned())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(values("client_id"), vec!["client-id"]);
+    assert_eq!(values("scope"), vec!["openid email"]);
+    assert_eq!(
+        values("redirect_uri"),
+        vec!["https://app.example.com/callback"]
+    );
+    assert_eq!(values("code_challenge_method"), vec!["S256"]);
+    assert_eq!(
+        values("code_challenge"),
+        vec!["iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ"]
+    );
+    assert_eq!(values("tenant"), vec!["kept"]);
+}
+
+#[test]
 fn request_builders_support_post_and_basic_authentication() {
     let post = create_authorization_code_request(AuthorizationCodeRequest {
         code: "code-123".to_owned(),

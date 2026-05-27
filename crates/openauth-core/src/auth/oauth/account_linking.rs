@@ -19,6 +19,9 @@ use super::tokens::set_token_util;
 
 #[cfg(feature = "jose")]
 const ACCOUNT_COOKIE_SALT: &str = "better-auth-account";
+pub(crate) const ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER: &str =
+    "account_already_linked_to_different_user";
+pub(crate) const EMAIL_DOES_NOT_MATCH_LINKED_USER: &str = "email_doesn't_match";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OAuthUserInfo {
@@ -298,17 +301,7 @@ async fn update_linked_account(
         return Ok(linked_account.clone());
     }
     let updated = users
-        .update_account(
-            &linked_account.id,
-            UpdateAccountInput {
-                access_token: Some(set_token_util(account.access_token.as_deref(), context)?),
-                refresh_token: Some(set_token_util(account.refresh_token.as_deref(), context)?),
-                id_token: Some(account.id_token.clone()),
-                access_token_expires_at: Some(account.access_token_expires_at),
-                refresh_token_expires_at: Some(account.refresh_token_expires_at),
-                scope: Some(account.scope.clone()),
-            },
-        )
+        .update_account(&linked_account.id, account_update_input(context, account)?)
         .await?;
     Ok(updated.unwrap_or_else(|| linked_account.clone()))
 }
@@ -389,6 +382,32 @@ fn account_input(
         refresh_token_expires_at: account.refresh_token_expires_at,
         scope: account.scope.clone(),
     })
+}
+
+fn account_update_input(
+    context: &AuthContext,
+    account: &OAuthAccountInput,
+) -> Result<UpdateAccountInput, OpenAuthError> {
+    let mut input = UpdateAccountInput::default();
+    if account.access_token.is_some() {
+        input.access_token = Some(set_token_util(account.access_token.as_deref(), context)?);
+    }
+    if account.refresh_token.is_some() {
+        input.refresh_token = Some(set_token_util(account.refresh_token.as_deref(), context)?);
+    }
+    if account.id_token.is_some() {
+        input.id_token = Some(account.id_token.clone());
+    }
+    if account.access_token_expires_at.is_some() {
+        input.access_token_expires_at = Some(account.access_token_expires_at);
+    }
+    if account.refresh_token_expires_at.is_some() {
+        input.refresh_token_expires_at = Some(account.refresh_token_expires_at);
+    }
+    if account.scope.is_some() {
+        input.scope = Some(account.scope.clone());
+    }
+    Ok(input)
 }
 
 fn same_email(provider_email: &str, user_email: &str) -> bool {

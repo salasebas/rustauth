@@ -163,6 +163,80 @@ async fn link_social_requires_session_and_generates_link_state(
 }
 
 #[tokio::test]
+async fn link_social_callback_rejects_account_owned_by_different_user(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_user(User {
+            id: "user_2".to_owned(),
+            email: "grace@example.com".to_owned(),
+            ..user(now)
+        })
+        .await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(oauth_account_record(
+            "account_2",
+            "user_2",
+            "github",
+            "github_ada",
+            "old-access",
+            now,
+        ))
+        .await?;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+    let linked = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","callbackURL":"/settings","errorCallbackURL":"/oauth-error"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(linked.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/callback/github?code=ok&state={state}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback
+            .headers()
+            .get(header::LOCATION)
+            .ok_or("missing location")?,
+        "/oauth-error?error=account_already_linked_to_different_user"
+    );
+    let accounts = adapter.records("account").await;
+    assert_eq!(accounts.len(), 1);
+    assert!(accounts.iter().any(|record| {
+        record.get("id") == Some(&DbValue::String("account_2".to_owned()))
+            && record.get("user_id") == Some(&DbValue::String("user_2".to_owned()))
+            && record.get("access_token") == Some(&DbValue::String("old-access".to_owned()))
+    }));
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_in_social_id_token_flow_returns_session_payload(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
@@ -197,6 +271,39 @@ fn query_value(url: &str, key: &str) -> Option<String> {
         let (name, value) = pair.split_once('=')?;
         (name == key).then(|| value.to_owned())
     })
+}
+
+fn oauth_account_record(
+    id: &str,
+    user_id: &str,
+    provider_id: &str,
+    account_id: &str,
+    access_token: &str,
+    now: OffsetDateTime,
+) -> DbRecord {
+    DbRecord::from([
+        ("id".to_owned(), DbValue::String(id.to_owned())),
+        ("user_id".to_owned(), DbValue::String(user_id.to_owned())),
+        (
+            "provider_id".to_owned(),
+            DbValue::String(provider_id.to_owned()),
+        ),
+        (
+            "account_id".to_owned(),
+            DbValue::String(account_id.to_owned()),
+        ),
+        (
+            "access_token".to_owned(),
+            DbValue::String(access_token.to_owned()),
+        ),
+        ("refresh_token".to_owned(), DbValue::Null),
+        ("id_token".to_owned(), DbValue::Null),
+        ("access_token_expires_at".to_owned(), DbValue::Null),
+        ("refresh_token_expires_at".to_owned(), DbValue::Null),
+        ("scope".to_owned(), DbValue::Null),
+        ("created_at".to_owned(), DbValue::Timestamp(now)),
+        ("updated_at".to_owned(), DbValue::Timestamp(now)),
+    ])
 }
 
 #[derive(Debug)]

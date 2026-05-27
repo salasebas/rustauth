@@ -502,6 +502,67 @@ async fn handle_oauth_user_info_updates_linked_account_tokens_and_user_info(
 }
 
 #[tokio::test]
+async fn handle_oauth_user_info_preserves_linked_account_tokens_when_provider_omits_them(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = MemoryAdapter::new();
+    let context = test_context(AccountOptions::default())?;
+    let created = handle_oauth_user_info(
+        &context,
+        &adapter,
+        HandleOAuthUserInfoInput {
+            user_info: oauth_user("github_ada", "ada@example.com", true),
+            account: oauth_account("github", "github_ada", Some("old-access")),
+            ..HandleOAuthUserInfoInput::default()
+        },
+    )
+    .await?;
+    assert!(created.error.is_none());
+
+    let updated = handle_oauth_user_info(
+        &context,
+        &adapter,
+        HandleOAuthUserInfoInput {
+            user_info: oauth_user("github_ada", "ada@example.com", true),
+            account: OAuthAccountInput {
+                provider_id: "github".to_owned(),
+                account_id: "github_ada".to_owned(),
+                scope: Some("profile email".to_owned()),
+                ..OAuthAccountInput::default()
+            },
+            ..HandleOAuthUserInfoInput::default()
+        },
+    )
+    .await?;
+    assert!(updated.error.is_none());
+
+    let accounts = adapter.records("account").await;
+    let account = accounts
+        .iter()
+        .find(|record| {
+            record.get("provider_id") == Some(&DbValue::String("github".to_owned()))
+                && record.get("account_id") == Some(&DbValue::String("github_ada".to_owned()))
+        })
+        .ok_or("missing linked account")?;
+    assert_eq!(
+        account.get("access_token"),
+        Some(&DbValue::String("old-access".to_owned()))
+    );
+    assert_eq!(
+        account.get("refresh_token"),
+        Some(&DbValue::String("refresh".to_owned()))
+    );
+    assert_eq!(
+        account.get("id_token"),
+        Some(&DbValue::String("id-token".to_owned()))
+    );
+    assert_eq!(
+        account.get("scope"),
+        Some(&DbValue::String("profile email".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn handle_oauth_user_info_does_not_verify_email_when_provider_email_differs(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = MemoryAdapter::new();

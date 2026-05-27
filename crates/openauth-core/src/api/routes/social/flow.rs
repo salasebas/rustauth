@@ -7,6 +7,9 @@ use super::support::{
     redirect_with_error, IdTokenBody, LinkStatusBody, SocialSessionBody,
 };
 use crate::api::{parse_request_body, request_base_url, ApiRequest, ApiResponse};
+use crate::auth::oauth::account_linking::{
+    ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER, EMAIL_DOES_NOT_MATCH_LINKED_USER,
+};
 use crate::auth::oauth::{
     handle_oauth_user_info, HandleOAuthUserInfoInput, OAuthAccountInput, OAuthStateLink,
     OAuthUserInfo,
@@ -137,7 +140,7 @@ pub(super) async fn callback_get(
         return redirect_with_error(&error_url, "unable_to_get_user_info");
     };
     if let Some(link) = state_data.link {
-        link_oauth_account(
+        if let Err(error) = link_oauth_account(
             context,
             adapter,
             provider.clone(),
@@ -145,7 +148,13 @@ pub(super) async fn callback_get(
             &user_info,
             &tokens,
         )
-        .await?;
+        .await
+        {
+            if let Some(code) = link_error_code(&error) {
+                return redirect_with_error(&error_url, code);
+            }
+            return Err(error);
+        }
         return redirect(&state_data.callback_url, Vec::new());
     }
     let result = handle_oauth_user_info(
@@ -299,15 +308,22 @@ async fn link_oauth_account(
             .allow_different_emails
     {
         return Err(OpenAuthError::Api(
-            "OAuth account email does not match linked user".to_owned(),
+            EMAIL_DOES_NOT_MATCH_LINKED_USER.to_owned(),
         ));
     }
     let users = DbUserStore::new(adapter);
-    if users
+    if let Some(existing_account) = users
         .find_account_by_provider_account(&normalized.id, provider.id())
         .await?
-        .is_some()
     {
+        if existing_account.user_id != link.user_id {
+            return Err(OpenAuthError::Api(
+                ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER.to_owned(),
+            ));
+        }
+        users
+            .update_account(&existing_account.id, token_update_input(context, tokens)?)
+            .await?;
         return Ok(());
     }
     users
@@ -331,6 +347,51 @@ async fn link_oauth_account(
         })
         .await?;
     Ok(())
+}
+
+fn token_update_input(
+    context: &crate::context::AuthContext,
+    tokens: &OAuth2Tokens,
+) -> Result<crate::user::UpdateAccountInput, OpenAuthError> {
+    let mut input = crate::user::UpdateAccountInput::default();
+    if tokens.access_token.is_some() {
+        input.access_token = Some(crate::auth::oauth::set_token_util(
+            tokens.access_token.as_deref(),
+            context,
+        )?);
+    }
+    if tokens.refresh_token.is_some() {
+        input.refresh_token = Some(crate::auth::oauth::set_token_util(
+            tokens.refresh_token.as_deref(),
+            context,
+        )?);
+    }
+    if tokens.id_token.is_some() {
+        input.id_token = Some(tokens.id_token.clone());
+    }
+    if tokens.access_token_expires_at.is_some() {
+        input.access_token_expires_at = Some(tokens.access_token_expires_at);
+    }
+    if tokens.refresh_token_expires_at.is_some() {
+        input.refresh_token_expires_at = Some(tokens.refresh_token_expires_at);
+    }
+    if !tokens.scopes.is_empty() {
+        input.scope = Some(Some(tokens.scopes.join(",")));
+    }
+    Ok(input)
+}
+
+fn link_error_code(error: &OpenAuthError) -> Option<&'static str> {
+    let OpenAuthError::Api(message) = error else {
+        return None;
+    };
+    if message == ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER {
+        Some(ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER)
+    } else if message == EMAIL_DOES_NOT_MATCH_LINKED_USER {
+        Some(EMAIL_DOES_NOT_MATCH_LINKED_USER)
+    } else {
+        None
+    }
 }
 
 pub(super) fn lookup_provider(
