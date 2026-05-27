@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::AuthRouter;
@@ -6,7 +7,9 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::cookies::{get_cookies, set_session_cookie, Cookie, SessionCookieOptions};
 use openauth_core::db::{DbFieldType, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{
+    AdvancedOptions, OpenAuthOptions, SecondaryStorage, SecondaryStorageFuture,
+};
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::user::{CreateUserInput, DbUserStore};
 use openauth_plugins::device_authorization::{
@@ -156,4 +159,51 @@ fn string_field<'a>(body: &'a Value, name: &str) -> &'a str {
 
 async fn device_record(adapter: &TestAdapter) -> Option<indexmap::IndexMap<String, DbValue>> {
     adapter.records("deviceCode").await.into_iter().next()
+}
+
+#[derive(Default)]
+struct TestSecondaryStorage {
+    values: Mutex<HashMap<String, String>>,
+}
+
+impl TestSecondaryStorage {
+    fn value(&self, key: &str) -> Result<Option<String>, OpenAuthError> {
+        Ok(self
+            .values
+            .lock()
+            .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
+            .get(key)
+            .cloned())
+    }
+}
+
+impl SecondaryStorage for TestSecondaryStorage {
+    fn get<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move { self.value(key) })
+    }
+
+    fn set<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        _ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.values
+                .lock()
+                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
+                .insert(key.to_owned(), value);
+            Ok(())
+        })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.values
+                .lock()
+                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
+                .remove(key);
+            Ok(())
+        })
+    }
 }

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::helpers::{parse_type, resolve_otp, validated_email};
 use super::otp;
 use super::response;
-use super::types::{EmailOtpOptions, EmailOtpType, OtpStorage};
+use super::types::{EmailOtpOptions, OtpStorage};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,8 +21,7 @@ struct CreateOtpBody {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OtpResponse {
+struct GetOtpResponse {
     otp: Option<String>,
 }
 
@@ -42,13 +41,6 @@ pub(super) fn create_verification_otp<'a>(
             Ok(otp_type) => otp_type,
             Err(response) => return Ok(response),
         };
-        if otp_type == EmailOtpType::ChangeEmail {
-            return response::error(
-                StatusCode::BAD_REQUEST,
-                "INVALID_OTP_TYPE",
-                "Invalid OTP type",
-            );
-        }
         let identifier = otp::identifier(otp_type, &email);
         let otp = resolve_otp(
             adapter.as_ref(),
@@ -59,7 +51,7 @@ pub(super) fn create_verification_otp<'a>(
             &identifier,
         )
         .await?;
-        response::json(StatusCode::OK, &OtpResponse { otp: Some(otp) }, Vec::new())
+        response::json(StatusCode::OK, &otp, Vec::new())
     })
 }
 
@@ -94,23 +86,16 @@ pub(super) fn get_verification_otp<'a>(
             Ok(otp_type) => otp_type,
             Err(response) => return Ok(response),
         };
-        if otp_type == EmailOtpType::ChangeEmail {
-            return response::error(
-                StatusCode::BAD_REQUEST,
-                "INVALID_OTP_TYPE",
-                "Invalid OTP type",
-            );
-        }
         let store = DbVerificationStore::new(adapter.as_ref());
         let Some(verification) = store
             .find_verification(&otp::identifier(otp_type, &email))
             .await?
         else {
-            return response::json(StatusCode::OK, &OtpResponse { otp: None }, Vec::new());
+            return response::json(StatusCode::OK, &GetOtpResponse { otp: None }, Vec::new());
         };
         if verification.expires_at <= time::OffsetDateTime::now_utc() {
             store.delete_verification(&verification.identifier).await?;
-            return response::json(StatusCode::OK, &OtpResponse { otp: None }, Vec::new());
+            return response::json(StatusCode::OK, &GetOtpResponse { otp: None }, Vec::new());
         }
         let parts = otp::split_value(&verification.value);
         let plain = otp::reusable_otp(&options, &context.secret_config, &parts)?;
@@ -123,10 +108,10 @@ pub(super) fn get_verification_otp<'a>(
             return response::error(
                 StatusCode::BAD_REQUEST,
                 "INVALID_OTP",
-                "Stored OTP cannot be retrieved",
+                "OTP is hashed, cannot return the plain text OTP",
             );
         }
-        response::json(StatusCode::OK, &OtpResponse { otp: plain }, Vec::new())
+        response::json(StatusCode::OK, &GetOtpResponse { otp: plain }, Vec::new())
     })
 }
 

@@ -9,7 +9,7 @@ use openauth_core::context::{request_state, AuthContext};
 use openauth_core::db::{DbAdapter, DbRecord, DbValue};
 use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::PluginEndpoint;
-use openauth_core::session::{CreateSessionInput, DbSessionStore};
+use openauth_core::session::{CreateSessionInput, SessionStore};
 use openauth_core::user::DbUserStore;
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
@@ -169,7 +169,10 @@ async fn approved_response(
     if let Some(user_agent) = request_user_agent(request) {
         input = input.user_agent(user_agent);
     }
-    let session = match DbSessionStore::new(adapter).create_session(input).await {
+    let session = match SessionStore::new(adapter, context)
+        .create_session(input)
+        .await
+    {
         Ok(session) => session,
         Err(_) => {
             return token_oauth_error_response(

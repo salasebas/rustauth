@@ -4,7 +4,7 @@ use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::context::{AuthContext, SecretMaterial};
 use openauth_core::db::{DbAdapter, DbValue, User, Verification};
 use openauth_core::error::OpenAuthError;
-use openauth_core::session::{CreateSessionInput, DbSessionStore};
+use openauth_core::session::{CreateSessionInput, SessionStore};
 use openauth_core::verification::{
     CreateVerificationInput, DbVerificationStore, UpdateVerificationInput,
 };
@@ -167,7 +167,9 @@ pub(super) async fn create_session(
     {
         input = input.user_agent(user_agent);
     }
-    DbSessionStore::new(adapter).create_session(input).await
+    SessionStore::new(adapter, context)
+        .create_session(input)
+        .await
 }
 
 pub(super) fn send_email(

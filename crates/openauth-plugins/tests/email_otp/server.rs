@@ -24,8 +24,7 @@ async fn server_create_and_get_otp_returns_recoverable_plain_value() {
         )
         .await
         .unwrap();
-    let create_body: Value = serde_json::from_slice(create.body()).unwrap();
-    let otp = create_body["otp"].as_str().unwrap();
+    let otp: String = serde_json::from_slice(create.body()).unwrap();
     assert!(
         verification_value(&adapter, "email-verification-otp-ada@example.com")
             .await
@@ -70,7 +69,7 @@ async fn server_get_otp_uses_query_and_handles_percent_encoded_email() {
         )
         .await
         .unwrap();
-    let create_body: Value = serde_json::from_slice(create.body()).unwrap();
+    let otp: String = serde_json::from_slice(create.body()).unwrap();
 
     let get = router
         .handle_async(
@@ -86,7 +85,7 @@ async fn server_get_otp_uses_query_and_handles_percent_encoded_email() {
     let get_body: Value = serde_json::from_slice(get.body()).unwrap();
 
     assert_eq!(get.status(), StatusCode::OK);
-    assert_eq!(get_body["otp"], create_body["otp"]);
+    assert_eq!(get_body["otp"], otp);
 }
 
 #[tokio::test]
@@ -128,6 +127,10 @@ async fn server_get_otp_rejects_non_recoverable_hashed_storage() {
 
     assert_eq!(get.status(), StatusCode::BAD_REQUEST);
     assert_eq!(body["code"], "INVALID_OTP");
+    assert_eq!(
+        body["message"],
+        "OTP is hashed, cannot return the plain text OTP"
+    );
 }
 
 #[tokio::test]
@@ -161,7 +164,7 @@ async fn server_get_otp_returns_encrypted_value_with_secret_rotation() {
         )
         .await
         .unwrap();
-    let create_body: Value = serde_json::from_slice(create.body()).unwrap();
+    let otp: String = serde_json::from_slice(create.body()).unwrap();
     let get = router
         .handle_async(
             get_json_request(
@@ -176,5 +179,58 @@ async fn server_get_otp_returns_encrypted_value_with_secret_rotation() {
     let get_body: Value = serde_json::from_slice(get.body()).unwrap();
 
     assert_eq!(get.status(), StatusCode::OK);
-    assert_eq!(get_body["otp"], create_body["otp"]);
+    assert_eq!(get_body["otp"], otp);
+}
+
+#[tokio::test]
+async fn server_create_get_and_check_support_change_email_type() {
+    let adapter = Arc::new(MemoryAdapter::new());
+    create_user(&adapter, "ada@example.com", true).await;
+    let router = router(
+        adapter,
+        CaptureSender::default(),
+        EmailOtpOptions::default(),
+    )
+    .unwrap();
+
+    let create = router
+        .handle_async(
+            json_request(
+                "/email-otp/create-verification-otp",
+                r#"{"email":"ada@example.com","type":"change-email"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let otp: String = serde_json::from_slice(create.body()).unwrap();
+
+    let get = router
+        .handle_async(
+            get_json_request(
+                "/email-otp/get-verification-otp?email=ada%40example.com&type=change-email",
+                "",
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let get_body: Value = serde_json::from_slice(get.body()).unwrap();
+
+    let check = router
+        .handle_async(
+            json_request(
+                "/email-otp/check-verification-otp",
+                &format!(r#"{{"email":"ada@example.com","type":"change-email","otp":"{otp}"}}"#),
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(get_body["otp"], otp);
+    assert_eq!(check.status(), StatusCode::OK);
 }

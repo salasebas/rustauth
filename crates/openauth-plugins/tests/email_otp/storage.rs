@@ -170,8 +170,7 @@ async fn custom_encrypt_storage_verifies_and_can_be_retrieved() {
         )
         .await
         .unwrap();
-    let create_body: Value = serde_json::from_slice(create.body()).unwrap();
-    let otp = create_body["otp"].as_str().unwrap();
+    let otp: String = serde_json::from_slice(create.body()).unwrap();
     let get = router
         .handle_async(
             get_json_request(

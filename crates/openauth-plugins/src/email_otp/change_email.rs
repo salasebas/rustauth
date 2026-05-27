@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use http::StatusCode;
-use openauth_core::api::additional_fields;
 use openauth_core::api::{parse_request_body, ApiRequest};
 use openauth_core::context::AuthContext;
 use openauth_core::db::DbAdapter;
@@ -184,16 +183,6 @@ pub(super) fn change_email<'a>(
                 Some(&request),
             )?;
         }
-        let user = additional_fields::user_response_value(
-            adapter.as_ref(),
-            &context.options.user.additional_fields,
-            &updated,
-        )
-        .await?;
-        response::json(
-            StatusCode::OK,
-            &serde_json::json!({ "success": true, "user": user }),
-            Vec::new(),
-        )
+        response::success()
     })
 }

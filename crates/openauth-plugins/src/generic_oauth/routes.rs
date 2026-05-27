@@ -77,10 +77,11 @@ pub fn sign_in_oauth2_endpoint(
                 let adapter = adapter(context)?;
                 let body: SignInOAuth2Body = parse_request_body(&request)?;
                 if options.find(&body.provider_id).is_none() {
+                    let message = format!("No config found for provider {}", body.provider_id);
                     return api_error(
                         StatusCode::BAD_REQUEST,
                         errors::PROVIDER_CONFIG_NOT_FOUND,
-                        "No config found for provider",
+                        &message,
                     );
                 }
                 let mut config =
@@ -223,7 +224,15 @@ async fn callback_get(
 ) -> Result<ApiResponse, OpenAuthError> {
     let adapter = adapter(context)?;
     let provider_id = path_param(&request, "providerId")?;
-    let mut config = resolved_config(options, discovery_cache, provider_id).await?;
+    let mut config = match resolved_config(options, discovery_cache, provider_id).await {
+        Ok(config) => config,
+        Err(error) => {
+            return redirect_with_error(
+                &default_error_url(context),
+                callback_config_error_code(&error),
+            );
+        }
+    };
     if let Some(error) = query_param(&request, "error") {
         return redirect_with_error_description(
             &default_error_url(context),
@@ -335,4 +344,17 @@ async fn callback_get(
         &state_data.callback_url
     };
     redirect(target, cookies)
+}
+
+fn callback_config_error_code(error: &OpenAuthError) -> &'static str {
+    match error {
+        OpenAuthError::Api(code) if code == errors::PROVIDER_CONFIG_NOT_FOUND => {
+            "provider_config_not_found"
+        }
+        OpenAuthError::Api(code) if code == errors::PROVIDER_ID_REQUIRED => "provider_id_required",
+        OpenAuthError::Api(code) if code == errors::TOKEN_URL_NOT_FOUND => "token_url_not_found",
+        OpenAuthError::Api(code) if code == errors::ISSUER_MISSING => "issuer_missing",
+        OpenAuthError::Api(code) if code == errors::INVALID_OAUTH_CONFIG => "invalid_oauth_config",
+        _ => "invalid_oauth_configuration",
+    }
 }

@@ -110,6 +110,7 @@ async fn sign_in_oauth2_route_rejects_unknown_provider() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_eq!(body["code"], "PROVIDER_CONFIG_NOT_FOUND");
+    assert_eq!(body["message"], "No config found for provider missing");
 }
 
 #[tokio::test]
@@ -224,6 +225,56 @@ async fn oauth2_callback_redirects_oauth_error_query_with_description() {
     assert_eq!(
         location(&response),
         Some("https://app.example.com/error?error=access_denied&error_description=User+denied")
+    );
+}
+
+#[tokio::test]
+async fn oauth2_callback_redirects_unknown_provider_to_default_error_url() {
+    let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
+    let context = context_with_plugin(adapter, oauth_plugin(example_config()));
+    let router = AuthRouter::try_new(context, Vec::new()).unwrap();
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("https://app.example.com/api/auth/oauth2/callback/missing?code=code-1&state=opaque")
+                .body(Vec::new())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        location(&response),
+        Some("https://app.example.com/error?error=provider_config_not_found")
+    );
+}
+
+#[tokio::test]
+async fn oauth2_callback_redirects_invalid_provider_config_to_default_error_url() {
+    let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
+    let mut config = example_config();
+    config.token_url = None;
+    let context = context_with_plugin(adapter, oauth_plugin(config));
+    let router = AuthRouter::try_new(context, Vec::new()).unwrap();
+
+    let response = router
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("https://app.example.com/api/auth/oauth2/callback/example?code=code-1&state=opaque")
+                .body(Vec::new())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        location(&response),
+        Some("https://app.example.com/error?error=token_url_not_found")
     );
 }
 

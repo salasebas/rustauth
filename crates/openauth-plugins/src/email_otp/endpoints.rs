@@ -137,13 +137,6 @@ pub(super) fn check_otp<'a>(
             Ok(otp_type) => otp_type,
             Err(response) => return Ok(response),
         };
-        if otp_type == EmailOtpType::ChangeEmail {
-            return response::error(
-                StatusCode::BAD_REQUEST,
-                "INVALID_OTP_TYPE",
-                "Invalid OTP type",
-            );
-        }
         if DbUserStore::new(adapter.as_ref())
             .find_user_by_email(&email)
             .await?

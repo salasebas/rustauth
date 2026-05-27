@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used)]
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub use http::StatusCode;
@@ -10,6 +11,7 @@ use openauth_core::cookies::{set_session_cookie, Cookie, SessionCookieOptions};
 use openauth_core::crypto::password::hash_password;
 use openauth_core::db::{DbAdapter, DbValue, FindOne, MemoryAdapter, User, Where};
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{SecondaryStorage, SecondaryStorageFuture};
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
 use openauth_plugins::email_otp::{email_otp, EmailOtpOptions, EmailOtpPayload};
@@ -197,6 +199,65 @@ pub async fn verification_value(adapter: &MemoryAdapter, identifier: &str) -> Op
             Some(DbValue::String(value)) => Some(value.clone()),
             _ => None,
         })
+}
+
+#[derive(Default)]
+pub struct TestSecondaryStorage {
+    values: Mutex<HashMap<String, String>>,
+}
+
+impl TestSecondaryStorage {
+    pub fn value(&self, key: &str) -> Result<Option<String>, openauth_core::error::OpenAuthError> {
+        Ok(self
+            .values
+            .lock()
+            .map_err(|_| {
+                openauth_core::error::OpenAuthError::Api(
+                    "secondary storage lock poisoned".to_owned(),
+                )
+            })?
+            .get(key)
+            .cloned())
+    }
+}
+
+impl SecondaryStorage for TestSecondaryStorage {
+    fn get<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move { self.value(key) })
+    }
+
+    fn set<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        _ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.values
+                .lock()
+                .map_err(|_| {
+                    openauth_core::error::OpenAuthError::Api(
+                        "secondary storage lock poisoned".to_owned(),
+                    )
+                })?
+                .insert(key.to_owned(), value);
+            Ok(())
+        })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
+        Box::pin(async move {
+            self.values
+                .lock()
+                .map_err(|_| {
+                    openauth_core::error::OpenAuthError::Api(
+                        "secondary storage lock poisoned".to_owned(),
+                    )
+                })?
+                .remove(key);
+            Ok(())
+        })
+    }
 }
 
 fn cookie_header(cookies: &[Cookie]) -> String {

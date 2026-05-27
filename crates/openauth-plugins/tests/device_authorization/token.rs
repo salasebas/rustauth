@@ -144,6 +144,32 @@ async fn token_route_exchanges_approved_code_for_bearer_token_and_scope(
 }
 
 #[tokio::test]
+async fn approved_token_session_uses_secondary_storage_when_configured(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(TestAdapter::default());
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let mut auth_options = OpenAuthOptions::default().secondary_storage(storage.clone());
+    auth_options.session.store_session_in_database = true;
+    let router = router_with_openauth_options(
+        adapter.clone(),
+        DeviceAuthorizationOptions::default(),
+        auth_options,
+    )?;
+    let code = create_device_code(&router, "test-client", Some("read")).await?;
+    let (_user_id, cookie) = create_user_session(&adapter).await?;
+    approve(&router, string_field(&code, "user_code"), &cookie).await?;
+
+    let response = poll_token(&router, string_field(&code, "device_code"), "test-client").await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+    let token = string_field(&body, "access_token");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(storage.value(&format!("session:{token}"))?.is_some());
+    assert_eq!(adapter.len("session").await, 2);
+    Ok(())
+}
+
+#[tokio::test]
 async fn token_route_returns_access_denied_after_denial() -> Result<(), Box<dyn std::error::Error>>
 {
     let adapter = Arc::new(TestAdapter::default());

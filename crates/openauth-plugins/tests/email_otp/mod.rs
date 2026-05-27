@@ -475,6 +475,7 @@ async fn change_email_requires_session_and_updates_email_with_otp() {
         )
         .await
         .unwrap();
+    let body: Value = serde_json::from_slice(response.body()).unwrap();
     let updated = DbUserStore::new(adapter.as_ref())
         .find_user_by_id(&user.id)
         .await
@@ -483,8 +484,115 @@ async fn change_email_requires_session_and_updates_email_with_otp() {
 
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body, serde_json::json!({ "success": true }));
     assert_eq!(updated.email, "new@example.com");
     assert!(updated.email_verified);
+}
+
+#[tokio::test]
+async fn sign_in_email_otp_stores_session_in_secondary_storage_when_configured() {
+    let adapter = Arc::new(MemoryAdapter::new());
+    create_user(&adapter, "ada@example.com", false).await;
+    let sender = CaptureSender::default();
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = router_with_auth_options(
+        adapter.clone(),
+        sender.clone(),
+        EmailOtpOptions::default(),
+        OpenAuthOptions::default().secondary_storage(storage.clone()),
+    )
+    .unwrap();
+    router
+        .handle_async(
+            json_request(
+                "/email-otp/send-verification-otp",
+                r#"{"email":"ada@example.com","type":"sign-in"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let response = router
+        .handle_async(
+            json_request(
+                "/sign-in/email-otp",
+                &format!(
+                    r#"{{"email":"ada@example.com","otp":"{}"}}"#,
+                    sender.last_otp()
+                ),
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(response.body()).unwrap();
+    let token = body["token"].as_str().unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(storage
+        .value(&format!("session:{token}"))
+        .unwrap()
+        .is_some());
+    assert_eq!(adapter.len("session").await, 0);
+}
+
+#[tokio::test]
+async fn verify_email_auto_sign_in_stores_session_in_secondary_storage_when_configured() {
+    let adapter = Arc::new(MemoryAdapter::new());
+    create_user(&adapter, "ada@example.com", false).await;
+    let sender = CaptureSender::default();
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = router_with_auth_options(
+        adapter.clone(),
+        sender.clone(),
+        EmailOtpOptions::default(),
+        OpenAuthOptions {
+            email_verification: EmailVerificationOptions {
+                auto_sign_in_after_verification: true,
+                ..EmailVerificationOptions::default()
+            },
+            ..OpenAuthOptions::default().secondary_storage(storage.clone())
+        },
+    )
+    .unwrap();
+    router
+        .handle_async(
+            json_request(
+                "/email-otp/send-verification-otp",
+                r#"{"email":"ada@example.com","type":"email-verification"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let response = router
+        .handle_async(
+            json_request(
+                "/email-otp/verify-email",
+                &format!(
+                    r#"{{"email":"ada@example.com","otp":"{}"}}"#,
+                    sender.last_otp()
+                ),
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(response.body()).unwrap();
+    let token = body["token"].as_str().unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(storage
+        .value(&format!("session:{token}"))
+        .unwrap()
+        .is_some());
+    assert_eq!(adapter.len("session").await, 0);
 }
 
 #[tokio::test]
