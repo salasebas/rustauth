@@ -25,7 +25,7 @@ fn passkey_endpoints_expose_openapi_and_body_schemas() -> Result<(), Box<dyn std
     );
     assert_eq!(
         verify_registration["responses"]["200"]["content"]["application/json"]["schema"]
-            ["properties"]["credentialId"]["type"],
+            ["properties"]["credentialID"]["type"],
         "string"
     );
 

@@ -15,6 +15,7 @@ pub struct Passkey {
     pub name: Option<String>,
     pub public_key: String,
     pub user_id: String,
+    #[serde(rename = "credentialID")]
     pub credential_id: String,
     pub counter: i64,
     pub device_type: String,

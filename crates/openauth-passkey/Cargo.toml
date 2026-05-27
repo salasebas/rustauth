@@ -20,6 +20,7 @@ http.workspace = true
 indexmap.workspace = true
 openauth-core.workspace = true
 serde.workspace = true
+serde_cbor_2.workspace = true
 serde_json.workspace = true
 time.workspace = true
 url.workspace = true

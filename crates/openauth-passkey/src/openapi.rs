@@ -74,7 +74,7 @@ pub fn passkey_openapi_schema() -> Value {
             "name": { "type": "string", "nullable": true },
             "publicKey": { "type": "string" },
             "userId": { "type": "string" },
-            "credentialId": { "type": "string" },
+            "credentialID": { "type": "string" },
             "counter": { "type": "number" },
             "deviceType": { "type": "string" },
             "backedUp": { "type": "boolean" },
@@ -82,6 +82,6 @@ pub fn passkey_openapi_schema() -> Value {
             "createdAt": { "type": "string", "format": "date-time", "nullable": true },
             "aaguid": { "type": "string", "nullable": true },
         },
-        "required": ["id", "publicKey", "userId", "credentialId", "counter", "deviceType", "backedUp"],
+        "required": ["id", "publicKey", "userId", "credentialID", "counter", "deviceType", "backedUp"],
     })
 }

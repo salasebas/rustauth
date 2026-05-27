@@ -9,9 +9,9 @@ use openauth_passkey::{
 use serde_json::{json, Value};
 
 use crate::support::{
-    cookie_header_from_response, empty_request, join_cookies, json_request, seed_passkey,
-    seed_user_two, seeded_router, set_cookie_values, sign_in_cookie,
-    signed_passkey_challenge_cookie,
+    cookie_header_from_response, empty_request, join_cookies, json_request,
+    json_request_with_origin, seed_passkey, seed_user_two, seeded_router, set_cookie_values,
+    sign_in_cookie, signed_passkey_challenge_cookie, single_verification_expires_at,
 };
 
 #[tokio::test]
@@ -60,6 +60,27 @@ async fn generate_authenticate_options_with_session_includes_user_credentials(
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["allowCredentials"][0]["id"], "credential-id");
+    Ok(())
+}
+
+#[tokio::test]
+async fn generate_authenticate_options_computes_challenge_expiration_per_request(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    let before_request = time::OffsetDateTime::now_utc();
+
+    let response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let expires_at = single_verification_expires_at(adapter.as_ref()).await?;
+    assert!(expires_at > before_request);
+    assert!(expires_at <= time::OffsetDateTime::now_utc() + time::Duration::minutes(5));
     Ok(())
 }
 
@@ -150,7 +171,7 @@ async fn verify_authentication_creates_session_and_returns_user(
     let passkey_cookie = cookie_header_from_response(&options_response);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-authentication",
             r#"{"response":{"id":"credential-id"}}"#,
@@ -167,6 +188,42 @@ async fn verify_authentication_creates_session_and_returns_user(
     assert!(set_cookie_values(&response)
         .iter()
         .any(|cookie| cookie.contains("session_token")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_authentication_rejects_missing_origin_when_origin_is_not_configured(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    seed_passkey(
+        adapter.as_ref(),
+        "passkey_1",
+        "user_1",
+        "Laptop",
+        "credential-id",
+    )
+    .await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/passkey/verify-authentication",
+            r#"{"response":{"id":"credential-id"}}"#,
+            Some(&passkey_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "origin missing");
     Ok(())
 }
 
@@ -204,7 +261,7 @@ async fn verify_authentication_runs_async_after_verification(
     let passkey_cookie = cookie_header_from_response(&options_response);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-authentication",
             r#"{"response":{"id":"credential-id"}}"#,
@@ -246,7 +303,7 @@ async fn verify_authentication_rejects_deleted_user_with_json_error(
     let passkey_cookie = cookie_header_from_response(&options_response);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-authentication",
             r#"{"response":{"id":"credential-id"}}"#,

@@ -20,7 +20,10 @@ use crate::options::{
     PasskeyRegistrationUser,
 };
 use crate::response::{error_response, json_response};
-use crate::routes::{adapter, resolve_extensions, webauthn_config, VerifyAuthenticationBody};
+use crate::routes::{
+    adapter, resolve_extensions, verification_webauthn_config, webauthn_config,
+    VerifyAuthenticationBody,
+};
 use crate::session::{create_session_for_user, current_session};
 use crate::store::PasskeyStore;
 
@@ -176,8 +179,16 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                         "Passkey not found",
                     );
                 }
+                let Some(config) = verification_webauthn_config(context, &options, &request)?
+                else {
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        "origin missing",
+                        "origin missing",
+                    );
+                };
                 let verified = match options.backend.finish_authentication(
-                    webauthn_config(context, &options, &request)?,
+                    config,
                     body.response.clone(),
                     challenge.state,
                     Some(passkey.webauthn_credential.clone()),

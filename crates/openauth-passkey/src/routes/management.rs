@@ -85,13 +85,13 @@ pub(super) fn delete_passkey_endpoint(_options: Arc<PasskeyOptions>) -> AsyncAut
                 let store = PasskeyStore::new(adapter.as_ref());
                 let Some(passkey) = store.find_by_id(&body.id).await? else {
                     return error_response(
-                        StatusCode::BAD_REQUEST,
+                        StatusCode::NOT_FOUND,
                         "PASSKEY_NOT_FOUND",
                         "Passkey not found",
                     );
                 };
                 if passkey.user_id != user.id {
-                    return not_allowed();
+                    return unauthorized();
                 }
                 store.delete_for_user(&body.id, &user.id).await?;
                 json_response(StatusCode::OK, &json!({ "status": true }), cookies)
@@ -135,7 +135,7 @@ pub(super) fn update_passkey_endpoint(_options: Arc<PasskeyOptions>) -> AsyncAut
                 let store = PasskeyStore::new(adapter.as_ref());
                 let Some(existing) = store.find_by_id(&body.id).await? else {
                     return error_response(
-                        StatusCode::BAD_REQUEST,
+                        StatusCode::NOT_FOUND,
                         "PASSKEY_NOT_FOUND",
                         "Passkey not found",
                     );

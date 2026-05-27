@@ -193,6 +193,20 @@ pub fn json_request(
     builder.body(body.as_bytes().to_vec())
 }
 
+pub fn json_request_with_origin(
+    method: Method,
+    path: &str,
+    body: &str,
+    cookie: Option<&str>,
+) -> Result<Request<Vec<u8>>, http::Error> {
+    let mut request = json_request(method, path, body, cookie)?;
+    request.headers_mut().insert(
+        header::ORIGIN,
+        http::HeaderValue::from_static("http://localhost:3000"),
+    );
+    Ok(request)
+}
+
 pub fn set_cookie_values(response: &http::Response<Vec<u8>>) -> Vec<String> {
     response
         .headers()
@@ -265,6 +279,21 @@ pub async fn sign_in_cookie(router: &AuthRouter) -> Result<String, Box<dyn std::
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     Ok(cookie_header_from_response(&response))
+}
+
+pub async fn single_verification_expires_at(
+    adapter: &dyn DbAdapter,
+) -> Result<OffsetDateTime, Box<dyn std::error::Error>> {
+    let records = adapter
+        .find_many(FindMany::new("verification").limit(1))
+        .await?;
+    let record = records
+        .first()
+        .ok_or("expected one verification challenge")?;
+    match record.get("expires_at") {
+        Some(DbValue::Timestamp(expires_at)) => Ok(*expires_at),
+        _ => Err("verification challenge expires_at must be a timestamp".into()),
+    }
 }
 
 pub async fn session_cookie_for(

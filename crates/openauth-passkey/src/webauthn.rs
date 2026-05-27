@@ -2,10 +2,12 @@ use base64::Engine;
 use openauth_core::error::OpenAuthError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use url::Url;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
-    CreationChallengeResponse, Credential, DiscoverableAuthentication, DiscoverableKey,
+    AttestationMetadata, COSEAlgorithm, COSEKey, COSEKeyType, CreationChallengeResponse,
+    Credential, DiscoverableAuthentication, DiscoverableKey, ECDSACurve, EDDSACurve,
     PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
     RequestChallengeResponse, Webauthn, WebauthnBuilder,
 };
@@ -110,7 +112,7 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| OpenAuthError::Api(error.to_string()))?;
-        let user_id = stable_user_uuid(&user.id);
+        let user_id = Uuid::new_v4();
         let display_name = user.display_name.as_deref().unwrap_or(&user.name);
         let (options, state) = webauthn
             .start_passkey_registration(user_id, &user.name, display_name, Some(exclude))
@@ -282,11 +284,12 @@ fn credential_output(
     passkey: webauthn_rs::prelude::Passkey,
 ) -> Result<VerifiedPasskeyCredential, OpenAuthError> {
     let credential = Credential::from(passkey.clone());
+    let aaguid = aaguid_from_attestation_metadata(&credential.attestation.metadata);
     let credential_id = serde_json::to_value(&credential.cred_id)
         .and_then(serde_json::from_value::<String>)
         .unwrap_or_else(|_| format!("{:?}", credential.cred_id));
-    let public_key = base64::engine::general_purpose::STANDARD
-        .encode(serde_json::to_vec(&credential.cred).map_err(json_error)?);
+    let public_key =
+        base64::engine::general_purpose::STANDARD.encode(cose_public_key_bytes(&credential.cred)?);
     let transports = credential.transports.as_ref().map(|values| {
         values
             .iter()
@@ -310,19 +313,203 @@ fn credential_output(
         },
         backed_up: credential.backup_state,
         transports,
-        aaguid: None,
+        aaguid,
         credential: serde_json::to_value(passkey).map_err(json_error)?,
     })
 }
 
-fn stable_user_uuid(user_id: &str) -> Uuid {
-    // WebAuthn user handles are intentionally stable per OpenAuth user so
-    // authenticators can recognize the same account across credential updates.
-    // If we later support passkey-first anonymous enrollment, that flow should
-    // store a random per-registration user_handle in credential metadata.
-    Uuid::new_v5(&Uuid::NAMESPACE_URL, user_id.as_bytes())
+fn aaguid_from_attestation_metadata(metadata: &AttestationMetadata) -> Option<String> {
+    match metadata {
+        AttestationMetadata::Packed { aaguid } | AttestationMetadata::Tpm { aaguid, .. } => {
+            Some(aaguid.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn cose_public_key_bytes(key: &COSEKey) -> Result<Vec<u8>, OpenAuthError> {
+    let mut values = BTreeMap::new();
+    values.insert(
+        serde_cbor_2::Value::Integer(1),
+        serde_cbor_2::Value::Integer(cose_key_type_id(&key.key)),
+    );
+    values.insert(
+        serde_cbor_2::Value::Integer(3),
+        serde_cbor_2::Value::Integer(cose_algorithm_id(key.type_)?),
+    );
+    match &key.key {
+        COSEKeyType::EC_EC2(key) => {
+            values.insert(
+                serde_cbor_2::Value::Integer(-1),
+                serde_cbor_2::Value::Integer(ecdsa_curve_id(&key.curve)),
+            );
+            values.insert(
+                serde_cbor_2::Value::Integer(-2),
+                serde_cbor_2::Value::Bytes(key.x.as_ref().to_vec()),
+            );
+            values.insert(
+                serde_cbor_2::Value::Integer(-3),
+                serde_cbor_2::Value::Bytes(key.y.as_ref().to_vec()),
+            );
+        }
+        COSEKeyType::RSA(key) => {
+            values.insert(
+                serde_cbor_2::Value::Integer(-1),
+                serde_cbor_2::Value::Bytes(key.n.as_ref().to_vec()),
+            );
+            values.insert(
+                serde_cbor_2::Value::Integer(-2),
+                serde_cbor_2::Value::Bytes(key.e.to_vec()),
+            );
+        }
+        COSEKeyType::EC_OKP(key) => {
+            values.insert(
+                serde_cbor_2::Value::Integer(-1),
+                serde_cbor_2::Value::Integer(eddsa_curve_id(&key.curve)),
+            );
+            values.insert(
+                serde_cbor_2::Value::Integer(-2),
+                serde_cbor_2::Value::Bytes(key.x.as_ref().to_vec()),
+            );
+        }
+    }
+    serde_cbor_2::to_vec(&serde_cbor_2::Value::Map(values))
+        .map_err(|error| OpenAuthError::Api(error.to_string()))
+}
+
+fn cose_key_type_id(key: &COSEKeyType) -> i128 {
+    match key {
+        COSEKeyType::EC_OKP(_) => 1,
+        COSEKeyType::EC_EC2(_) => 2,
+        COSEKeyType::RSA(_) => 3,
+    }
+}
+
+fn cose_algorithm_id(algorithm: COSEAlgorithm) -> Result<i128, OpenAuthError> {
+    match algorithm {
+        COSEAlgorithm::ES256 => Ok(-7),
+        COSEAlgorithm::ES384 => Ok(-35),
+        COSEAlgorithm::ES512 => Ok(-36),
+        COSEAlgorithm::RS256 => Ok(-257),
+        COSEAlgorithm::RS384 => Ok(-258),
+        COSEAlgorithm::RS512 => Ok(-259),
+        COSEAlgorithm::PS256 => Ok(-37),
+        COSEAlgorithm::PS384 => Ok(-38),
+        COSEAlgorithm::PS512 => Ok(-39),
+        COSEAlgorithm::EDDSA => Ok(-8),
+        COSEAlgorithm::INSECURE_RS1 => Ok(-65535),
+        COSEAlgorithm::PinUvProtocol => Err(OpenAuthError::Api(
+            "passkey public key uses an unsupported COSE algorithm".to_owned(),
+        )),
+    }
+}
+
+fn ecdsa_curve_id(curve: &ECDSACurve) -> i128 {
+    match curve {
+        ECDSACurve::SECP256R1 => 1,
+        ECDSACurve::SECP384R1 => 2,
+        ECDSACurve::SECP521R1 => 3,
+    }
+}
+
+fn eddsa_curve_id(curve: &EDDSACurve) -> i128 {
+    match curve {
+        EDDSACurve::ED25519 => 6,
+        EDDSACurve::ED448 => 7,
+    }
 }
 
 fn json_error(error: serde_json::Error) -> OpenAuthError {
     OpenAuthError::Api(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_cbor_2::Value as CborValue;
+    use webauthn_rs::prelude::{AttestationMetadata, Credential};
+
+    #[test]
+    fn aaguid_from_attestation_metadata_extracts_packed_and_tpm_values() {
+        let packed = Uuid::from_u128(1);
+        let tpm = Uuid::from_u128(2);
+
+        assert_eq!(
+            aaguid_from_attestation_metadata(&AttestationMetadata::Packed { aaguid: packed }),
+            Some(packed.to_string())
+        );
+        assert_eq!(
+            aaguid_from_attestation_metadata(&AttestationMetadata::Tpm {
+                aaguid: tpm,
+                firmware_version: 1,
+            }),
+            Some(tpm.to_string())
+        );
+        assert_eq!(
+            aaguid_from_attestation_metadata(&AttestationMetadata::None),
+            None
+        );
+    }
+
+    #[test]
+    fn credential_output_public_key_is_cose_cbor_base64() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let credential = serde_json::from_value::<Credential>(serde_json::json!({
+            "cred_id": "AQID",
+            "cred": {
+                "type_": "ES256",
+                "key": {
+                    "EC_EC2": {
+                        "curve": "SECP256R1",
+                        "x": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                        "y": [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+                    }
+                }
+            },
+            "counter": 7,
+            "transports": null,
+            "user_verified": false,
+            "backup_eligible": false,
+            "backup_state": false,
+            "registration_policy": "preferred",
+            "extensions": {
+                "cred_protect": "NotRequested",
+                "hmac_create_secret": "NotRequested"
+            },
+            "attestation": {
+                "data": "None",
+                "metadata": "None"
+            },
+            "attestation_format": "none"
+        }))?;
+        let output = credential_output(credential.into())?;
+        let public_key_bytes =
+            base64::engine::general_purpose::STANDARD.decode(output.public_key)?;
+        let public_key = serde_cbor_2::from_slice::<CborValue>(&public_key_bytes)?;
+        let CborValue::Map(values) = public_key else {
+            return Err("COSE public key must be encoded as a CBOR map".into());
+        };
+
+        assert_eq!(
+            values.get(&CborValue::Integer(1)),
+            Some(&CborValue::Integer(2))
+        );
+        assert_eq!(
+            values.get(&CborValue::Integer(3)),
+            Some(&CborValue::Integer(-7))
+        );
+        assert_eq!(
+            values.get(&CborValue::Integer(-1)),
+            Some(&CborValue::Integer(1))
+        );
+        assert_eq!(
+            values.get(&CborValue::Integer(-2)),
+            Some(&CborValue::Bytes(vec![1; 32]))
+        );
+        assert_eq!(
+            values.get(&CborValue::Integer(-3)),
+            Some(&CborValue::Bytes(vec![2; 32]))
+        );
+        Ok(())
+    }
 }

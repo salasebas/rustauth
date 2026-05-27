@@ -88,6 +88,39 @@ pub(crate) fn webauthn_config(
     })
 }
 
+pub(crate) fn verification_webauthn_config(
+    context: &AuthContext,
+    options: &PasskeyOptions,
+    request: &ApiRequest,
+) -> Result<Option<WebAuthnConfig>, OpenAuthError> {
+    let origins = if options.origin.is_empty() {
+        let Some(origin) = request
+            .headers()
+            .get(header::ORIGIN)
+            .and_then(|value| value.to_str().ok())
+        else {
+            return Ok(None);
+        };
+        vec![origin.trim_end_matches('/').to_owned()]
+    } else {
+        options.origin.clone()
+    };
+    let rp_id = options
+        .rp_id
+        .clone()
+        .or_else(|| host_from_url(context.base_url.as_str()))
+        .or_else(|| origins.first().and_then(|origin| host_from_url(origin)))
+        .unwrap_or_else(|| "localhost".to_owned());
+    Ok(Some(WebAuthnConfig {
+        rp_id,
+        rp_name: options
+            .rp_name
+            .clone()
+            .unwrap_or_else(|| context.app_name.clone()),
+        origins,
+    }))
+}
+
 fn host_from_url(value: &str) -> Option<String> {
     Url::parse(value)
         .ok()

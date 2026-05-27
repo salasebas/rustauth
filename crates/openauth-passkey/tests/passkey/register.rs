@@ -15,8 +15,9 @@ use serde_json::{json, Value};
 
 use crate::support::{
     cookie_header_from_response, empty_request, expired_registration_challenge_cookie,
-    join_cookies, json_request, router_with_adapter, seed_user, seeded_router,
-    session_cookie_for_created_at, set_cookie_values, sign_in_cookie, RaceDuplicateAdapter,
+    join_cookies, json_request, json_request_with_origin, router_with_adapter, seed_user,
+    seeded_router, session_cookie_for_created_at, set_cookie_values, sign_in_cookie,
+    single_verification_expires_at, RaceDuplicateAdapter,
 };
 
 #[tokio::test]
@@ -79,6 +80,28 @@ async fn generate_register_options_uses_resolve_user_without_session(
         .lock()
         .map_err(|_| "registration user mutex poisoned")?;
     assert_eq!(users.as_slice(), &["user-preauth@example.com"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn generate_register_options_computes_challenge_expiration_per_request(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    let session_cookie = sign_in_cookie(&router).await?;
+    let before_request = time::OffsetDateTime::now_utc();
+
+    let response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-register-options",
+            Some(&session_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let expires_at = single_verification_expires_at(adapter.as_ref()).await?;
+    assert!(expires_at > before_request);
+    assert!(expires_at <= time::OffsetDateTime::now_utc() + time::Duration::minutes(5));
     Ok(())
 }
 
@@ -205,6 +228,33 @@ async fn generate_register_options_includes_selection_attachment_and_extensions(
 }
 
 #[tokio::test]
+async fn generate_register_options_rejects_invalid_authenticator_attachment(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = PasskeyOptions::default().registration(
+        PasskeyRegistrationOptions::new()
+            .require_session(false)
+            .resolve_user(|_| {
+                Some(PasskeyRegistrationUser::new(
+                    "preauth-user",
+                    "preauth@example.com",
+                ))
+            }),
+    );
+    let (_adapter, router, _backend) = seeded_router(options).await?;
+
+    let response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-register-options?authenticatorAttachment=roaming",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
 async fn generate_register_options_uses_async_resolvers() -> Result<(), Box<dyn std::error::Error>>
 {
     let options = PasskeyOptions::default().registration(
@@ -323,6 +373,29 @@ fn real_webauthn_backend_rejects_invalid_registration_payload() {
 }
 
 #[test]
+fn real_webauthn_backend_uses_random_registration_user_handle(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let backend = RealPasskeyWebAuthnBackend;
+    let config = WebAuthnConfig {
+        rp_id: "localhost".to_owned(),
+        rp_name: "OpenAuth".to_owned(),
+        origins: vec!["http://localhost:3000".to_owned()],
+    };
+    let user = PasskeyRegistrationUser::new("real-user", "real@example.com");
+    let request_options = RegistrationWebAuthnOptions {
+        authenticator_selection: AuthenticatorSelection::default(),
+        extensions: None,
+    };
+
+    let first =
+        backend.start_registration(config.clone(), &user, Vec::new(), request_options.clone())?;
+    let second = backend.start_registration(config, &user, Vec::new(), request_options)?;
+
+    assert_ne!(first.options["user"]["id"], second.options["user"]["id"]);
+    Ok(())
+}
+
+#[test]
 fn real_webauthn_backend_rejects_invalid_origin_config() {
     let backend = RealPasskeyWebAuthnBackend;
     let result = backend.start_registration(
@@ -358,7 +431,7 @@ async fn verify_registration_creates_passkey_and_deletes_challenge(
     let cookie = join_cookies(&[session_cookie.as_str(), passkey_cookie.as_str()]);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-registration",
             r#"{"response":{"id":"credential-id"},"name":"Laptop"}"#,
@@ -369,8 +442,68 @@ async fn verify_registration_creates_passkey_and_deletes_challenge(
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["name"], "Laptop");
-    assert_eq!(body["credentialId"], "credential-id");
+    assert_eq!(body["credentialID"], "credential-id");
     assert_eq!(adapter.len("verification").await, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_registration_rejects_missing_origin_when_origin_is_not_configured(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    let session_cookie = sign_in_cookie(&router).await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-register-options",
+            Some(&session_cookie),
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+    let cookie = join_cookies(&[session_cookie.as_str(), passkey_cookie.as_str()]);
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/passkey/verify-registration",
+            r#"{"response":{"id":"credential-id"},"name":"Laptop"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "FAILED_TO_VERIFY_REGISTRATION");
+    assert_eq!(adapter.len("passkey").await, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_registration_requires_session_by_default() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    let session_cookie = sign_in_cookie(&router).await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-register-options",
+            Some(&session_cookie),
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+
+    let response = router
+        .handle_async(json_request_with_origin(
+            Method::POST,
+            "/api/auth/passkey/verify-registration",
+            r#"{"response":{"id":"credential-id"},"name":"Laptop"}"#,
+            Some(&passkey_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "SESSION_REQUIRED");
     Ok(())
 }
 
@@ -389,7 +522,7 @@ async fn verify_registration_rejects_reused_challenge() -> Result<(), Box<dyn st
     let cookie = join_cookies(&[session_cookie.as_str(), passkey_cookie.as_str()]);
 
     let first = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-registration",
             r#"{"response":{"id":"credential-id"},"name":"Laptop"}"#,
@@ -509,7 +642,7 @@ async fn verify_registration_rejects_duplicate_credential_id(
     let cookie = join_cookies(&[session_cookie.as_str(), passkey_cookie.as_str()]);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-registration",
             r#"{"response":{"id":"credential-id"},"name":"Duplicate"}"#,
@@ -543,7 +676,7 @@ async fn verify_registration_maps_duplicate_insert_race_to_previous_registered(
     let cookie = join_cookies(&[session_cookie.as_str(), passkey_cookie.as_str()]);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-registration",
             r#"{"response":{"id":"race-credential"},"name":"Race"}"#,
@@ -696,7 +829,7 @@ async fn after_registration_verification_can_override_preauth_user(
     let passkey_cookie = cookie_header_from_response(&options_response);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-registration",
             r#"{"response":{"id":"override-credential"}}"#,
@@ -740,7 +873,7 @@ async fn after_registration_verification_cannot_override_session_user(
     let cookie = join_cookies(&[session_cookie.as_str(), passkey_cookie.as_str()]);
 
     let response = router
-        .handle_async(json_request(
+        .handle_async(json_request_with_origin(
             Method::POST,
             "/api/auth/passkey/verify-registration",
             r#"{"response":{"id":"mismatch-credential"}}"#,

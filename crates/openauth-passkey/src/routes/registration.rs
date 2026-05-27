@@ -19,7 +19,8 @@ use crate::options::{
 };
 use crate::response::{error_response, json_response, not_allowed};
 use crate::routes::{
-    adapter, query_param, resolve_extensions, webauthn_config, VerifyRegistrationBody,
+    adapter, query_param, resolve_extensions, verification_webauthn_config, webauthn_config,
+    VerifyRegistrationBody,
 };
 use crate::session::{current_session, registration_user, session_is_fresh, RegistrationUserError};
 use crate::store::PasskeyStore;
@@ -101,9 +102,19 @@ pub(super) fn generate_register_options_endpoint(
                     }
                     webauthn_user.name = name;
                 }
-                let attachment = query_param(&request, "authenticatorAttachment")
-                    .as_deref()
-                    .and_then(AuthenticatorAttachment::from_query);
+                let attachment = match query_param(&request, "authenticatorAttachment") {
+                    Some(value) => match AuthenticatorAttachment::from_query(&value) {
+                        Some(attachment) => Some(attachment),
+                        None => {
+                            return error_response(
+                                StatusCode::BAD_REQUEST,
+                                "BAD_REQUEST",
+                                "Invalid authenticatorAttachment",
+                            )
+                        }
+                    },
+                    None => None,
+                };
                 let extensions = resolve_extensions(
                     &options.registration.extensions,
                     PasskeyExtensionsInput {
@@ -196,6 +207,13 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                     );
                 }
                 let session = current_session(context, &request).await?;
+                if options.registration.require_session && session.is_none() {
+                    return error_response(
+                        StatusCode::UNAUTHORIZED,
+                        "SESSION_REQUIRED",
+                        "Passkey registration requires an authenticated session",
+                    );
+                }
                 if let Some((session, _, _)) = &session {
                     if options.registration.require_session && !session_is_fresh(context, session) {
                         return error_response(
@@ -217,8 +235,16 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                         return not_allowed();
                     }
                 }
+                let Some(config) = verification_webauthn_config(context, &options, &request)?
+                else {
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        "FAILED_TO_VERIFY_REGISTRATION",
+                        "Failed to verify registration",
+                    );
+                };
                 let verified = match options.backend.finish_registration(
-                    webauthn_config(context, &options, &request)?,
+                    config,
                     body.response.clone(),
                     challenge.state,
                 ) {
