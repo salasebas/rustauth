@@ -64,6 +64,8 @@ pub(super) async fn sign_in_after_hook(
     if !user_two_factor_enabled(adapter.as_ref(), &body.user.id).await? {
         return Ok(PluginAfterHookAction::Continue(response));
     }
+    let preserve_dont_remember =
+        response_sets_cookie(&response, &context.auth_cookies.dont_remember_token.name);
     let invalid_trust_device_cookie = match trusted_device_cookie_if_valid(
         context,
         adapter.as_ref(),
@@ -107,6 +109,13 @@ pub(super) async fn sign_in_after_hook(
         &identifier,
         &context.secret,
     )?);
+    if preserve_dont_remember {
+        cookies.push(signed_cookie(
+            &context.auth_cookies.dont_remember_token,
+            "true",
+            &context.secret,
+        )?);
+    }
     if let Some(cookie) = invalid_trust_device_cookie {
         cookies.push(cookie);
     }
@@ -128,6 +137,7 @@ pub(super) struct VerifyFlow {
     pub(super) session: Option<openauth_core::db::Session>,
     pub(super) key: String,
     pub(super) trust_device: bool,
+    dont_remember: bool,
 }
 
 impl VerifyFlow {
@@ -146,8 +156,12 @@ impl VerifyFlow {
                 Vec::new(),
             );
         }
-        let expires_at =
-            OffsetDateTime::now_utc() + Duration::seconds(context.session_config.expires_in as i64);
+        let expires_in = if self.dont_remember {
+            60 * 60 * 24
+        } else {
+            context.session_config.expires_in
+        };
+        let expires_at = OffsetDateTime::now_utc() + Duration::seconds(expires_in as i64);
         let session = DbSessionStore::new(self.adapter.as_ref())
             .create_session(CreateSessionInput::new(&self.user.id, expires_at))
             .await?;
@@ -158,7 +172,10 @@ impl VerifyFlow {
             &context.auth_cookies,
             &context.secret,
             &session.token,
-            SessionCookieOptions::default(),
+            SessionCookieOptions {
+                dont_remember: self.dont_remember,
+                ..SessionCookieOptions::default()
+            },
         )?;
         let two_factor_cookie = plugin_cookie(
             &context.auth_cookies.session_token,
@@ -176,6 +193,9 @@ impl VerifyFlow {
                 )
                 .await?,
             );
+            if self.dont_remember {
+                cookies.push(expire_cookie(&context.auth_cookies.dont_remember_token));
+            }
         }
         json_response(
             StatusCode::OK,
@@ -205,6 +225,7 @@ pub(super) async fn verify_context(
             user,
             session: Some(session),
             trust_device: false,
+            dont_remember: false,
         });
     }
     let two_factor_cookie = plugin_cookie(
@@ -230,12 +251,19 @@ pub(super) async fn verify_context(
     else {
         return Err(OpenAuthError::Api("INVALID_TWO_FACTOR_COOKIE".to_owned()));
     };
+    let dont_remember = read_signed_cookie(
+        &cookie_header,
+        &context.auth_cookies.dont_remember_token.name,
+        &context.secret,
+    )?
+    .is_some();
     Ok(VerifyFlow {
         adapter,
         user,
         session: None,
         key: identifier,
         trust_device: false,
+        dont_remember,
     })
 }
 
@@ -292,6 +320,15 @@ pub(super) fn request_cookie(request: &ApiRequest) -> Option<String> {
         .get(header::COOKIE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
+}
+
+fn response_sets_cookie(response: &ApiResponse, name: &str) -> bool {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|value| value.trim_start().starts_with(&format!("{name}=")))
 }
 
 async fn maybe_current_session(

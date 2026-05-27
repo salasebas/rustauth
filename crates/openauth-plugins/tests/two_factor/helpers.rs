@@ -23,12 +23,15 @@ pub(super) async fn seeded_router(
 pub(super) async fn seeded_router_with_options(
     two_factor_options: TwoFactorOptions,
 ) -> Result<(Arc<MemoryAdapter>, AuthRouter), Box<dyn std::error::Error>> {
+    seeded_router_with_auth_options(options_with_two_factor(two_factor_options)).await
+}
+
+pub(super) async fn seeded_router_with_auth_options(
+    options: OpenAuthOptions,
+) -> Result<(Arc<MemoryAdapter>, AuthRouter), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     seed_user(adapter.as_ref()).await?;
-    let context = create_auth_context_with_adapter(
-        options_with_two_factor(two_factor_options),
-        adapter.clone(),
-    )?;
+    let context = create_auth_context_with_adapter(options, adapter.clone())?;
     let router = AuthRouter::with_async_endpoints(
         context,
         Vec::new(),
@@ -272,6 +275,8 @@ async fn seed_user(adapter: &MemoryAdapter) -> Result<(), OpenAuthError> {
                 .data("email", DbValue::String("ada@example.com".to_owned()))
                 .data("email_verified", DbValue::Boolean(true))
                 .data("image", DbValue::Null)
+                .data("username", DbValue::String("ada_user".to_owned()))
+                .data("display_username", DbValue::String("Ada User".to_owned()))
                 .data("two_factor_enabled", DbValue::Boolean(false))
                 .data("created_at", DbValue::Timestamp(now))
                 .data("updated_at", DbValue::Timestamp(now))

@@ -1,14 +1,19 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::{create_auth_context, create_auth_context_with_adapter};
+use openauth_core::crypto::password::hash_password;
 use openauth_core::db::{
-    DbAdapter, DbValue, FindOne, HookedAdapter, JoinAdapter, MemoryAdapter, Where,
+    Create, DbAdapter, DbValue, FindOne, HookedAdapter, JoinAdapter, MemoryAdapter, Where,
 };
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{
+    AdvancedOptions, EmailPasswordOptions, EmailVerificationOptions, OpenAuthOptions,
+    VerificationEmail,
+};
 use serde_json::{json, Value};
+use time::OffsetDateTime;
 
 #[tokio::test]
 async fn sign_up_normalizes_username_and_preserves_display_username(
@@ -100,6 +105,124 @@ async fn sign_in_username_rejects_wrong_password_before_other_user_state(
 }
 
 #[tokio::test]
+async fn sign_in_username_rejects_wrong_password_before_unverified_email_state(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_unverified_username(adapter.as_ref()).await?;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            plugins: vec![openauth_plugins::username::username()],
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            email_password: EmailPasswordOptions {
+                require_email_verification: true,
+                ..EmailPasswordOptions::default()
+            },
+            advanced: test_advanced_options(),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/username",
+            r#"{"username":"ada_user","password":"wrong-password"}"#,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "INVALID_USERNAME_OR_PASSWORD");
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_in_username_requires_verified_email_after_password_is_valid(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_unverified_username(adapter.as_ref()).await?;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            plugins: vec![openauth_plugins::username::username()],
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            email_password: EmailPasswordOptions {
+                require_email_verification: true,
+                ..EmailPasswordOptions::default()
+            },
+            advanced: test_advanced_options(),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/username",
+            r#"{"username":"ada_user","password":"secret123"}"#,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "EMAIL_NOT_VERIFIED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_in_username_sends_verification_email_when_configured(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_unverified_username(adapter.as_ref()).await?;
+    let sent = Arc::new(Mutex::new(Vec::<VerificationEmail>::new()));
+    let capture = Arc::clone(&sent);
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            plugins: vec![openauth_plugins::username::username()],
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            email_password: EmailPasswordOptions {
+                require_email_verification: true,
+                ..EmailPasswordOptions::default()
+            },
+            email_verification: EmailVerificationOptions::builder()
+                .send_on_sign_in(true)
+                .send_verification_email(
+                    move |email: VerificationEmail, _request: Option<&Request<Vec<u8>>>| {
+                        capture
+                            .lock()
+                            .map_err(|_| {
+                                OpenAuthError::Api("verification email mutex poisoned".to_owned())
+                            })?
+                            .push(email);
+                        Ok(())
+                    },
+                ),
+            advanced: test_advanced_options(),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/username",
+            r#"{"username":"ada_user","password":"secret123","callbackURL":"/settings"}"#,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let sent = sent
+        .lock()
+        .map_err(|_| OpenAuthError::Api("verification email mutex poisoned".to_owned()))?;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].user.email, "ada@example.com");
+    assert!(sent[0].url.contains("callbackURL=%2Fsettings"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_up_rejects_duplicate_normalized_username() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     let router = router(adapter)?;
@@ -186,7 +309,13 @@ async fn update_user_normalizes_username_and_preserves_display_username(
 }
 
 fn router(adapter: Arc<MemoryAdapter>) -> Result<AuthRouter, OpenAuthError> {
-    let options = options();
+    router_with_options(adapter, options())
+}
+
+fn router_with_options(
+    adapter: Arc<MemoryAdapter>,
+    options: OpenAuthOptions,
+) -> Result<AuthRouter, OpenAuthError> {
     let context = create_auth_context(options.clone())?;
     let hooked_adapter: Arc<dyn DbAdapter> = Arc::new(HookedAdapter::new(
         adapter,
@@ -205,12 +334,16 @@ fn options() -> OpenAuthOptions {
     OpenAuthOptions {
         plugins: vec![openauth_plugins::username::username()],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-        advanced: AdvancedOptions {
-            disable_csrf_check: true,
-            disable_origin_check: true,
-            ..AdvancedOptions::default()
-        },
+        advanced: test_advanced_options(),
         ..OpenAuthOptions::default()
+    }
+}
+
+fn test_advanced_options() -> AdvancedOptions {
+    AdvancedOptions {
+        disable_csrf_check: true,
+        disable_origin_check: true,
+        ..AdvancedOptions::default()
     }
 }
 
@@ -270,4 +403,43 @@ fn session_cookie(
         .find_map(|value| value.to_str().ok())
         .ok_or("missing session cookie")?;
     Ok(cookie.to_owned())
+}
+
+async fn seed_unverified_username(adapter: &MemoryAdapter) -> Result<(), OpenAuthError> {
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .create(
+            Create::new("user")
+                .data("id", DbValue::String("user_1".to_owned()))
+                .data("name", DbValue::String("Ada".to_owned()))
+                .data("email", DbValue::String("ada@example.com".to_owned()))
+                .data("email_verified", DbValue::Boolean(false))
+                .data("image", DbValue::Null)
+                .data("username", DbValue::String("ada_user".to_owned()))
+                .data("display_username", DbValue::String("Ada User".to_owned()))
+                .data("created_at", DbValue::Timestamp(now))
+                .data("updated_at", DbValue::Timestamp(now))
+                .force_allow_id(),
+        )
+        .await?;
+    adapter
+        .create(
+            Create::new("account")
+                .data("id", DbValue::String("account_1".to_owned()))
+                .data("provider_id", DbValue::String("credential".to_owned()))
+                .data("account_id", DbValue::String("user_1".to_owned()))
+                .data("user_id", DbValue::String("user_1".to_owned()))
+                .data("access_token", DbValue::Null)
+                .data("refresh_token", DbValue::Null)
+                .data("id_token", DbValue::Null)
+                .data("access_token_expires_at", DbValue::Null)
+                .data("refresh_token_expires_at", DbValue::Null)
+                .data("scope", DbValue::Null)
+                .data("password", DbValue::String(hash_password("secret123")?))
+                .data("created_at", DbValue::Timestamp(now))
+                .data("updated_at", DbValue::Timestamp(now))
+                .force_allow_id(),
+        )
+        .await?;
+    Ok(())
 }

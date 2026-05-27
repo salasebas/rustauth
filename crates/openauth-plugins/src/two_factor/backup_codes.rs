@@ -7,7 +7,7 @@ pub fn generate_backup_codes(options: &BackupCodeOptions) -> Vec<String> {
     (0..options.amount)
         .map(|_| {
             let raw = openauth_core::crypto::random::generate_random_string(options.length);
-            let split = options.length / 2;
+            let split = raw.len().min(5);
             format!("{}-{}", &raw[..split], &raw[split..])
         })
         .collect()

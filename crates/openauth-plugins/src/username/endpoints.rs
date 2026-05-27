@@ -7,8 +7,10 @@ use openauth_core::api::{
 };
 use openauth_core::context::AuthContext;
 use openauth_core::cookies::{set_session_cookie, Cookie, CookieOptions, SessionCookieOptions};
+use openauth_core::crypto::jwt::sign_jwt;
 use openauth_core::db::{DbAdapter, User};
 use openauth_core::error::OpenAuthError;
+use openauth_core::options::VerificationEmail;
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::user::DbUserStore;
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,8 @@ struct SignInUsernameBody {
     password: String,
     #[serde(default, alias = "rememberMe")]
     remember_me: Option<bool>,
+    #[serde(default, alias = "callbackURL")]
+    callback_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +94,17 @@ pub fn sign_in_username_endpoint(options: Arc<UsernameOptions>) -> AsyncAuthEndp
                 if !(context.password.verify)(password_hash, &body.password)? {
                     return invalid_username_or_password();
                 }
+                if context.options.email_password.require_email_verification
+                    && !user_with_accounts.user.email_verified
+                {
+                    maybe_send_verification_email(
+                        context,
+                        &request,
+                        &user_with_accounts.user,
+                        body.callback_url.as_deref(),
+                    )?;
+                    return email_not_verified();
+                }
 
                 let remember_me = body.remember_me.unwrap_or(true);
                 let session = create_session(
@@ -149,6 +164,8 @@ fn sign_in_username_body_schema() -> BodySchema {
         BodyField::new("password", JsonSchemaType::String).description("The password of the user"),
         BodyField::optional("rememberMe", JsonSchemaType::Boolean)
             .description("Remember the user session"),
+        BodyField::optional("callbackURL", JsonSchemaType::String)
+            .description("The URL to redirect to after email verification"),
     ])
 }
 
@@ -193,6 +210,75 @@ fn invalid_username_or_password() -> Result<openauth_core::api::ApiResponse, Ope
         errors::INVALID_USERNAME_OR_PASSWORD,
         "Invalid username or password",
     )
+}
+
+fn email_not_verified() -> Result<openauth_core::api::ApiResponse, OpenAuthError> {
+    errors::error_response(
+        StatusCode::FORBIDDEN,
+        errors::EMAIL_NOT_VERIFIED,
+        "Email not verified",
+    )
+}
+
+fn maybe_send_verification_email(
+    context: &AuthContext,
+    request: &openauth_core::api::ApiRequest,
+    user: &User,
+    callback_url: Option<&str>,
+) -> Result<(), OpenAuthError> {
+    if !context.options.email_verification.send_on_sign_in {
+        return Ok(());
+    }
+    let Some(sender) = context
+        .options
+        .email_verification
+        .send_verification_email
+        .clone()
+    else {
+        return Ok(());
+    };
+    let expires_in = context
+        .options
+        .email_verification
+        .expires_in
+        .unwrap_or(60 * 60);
+    let expires_in = i64::try_from(expires_in)
+        .map_err(|_| OpenAuthError::Api("email verification expiry is too large".to_owned()))?;
+    let token = sign_jwt(
+        &EmailVerificationClaims {
+            email: user.email.to_lowercase(),
+            update_to: None,
+            request_type: None,
+        },
+        &context.secret,
+        expires_in,
+    )?;
+    let callback_url = callback_url.unwrap_or("/");
+    let url = format!(
+        "{}/verify-email?token={token}&callbackURL={}",
+        context.base_url,
+        percent_encode(callback_url)
+    );
+    sender.send_verification_email(
+        VerificationEmail {
+            user: user.clone(),
+            url,
+            token,
+        },
+        Some(request),
+    )
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmailVerificationClaims {
+    email: String,
+    update_to: Option<String>,
+    request_type: Option<String>,
+}
+
+fn percent_encode(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
 fn session_cookies(

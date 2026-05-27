@@ -23,16 +23,14 @@ pub fn plugin(options: Arc<TwoFactorOptions>) -> AuthPlugin {
         .with_rate_limit(PluginRateLimitRule::new(
             "/two-factor/*",
             openauth_core::options::RateLimitRule { window: 10, max: 3 },
-        ))
-        .with_async_after_hook("/sign-in/email", {
-            let options = Arc::clone(&options);
-            move |context, request, response| {
-                let options = Arc::clone(&options);
-                Box::pin(
-                    async move { sign_in_after_hook(context, request, response, options).await },
-                )
-            }
-        });
+        ));
+    for path in [
+        "/sign-in/email",
+        "/sign-in/username",
+        "/sign-in/phone-number",
+    ] {
+        plugin = with_sign_in_after_hook(plugin, path, Arc::clone(&options));
+    }
     for contribution in schema::contributions(&options.two_factor_table) {
         plugin = plugin.with_schema(contribution);
     }
@@ -43,6 +41,17 @@ pub fn plugin(options: Arc<TwoFactorOptions>) -> AuthPlugin {
         plugin = plugin.with_endpoint(endpoint);
     }
     plugin
+}
+
+fn with_sign_in_after_hook(
+    plugin: AuthPlugin,
+    path: &'static str,
+    options: Arc<TwoFactorOptions>,
+) -> AuthPlugin {
+    plugin.with_async_after_hook(path, move |context, request, response| {
+        let options = Arc::clone(&options);
+        Box::pin(async move { sign_in_after_hook(context, request, response, options).await })
+    })
 }
 
 fn endpoints(options: Arc<TwoFactorOptions>) -> Vec<openauth_core::api::AsyncAuthEndpoint> {

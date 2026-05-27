@@ -7,7 +7,9 @@ use http::{Method, StatusCode};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::crypto::symmetric_decrypt;
 use openauth_core::db::{DbAdapter, DbValue, FindOne, MemoryAdapter, Where};
-use openauth_plugins::two_factor::{totp_code, OtpStorage, SendOtp, TwoFactorOptions};
+use openauth_plugins::two_factor::{
+    totp_code, BackupCodeOptions, OtpStorage, SendOtp, TwoFactorOptions,
+};
 use serde_json::Value;
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
@@ -177,6 +179,75 @@ async fn sign_in_requires_second_factor_after_totp_is_enabled(
     let set_cookie = set_cookie_values(&response).join(", ");
     assert!(set_cookie.contains("two_factor="));
     assert!(set_cookie.contains("session_token=;"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn username_sign_in_requires_second_factor_after_totp_is_enabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut options = options_with_two_factor(TwoFactorOptions::default());
+    options.plugins.push(openauth_plugins::username::username());
+    let (adapter, router) = seeded_router_with_auth_options(options).await?;
+    let _cookie = enable_totp(&adapter, &router).await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/username",
+            r#"{"username":"ada_user","password":"password123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["twoFactorRedirect"], true);
+    assert_eq!(body["twoFactorMethods"], serde_json::json!(["totp"]));
+    let set_cookie = set_cookie_values(&response).join(", ");
+    assert!(set_cookie.contains("two_factor="));
+    assert!(set_cookie.contains("session_token=;"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn second_factor_verification_preserves_dont_remember_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = seeded_router().await?;
+    let _cookie = enable_totp(&adapter, &router).await?;
+    let record = two_factor_record(adapter.as_ref()).await?;
+    let secret = symmetric_decrypt(secret(), string_field(&record, "secret")?)?;
+    let code = totp_code(&secret, 6, 30, OffsetDateTime::now_utc().unix_timestamp());
+
+    let challenge = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"password123","rememberMe":false}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(challenge.status(), StatusCode::OK);
+    let challenge_cookie = cookie_header_from_response(&challenge);
+
+    let verified = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/two-factor/verify-totp",
+            &format!(r#"{{"code":"{code}"}}"#),
+            Some(&challenge_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(verified.status(), StatusCode::OK);
+    let set_cookies = set_cookie_values(&verified);
+    let session_cookie = set_cookies
+        .iter()
+        .find(|value| value.starts_with("open-auth.session_token="))
+        .ok_or("missing session cookie")?;
+    assert!(!session_cookie.contains("Max-Age="));
+    assert!(set_cookies
+        .iter()
+        .any(|value| value.starts_with("open-auth.dont_remember=")));
     Ok(())
 }
 
@@ -456,6 +527,20 @@ async fn custom_table_name_is_used_for_two_factor_records() -> Result<(), Box<dy
         .await?
         .is_none());
     Ok(())
+}
+
+#[test]
+fn backup_codes_with_custom_length_split_after_first_five_characters() {
+    let options = BackupCodeOptions {
+        length: 8,
+        ..BackupCodeOptions::default()
+    };
+
+    let codes = openauth_plugins::two_factor::generate_backup_codes(&options);
+
+    assert!(codes
+        .iter()
+        .all(|code| code.len() == 9 && code.as_bytes().get(5) == Some(&b'-')));
 }
 
 #[tokio::test]
