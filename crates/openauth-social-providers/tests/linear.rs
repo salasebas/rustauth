@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use openauth_oauth::oauth2::{ClientId, OAuth2UserInfo, OAuthError, ProviderOptions};
+use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions};
 use openauth_social_providers::linear::{
     linear, LinearAuthorizationUrlRequest, LinearOptions, LinearUser,
     LinearValidateAuthorizationCodeRequest, LINEAR_AUTHORIZATION_ENDPOINT, LINEAR_ID, LINEAR_NAME,
@@ -142,6 +142,16 @@ fn linear_custom_mapper_can_override_user_info_fields() {
     assert_eq!(mapped.user.name.as_deref(), Some("ADA LOVELACE"));
     assert!(mapped.user.email_verified);
     assert_eq!(mapped.user.image, None);
+}
+
+#[tokio::test]
+async fn linear_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = linear(linear_options());
+
+    let user_info = provider.get_user_info(&OAuth2Tokens::default()).await?;
+
+    assert_eq!(user_info, None);
+    Ok(())
 }
 
 fn linear_options() -> LinearOptions {

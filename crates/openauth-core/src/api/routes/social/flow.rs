@@ -7,16 +7,13 @@ use super::support::{
     redirect_with_error, IdTokenBody, LinkStatusBody, SocialSessionBody,
 };
 use crate::api::{parse_request_body, request_base_url, ApiRequest, ApiResponse};
-use crate::auth::oauth::account_linking::{
-    ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER, EMAIL_DOES_NOT_MATCH_LINKED_USER,
-};
 use crate::auth::oauth::{
     handle_oauth_user_info, HandleOAuthUserInfoInput, OAuthAccountInput, OAuthStateLink,
     OAuthUserInfo,
 };
 use crate::db::DbAdapter;
 use crate::error::OpenAuthError;
-use crate::user::{CreateOAuthAccountInput, DbUserStore};
+use crate::user::{CreateOAuthAccountInput, DbUserStore, UpdateAccountInput, UpdateUserInput};
 use openauth_oauth::oauth2::{
     OAuth2Tokens, OAuth2UserInfo, SocialAuthorizationCodeRequest, SocialIdTokenRequest,
     SocialOAuthProvider,
@@ -64,7 +61,7 @@ pub(super) async fn sign_in_with_id_token(
             account: oauth_account(provider.id(), &user_info, &tokens, context)?,
             disable_sign_up: provider.provider_options().disable_sign_up,
             override_user_info: provider.provider_options().override_user_info_on_sign_in,
-            is_trusted_provider: false,
+            is_trusted_provider: true,
             ..HandleOAuthUserInfoInput::default()
         },
     )
@@ -79,7 +76,8 @@ pub(super) async fn sign_in_with_id_token(
         );
     };
     record_new_session(&data.session, &data.user)?;
-    let cookies = auth_session_cookies(context, &data.session, &data.user, false)?;
+    let mut cookies = auth_session_cookies(context, &data.session, &data.user, false)?;
+    cookies.extend(result.cookies);
     json_response(
         StatusCode::OK,
         &SocialSessionBody {
@@ -140,20 +138,22 @@ pub(super) async fn callback_get(
         return redirect_with_error(&error_url, "unable_to_get_user_info");
     };
     if let Some(link) = state_data.link {
-        if let Err(error) = link_oauth_account(
+        match link_oauth_account(
             context,
             adapter,
             provider.clone(),
             &link,
             &user_info,
             &tokens,
+            LinkOAuthAccountOptions {
+                update_existing_account_tokens: true,
+                update_user_info_on_link: false,
+            },
         )
         .await
         {
-            if let Some(code) = link_error_code(&error) {
-                return redirect_with_error(&error_url, code);
-            }
-            return Err(error);
+            Ok(_) => {}
+            Err(error) => return callback_link_error_response(&error_url, error),
         }
         return redirect(&state_data.callback_url, Vec::new());
     }
@@ -168,7 +168,7 @@ pub(super) async fn callback_get(
                 && !state_data.request_sign_up)
                 || provider.provider_options().disable_sign_up,
             override_user_info: provider.provider_options().override_user_info_on_sign_in,
-            is_trusted_provider: false,
+            is_trusted_provider: true,
             require_trusted_provider_for_implicit_link: false,
         },
     )
@@ -180,7 +180,8 @@ pub(super) async fn callback_get(
         return redirect_with_error(&error_url, &error);
     };
     record_new_session(&data.session, &data.user)?;
-    let cookies = auth_session_cookies(context, &data.session, &data.user, false)?;
+    let mut cookies = auth_session_cookies(context, &data.session, &data.user, false)?;
+    cookies.extend(result.cookies);
     let target = if result.is_register {
         state_data
             .new_user_url
@@ -255,6 +256,20 @@ pub(super) async fn link_with_id_token(
         );
     };
     let normalized = normalize_user_info(&info)?;
+    let users = DbUserStore::new(adapter);
+    if let Some(existing_account) = users
+        .find_account_by_provider_account(&normalized.id, provider.id())
+        .await?
+    {
+        if existing_account.user_id == user.id {
+            return link_status_response();
+        }
+        return error_response(
+            StatusCode::EXPECTATION_FAILED,
+            "LINKING_FAILED",
+            "Account not linked - unable to create account",
+        );
+    }
     if normalized.email.to_lowercase() != user.email.to_lowercase()
         && !context
             .options
@@ -268,7 +283,7 @@ pub(super) async fn link_with_id_token(
             "Account not linked - different emails not allowed",
         );
     }
-    link_oauth_account(
+    match link_oauth_account(
         context,
         adapter,
         provider,
@@ -278,8 +293,24 @@ pub(super) async fn link_with_id_token(
         },
         &info,
         &tokens,
+        LinkOAuthAccountOptions {
+            update_existing_account_tokens: false,
+            update_user_info_on_link: context
+                .options
+                .account
+                .account_linking
+                .update_user_info_on_link,
+        },
     )
-    .await?;
+    .await
+    {
+        Ok(_) => {}
+        Err(error) => return id_token_link_error_response(error),
+    }
+    link_status_response()
+}
+
+fn link_status_response() -> Result<ApiResponse, OpenAuthError> {
     json_response(
         StatusCode::OK,
         &LinkStatusBody {
@@ -291,6 +322,27 @@ pub(super) async fn link_with_id_token(
     )
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LinkOAuthAccountOptions {
+    update_existing_account_tokens: bool,
+    update_user_info_on_link: bool,
+}
+
+#[derive(Debug)]
+enum LinkOAuthAccountError {
+    NotAllowed,
+    DifferentEmails,
+    AccountLinkedToDifferentUser,
+    CreateFailed,
+    Source(OpenAuthError),
+}
+
+impl From<OpenAuthError> for LinkOAuthAccountError {
+    fn from(error: OpenAuthError) -> Self {
+        Self::Source(error)
+    }
+}
+
 async fn link_oauth_account(
     context: &crate::context::AuthContext,
     adapter: &dyn DbAdapter,
@@ -298,18 +350,21 @@ async fn link_oauth_account(
     link: &OAuthStateLink,
     info: &OAuth2UserInfo,
     tokens: &OAuth2Tokens,
-) -> Result<(), OpenAuthError> {
+    options: LinkOAuthAccountOptions,
+) -> Result<(), LinkOAuthAccountError> {
     let normalized = normalize_user_info(info)?;
+    let linking = &context.options.account.account_linking;
+    let trusted_provider = linking
+        .trusted_providers
+        .iter()
+        .any(|provider_id| provider_id == provider.id());
+    if !linking.enabled || (!trusted_provider && !normalized.email_verified) {
+        return Err(LinkOAuthAccountError::NotAllowed);
+    }
     if normalized.email.to_lowercase() != link.email.to_lowercase()
-        && !context
-            .options
-            .account
-            .account_linking
-            .allow_different_emails
+        && !linking.allow_different_emails
     {
-        return Err(OpenAuthError::Api(
-            EMAIL_DOES_NOT_MATCH_LINKED_USER.to_owned(),
-        ));
+        return Err(LinkOAuthAccountError::DifferentEmails);
     }
     let users = DbUserStore::new(adapter);
     if let Some(existing_account) = users
@@ -317,20 +372,36 @@ async fn link_oauth_account(
         .await?
     {
         if existing_account.user_id != link.user_id {
-            return Err(OpenAuthError::Api(
-                ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER.to_owned(),
-            ));
+            return Err(LinkOAuthAccountError::AccountLinkedToDifferentUser);
         }
-        users
-            .update_account(&existing_account.id, token_update_input(context, tokens)?)
-            .await?;
+        if options.update_existing_account_tokens {
+            users
+                .update_account(
+                    &existing_account.id,
+                    UpdateAccountInput {
+                        access_token: Some(crate::auth::oauth::set_token_util(
+                            tokens.access_token.as_deref(),
+                            context,
+                        )?),
+                        refresh_token: Some(crate::auth::oauth::set_token_util(
+                            tokens.refresh_token.as_deref(),
+                            context,
+                        )?),
+                        id_token: Some(tokens.id_token.clone()),
+                        access_token_expires_at: Some(tokens.access_token_expires_at),
+                        refresh_token_expires_at: Some(tokens.refresh_token_expires_at),
+                        scope: Some((!tokens.scopes.is_empty()).then(|| tokens.scopes.join(","))),
+                    },
+                )
+                .await?;
+        }
         return Ok(());
     }
     users
         .link_account(CreateOAuthAccountInput {
             id: None,
             provider_id: provider.id().to_owned(),
-            account_id: normalized.id,
+            account_id: normalized.id.clone(),
             user_id: link.user_id.clone(),
             access_token: crate::auth::oauth::set_token_util(
                 tokens.access_token.as_deref(),
@@ -345,52 +416,66 @@ async fn link_oauth_account(
             refresh_token_expires_at: tokens.refresh_token_expires_at,
             scope: (!tokens.scopes.is_empty()).then(|| tokens.scopes.join(",")),
         })
-        .await?;
+        .await
+        .map_err(|_| LinkOAuthAccountError::CreateFailed)?;
+    if options.update_user_info_on_link {
+        if let Err(error) = users
+            .update_user(
+                &link.user_id,
+                UpdateUserInput::new()
+                    .name(normalized.name)
+                    .image(normalized.image),
+            )
+            .await
+        {
+            context.logger.warn(
+                "Could not update linked social user info",
+                &[&error.to_string()],
+            );
+        }
+    }
     Ok(())
 }
 
-fn token_update_input(
-    context: &crate::context::AuthContext,
-    tokens: &OAuth2Tokens,
-) -> Result<crate::user::UpdateAccountInput, OpenAuthError> {
-    let mut input = crate::user::UpdateAccountInput::default();
-    if tokens.access_token.is_some() {
-        input.access_token = Some(crate::auth::oauth::set_token_util(
-            tokens.access_token.as_deref(),
-            context,
-        )?);
+fn id_token_link_error_response(
+    error: LinkOAuthAccountError,
+) -> Result<ApiResponse, OpenAuthError> {
+    match error {
+        LinkOAuthAccountError::NotAllowed => error_response(
+            StatusCode::UNAUTHORIZED,
+            "LINKING_NOT_ALLOWED",
+            "Account not linked - linking not allowed",
+        ),
+        LinkOAuthAccountError::DifferentEmails => error_response(
+            StatusCode::UNAUTHORIZED,
+            "LINKING_DIFFERENT_EMAILS_NOT_ALLOWED",
+            "Account not linked - different emails not allowed",
+        ),
+        LinkOAuthAccountError::AccountLinkedToDifferentUser
+        | LinkOAuthAccountError::CreateFailed => error_response(
+            StatusCode::EXPECTATION_FAILED,
+            "LINKING_FAILED",
+            "Account not linked - unable to create account",
+        ),
+        LinkOAuthAccountError::Source(error) => Err(error),
     }
-    if tokens.refresh_token.is_some() {
-        input.refresh_token = Some(crate::auth::oauth::set_token_util(
-            tokens.refresh_token.as_deref(),
-            context,
-        )?);
-    }
-    if tokens.id_token.is_some() {
-        input.id_token = Some(tokens.id_token.clone());
-    }
-    if tokens.access_token_expires_at.is_some() {
-        input.access_token_expires_at = Some(tokens.access_token_expires_at);
-    }
-    if tokens.refresh_token_expires_at.is_some() {
-        input.refresh_token_expires_at = Some(tokens.refresh_token_expires_at);
-    }
-    if !tokens.scopes.is_empty() {
-        input.scope = Some(Some(tokens.scopes.join(",")));
-    }
-    Ok(input)
 }
 
-fn link_error_code(error: &OpenAuthError) -> Option<&'static str> {
-    let OpenAuthError::Api(message) = error else {
-        return None;
-    };
-    if message == ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER {
-        Some(ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER)
-    } else if message == EMAIL_DOES_NOT_MATCH_LINKED_USER {
-        Some(EMAIL_DOES_NOT_MATCH_LINKED_USER)
-    } else {
-        None
+fn callback_link_error_response(
+    error_url: &str,
+    error: LinkOAuthAccountError,
+) -> Result<ApiResponse, OpenAuthError> {
+    match error {
+        LinkOAuthAccountError::NotAllowed | LinkOAuthAccountError::CreateFailed => {
+            redirect_with_error(error_url, "unable_to_link_account")
+        }
+        LinkOAuthAccountError::DifferentEmails => {
+            redirect_with_error(error_url, "email_doesn't_match")
+        }
+        LinkOAuthAccountError::AccountLinkedToDifferentUser => {
+            redirect_with_error(error_url, "account_already_linked_to_different_user")
+        }
+        LinkOAuthAccountError::Source(error) => Err(error),
     }
 }
 

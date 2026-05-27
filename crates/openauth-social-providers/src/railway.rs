@@ -173,25 +173,35 @@ impl RailwayProvider {
         .await
     }
 
-    pub async fn get_user_info(&self, token: &OAuth2Tokens) -> Result<RailwayUserInfo, OAuthError> {
-        let access_token = token
-            .access_token
-            .as_deref()
-            .ok_or(OAuthError::MissingOption("access_token"))?;
-        let profile = self
+    pub async fn get_user_info(
+        &self,
+        token: &OAuth2Tokens,
+    ) -> Result<Option<RailwayUserInfo>, OAuthError> {
+        let Some(access_token) = token.access_token.as_deref() else {
+            return Ok(None);
+        };
+        let response = match self
             .http_client
             .get(RAILWAY_USERINFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()
-            .await?
-            .error_for_status()?
-            .json::<RailwayProfile>()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let profile = match response.json::<RailwayProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
 
-        Ok(RailwayUserInfo {
+        Ok(Some(RailwayUserInfo {
             user: profile.to_user_info(),
             data: profile,
-        })
+        }))
     }
 
     fn scopes(&self, request_scopes: Vec<String>) -> Vec<String> {

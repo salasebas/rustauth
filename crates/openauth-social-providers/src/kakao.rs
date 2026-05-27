@@ -225,15 +225,22 @@ impl KakaoProvider {
         let Some(access_token) = tokens.access_token.as_deref() else {
             return Ok(None);
         };
-        let response = reqwest::Client::new()
+        let response = match reqwest::Client::new()
             .get(KAKAO_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
         if !response.status().is_success() {
             return Ok(None);
         }
-        let profile = response.json::<KakaoProfile>().await?;
+        let profile = match response.json::<KakaoProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(Self::map_profile(profile)))
     }
 

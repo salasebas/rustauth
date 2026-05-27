@@ -181,15 +181,22 @@ impl SlackProvider {
         let Some(access_token) = token.access_token.as_deref() else {
             return Ok(None);
         };
-        let response = reqwest::Client::new()
+        let response = match reqwest::Client::new()
             .get(SLACK_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
         if !response.status().is_success() {
             return Ok(None);
         }
-        let profile = response.json::<SlackProfile>().await?;
+        let profile = match response.json::<SlackProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         Ok(Some(SlackUserInfo {
             user: Self::map_profile_to_user_info(&profile),
             data: profile,

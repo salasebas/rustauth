@@ -216,6 +216,54 @@ async fn callback_oauth_links_unverified_existing_email_when_provider_is_trusted
 }
 
 #[tokio::test]
+async fn callback_oauth_sets_account_cookie_when_enabled() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            account: openauth_core::options::AccountOptions {
+                store_account_cookie: true,
+                ..openauth_core::options::AccountOptions::default()
+            },
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/social",
+            r#"{"provider":"github","callbackURL":"/dashboard"}"#,
+            None,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(sign_in.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/callback/github?code=ok&state={state}"),
+            "",
+            None,
+        )?)
+        .await?;
+    let cookies = set_cookie_values(&callback);
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert!(cookies
+        .iter()
+        .any(|value| value.starts_with("open-auth.session_token=")));
+    assert!(cookies
+        .iter()
+        .any(|value| value.starts_with("open-auth.account_data=")));
+    Ok(())
+}
+
+#[tokio::test]
 async fn link_social_requires_session_and_generates_link_state(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
@@ -430,6 +478,404 @@ async fn sign_in_social_id_token_links_unverified_existing_email_when_provider_i
     Ok(())
 }
 
+#[tokio::test]
+async fn link_social_id_token_rejects_when_account_linking_disabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(OffsetDateTime::now_utc())).await;
+    adapter
+        .insert_session(session(
+            OffsetDateTime::now_utc(),
+            OffsetDateTime::now_utc() + Duration::hours(1),
+        ))
+        .await;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            account: openauth_core::options::AccountOptions {
+                account_linking: openauth_core::options::AccountLinkingOptions {
+                    enabled: false,
+                    ..openauth_core::options::AccountLinkingOptions::default()
+                },
+                ..openauth_core::options::AccountOptions::default()
+            },
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","idToken":{"token":"valid-id-token"}}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], "LINKING_NOT_ALLOWED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn link_social_id_token_allows_already_linked_account_when_linking_disabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = OffsetDateTime::now_utc();
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(linked_account_record(
+            "account_1",
+            "github",
+            "github_ada",
+            "user_1",
+            None,
+            now,
+        ))
+        .await?;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            account: openauth_core::options::AccountOptions {
+                account_linking: openauth_core::options::AccountLinkingOptions {
+                    enabled: false,
+                    ..openauth_core::options::AccountLinkingOptions::default()
+                },
+                ..openauth_core::options::AccountOptions::default()
+            },
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","idToken":{"token":"valid-id-token"}}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["status"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn link_social_id_token_rejects_untrusted_unverified_provider(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(OffsetDateTime::now_utc())).await;
+    adapter
+        .insert_session(session(
+            OffsetDateTime::now_utc(),
+            OffsetDateTime::now_utc() + Duration::hours(1),
+        ))
+        .await;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            social_providers: vec![Arc::new(FakeProvider::new("github").email_verified(false))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","idToken":{"token":"valid-id-token"}}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(body["code"], "LINKING_NOT_ALLOWED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn link_social_id_token_rejects_account_linked_to_different_user(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = OffsetDateTime::now_utc();
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(now)).await;
+    let mut other = user(now);
+    other.id = "user_2".to_owned();
+    other.email = "other@example.com".to_owned();
+    adapter.insert_user(other).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(linked_account_record(
+            "account_1",
+            "github",
+            "github_ada",
+            "user_2",
+            None,
+            now,
+        ))
+        .await?;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","idToken":{"token":"valid-id-token"}}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::EXPECTATION_FAILED);
+    assert_eq!(body["code"], "LINKING_FAILED");
+    Ok(())
+}
+
+#[tokio::test]
+async fn link_social_id_token_updates_user_info_when_enabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(OffsetDateTime::now_utc())).await;
+    adapter
+        .insert_session(session(
+            OffsetDateTime::now_utc(),
+            OffsetDateTime::now_utc() + Duration::hours(1),
+        ))
+        .await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            account: openauth_core::options::AccountOptions {
+                account_linking: openauth_core::options::AccountLinkingOptions {
+                    update_user_info_on_link: true,
+                    ..openauth_core::options::AccountLinkingOptions::default()
+                },
+                ..openauth_core::options::AccountOptions::default()
+            },
+            social_providers: vec![Arc::new(
+                FakeProvider::new("github")
+                    .name("Ada Lovelace")
+                    .image(Some("https://img.example.com/ada.png")),
+            )],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","idToken":{"token":"valid-id-token"}}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let updated = record_by_string(&adapter, "user", "id", "user_1")
+        .await?
+        .ok_or("missing user")?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(string_field(&updated, "name")?, "Ada Lovelace");
+    assert_eq!(
+        string_field(&updated, "image")?,
+        "https://img.example.com/ada.png"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn callback_link_social_updates_existing_account_tokens(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = OffsetDateTime::now_utc();
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(linked_account_record(
+            "account_1",
+            "github",
+            "github_ada",
+            "user_1",
+            None,
+            now,
+        ))
+        .await?;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+    let link = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","callbackURL":"/settings"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(link.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/callback/github?code=ok&state={state}"),
+            "",
+            None,
+        )?)
+        .await?;
+    let account = record_by_string(&adapter, "account", "id", "account_1")
+        .await?
+        .ok_or("missing account")?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(string_field(&account, "access_token")?, "access-token");
+    assert_eq!(string_field(&account, "refresh_token")?, "refresh-token");
+    Ok(())
+}
+
+#[tokio::test]
+async fn callback_link_social_redirects_when_account_belongs_to_different_user(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = OffsetDateTime::now_utc();
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(now)).await;
+    let mut other = user(now);
+    other.id = "user_2".to_owned();
+    other.email = "other@example.com".to_owned();
+    adapter.insert_user(other).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(linked_account_record(
+            "account_1",
+            "github",
+            "github_ada",
+            "user_2",
+            None,
+            now,
+        ))
+        .await?;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("github"))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+    let link = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","callbackURL":"/settings","errorCallbackURL":"/link-error"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(link.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/callback/github?code=ok&state={state}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback
+            .headers()
+            .get(header::LOCATION)
+            .ok_or("missing location")?,
+        "/link-error?error=account_already_linked_to_different_user"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn callback_link_social_redirects_when_provider_is_untrusted_and_unverified(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = OffsetDateTime::now_utc();
+    let adapter = Arc::new(RouteAdapter::default());
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("github").email_verified(false))],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+    let link = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/link-social",
+            r#"{"provider":"github","callbackURL":"/settings","errorCallbackURL":"/link-error"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(link.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/callback/github?code=ok&state={state}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback
+            .headers()
+            .get(header::LOCATION)
+            .ok_or("missing location")?,
+        "/link-error?error=unable_to_link_account"
+    );
+    Ok(())
+}
+
 fn query_value(url: &str, key: &str) -> Option<String> {
     let query = url.split_once('?')?.1;
     query.split('&').find_map(|pair| {
@@ -438,57 +884,38 @@ fn query_value(url: &str, key: &str) -> Option<String> {
     })
 }
 
-fn oauth_account_record(
-    id: &str,
-    user_id: &str,
-    provider_id: &str,
-    account_id: &str,
-    access_token: &str,
-    now: OffsetDateTime,
-) -> DbRecord {
-    DbRecord::from([
-        ("id".to_owned(), DbValue::String(id.to_owned())),
-        ("user_id".to_owned(), DbValue::String(user_id.to_owned())),
-        (
-            "provider_id".to_owned(),
-            DbValue::String(provider_id.to_owned()),
-        ),
-        (
-            "account_id".to_owned(),
-            DbValue::String(account_id.to_owned()),
-        ),
-        (
-            "access_token".to_owned(),
-            DbValue::String(access_token.to_owned()),
-        ),
-        ("refresh_token".to_owned(), DbValue::Null),
-        ("id_token".to_owned(), DbValue::Null),
-        ("access_token_expires_at".to_owned(), DbValue::Null),
-        ("refresh_token_expires_at".to_owned(), DbValue::Null),
-        ("scope".to_owned(), DbValue::Null),
-        ("created_at".to_owned(), DbValue::Timestamp(now)),
-        ("updated_at".to_owned(), DbValue::Timestamp(now)),
-    ])
-}
-
 #[derive(Debug)]
 struct FakeProvider {
     id: String,
-    options: ProviderOptions,
+    name: Option<String>,
+    image: Option<String>,
     email_verified: bool,
+    options: ProviderOptions,
 }
 
 impl FakeProvider {
     fn new(id: &str) -> Self {
         Self {
             id: id.to_owned(),
+            name: Some("Ada Lovelace".to_owned()),
+            image: None,
+            email_verified: true,
             options: ProviderOptions {
                 client_id: Some("client-id".into()),
                 client_secret: Some("client-secret".to_owned()),
                 ..ProviderOptions::default()
             },
-            email_verified: true,
         }
+    }
+
+    fn name(mut self, name: &str) -> Self {
+        self.name = Some(name.to_owned());
+        self
+    }
+
+    fn image(mut self, image: Option<&str>) -> Self {
+        self.image = image.map(str::to_owned);
+        self
     }
 
     fn email_verified(mut self, email_verified: bool) -> Self {
@@ -541,13 +968,15 @@ impl SocialOAuthProvider for FakeProvider {
         _provider_user: Option<serde_json::Value>,
     ) -> SocialProviderFuture<'_, Option<OAuth2UserInfo>> {
         let id = format!("{}_ada", self.id);
+        let name = self.name.clone();
+        let image = self.image.clone();
         let email_verified = self.email_verified;
         Box::pin(async move {
             Ok(Some(OAuth2UserInfo {
                 id,
-                name: Some("Ada Lovelace".to_owned()),
+                name,
                 email: Some("ada@example.com".to_owned()),
-                image: None,
+                image,
                 email_verified,
             }))
         })

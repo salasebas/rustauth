@@ -213,15 +213,24 @@ impl AtlassianProvider {
             return Ok(None);
         };
 
-        let profile = self
+        let response = match self
             .http_client
             .get(&self.user_info_endpoint)
             .bearer_auth(access_token)
             .send()
-            .await?
-            .error_for_status()?
-            .json::<AtlassianProfile>()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
+        let response = match response.error_for_status() {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
+        let profile = match response.json::<AtlassianProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
 
         let user = self
             .options

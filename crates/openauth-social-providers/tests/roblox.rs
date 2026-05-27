@@ -5,7 +5,9 @@
     reason = "provider tests intentionally fail fast with contextual setup errors"
 )]
 
-use openauth_oauth::oauth2::{ClientId, OAuthProviderContract, ProviderOptions};
+use openauth_oauth::oauth2::{
+    ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
+};
 use openauth_social_providers::roblox::{
     roblox, RobloxAuthorizationUrlRequest, RobloxOptions, RobloxProfile, RobloxPrompt,
     RobloxProvider, ROBLOX_AUTHORIZATION_ENDPOINT, ROBLOX_ID, ROBLOX_NAME, ROBLOX_TOKEN_ENDPOINT,
@@ -166,6 +168,16 @@ fn roblox_profile_name_falls_back_to_preferred_username() {
     let mapped = RobloxProvider::map_profile(profile);
 
     assert_eq!(mapped.user.name.as_deref(), Some("builderman"));
+}
+
+#[tokio::test]
+async fn roblox_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = roblox(provider_options());
+
+    let user_info = provider.get_user_info(&OAuth2Tokens::default()).await?;
+
+    assert_eq!(user_info, None);
+    Ok(())
 }
 
 fn provider_options() -> RobloxOptions {

@@ -7,7 +7,9 @@
 
 use std::sync::Arc;
 
-use openauth_oauth::oauth2::{ClientId, OAuthProviderContract, ProviderOptions};
+use openauth_oauth::oauth2::{
+    ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
+};
 use openauth_social_providers::polar::{
     PolarAuthorizationUrlRequest, PolarOptions, PolarProfile, PolarProvider,
 };
@@ -158,6 +160,22 @@ fn polar_profile_mapper_can_override_normalized_user() {
 
     assert_eq!(mapped.user.name.as_deref(), Some("Mapped User"));
     assert!(mapped.user.email_verified);
+}
+
+#[tokio::test]
+async fn polar_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = PolarProvider::new(PolarOptions {
+        oauth: ProviderOptions {
+            client_id: Some(ClientId::from("polar-client")),
+            ..ProviderOptions::default()
+        },
+        ..PolarOptions::default()
+    });
+
+    let user_info = provider.get_user_info(&OAuth2Tokens::default()).await?;
+
+    assert_eq!(user_info, None);
+    Ok(())
 }
 
 fn query_value(url: &url::Url, key: &str) -> Option<String> {

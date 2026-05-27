@@ -4,7 +4,9 @@
     reason = "provider tests intentionally fail fast with contextual setup errors"
 )]
 
-use openauth_oauth::oauth2::{ClientId, OAuthProviderContract, ProviderOptions};
+use openauth_oauth::oauth2::{
+    ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
+};
 use openauth_social_providers::spotify::{
     spotify, SpotifyAuthorizationUrlRequest, SpotifyImage, SpotifyProfile, SpotifyProvider,
     SPOTIFY_AUTHORIZATION_ENDPOINT, SPOTIFY_DEFAULT_SCOPE, SPOTIFY_ID, SPOTIFY_NAME,
@@ -159,6 +161,16 @@ fn spotify_profile_without_images_maps_to_no_image() {
 
     assert_eq!(mapped.user.image, None);
     assert!(!mapped.user.email_verified);
+}
+
+#[tokio::test]
+async fn spotify_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = spotify(spotify_options());
+
+    let user_info = provider.get_user_info(&OAuth2Tokens::default()).await?;
+
+    assert_eq!(user_info, None);
+    Ok(())
 }
 
 fn spotify_options() -> ProviderOptions {

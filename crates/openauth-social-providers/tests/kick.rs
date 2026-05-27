@@ -1,4 +1,6 @@
-use openauth_oauth::oauth2::{ClientId, OAuthError, OAuthProviderContract, ProviderOptions};
+use openauth_oauth::oauth2::{
+    ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
+};
 use openauth_social_providers::kick::{
     kick, KickAuthorizationUrlRequest, KickProfile, KickProvider, KICK_AUTHORIZATION_ENDPOINT,
     KICK_ID, KICK_NAME, KICK_TOKEN_ENDPOINT,
@@ -121,6 +123,16 @@ fn kick_empty_user_info_response_returns_none() {
     let profiles = Vec::<KickProfile>::new();
 
     assert_eq!(KickProvider::map_profiles_to_user_info(profiles), None);
+}
+
+#[tokio::test]
+async fn kick_get_user_info_returns_none_without_access_token() -> Result<(), OAuthError> {
+    let provider = kick(provider_options());
+
+    let user_info = provider.get_user_info(&OAuth2Tokens::default()).await?;
+
+    assert_eq!(user_info, None);
+    Ok(())
 }
 
 fn provider_options() -> ProviderOptions {

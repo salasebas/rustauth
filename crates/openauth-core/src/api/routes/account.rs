@@ -20,10 +20,10 @@ use crate::user::DbUserStore;
 
 #[cfg(feature = "oauth")]
 use support::{
-    access_token_response_from_tokens, account_not_found, account_scopes, find_user_account,
-    is_refresh_unsupported, persist_refreshed_tokens, provider_not_supported, should_refresh,
-    token_body_schema, token_openapi_response, tokens_from_account, AccessTokenResponse,
-    AccountInfoResponse, RefreshTokenResponse, TokenBody,
+    access_token_response_from_tokens, account_cookie, account_not_found, account_scopes,
+    find_user_account, is_refresh_unsupported, persist_refreshed_tokens, provider_not_supported,
+    should_refresh, token_body_schema, token_openapi_response, tokens_from_account,
+    AccessTokenResponse, AccountInfoResponse, RefreshTokenResponse, TokenBody,
 };
 use support::{
     account_openapi_schema, unlink_account_body_schema, AccountResponse, StatusBody,
@@ -88,7 +88,7 @@ pub(super) fn get_access_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAut
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {
                 let body: TokenBody = parse_request_body(&request)?;
-                let Some((_, session_user, cookies)) =
+                let Some((_, session_user, mut cookies)) =
                     sensitive_session(adapter.as_ref(), context, &request).await?
                 else {
                     return unauthorized();
@@ -131,6 +131,7 @@ pub(super) fn get_access_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAut
                                     None,
                                 )
                                 .await?;
+                                cookies.extend(account_cookie(context, &account)?);
                                 return json_response(
                                     StatusCode::OK,
                                     &access_token_response_from_tokens(tokens, &account),
@@ -185,7 +186,7 @@ pub(super) fn refresh_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {
                 let body: TokenBody = parse_request_body(&request)?;
-                let Some((_, session_user, cookies)) =
+                let Some((_, session_user, mut cookies)) =
                     sensitive_session(adapter.as_ref(), context, &request).await?
                 else {
                     return error_response(
@@ -255,6 +256,7 @@ pub(super) fn refresh_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
                     Some(&decrypted),
                 )
                 .await?;
+                cookies.extend(account_cookie(context, &updated_account)?);
                 json_response(
                     StatusCode::OK,
                     &RefreshTokenResponse {
@@ -303,7 +305,7 @@ pub(super) fn account_info_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
         move |context, request| {
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {
-                let Some((_, session_user, cookies)) =
+                let Some((_, session_user, mut cookies)) =
                     sensitive_session(adapter.as_ref(), context, &request).await?
                 else {
                     return unauthorized();
@@ -354,6 +356,7 @@ pub(super) fn account_info_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                                         None,
                                     )
                                     .await?;
+                                    cookies.extend(account_cookie(context, &account)?);
                                     tokens
                                 }
                                 Err(error) if is_refresh_unsupported(&error) => {
@@ -416,7 +419,9 @@ pub(super) fn unlink_account_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthE
                 let body: UnlinkAccountBody = parse_request_body(&request)?;
                 let users = DbUserStore::new(adapter.as_ref());
                 let accounts = users.list_accounts_for_user(&user.id).await?;
-                if accounts.len() == 1 {
+                if accounts.len() == 1
+                    && !context.options.account.account_linking.allow_unlinking_all
+                {
                     return error_response(
                         StatusCode::BAD_REQUEST,
                         "FAILED_TO_UNLINK_LAST_ACCOUNT",

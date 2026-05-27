@@ -24,7 +24,7 @@ impl_social_oauth_provider!(
         provider
             .get_user_info(&tokens)
             .await
-            .map(|info| Some(info.user))
+            .map(|info| info.map(|info| info.user))
     },
     verify | _provider,
     input | { unsupported_id_token(input) },

@@ -1,28 +1,64 @@
 use openauth_oauth::oauth2::{
-    ClientId, ProviderOptions, SocialAuthorizationUrlRequest, SocialOAuthProvider,
+    ClientId, OAuth2Tokens, ProviderOptions, SocialAuthorizationUrlRequest, SocialOAuthProvider,
 };
 use openauth_social_providers::PROVIDER_IDS;
 use openauth_social_providers::{
     apple::AppleProvider, atlassian::AtlassianProvider, cognito::CognitoProvider,
-    discord::DiscordProvider, dropbox::DropboxProvider, facebook::FacebookProvider,
+    discord::DiscordProvider, dropbox::DropboxProvider, facebook::FacebookProvider, figma::figma,
     figma::FigmaProvider, github::github, github::GitHubProvider, gitlab::GitlabProvider,
     google::google, google::GoogleOptions, google::GoogleProvider,
     huggingface::HuggingFaceProvider, kakao::KakaoProvider, kick::KickProvider, line::LineProvider,
     linear::LinearProvider, linkedin::LinkedInProvider,
     microsoft_entra_id::MicrosoftEntraIdProvider, naver::NaverProvider, notion::NotionProvider,
-    paybin::PaybinProvider, paypal::PayPalProvider, polar::PolarProvider, railway::RailwayProvider,
-    reddit::RedditProvider, roblox::RobloxProvider, salesforce::SalesforceProvider,
-    slack::SlackProvider, spotify::SpotifyProvider, tiktok::TiktokProvider, twitch::TwitchProvider,
-    twitter::TwitterProvider, vercel::VercelProvider, vk::VkProvider, wechat::WeChatProvider,
-    zoom::ZoomProvider,
+    paybin::PaybinProvider, paypal::PayPalProvider, polar::PolarProvider, railway::railway,
+    railway::RailwayProvider, reddit::RedditProvider, roblox::RobloxProvider,
+    salesforce::SalesforceProvider, slack::SlackProvider, spotify::SpotifyProvider,
+    tiktok::TiktokProvider, twitch::TwitchProvider, twitter::TwitterProvider,
+    vercel::VercelProvider, vk::VkProvider, wechat::WeChatProvider, zoom::ZoomProvider,
 };
 
 #[test]
 fn social_provider_registry_contains_upstream_provider_names() {
-    assert!(PROVIDER_IDS.contains(&"github"));
-    assert!(PROVIDER_IDS.contains(&"linkedin"));
-    assert!(PROVIDER_IDS.contains(&"microsoft"));
-    assert!(PROVIDER_IDS.contains(&"wechat"));
+    assert_eq!(
+        PROVIDER_IDS,
+        &[
+            "apple",
+            "atlassian",
+            "cognito",
+            "discord",
+            "facebook",
+            "figma",
+            "github",
+            "microsoft",
+            "google",
+            "huggingface",
+            "slack",
+            "spotify",
+            "twitch",
+            "twitter",
+            "dropbox",
+            "kick",
+            "linear",
+            "linkedin",
+            "gitlab",
+            "tiktok",
+            "reddit",
+            "roblox",
+            "salesforce",
+            "vk",
+            "zoom",
+            "notion",
+            "kakao",
+            "naver",
+            "line",
+            "paybin",
+            "paypal",
+            "polar",
+            "railway",
+            "vercel",
+            "wechat",
+        ]
+    );
 }
 
 #[test]
@@ -119,6 +155,22 @@ fn google_runtime_wrapper_exposes_metadata_and_authorization_url(
 
     assert_eq!(url.host_str(), Some("accounts.google.com"));
     assert!(url.as_str().contains("client_id=client-id"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn figma_and_railway_runtime_wrappers_return_none_without_access_token(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let figma = figma(provider_options());
+    let railway = railway(provider_options());
+
+    let figma_user =
+        SocialOAuthProvider::get_user_info(&figma, OAuth2Tokens::default(), None).await?;
+    let railway_user =
+        SocialOAuthProvider::get_user_info(&railway, OAuth2Tokens::default(), None).await?;
+
+    assert_eq!(figma_user, None);
+    assert_eq!(railway_user, None);
     Ok(())
 }
 

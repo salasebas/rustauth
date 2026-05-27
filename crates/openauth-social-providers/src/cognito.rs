@@ -303,15 +303,24 @@ impl CognitoProvider {
             return Ok(None);
         };
 
-        let profile = reqwest::Client::new()
+        let response = match reqwest::Client::new()
             .get(&self.user_info_endpoint)
             .bearer_auth(access_token)
             .header("accept", "application/json")
             .send()
-            .await?
-            .error_for_status()?
-            .json::<CognitoProfile>()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
+        let response = match response.error_for_status() {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
+        let profile = match response.json::<CognitoProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
 
         Ok(Some(self.map_user_info(profile)))
     }

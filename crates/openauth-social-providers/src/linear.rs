@@ -224,24 +224,30 @@ impl LinearProvider {
         &self,
         token: &OAuth2Tokens,
     ) -> Result<Option<LinearUserInfo>, OAuthError> {
-        let access_token = token
-            .access_token
-            .as_deref()
-            .ok_or(OAuthError::MissingOption("access_token"))?;
-        let response = self
+        let Some(access_token) = token.access_token.as_deref() else {
+            return Ok(None);
+        };
+        let response = match self
             .http_client
             .post(LINEAR_GRAPHQL_ENDPOINT)
             .header("content-type", "application/json")
             .bearer_auth(access_token)
             .json(&json!({ "query": LINEAR_VIEWER_QUERY }))
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
 
         if !response.status().is_success() {
             return Ok(None);
         }
 
-        let profile = response.json::<LinearProfile>().await?;
+        let profile = match response.json::<LinearProfile>().await {
+            Ok(profile) => profile,
+            Err(_) => return Ok(None),
+        };
         let Some(user) = profile.data.and_then(|data| data.viewer) else {
             return Ok(None);
         };
