@@ -657,4 +657,54 @@ mod tests {
         assert_eq!(fragment.sql, r#" WHERE LOWER("email") NOT IN (LOWER($1))"#);
         Ok(())
     }
+
+    #[test]
+    fn where_clause_escapes_like_wildcards_for_contains() -> Result<(), OpenAuthError> {
+        let clause = Where::new("email", DbValue::String(r"a%b_c\d".to_owned()))
+            .operator(WhereOperator::Contains);
+
+        let fragment = SqlDialect::Postgres.where_clause(&user_table(), &[clause])?;
+
+        assert_eq!(fragment.sql, r#" WHERE "email" LIKE $1 ESCAPE '\'"#);
+        assert_eq!(
+            fragment.params[0].value,
+            DbValue::String(r"%a\%b\_c\\d%".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn where_clause_escapes_like_wildcards_for_starts_with() -> Result<(), OpenAuthError> {
+        let clause = Where::new("email", DbValue::String("100%_".to_owned()))
+            .operator(WhereOperator::StartsWith);
+
+        let fragment = SqlDialect::Sqlite.where_clause(&user_table(), &[clause])?;
+
+        assert_eq!(fragment.sql, r#" WHERE "email" LIKE ? ESCAPE '\'"#);
+        assert_eq!(
+            fragment.params[0].value,
+            DbValue::String(r"100\%\_%".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn where_clause_escapes_like_wildcards_for_insensitive_ends_with() -> Result<(), OpenAuthError>
+    {
+        let clause = Where::new("email", DbValue::String(r"\_%".to_owned()))
+            .operator(WhereOperator::EndsWith)
+            .insensitive();
+
+        let fragment = SqlDialect::MySql.where_clause(&user_table(), &[clause])?;
+
+        assert_eq!(
+            fragment.sql,
+            " WHERE LOWER(`email`) LIKE LOWER(?) ESCAPE '\\\\'"
+        );
+        assert_eq!(
+            fragment.params[0].value,
+            DbValue::String(r"%\\\_\%".to_owned())
+        );
+        Ok(())
+    }
 }
