@@ -127,6 +127,44 @@ async fn verify_with_options_accepts_custom_audience() -> Result<(), Box<dyn std
     Ok(())
 }
 
+#[tokio::test]
+async fn direct_sign_jwt_override_options_are_preserved() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(MemoryAdapter::new());
+    let context = create_auth_context_with_adapter(options_with_plugin(jwt()?), adapter)?;
+    let options = JwtOptions {
+        jwt: JwtSigningOptions {
+            issuer: Some("https://issuer.example".to_owned()),
+            audience: Some(vec!["https://api.example".to_owned()]),
+            expiration_time: Some(openauth_plugins::jwt::TimeInput::Duration("30m".to_owned())),
+            ..JwtSigningOptions::default()
+        },
+        ..JwtOptions::default()
+    };
+    let mut claims = JwtClaims::new();
+    claims.insert("sub".to_owned(), json!("user_1"));
+
+    let token = sign_jwt(&context, claims, Some(options)).await?;
+
+    assert!(verify_jwt(&context, &token, None).await?.is_none());
+    let claims = verify_jwt_with_options(
+        &context,
+        &token,
+        &JwtOptions {
+            jwt: JwtSigningOptions {
+                audience: Some(vec!["https://api.example".to_owned()]),
+                ..JwtSigningOptions::default()
+            },
+            ..JwtOptions::default()
+        },
+        Some("https://issuer.example"),
+    )
+    .await?
+    .ok_or("missing verified claims")?;
+    assert_eq!(claims["aud"], "https://api.example");
+    Ok(())
+}
+
 fn replace_kid(token: &str, kid: &str) -> Result<String, Box<dyn std::error::Error>> {
     let parts = token.split('.').collect::<Vec<_>>();
     let mut header: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[0])?)?;

@@ -108,11 +108,14 @@ where
             let resource = resource.as_ref();
             let url = url::Url::parse(resource)
                 .map_err(|_| format!("missing resource_metadata mapping for {resource}"))?;
+            let host = url
+                .host_str()
+                .ok_or_else(|| format!("missing resource_metadata mapping for {resource}"))?;
             let path = url.path().trim_end_matches('/');
             Ok(format!(
                 "Bearer resource_metadata=\"{}://{}{}{}{}\"",
                 url.scheme(),
-                url.host_str().unwrap_or_default(),
+                host,
                 url.port()
                     .map(|port| format!(":{port}"))
                     .unwrap_or_default(),

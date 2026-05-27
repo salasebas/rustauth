@@ -4,7 +4,8 @@ use http::{header, Method, Response, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_core::plugin::{AuthPlugin, PluginAfterHookAction};
 use openauth_plugins::jwt::{
-    jwt, jwt_with_options, verify_jwt, JwkAlgorithm, JwtJwksOptions, JwtOptions, JwtSigningOptions,
+    jwt, jwt_with_options, verify_jwt, verify_jwt_with_options, JwkAlgorithm, JwtJwksOptions,
+    JwtOptions, JwtSigningOptions,
 };
 use serde_json::Value;
 
@@ -33,6 +34,57 @@ async fn sign_and_verify_endpoints_are_server_only() -> Result<(), Box<dyn std::
 
     assert_eq!(sign.status(), StatusCode::NOT_FOUND);
     assert_eq!(verify.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_jwt_endpoint_accepts_serializable_override_options(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let plugin = jwt()?;
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/sign-jwt")
+        .ok_or("missing sign-jwt endpoint")?
+        .clone();
+    let context = openauth_core::context::create_auth_context_with_adapter(
+        options_with_plugin(plugin),
+        adapter,
+    )?;
+
+    let response = (endpoint.handler)(
+        &context,
+        request(
+            Method::POST,
+            "/api/auth/sign-jwt",
+            r#"{"payload":{"sub":"user_1"},"overrideOptions":{"jwt":{"issuer":"https://issuer.example","audience":["https://api.example"],"expirationTime":"1h"}}}"#,
+            None,
+        )?,
+    )
+    .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+    let token = body["token"].as_str().ok_or("missing token")?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(verify_jwt(&context, token, None).await?.is_none());
+    let claims = verify_jwt_with_options(
+        &context,
+        token,
+        &JwtOptions {
+            jwt: JwtSigningOptions {
+                audience: Some(vec!["https://api.example".to_owned()]),
+                ..JwtSigningOptions::default()
+            },
+            ..JwtOptions::default()
+        },
+        Some("https://issuer.example"),
+    )
+    .await?
+    .ok_or("missing verified claims")?;
+    assert_eq!(claims["sub"], "user_1");
+    assert_eq!(claims["iss"], "https://issuer.example");
+    assert_eq!(claims["aud"], "https://api.example");
     Ok(())
 }
 

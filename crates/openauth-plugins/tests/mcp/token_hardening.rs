@@ -97,7 +97,7 @@ async fn token_consumes_code_on_missing_client_and_expired_code(
             &format!("grant_type=authorization_code&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&code={code}&code_verifier=verifier"),
         )?)
         .await?;
-    assert_eq!(missing_client.status(), StatusCode::BAD_REQUEST);
+    assert_oauth_error(&missing_client, StatusCode::UNAUTHORIZED, "invalid_client")?;
     assert!(find_record(&adapter, "verification", "identifier", &code)
         .await?
         .is_none());
@@ -117,7 +117,7 @@ async fn token_consumes_code_on_missing_client_and_expired_code(
             &format!("grant_type=authorization_code&client_id=client_1&client_secret=secret_1&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&code={expired}"),
         )?)
         .await?;
-    assert_eq!(expired_response.status(), StatusCode::UNAUTHORIZED);
+    assert_oauth_error(&expired_response, StatusCode::UNAUTHORIZED, "invalid_grant")?;
     assert!(
         find_record(&adapter, "verification", "identifier", &expired)
             .await?
@@ -154,6 +154,101 @@ async fn public_client_requires_stored_pkce_challenge() -> Result<(), Box<dyn st
             &format!("grant_type=authorization_code&client_id=public_1&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&code={code}&code_verifier=anything"),
         )?)
         .await?;
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_oauth_error(&response, StatusCode::BAD_REQUEST, "invalid_request")?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn token_returns_precise_oauth_errors_for_code_exchange_failures(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (auth, adapter) = seeded_router().await?;
+    seed_client(
+        &adapter,
+        "client_1",
+        "secret_1",
+        "https://client.example/callback",
+        "web",
+    )
+    .await?;
+
+    let invalid_code = auth
+        .handle_async(form_request(
+            Method::POST,
+            "/api/auth/mcp/token",
+            "grant_type=authorization_code&client_id=client_1&client_secret=secret_1&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&code=missing",
+        )?)
+        .await?;
+    assert_oauth_error(&invalid_code, StatusCode::UNAUTHORIZED, "invalid_grant")?;
+
+    let code = seed_code(
+        &adapter,
+        "client_1",
+        "user_1",
+        "https://client.example/callback",
+        "openid",
+        Some("verifier"),
+        Some("plain"),
+    )
+    .await?;
+    let invalid_secret = auth
+        .handle_async(form_request(
+            Method::POST,
+            "/api/auth/mcp/token",
+            &format!("grant_type=authorization_code&client_id=client_1&client_secret=wrong&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&code={code}&code_verifier=verifier"),
+        )?)
+        .await?;
+    assert_oauth_error(&invalid_secret, StatusCode::UNAUTHORIZED, "invalid_client")?;
+
+    let code = seed_code(
+        &adapter,
+        "client_1",
+        "user_1",
+        "https://client.example/callback",
+        "openid",
+        Some("verifier"),
+        Some("plain"),
+    )
+    .await?;
+    let invalid_client = auth
+        .handle_async(form_request(
+            Method::POST,
+            "/api/auth/mcp/token",
+            &format!("grant_type=authorization_code&client_id=unknown&client_secret=secret_1&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&code={code}&code_verifier=verifier"),
+        )?)
+        .await?;
+    assert_oauth_error(&invalid_client, StatusCode::UNAUTHORIZED, "invalid_client")?;
+
+    let code = seed_code(
+        &adapter,
+        "client_1",
+        "user_1",
+        "https://client.example/callback",
+        "openid",
+        Some("verifier"),
+        Some("plain"),
+    )
+    .await?;
+    let invalid_redirect = auth
+        .handle_async(form_request(
+            Method::POST,
+            "/api/auth/mcp/token",
+            &format!("grant_type=authorization_code&client_id=client_1&client_secret=secret_1&redirect_uri=https%3A%2F%2Fevil.example%2Fcallback&code={code}&code_verifier=verifier"),
+        )?)
+        .await?;
+    assert_oauth_error(
+        &invalid_redirect,
+        StatusCode::UNAUTHORIZED,
+        "invalid_client",
+    )?;
+    Ok(())
+}
+
+fn assert_oauth_error(
+    response: &http::Response<Vec<u8>>,
+    status: StatusCode,
+    code: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(response.status(), status);
+    assert_eq!(json_body(response)?["error"], code);
     Ok(())
 }
