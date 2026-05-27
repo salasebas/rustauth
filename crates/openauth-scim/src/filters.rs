@@ -1,4 +1,14 @@
 //! SCIM filter parsing.
+//!
+//! User list routes use two evaluation paths:
+//!
+//! - [`list_user_filter_uses_database_pushdown`] — only `userName eq "..."` is pushed
+//!   to SQL as an `email` equality check. This matches Better Auth upstream list
+//!   behavior.
+//! - [`parse_filter`] + [`resource_matches_filter`] — every other expression is
+//!   evaluated in memory against the serialized SCIM User resource (including
+//!   extension profile attributes). Use this for Groups, `.search`, and advanced
+//!   User filters.
 
 use http::StatusCode;
 use serde_json::Value;
@@ -82,6 +92,13 @@ pub fn parse_filter(filter: &str) -> Result<ScimFilterExpression, ScimError> {
         return Err(invalid_filter("Invalid filter expression"));
     }
     Ok(expression)
+}
+
+/// Returns true when `GET /Users?filter=...` can apply the filter in the database.
+///
+/// Today this is only the upstream-compatible form `userName eq "<email>"`.
+pub fn list_user_filter_uses_database_pushdown(filter: &str) -> bool {
+    parse_user_filter(filter).is_ok()
 }
 
 pub fn parse_user_filter(filter: &str) -> Result<Vec<ScimDbFilter>, ScimError> {

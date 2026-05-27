@@ -29,7 +29,8 @@ use crate::mappings::{account_id, primary_email, user_full_name, ScimEmail, Scim
 use crate::metadata;
 use crate::options::{
     AfterScimTokenGeneratedInput, BeforeScimTokenGeneratedInput, DefaultScimProvider,
-    ScimHookError, ScimOptions, ScimOrganizationMember, ScimTokenStorage,
+    ScimAuditEvent, ScimAuditEventKind, ScimAuditSeverity, ScimBulkMode, ScimHookError,
+    ScimOptions, ScimOrganizationMember, ScimTokenStorage,
 };
 use crate::patch::{build_user_patch, PatchOperation};
 use crate::resources::{

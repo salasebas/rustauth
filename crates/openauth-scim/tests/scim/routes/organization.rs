@@ -3,7 +3,8 @@ use super::*;
 #[tokio::test]
 async fn org_scoped_management_requires_admin_or_owner_and_provisions_membership() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (admin_cookie, admin_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "admin@example.com")
             .await
@@ -97,7 +98,8 @@ async fn org_scoped_management_requires_admin_or_owner_and_provisions_membership
 #[tokio::test]
 async fn org_scoped_user_lists_are_isolated_by_organization() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (admin_cookie, admin_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "admin@example.com")
             .await
@@ -141,7 +143,8 @@ async fn org_scoped_user_lists_are_isolated_by_organization() {
 #[tokio::test]
 async fn org_scoped_provider_cannot_be_replaced_by_omitting_organization_id() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (admin_cookie, admin_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "admin@example.com")
             .await
@@ -186,7 +189,8 @@ async fn org_scoped_provider_cannot_be_replaced_by_omitting_organization_id() {
 #[tokio::test]
 async fn org_scoped_provider_creator_loses_access_after_member_removal() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (admin_cookie, admin_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "admin@example.com")
             .await
@@ -311,6 +315,86 @@ async fn org_scoped_management_accepts_custom_required_role_from_comma_separated
         .expect("request should succeed");
     assert_eq!(list.status(), StatusCode::OK);
     assert_eq!(json_body(list)["providers"][0]["providerId"], "okta");
+}
+
+#[tokio::test]
+async fn org_scoped_management_allows_admin_member_comma_separated_role() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(ScimOptions::default()).expect("router");
+    let (owner_cookie, owner_id) =
+        session_cookie_with_user(adapter.as_ref(), &context, "multi-role-owner@example.com")
+            .await
+            .expect("owner session");
+    let (member_cookie, member_id) =
+        session_cookie_with_user(adapter.as_ref(), &context, "multi-role-member@example.com")
+            .await
+            .expect("member session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    seed_member(adapter.as_ref(), "org_1", &member_id, "admin,member")
+        .await
+        .expect("multi-role member");
+
+    let generated = router
+        .handle_async(session_json_request(
+            Method::POST,
+            "/scim/generate-token",
+            r#"{"providerId":"multi-role-provider","organizationId":"org_1"}"#,
+            &member_cookie,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(generated.status(), StatusCode::CREATED);
+
+    let list = router
+        .handle_async(session_request(
+            Method::GET,
+            "/scim/list-provider-connections",
+            &member_cookie,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(list.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(list)["providers"][0]["providerId"],
+        "multi-role-provider"
+    );
+
+    let get = router
+        .handle_async(session_request(
+            Method::GET,
+            "/scim/get-provider-connection?providerId=multi-role-provider",
+            &member_cookie,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(get.status(), StatusCode::OK);
+    assert_eq!(json_body(get)["providerId"], "multi-role-provider");
+
+    let (plain_member_cookie, plain_member_id) =
+        session_cookie_with_user(adapter.as_ref(), &context, "plain-member@example.com")
+            .await
+            .expect("plain member session");
+    seed_member(adapter.as_ref(), "org_1", &plain_member_id, "member")
+        .await
+        .expect("plain member");
+
+    let denied = router
+        .handle_async(session_json_request(
+            Method::POST,
+            "/scim/generate-token",
+            r#"{"providerId":"ghsa-member-attempt","organizationId":"org_1"}"#,
+            &plain_member_cookie,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+    let _ = owner_cookie;
 }
 
 #[tokio::test]

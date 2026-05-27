@@ -110,13 +110,10 @@ pub(super) fn generate_token_endpoint(
                         return hook_error(error);
                     }
                 }
-                if existing_provider.is_some() {
-                    store.delete(&body.provider_id).await?;
-                }
                 let stored_token =
                     store_scim_token(&context.secret, &options.token_storage, &base_token).await?;
                 let provider = store
-                    .create(crate::store::CreateScimProviderInput {
+                    .upsert(crate::store::CreateScimProviderInput {
                         provider_id: body.provider_id,
                         scim_token: stored_token,
                         organization_id: body.organization_id,
@@ -128,13 +125,23 @@ pub(super) fn generate_token_endpoint(
                         user,
                         member,
                         scim_token: scim_token.clone(),
-                        provider,
+                        provider: provider.clone(),
                     })
                     .await
                     {
                         return hook_error(error);
                     }
                 }
+
+                let mut event = ScimAuditEvent::new(
+                    ScimAuditEventKind::TokenGenerated,
+                    ScimAuditSeverity::Info,
+                )
+                .with_provider_id(&provider.provider_id);
+                if let Some(organization_id) = provider.organization_id.as_deref() {
+                    event = event.with_organization_id(organization_id);
+                }
+                crate::audit::emit(context, &options, event).await;
 
                 json(StatusCode::CREATED, &GenerateTokenResponse { scim_token })
             })

@@ -75,3 +75,33 @@ async fn provider_store_lists_by_owner_and_organization() {
         .expect("provider should exist");
     assert_eq!(by_org.provider_id, "entra");
 }
+
+#[tokio::test]
+async fn provider_store_upsert_updates_existing_provider_without_changing_id() {
+    let adapter = MemoryAdapter::new();
+    let store = ScimProviderStore::new(&adapter);
+
+    let created = store
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "token-secret".to_owned(),
+            organization_id: Some("org_1".to_owned()),
+            user_id: Some("user_1".to_owned()),
+        })
+        .await
+        .expect("provider should create");
+
+    let rotated = store
+        .upsert(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "token-secret-rotated".to_owned(),
+            organization_id: Some("org_1".to_owned()),
+            user_id: Some("user_2".to_owned()),
+        })
+        .await
+        .expect("provider should upsert");
+
+    assert_eq!(rotated.id, created.id);
+    assert_eq!(rotated.scim_token, "token-secret-rotated");
+    assert_eq!(rotated.user_id.as_deref(), Some("user_2"));
+}

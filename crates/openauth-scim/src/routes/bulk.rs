@@ -52,26 +52,26 @@ pub(super) fn bulk_endpoint(options: Arc<ScimOptions>) -> openauth_core::api::As
                         .with_scim_type("tooMany")
                         .into_response();
                 }
-                let mut operations = Vec::new();
-                let mut errors = 0_u64;
-                let mut bulk_ids = std::collections::BTreeMap::new();
-                for operation in body.operations {
-                    let result = execute_bulk_operation(
-                        adapter.as_ref(),
-                        &context.base_url,
-                        &provider,
-                        &mut bulk_ids,
-                        operation,
-                    )
-                    .await?;
-                    if result.status.code >= 400 {
-                        errors += 1;
+                let operations = match process_bulk_operations(
+                    adapter.as_ref(),
+                    context,
+                    &options,
+                    &provider,
+                    body.fail_on_errors,
+                    body.operations,
+                )
+                .await
+                {
+                    Ok(operations) => operations,
+                    Err(OpenAuthError::InvalidConfig(message))
+                        if message.contains("Atomic bulk requires") =>
+                    {
+                        return ScimError::bad_request(message)
+                            .with_scim_type("invalidValue")
+                            .into_response();
                     }
-                    operations.push(result);
-                    if body.fail_on_errors.is_some_and(|limit| errors >= limit) {
-                        break;
-                    }
-                }
+                    Err(error) => return Err(error),
+                };
                 scim_json(
                     StatusCode::OK,
                     &BulkResponse {
@@ -84,9 +84,200 @@ pub(super) fn bulk_endpoint(options: Arc<ScimOptions>) -> openauth_core::api::As
     )
 }
 
+async fn process_bulk_operations(
+    adapter: &dyn DbAdapter,
+    context: &openauth_core::context::AuthContext,
+    options: &ScimOptions,
+    provider: &AuthenticatedScimProvider,
+    fail_on_errors: Option<u64>,
+    operations: Vec<BulkOperationRequest>,
+) -> Result<Vec<BulkOperationResponse>, OpenAuthError> {
+    match options.bulk_mode {
+        ScimBulkMode::Independent => {
+            process_bulk_operations_independent(
+                adapter,
+                context,
+                options,
+                provider,
+                fail_on_errors,
+                operations,
+            )
+            .await
+        }
+        ScimBulkMode::Atomic => {
+            process_bulk_operations_atomic(adapter, context, options, provider, operations).await
+        }
+    }
+}
+
+async fn process_bulk_operations_independent(
+    adapter: &dyn DbAdapter,
+    context: &openauth_core::context::AuthContext,
+    options: &ScimOptions,
+    provider: &AuthenticatedScimProvider,
+    fail_on_errors: Option<u64>,
+    operations: Vec<BulkOperationRequest>,
+) -> Result<Vec<BulkOperationResponse>, OpenAuthError> {
+    let mut responses = Vec::new();
+    let mut errors = 0_u64;
+    let mut bulk_ids = std::collections::BTreeMap::new();
+    for operation in operations {
+        let result = execute_bulk_operation(
+            adapter,
+            &context.base_url,
+            options,
+            provider,
+            &mut bulk_ids,
+            operation,
+        )
+        .await?;
+        if result.status.code >= 400 {
+            errors += 1;
+            emit_bulk_failure(context, options, provider, &result).await;
+        }
+        responses.push(result);
+        if fail_on_errors.is_some_and(|limit| errors >= limit) {
+            break;
+        }
+    }
+    Ok(responses)
+}
+
+async fn process_bulk_operations_atomic(
+    adapter: &dyn DbAdapter,
+    context: &openauth_core::context::AuthContext,
+    options: &ScimOptions,
+    provider: &AuthenticatedScimProvider,
+    operations: Vec<BulkOperationRequest>,
+) -> Result<Vec<BulkOperationResponse>, OpenAuthError> {
+    if !adapter.capabilities().supports_transactions {
+        return Err(OpenAuthError::InvalidConfig(
+            "Atomic bulk requires a database adapter with native transaction support".to_owned(),
+        ));
+    }
+    let options_for_audit = options.clone();
+    let options = options.clone();
+    let provider_for_audit = provider.clone();
+    let provider = provider.clone();
+    let base_url = context.base_url.clone();
+    let responses = Arc::new(Mutex::new(Vec::new()));
+    let responses_for_transaction = Arc::clone(&responses);
+    let transaction_result = adapter
+        .transaction(Box::new(move |transaction| {
+            let base_url = base_url.clone();
+            let options = options.clone();
+            let provider = provider.clone();
+            let responses = Arc::clone(&responses_for_transaction);
+            let mut bulk_ids = std::collections::BTreeMap::new();
+            Box::pin(async move {
+                for operation in operations {
+                    let result = execute_bulk_operation(
+                        transaction.as_ref(),
+                        &base_url,
+                        &options,
+                        &provider,
+                        &mut bulk_ids,
+                        operation,
+                    )
+                    .await?;
+                    let failed = result.status.code >= 400;
+                    responses
+                        .lock()
+                        .map_err(|_| {
+                            OpenAuthError::Adapter(
+                                "atomic bulk response mutex was poisoned".to_owned(),
+                            )
+                        })?
+                        .push(result);
+                    if failed {
+                        return Err(OpenAuthError::Adapter(
+                            "atomic bulk operation failed".to_owned(),
+                        ));
+                    }
+                }
+                Ok(())
+            })
+        }))
+        .await;
+
+    let responses = Arc::try_unwrap(responses)
+        .map_err(|_| OpenAuthError::Adapter("atomic bulk responses still shared".to_owned()))?
+        .into_inner()
+        .map_err(|_| {
+            OpenAuthError::Adapter("atomic bulk response mutex was poisoned".to_owned())
+        })?;
+
+    if transaction_result.is_ok() {
+        return Ok(responses);
+    }
+
+    let rolled_back = mark_atomic_bulk_rollback(responses);
+    crate::audit::emit(
+        context,
+        &options_for_audit,
+        ScimAuditEvent::new(ScimAuditEventKind::BulkRolledBack, ScimAuditSeverity::Warn)
+            .with_provider_id(&provider_for_audit.provider_id)
+            .with_reason("atomic bulk failure"),
+    )
+    .await;
+    if let Some(failure) = rolled_back
+        .iter()
+        .find(|response| response.status.code >= 400)
+    {
+        emit_bulk_failure(context, &options_for_audit, &provider_for_audit, failure).await;
+    }
+    Ok(rolled_back)
+}
+
+fn mark_atomic_bulk_rollback(
+    mut responses: Vec<BulkOperationResponse>,
+) -> Vec<BulkOperationResponse> {
+    let Some(failure_index) = responses
+        .iter()
+        .position(|response| response.status.code >= 400)
+    else {
+        return responses;
+    };
+    for response in &mut responses[..failure_index] {
+        if response.status.code < 400 {
+            let error =
+                ScimError::precondition_failed("Operation rolled back due to atomic bulk failure");
+            response.status.code = error.status.as_u16();
+            response.location = None;
+            response.version = None;
+            response.response =
+                Some(serde_json::to_value(error.body()).unwrap_or_else(|_| serde_json::json!({})));
+        }
+    }
+    responses.truncate(failure_index + 1);
+    responses
+}
+
+async fn emit_bulk_failure(
+    context: &openauth_core::context::AuthContext,
+    options: &ScimOptions,
+    provider: &AuthenticatedScimProvider,
+    response: &BulkOperationResponse,
+) {
+    let detail = response
+        .response
+        .as_ref()
+        .and_then(|body| body.get("detail"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("bulk operation failed");
+    let mut event = ScimAuditEvent::new(ScimAuditEventKind::BulkFailed, ScimAuditSeverity::Warn)
+        .with_provider_id(&provider.provider_id)
+        .with_reason(detail);
+    if let Some(organization_id) = provider.organization_id.as_deref() {
+        event = event.with_organization_id(organization_id);
+    }
+    crate::audit::emit(context, options, event).await;
+}
+
 async fn execute_bulk_operation(
     adapter: &dyn DbAdapter,
     base_url: &str,
+    options: &ScimOptions,
     provider: &AuthenticatedScimProvider,
     bulk_ids: &mut std::collections::BTreeMap<String, String>,
     operation: BulkOperationRequest,
@@ -348,7 +539,14 @@ async fn execute_bulk_operation(
                     ScimError::not_found("User not found"),
                 );
             };
-            delete_scim_user(adapter, &user.id).await?;
+            deprovision_scim_user(
+                adapter,
+                &user.id,
+                &provider.provider_id,
+                provider.organization_id.as_deref(),
+                options.deprovision_mode,
+            )
+            .await?;
             return Ok(BulkOperationResponse {
                 method,
                 path: Some(path),
@@ -596,7 +794,17 @@ async fn bulk_create_user(
             None,
         ));
     }
-    let email = primary_email(&input.user_name, &emails).to_lowercase();
+    let email = match validate_scim_user_identity(&input.user_name, &emails) {
+        Ok(email) => email,
+        Err(error) => {
+            return Ok((
+                error.status,
+                serde_json::to_value(error.body())
+                    .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+                None,
+            ));
+        }
+    };
     let name = user_full_name(&email, input.name.as_ref());
     let account_id = account_id(&input.user_name, input.external_id.as_deref());
     let users = DbUserStore::new(adapter);
@@ -778,9 +986,34 @@ async fn bulk_update_user(
                 .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
         ));
     }
-    let email = primary_email(&input.user_name, &emails).to_lowercase();
+    let email = match validate_scim_user_identity(&input.user_name, &emails) {
+        Ok(email) => email,
+        Err(error) => {
+            return Ok((
+                error.status,
+                serde_json::to_value(error.body())
+                    .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+            ));
+        }
+    };
     let name = user_full_name(&email, input.name.as_ref());
     let next_account_id = account_id(&input.user_name, input.external_id.as_deref());
+    if next_account_id != account.account_id {
+        if let Some(error) = ensure_provider_account_id_available(
+            adapter,
+            &provider.provider_id,
+            &next_account_id,
+            &user.id,
+        )
+        .await?
+        {
+            return Ok((
+                error.status,
+                serde_json::to_value(error.body())
+                    .map_err(|serialize_error| OpenAuthError::Api(serialize_error.to_string()))?,
+            ));
+        }
+    }
     let profile_attributes = scim_user_profile_attributes(&input);
     update_scim_user_account_and_replace_profile(
         adapter,
@@ -1000,6 +1233,26 @@ async fn bulk_patch_user(
             ));
         }
     };
+    let next_account_id = patched_account_id(&user, &patch);
+    if let Some(next_account_id) = &next_account_id {
+        if next_account_id != &account.account_id {
+            if let Some(error) = ensure_provider_account_id_available(
+                adapter,
+                &provider.provider_id,
+                next_account_id,
+                &user.id,
+            )
+            .await?
+            {
+                return Ok((
+                    error.status,
+                    serde_json::to_value(error.body()).map_err(|serialize_error| {
+                        OpenAuthError::Api(serialize_error.to_string())
+                    })?,
+                ));
+            }
+        }
+    }
     update_scim_user_account_and_merge_profile(
         adapter,
         &provider.provider_id,
@@ -1011,7 +1264,7 @@ async fn bulk_patch_user(
             .get("name")
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned),
-        patched_account_id(&user, &patch),
+        next_account_id,
         patch.profile,
     )
     .await?;

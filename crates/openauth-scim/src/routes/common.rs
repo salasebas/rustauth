@@ -683,22 +683,15 @@ pub(super) fn team_from_record(record: DbRecord) -> Result<ScimTeamRecord, OpenA
     })
 }
 
+pub(super) fn validate_scim_user_identity(
+    user_name: &str,
+    emails: &[ScimEmail],
+) -> Result<String, ScimError> {
+    crate::validation::validate_scim_user_identity(user_name, emails)
+}
+
 pub(super) fn validate_emails(emails: &[ScimEmail]) -> Result<(), ScimError> {
-    if emails.iter().filter(|email| email.primary).count() > 1 {
-        return Err(
-            ScimError::bad_request("Only one emails value can be primary")
-                .with_scim_type("invalidValue"),
-        );
-    }
-    for email in emails {
-        if !is_valid_email(&email.value) {
-            return Err(
-                ScimError::bad_request("emails.value must be a valid email address")
-                    .with_scim_type("invalidValue"),
-            );
-        }
-    }
-    Ok(())
+    crate::validation::validate_emails(emails)
 }
 
 pub(super) fn validate_multivalued_primary_attributes(
@@ -738,19 +731,7 @@ pub(super) fn validate_multivalued_primary_attributes(
 }
 
 pub(super) fn is_valid_email(value: &str) -> bool {
-    let value = value.trim();
-    if value.is_empty() || value.contains(char::is_whitespace) {
-        return false;
-    }
-    let Some((local, domain)) = value.split_once('@') else {
-        return false;
-    };
-    !local.is_empty()
-        && !domain.is_empty()
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
-        && !domain.contains('@')
+    crate::validation::is_valid_email(value)
 }
 
 pub(super) async fn update_account_id(

@@ -6,7 +6,8 @@ pub(super) fn router() -> Result<AuthRouter, openauth_core::error::OpenAuthError
 
 pub(super) fn router_with_adapter(
 ) -> Result<(Arc<MemoryAdapter>, AuthRouter), openauth_core::error::OpenAuthError> {
-    router_with_context(ScimOptions::default()).map(|(adapter, router, _context)| (adapter, router))
+    router_with_context(crate::scim_options_for_manual_provider_tokens())
+        .map(|(adapter, router, _context)| (adapter, router))
 }
 
 pub(super) fn router_with_context(

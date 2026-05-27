@@ -58,6 +58,86 @@ async fn bulk_route_executes_get_user_operations() {
 }
 
 #[tokio::test]
+async fn bulk_route_stops_on_first_error_when_fail_on_errors_is_zero() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Bulk",
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                "failOnErrors":0,
+                "Operations":[
+                    {"method":"POST","path":"/Users","data":{"userName":"missing-bulkid@example.com"}},
+                    {"method":"GET","path":"/Users/never-runs"}
+                ]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response);
+    assert_eq!(body["Operations"].as_array().expect("ops").len(), 1);
+    assert_eq!(body["Operations"][0]["status"]["code"], 400);
+}
+
+#[tokio::test]
+async fn bulk_post_user_rejects_invalid_user_name_without_emails() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Bulk",
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                "Operations":[
+                    {
+                        "method":"POST",
+                        "path":"/Users",
+                        "bulkId":"bad-user",
+                        "data":{"userName":"not-an-email"}
+                    }
+                ]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response);
+    assert_eq!(body["Operations"][0]["status"]["code"], 400);
+    assert_eq!(
+        body["Operations"][0]["response"]["detail"],
+        "userName and emails.value must resolve to a valid email address"
+    );
+}
+
+#[tokio::test]
 async fn bulk_route_requires_bulk_id_for_post_and_respects_fail_on_errors() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     ScimProviderStore::new(adapter.as_ref())
@@ -101,7 +181,8 @@ async fn bulk_route_requires_bulk_id_for_post_and_respects_fail_on_errors() {
 #[tokio::test]
 async fn bulk_route_resolves_bulk_id_for_user_group_membership() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "bulk-owner@example.com")
             .await
@@ -155,7 +236,8 @@ async fn bulk_route_resolves_bulk_id_for_user_group_membership() {
 #[tokio::test]
 async fn bulk_route_executes_put_patch_and_delete_operations() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "bulk-mutate-owner@example.com")
             .await
@@ -396,7 +478,8 @@ async fn bulk_delete_user_requires_provider_scope() {
 #[tokio::test]
 async fn bulk_delete_user_requires_organization_scope() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -459,7 +542,8 @@ async fn bulk_delete_user_requires_organization_scope() {
 #[tokio::test]
 async fn bulk_group_mutations_require_organization_scope() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -531,7 +615,8 @@ async fn bulk_group_mutations_require_organization_scope() {
 #[tokio::test]
 async fn bulk_group_post_and_put_reject_unknown_members() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -603,7 +688,8 @@ async fn bulk_group_post_and_put_reject_unknown_members() {
 #[tokio::test]
 async fn bulk_group_post_and_put_reject_empty_display_name() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -710,7 +796,8 @@ async fn bulk_invalid_data_returns_operation_error_and_respects_fail_on_errors()
 #[tokio::test]
 async fn bulk_invalid_data_returns_operation_errors_for_all_mutations() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -770,7 +857,8 @@ async fn bulk_invalid_data_returns_operation_errors_for_all_mutations() {
 #[tokio::test]
 async fn bulk_group_patch_requires_patch_op_schema() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -940,6 +1028,108 @@ async fn bulk_route_enforces_advertised_operation_limit() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body = json_body(response);
     assert_eq!(body["scimType"], "tooMany");
+}
+
+#[tokio::test]
+async fn bulk_patch_user_succeeds_without_if_match_header() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+    let user_id = create_scim_user(&router, &token, "bulk-patch@example.com", "Bulk Patch").await;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Bulk",
+            &format!(
+                r#"{{
+                    "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                    "Operations":[{{
+                        "method":"PATCH",
+                        "path":"/Users/{user_id}",
+                        "data":{{
+                            "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                            "Operations":[{{"op":"replace","path":"title","value":"Bulk Title"}}]
+                        }}
+                    }}]
+                }}"#
+            ),
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response);
+    assert_eq!(body["Operations"][0]["status"]["code"], 200);
+
+    let fetched = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{user_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(json_body(fetched)["title"], "Bulk Title");
+}
+
+#[tokio::test]
+async fn bulk_patch_group_succeeds_without_if_match_header() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
+    let (owner_cookie, owner_id) =
+        session_cookie_with_user(adapter.as_ref(), &context, "bulk-group-patch@example.com")
+            .await
+            .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let group_id =
+        create_scim_group(&router, &token, "Bulk Patch Group", "bulk-patch-group", &[]).await;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Bulk",
+            &format!(
+                r#"{{
+                    "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                    "Operations":[{{
+                        "method":"PATCH",
+                        "path":"/Groups/{group_id}",
+                        "data":{{
+                            "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                            "Operations":[{{"op":"replace","path":"displayName","value":"Bulk Patched"}}]
+                        }}
+                    }}]
+                }}"#
+            ),
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response);
+    assert_eq!(body["Operations"][0]["status"]["code"], 200);
+    assert_eq!(
+        body["Operations"][0]["response"]["displayName"],
+        "Bulk Patched"
+    );
 }
 
 #[tokio::test]

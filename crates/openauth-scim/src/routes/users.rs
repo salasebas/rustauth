@@ -160,7 +160,10 @@ pub(super) fn create_user_endpoint(
                 if let Err(error) = validate_scim_user_profile_attributes(&input) {
                     return error.into_response();
                 }
-                let email = primary_email(&input.user_name, &emails).to_lowercase();
+                let email = match validate_scim_user_identity(&input.user_name, &emails) {
+                    Ok(email) => email,
+                    Err(error) => return error.into_response(),
+                };
                 let name = user_full_name(&email, input.name.as_ref());
                 let account_id = account_id(&input.user_name, input.external_id.as_deref());
                 let user_profile_attributes = scim_user_profile_attributes(&input);
@@ -200,6 +203,17 @@ pub(super) fn create_user_endpoint(
                     user_profile_attributes,
                 )
                 .await?;
+
+                let mut event = ScimAuditEvent::new(
+                    ScimAuditEventKind::UserProvisioned,
+                    ScimAuditSeverity::Info,
+                )
+                .with_provider_id(&provider.provider_id)
+                .with_user_id(&user.id);
+                if let Some(organization_id) = provider.organization_id.as_deref() {
+                    event = event.with_organization_id(organization_id);
+                }
+                crate::audit::emit(context, &options, event).await;
 
                 let resource = complete_user_resource(
                     adapter.as_ref(),
@@ -280,9 +294,24 @@ pub(super) fn put_user_endpoint(
                 if let Err(error) = validate_scim_user_profile_attributes(&input) {
                     return error.into_response();
                 }
-                let email = primary_email(&input.user_name, &emails).to_lowercase();
+                let email = match validate_scim_user_identity(&input.user_name, &emails) {
+                    Ok(email) => email,
+                    Err(error) => return error.into_response(),
+                };
                 let name = user_full_name(&email, input.name.as_ref());
                 let next_account_id = account_id(&input.user_name, input.external_id.as_deref());
+                if next_account_id != account.account_id {
+                    if let Some(error) = ensure_provider_account_id_available(
+                        adapter.as_ref(),
+                        &provider.provider_id,
+                        &next_account_id,
+                        &user.id,
+                    )
+                    .await?
+                    {
+                        return error.into_response();
+                    }
+                }
                 let user_profile_attributes = scim_user_profile_attributes(&input);
                 let current_resource = complete_user_resource(
                     adapter.as_ref(),
@@ -421,6 +450,21 @@ pub(super) fn patch_user_endpoint(
                     Ok(email) => email,
                     Err(error) => return error.into_response(),
                 };
+                let next_account_id = patched_account_id(&user, &patch);
+                if let Some(next_account_id) = &next_account_id {
+                    if next_account_id != &account.account_id {
+                        if let Some(error) = ensure_provider_account_id_available(
+                            adapter.as_ref(),
+                            &provider.provider_id,
+                            next_account_id,
+                            &user.id,
+                        )
+                        .await?
+                        {
+                            return error.into_response();
+                        }
+                    }
+                }
 
                 update_scim_user_account_and_merge_profile(
                     adapter.as_ref(),
@@ -433,7 +477,7 @@ pub(super) fn patch_user_endpoint(
                         .get("name")
                         .and_then(serde_json::Value::as_str)
                         .map(str::to_owned),
-                    patched_account_id(&user, &patch),
+                    next_account_id,
                     patch.profile,
                 )
                 .await?;
@@ -497,7 +541,24 @@ pub(super) fn delete_user_endpoint(
                 {
                     return error.into_response();
                 }
-                delete_scim_user(adapter.as_ref(), &user.id).await?;
+                deprovision_scim_user(
+                    adapter.as_ref(),
+                    &user.id,
+                    &provider.provider_id,
+                    provider.organization_id.as_deref(),
+                    options.deprovision_mode,
+                )
+                .await?;
+                let mut event = ScimAuditEvent::new(
+                    ScimAuditEventKind::UserDeprovisioned,
+                    ScimAuditSeverity::Info,
+                )
+                .with_provider_id(&provider.provider_id)
+                .with_user_id(&user.id);
+                if let Some(organization_id) = provider.organization_id.as_deref() {
+                    event = event.with_organization_id(organization_id);
+                }
+                crate::audit::emit(context, &options, event).await;
                 Response::builder()
                     .status(StatusCode::NO_CONTENT)
                     .body(Vec::new())

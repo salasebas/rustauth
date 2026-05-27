@@ -28,13 +28,13 @@ async fn all_user_routes_reject_missing_and_invalid_bearer_tokens() {
         (
             Method::POST,
             "/scim/v2/Users",
-            Some(r#"{"userName":"ada"}"#),
+            Some(r#"{"userName":"ada@example.com"}"#),
         ),
         (Method::GET, "/scim/v2/Users/user_1", None),
         (
             Method::PUT,
             "/scim/v2/Users/user_1",
-            Some(r#"{"userName":"ada"}"#),
+            Some(r#"{"userName":"ada@example.com"}"#),
         ),
         (
             Method::PATCH,
@@ -149,7 +149,8 @@ async fn org_scoped_default_scim_requires_organization_plugin() {
 #[tokio::test]
 async fn org_scoped_persisted_scim_provider_requires_organization_plugin() {
     let (adapter, router, _context) =
-        router_with_context(ScimOptions::default()).expect("router should build");
+        router_with_context(crate::scim_options_for_manual_provider_tokens())
+            .expect("router should build");
     ScimProviderStore::new(adapter.as_ref())
         .create(CreateScimProviderInput {
             provider_id: "okta".to_owned(),

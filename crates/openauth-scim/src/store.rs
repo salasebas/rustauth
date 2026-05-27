@@ -1,7 +1,9 @@
 //! Adapter-backed SCIM storage helpers.
 
 use openauth_core::crypto::random::generate_random_string;
-use openauth_core::db::{Create, DbAdapter, DbRecord, DbValue, Delete, FindMany, FindOne, Where};
+use openauth_core::db::{
+    Create, DbAdapter, DbRecord, DbValue, Delete, FindMany, FindOne, Update, Where,
+};
 use openauth_core::error::OpenAuthError;
 use serde::{Deserialize, Serialize};
 
@@ -121,6 +123,44 @@ impl<'a> ScimProviderStore<'a> {
         self.adapter
             .delete(Delete::new(SCIM_PROVIDER_MODEL).where_clause(provider_id_where(provider_id)))
             .await
+    }
+
+    pub async fn upsert(
+        &self,
+        input: CreateScimProviderInput,
+    ) -> Result<ScimProviderRecord, OpenAuthError> {
+        if self
+            .find_by_provider_id(&input.provider_id)
+            .await?
+            .is_some()
+        {
+            self.update(input).await
+        } else {
+            self.create(input).await
+        }
+    }
+
+    async fn update(
+        &self,
+        input: CreateScimProviderInput,
+    ) -> Result<ScimProviderRecord, OpenAuthError> {
+        self.adapter
+            .update(
+                Update::new(SCIM_PROVIDER_MODEL)
+                    .where_clause(provider_id_where(&input.provider_id))
+                    .data("scimToken", DbValue::String(input.scim_token))
+                    .data("organizationId", optional_string(input.organization_id))
+                    .data("userId", optional_string(input.user_id)),
+            )
+            .await?;
+        self.find_by_provider_id(&input.provider_id)
+            .await?
+            .ok_or_else(|| {
+                OpenAuthError::Adapter(format!(
+                    "SCIM provider `{}` was not found after update",
+                    input.provider_id
+                ))
+            })
     }
 }
 

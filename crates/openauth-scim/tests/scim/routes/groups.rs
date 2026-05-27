@@ -3,7 +3,8 @@ use super::*;
 #[tokio::test]
 async fn groups_route_creates_lists_and_returns_team_backed_groups() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "owner@example.com")
             .await
@@ -82,7 +83,8 @@ async fn groups_route_creates_lists_and_returns_team_backed_groups() {
 #[tokio::test]
 async fn groups_route_replaces_patches_and_deletes_team_backed_groups() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "group-owner@example.com")
             .await
@@ -172,7 +174,8 @@ async fn groups_route_replaces_patches_and_deletes_team_backed_groups() {
 #[tokio::test]
 async fn groups_put_rejects_unknown_members_without_replacing_membership() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -232,7 +235,8 @@ async fn groups_put_rejects_unknown_members_without_replacing_membership() {
 #[tokio::test]
 async fn groups_put_rejects_empty_display_name_without_replacing_group() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -275,7 +279,8 @@ async fn groups_put_rejects_empty_display_name_without_replacing_group() {
 #[tokio::test]
 async fn groups_patch_replace_members_replaces_existing_membership() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -329,7 +334,8 @@ async fn groups_patch_replace_members_replaces_existing_membership() {
 #[tokio::test]
 async fn groups_patch_rejects_nested_groups_and_unknown_members() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,
@@ -426,7 +432,8 @@ async fn groups_patch_rejects_nested_groups_and_unknown_members() {
 #[tokio::test]
 async fn groups_support_filter_sort_projection_and_etags() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) = session_cookie_with_user(
         adapter.as_ref(),
         &context,

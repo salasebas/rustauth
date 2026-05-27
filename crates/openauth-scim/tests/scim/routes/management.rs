@@ -1,6 +1,86 @@
 use super::*;
 
 #[tokio::test]
+async fn management_default_token_storage_hashes_persisted_token() {
+    let (adapter, router, context) = router_with_context(ScimOptions::default()).expect("router");
+    let cookie = session_cookie(adapter.as_ref(), &context, "owner@example.com")
+        .await
+        .expect("session cookie should create");
+    let generated = router
+        .handle_async(session_json_request(
+            Method::POST,
+            "/scim/generate-token",
+            r#"{"providerId":"okta"}"#,
+            &cookie,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(generated.status(), StatusCode::CREATED);
+    let body = json_body(generated);
+    let token = body["scimToken"].as_str().expect("token should be string");
+    let decoded = openauth_scim::token::decode_bearer_token(token).expect("token should decode");
+    let provider = ScimProviderStore::new(adapter.as_ref())
+        .find_by_provider_id("okta")
+        .await
+        .expect("provider lookup should succeed")
+        .expect("provider should exist");
+    assert_eq!(
+        provider.scim_token,
+        openauth_scim::token::hash_base_token(&decoded.base_token)
+    );
+    assert_ne!(provider.scim_token, decoded.base_token);
+}
+
+#[tokio::test]
+async fn management_regenerating_token_preserves_provider_id() {
+    let (adapter, router, context) = router_with_context(ScimOptions::default()).expect("router");
+    let cookie = session_cookie(adapter.as_ref(), &context, "owner@example.com")
+        .await
+        .expect("session cookie should create");
+    let first_token = router
+        .handle_async(session_json_request(
+            Method::POST,
+            "/scim/generate-token",
+            r#"{"providerId":"okta"}"#,
+            &cookie,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(first_token.status(), StatusCode::CREATED);
+    let first_provider = ScimProviderStore::new(adapter.as_ref())
+        .find_by_provider_id("okta")
+        .await
+        .expect("provider lookup should succeed")
+        .expect("provider should exist");
+    let first_stored_token = first_provider.scim_token.clone();
+
+    let second_token = router
+        .handle_async(session_json_request(
+            Method::POST,
+            "/scim/generate-token",
+            r#"{"providerId":"okta"}"#,
+            &cookie,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(second_token.status(), StatusCode::CREATED);
+
+    let second_provider = ScimProviderStore::new(adapter.as_ref())
+        .find_by_provider_id("okta")
+        .await
+        .expect("provider lookup should succeed")
+        .expect("provider should exist");
+    assert_eq!(second_provider.id, first_provider.id);
+    assert_ne!(second_provider.scim_token, first_stored_token);
+
+    let providers = ScimProviderStore::new(adapter.as_ref())
+        .list()
+        .await
+        .expect("list should succeed");
+    assert_eq!(providers.len(), 1);
+}
+
+#[tokio::test]
 async fn management_generate_token_requires_session_and_token_can_provision_users() {
     let (adapter, router, context) = router_with_context(ScimOptions::default()).expect("router");
 

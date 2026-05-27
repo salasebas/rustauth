@@ -28,6 +28,27 @@ pub(super) async fn find_scim_user(
     Ok(Some((user, account)))
 }
 
+pub(super) async fn ensure_provider_account_id_available(
+    adapter: &dyn DbAdapter,
+    provider_id: &str,
+    account_id: &str,
+    current_user_id: &str,
+) -> Result<Option<ScimError>, OpenAuthError> {
+    let users = DbUserStore::new(adapter);
+    let Some(existing) = users
+        .find_account_by_provider_account(account_id, provider_id)
+        .await?
+    else {
+        return Ok(None);
+    };
+    if existing.user_id != current_user_id {
+        return Ok(Some(
+            ScimError::conflict("User already exists").with_scim_type("uniqueness"),
+        ));
+    }
+    Ok(None)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn create_scim_user_account_and_membership(
     adapter: &dyn DbAdapter,
@@ -875,19 +896,43 @@ pub(super) fn patched_email(
     user: &User,
     patch: &crate::patch::UserPatch,
 ) -> Result<Option<String>, ScimError> {
-    if let Some(value) = patch
-        .user
-        .get("email")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned)
-    {
+    if let Some(value) = patch.user.get("email").and_then(serde_json::Value::as_str) {
+        let value = value.to_ascii_lowercase();
+        if !is_valid_email(&value) {
+            return Err(ScimError::bad_request(
+                "userName and emails.value must resolve to a valid email address",
+            )
+            .with_scim_type("invalidValue"));
+        }
         return Ok(Some(value));
     }
     let Some(emails) = patch.emails.as_deref() else {
         return Ok(None);
     };
     validate_emails(emails)?;
-    Ok(Some(primary_email(&user.email, emails).to_lowercase()))
+    let email = primary_email(&user.email, emails).to_ascii_lowercase();
+    if !is_valid_email(&email) {
+        return Err(ScimError::bad_request(
+            "userName and emails.value must resolve to a valid email address",
+        )
+        .with_scim_type("invalidValue"));
+    }
+    Ok(Some(email))
+}
+
+pub(super) async fn deprovision_scim_user(
+    adapter: &dyn DbAdapter,
+    user_id: &str,
+    provider_id: &str,
+    organization_id: Option<&str>,
+    mode: crate::options::ScimDeprovisionMode,
+) -> Result<(), OpenAuthError> {
+    match mode {
+        crate::options::ScimDeprovisionMode::DeleteUser => delete_scim_user(adapter, user_id).await,
+        crate::options::ScimDeprovisionMode::UnlinkAccount => {
+            unlink_scim_user(adapter, user_id, provider_id, organization_id).await
+        }
+    }
 }
 
 pub(super) async fn delete_scim_user(
@@ -913,6 +958,69 @@ pub(super) async fn delete_scim_user(
                 let users = DbUserStore::new(transaction.as_ref());
                 users.delete_user_accounts(&user_id).await?;
                 users.delete_user(&user_id).await
+            })
+        }))
+        .await
+}
+
+async fn unlink_scim_user(
+    adapter: &dyn DbAdapter,
+    user_id: &str,
+    provider_id: &str,
+    organization_id: Option<&str>,
+) -> Result<(), OpenAuthError> {
+    let user_id = user_id.to_owned();
+    let provider_id = provider_id.to_owned();
+    let organization_id = organization_id.map(str::to_owned);
+    adapter
+        .transaction(Box::new(move |transaction| {
+            Box::pin(async move {
+                transaction
+                    .delete_many(
+                        DeleteMany::new("scimUserProfile")
+                            .where_clause(Where::new("userId", DbValue::String(user_id.clone())))
+                            .where_clause(Where::new(
+                                "providerId",
+                                DbValue::String(provider_id.clone()),
+                            )),
+                    )
+                    .await?;
+                if let Some(organization_id) = organization_id.as_deref() {
+                    transaction
+                        .delete(
+                            Delete::new("member")
+                                .where_clause(Where::new(
+                                    "organization_id",
+                                    DbValue::String(organization_id.to_owned()),
+                                ))
+                                .where_clause(Where::new(
+                                    "user_id",
+                                    DbValue::String(user_id.clone()),
+                                )),
+                        )
+                        .await?;
+                }
+                let users = DbUserStore::new(transaction.as_ref());
+                let accounts = users.list_accounts_for_user(&user_id).await?;
+                if let Some(account) = accounts
+                    .into_iter()
+                    .find(|account| account.provider_id == provider_id)
+                {
+                    users.delete_account(&account.id).await?;
+                }
+                let remaining = users.list_accounts_for_user(&user_id).await?;
+                if remaining.is_empty() {
+                    transaction
+                        .delete_many(
+                            DeleteMany::new("team_member").where_clause(Where::new(
+                                "user_id",
+                                DbValue::String(user_id.clone()),
+                            )),
+                        )
+                        .await?;
+                    users.delete_user(&user_id).await?;
+                }
+                Ok(())
             })
         }))
         .await

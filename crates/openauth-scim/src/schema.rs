@@ -19,6 +19,9 @@ pub fn contributions() -> Vec<PluginSchemaContribution> {
 fn scim_provider_table() -> DbTable {
     let mut fields = IndexMap::new();
     fields.insert("id".to_owned(), DbField::new("id", DbFieldType::String));
+    // Globally unique provider id, matching Better Auth: one SCIM connection row per
+    // logical IdP integration. Use distinct ids (for example `okta` vs `okta-org-a`)
+    // when you need separate tokens or scopes; organization scope lives on the row.
     fields.insert(
         "providerId".to_owned(),
         DbField::new("provider_id", DbFieldType::String).unique(),

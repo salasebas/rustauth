@@ -10,7 +10,7 @@ use openauth_deadpool_postgres::DeadpoolPostgresAdapter;
 use openauth_plugins::organization::organization;
 use openauth_scim::store::{CreateScimProviderInput, ScimProviderStore};
 use openauth_scim::token::encode_bearer_token;
-use openauth_scim::{scim, ScimOptions};
+use openauth_scim::{scim, ScimBulkMode, ScimOptions, ScimTokenStorage};
 use openauth_sqlx::{MySqlAdapter, PostgresAdapter, SqliteAdapter};
 use openauth_tokio_postgres::TokioPostgresAdapter;
 use serde_json::Value;
@@ -154,6 +154,84 @@ async fn sqlite_management_routes_do_not_touch_organization_tables_without_plugi
         )?)
         .await?;
     assert_eq!(deleted.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sqlite_atomic_bulk_rolls_back_when_a_later_operation_fails(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = OpenAuthOptions {
+        base_url: Some("https://app.example.com".to_owned()),
+        secret: Some(SECRET.to_owned()),
+        plugins: vec![scim(ScimOptions {
+            bulk_mode: ScimBulkMode::Atomic,
+            token_storage: ScimTokenStorage::Plain,
+            ..ScimOptions::default()
+        })],
+        advanced: AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    };
+    let context = create_auth_context(options.clone())?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await?;
+    let adapter = Arc::new(SqliteAdapter::with_schema(
+        pool.clone(),
+        context.db_schema.clone(),
+    ));
+    adapter.run_migrations(&context.db_schema).await?;
+    let router_adapter: Arc<dyn DbAdapter> = adapter.clone();
+    let context = create_auth_context_with_adapter(options, router_adapter.clone())?;
+    let router = AuthRouter::with_async_endpoints(
+        context.clone(),
+        Vec::new(),
+        core_auth_async_endpoints(router_adapter),
+    )?;
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await?;
+    let token = encode_bearer_token("base-token", "okta", None);
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/scim/v2/Bulk")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/scim+json")
+        .body(
+            br#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                "Operations":[
+                    {
+                        "method":"POST",
+                        "path":"/Users",
+                        "bulkId":"user-a",
+                        "data":{"userName":"sqlite-atomic@example.com"}
+                    },
+                    {"method":"DELETE","path":"/Users/missing-user-id"}
+                ]
+            }"#
+            .to_vec(),
+        )?;
+    let response = router.handle_async(request).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response)?;
+    assert_eq!(body["Operations"][0]["status"]["code"], 412);
+    assert_eq!(body["Operations"][1]["status"]["code"], 404);
+
+    let users = adapter
+        .find_many(FindMany::new("user").select(["id"]))
+        .await?;
+    assert!(users.is_empty());
     Ok(())
 }
 
@@ -340,7 +418,10 @@ fn scim_options() -> OpenAuthOptions {
     OpenAuthOptions {
         base_url: Some("https://app.example.com".to_owned()),
         secret: Some(SECRET.to_owned()),
-        plugins: vec![organization(), scim(ScimOptions::default())],
+        plugins: vec![
+            organization(),
+            scim(crate::scim_options_for_manual_provider_tokens()),
+        ],
         advanced: AdvancedOptions {
             disable_csrf_check: true,
             disable_origin_check: true,
@@ -354,7 +435,7 @@ fn scim_only_options() -> OpenAuthOptions {
     OpenAuthOptions {
         base_url: Some("https://app.example.com".to_owned()),
         secret: Some(SECRET.to_owned()),
-        plugins: vec![scim(ScimOptions::default())],
+        plugins: vec![scim(crate::scim_options_for_manual_provider_tokens())],
         advanced: AdvancedOptions {
             disable_csrf_check: true,
             disable_origin_check: true,

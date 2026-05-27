@@ -1,7 +1,21 @@
 use openauth_scim::filters::{
-    parse_filter, parse_user_filter, resource_matches_filter, ScimAttributePath,
-    ScimCompareOperator, ScimFilterExpression, ScimFilterOperator,
+    list_user_filter_uses_database_pushdown, parse_filter, parse_user_filter,
+    resource_matches_filter, ScimAttributePath, ScimCompareOperator, ScimFilterExpression,
+    ScimFilterOperator,
 };
+
+#[test]
+fn list_user_filter_pushdown_matches_upstream_user_name_eq_only() {
+    assert!(list_user_filter_uses_database_pushdown(
+        r#"userName eq "ada@example.com""#
+    ));
+    assert!(!list_user_filter_uses_database_pushdown(
+        r#"userName co "ada""#
+    ));
+    assert!(!list_user_filter_uses_database_pushdown(
+        r#"displayName eq "Ada""#
+    ));
+}
 
 #[test]
 fn parses_user_name_eq_filter_case_insensitively() {

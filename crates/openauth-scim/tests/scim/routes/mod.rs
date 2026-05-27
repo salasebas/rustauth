@@ -12,18 +12,29 @@ use openauth_core::user::{CreateUserInput, DbUserStore};
 use openauth_plugins::organization::{organization_with_options, OrganizationOptions};
 use openauth_scim::store::{CreateScimProviderInput, ScimProviderStore};
 use openauth_scim::token::encode_bearer_token;
-use openauth_scim::{scim, DefaultScimProvider, ScimHookError, ScimOptions, ScimTokenStorage};
+use openauth_scim::{
+    scim, DefaultScimProvider, ScimAuditEventKind, ScimAuditEventResolver, ScimBulkMode,
+    ScimDeprovisionMode, ScimHookError, ScimOptions, ScimTokenStorage,
+};
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
 
 const SECRET: &str = "secret-a-at-least-32-chars-long!!";
 
+mod audit;
 mod auth;
 mod bulk;
+mod bulk_atomic;
+mod concurrency;
+mod deprovision;
 mod groups;
+mod groups_auth;
+mod groups_scope;
+mod isolation;
 mod management;
 mod metadata;
 mod organization;
+mod provisioning;
 mod search;
 mod support;
 mod users;

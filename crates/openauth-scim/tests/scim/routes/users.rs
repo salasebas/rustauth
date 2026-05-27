@@ -226,6 +226,109 @@ async fn users_route_rejects_invalid_email_values() {
 }
 
 #[tokio::test]
+async fn users_route_rejects_invalid_user_name_without_emails() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+
+    let create = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Users",
+            r#"{"userName":"ada","name":{"formatted":"Ada Lovelace"}}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(create.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(create);
+    assert_eq!(body["scimType"], "invalidValue");
+    assert_eq!(
+        body["detail"],
+        "userName and emails.value must resolve to a valid email address"
+    );
+}
+
+#[tokio::test]
+async fn users_route_rejects_empty_user_name() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+
+    let create = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Users",
+            r#"{"userName":"   "}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(create.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(create)["detail"], "userName is required");
+}
+
+#[tokio::test]
+async fn users_route_list_supports_user_name_co_filter() {
+    let (adapter, router) = router_with_adapter().expect("router should build");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: None,
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", None);
+
+    for user_name in ["ada-filter@example.com", "grace-filter@example.com"] {
+        let body = format!(r#"{{"userName":"{user_name}"}}"#);
+        let create = router
+            .handle_async(json_request(
+                Method::POST,
+                "/scim/v2/Users",
+                &body,
+                Some(&token),
+            ))
+            .await
+            .expect("request should succeed");
+        assert_eq!(create.status(), StatusCode::CREATED);
+    }
+
+    let filtered = router
+        .handle_async(auth_request(
+            Method::GET,
+            "/scim/v2/Users?filter=userName%20co%20%22ada-filter%22",
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(filtered.status(), StatusCode::OK);
+    let body = json_body(filtered);
+    assert_eq!(body["totalResults"], 1);
+    assert_eq!(body["Resources"][0]["userName"], "ada-filter@example.com");
+}
+
+#[tokio::test]
 async fn users_route_rejects_reserved_profile_attributes_on_create_and_put() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     ScimProviderStore::new(adapter.as_ref())
@@ -339,6 +442,24 @@ async fn user_patch_replaces_valid_emails_and_rejects_invalid_email_values() {
         .expect("request should succeed");
     assert_eq!(multiple_primary.status(), StatusCode::BAD_REQUEST);
     assert_eq!(json_body(multiple_primary)["scimType"], "invalidValue");
+
+    let invalid_user_name = router
+        .handle_async(json_request(
+            Method::PATCH,
+            &format!("/scim/v2/Users/{user_id}"),
+            r#"{
+                "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations":[{"op":"replace","path":"userName","value":"not-an-email"}]
+            }"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(invalid_user_name.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_body(invalid_user_name)["detail"],
+        "userName and emails.value must resolve to a valid email address"
+    );
 }
 
 #[tokio::test]
@@ -598,7 +719,7 @@ async fn users_route_put_replaces_scim_user_fields() {
         .handle_async(json_request(
             Method::POST,
             "/scim/v2/Users",
-            r#"{"userName":"ada","name":{"formatted":"Ada Lovelace"}}"#,
+            r#"{"userName":"ada@example.com","name":{"formatted":"Ada Lovelace"}}"#,
             Some(&token),
         ))
         .await
@@ -1031,7 +1152,8 @@ async fn users_route_accepts_valid_extended_filter_after_validation() {
 #[tokio::test]
 async fn user_resource_includes_read_only_group_memberships() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "groups-owner@example.com")
             .await
@@ -1475,7 +1597,8 @@ async fn users_route_gets_patches_and_deletes_scim_user() {
 #[tokio::test]
 async fn users_route_delete_removes_scim_profile_and_team_memberships() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "cleanup-owner@example.com")
             .await

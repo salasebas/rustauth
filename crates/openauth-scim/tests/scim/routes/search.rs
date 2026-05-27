@@ -3,7 +3,8 @@ use super::*;
 #[tokio::test]
 async fn search_routes_return_filtered_users_groups_and_all_resources() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "search-owner@example.com")
             .await
@@ -71,7 +72,8 @@ async fn search_routes_return_filtered_users_groups_and_all_resources() {
 #[tokio::test]
 async fn search_routes_return_scim_errors_for_invalid_json_bodies() {
     let (adapter, router, context) =
-        router_with_context_and_organization(ScimOptions::default()).expect("router");
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
     let (owner_cookie, owner_id) =
         session_cookie_with_user(adapter.as_ref(), &context, "search-json-owner@example.com")
             .await
