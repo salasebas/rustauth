@@ -15,6 +15,7 @@ mod additional_fields;
 mod dynamic_access_control;
 mod hooks;
 mod openapi;
+mod query;
 mod session;
 mod teams;
 

@@ -1,7 +1,7 @@
 use openauth_core::crypto::random::generate_random_string;
 use openauth_core::db::{
     Count, Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindMany, FindOne, Sort,
-    SortDirection, Update, Where,
+    SortDirection, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use time::OffsetDateTime;
@@ -211,6 +211,29 @@ impl<'a> OrganizationStore<'a> {
             .collect()
     }
 
+    pub async fn list_members(&self, query: MemberListQuery) -> Result<Vec<Member>, OpenAuthError> {
+        let mut find = FindMany::new("member").where_clause(Where::new(
+            "organization_id",
+            DbValue::String(query.organization_id),
+        ));
+        for clause in query.filters {
+            find = find.where_clause(clause);
+        }
+        if let Some(limit) = query.limit {
+            find = find.limit(limit);
+        }
+        if let Some(offset) = query.offset {
+            find = find.offset(offset);
+        }
+        find = find.sort_by(query.sort);
+        self.adapter
+            .find_many(find)
+            .await?
+            .iter()
+            .map(member_from_record)
+            .collect()
+    }
+
     pub async fn count_members(&self, organization_id: &str) -> Result<u64, OpenAuthError> {
         self.adapter
             .count(Count::new("member").where_clause(Where::new(
@@ -218,6 +241,21 @@ impl<'a> OrganizationStore<'a> {
                 DbValue::String(organization_id.to_owned()),
             )))
             .await
+    }
+
+    pub async fn count_members_matching(
+        &self,
+        organization_id: &str,
+        filters: Vec<Where>,
+    ) -> Result<u64, OpenAuthError> {
+        let mut count = Count::new("member").where_clause(Where::new(
+            "organization_id",
+            DbValue::String(organization_id.to_owned()),
+        ));
+        for clause in filters {
+            count = count.where_clause(clause);
+        }
+        self.adapter.count(count).await
     }
 
     pub async fn update_member_role(
@@ -455,6 +493,57 @@ pub struct OrganizationUpdate {
     pub metadata: Option<serde_json::Value>,
     pub metadata_set: bool,
     pub additional_fields: DbRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemberListQuery {
+    pub organization_id: String,
+    pub filters: Vec<Where>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub sort: Sort,
+}
+
+impl MemberListQuery {
+    pub fn new(organization_id: impl Into<String>) -> Self {
+        Self {
+            organization_id: organization_id.into(),
+            filters: Vec::new(),
+            limit: None,
+            offset: None,
+            sort: Sort::new("created_at", SortDirection::Asc),
+        }
+    }
+
+    #[must_use]
+    pub fn filter(
+        mut self,
+        field: impl Into<String>,
+        value: DbValue,
+        operator: WhereOperator,
+    ) -> Self {
+        self.filters
+            .push(Where::new(field, value).operator(operator));
+        self
+    }
+
+    #[must_use]
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    #[must_use]
+    pub fn offset(mut self, offset: usize) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    #[must_use]
+    pub fn sort(mut self, field: impl Into<String>, direction: SortDirection) -> Self {
+        self.sort = Sort::new(field, direction);
+        self
+    }
 }
 
 pub struct CreateInvitationInput<'a> {

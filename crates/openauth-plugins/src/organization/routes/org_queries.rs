@@ -7,6 +7,8 @@ use crate::organization::models::{FullOrganization, Organization};
 use crate::organization::options::OrganizationOptions;
 use crate::organization::store::OrganizationStore;
 
+use super::validation::query_param;
+
 pub(super) fn endpoints(options: OrganizationOptions) -> Vec<AsyncAuthEndpoint> {
     vec![get_full(options.clone()), list(options)]
 }
@@ -31,11 +33,14 @@ fn get_full(options: OrganizationOptions) -> AsyncAuthEndpoint {
                         )
                     }
                 };
-                let Some(organization_id) = session.active_organization_id else {
-                    return http::organization_error(
-                        StatusCode::BAD_REQUEST,
-                        "NO_ACTIVE_ORGANIZATION",
-                    );
+                let Some(organization_id) = resolve_organization_id(
+                    &store,
+                    &request,
+                    session.active_organization_id.as_deref(),
+                )
+                .await?
+                else {
+                    return http::json(StatusCode::OK, &serde_json::Value::Null);
                 };
                 let Some(mut organization) = store.organization_by_id(&organization_id).await?
                 else {
@@ -51,9 +56,13 @@ fn get_full(options: OrganizationOptions) -> AsyncAuthEndpoint {
                     .is_none()
                 {
                     return http::organization_error(
-                        StatusCode::BAD_REQUEST,
+                        StatusCode::FORBIDDEN,
                         "USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION",
                     );
+                }
+                let mut members = store.members(&organization_id).await?;
+                if let Some(limit) = optional_usize_query(&request, "membersLimit") {
+                    members.truncate(limit);
                 }
                 let teams = if options.teams.enabled {
                     store.teams_for_organization(&organization_id).await?
@@ -64,7 +73,7 @@ fn get_full(options: OrganizationOptions) -> AsyncAuthEndpoint {
                     StatusCode::OK,
                     &FullOrganization {
                         organization,
-                        members: store.members(&organization_id).await?,
+                        members,
                         invitations: store.invitations_for_organization(&organization_id).await?,
                         teams,
                     },
@@ -112,4 +121,27 @@ fn retain_returned_organization_fields(
         &mut organization.additional_fields,
         &options.schema.organization.additional_fields,
     );
+}
+
+async fn resolve_organization_id(
+    store: &OrganizationStore<'_>,
+    request: &openauth_core::api::ApiRequest,
+    active_organization_id: Option<&str>,
+) -> Result<Option<String>, openauth_core::error::OpenAuthError> {
+    if let Some(slug) = query_param(request, "organizationSlug") {
+        return match store.organization_by_slug(&slug).await? {
+            Some(organization) => Ok(Some(organization.id)),
+            None => Err(openauth_core::error::OpenAuthError::Api(
+                "ORGANIZATION_NOT_FOUND".to_owned(),
+            )),
+        };
+    }
+    if let Some(id) = query_param(request, "organizationId") {
+        return Ok(Some(id));
+    }
+    Ok(active_organization_id.map(str::to_owned))
+}
+
+fn optional_usize_query(request: &openauth_core::api::ApiRequest, name: &str) -> Option<usize> {
+    query_param(request, name).and_then(|value| value.parse().ok())
 }

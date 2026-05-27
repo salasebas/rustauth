@@ -4,7 +4,9 @@ use http::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::api::additional_fields::AdditionalField as RuntimeAdditionalField;
 use crate::context::AuthContext;
+use crate::db::{DbField, DbFieldType, DbValue};
 
 use super::endpoint::AsyncAuthEndpoint;
 
@@ -318,7 +320,7 @@ pub fn build_openapi_schema(context: &AuthContext, async_endpoints: &[AsyncAuthE
             "version": crate::VERSION,
         },
         "components": {
-            "schemas": openapi_model_schemas(),
+            "schemas": openapi_model_schemas(context),
             "securitySchemes": {
                 "apiKeyCookie": {
                     "type": "apiKey",
@@ -501,67 +503,238 @@ pub fn path_param(name: &str, description: &str) -> Value {
     })
 }
 
-pub(super) fn openapi_model_schemas() -> Value {
-    json!({
-        "User": {
-            "type": "object",
-            "properties": {
-                "id": { "type": "string" },
-                "email": { "type": "string", "format": "email" },
-                "name": { "type": "string" },
-                "image": { "type": "string", "format": "uri", "nullable": true },
-                "emailVerified": { "type": "boolean" },
-                "createdAt": { "type": "string", "format": "date-time" },
-                "updatedAt": { "type": "string", "format": "date-time" },
-            },
-            "required": ["id", "email", "name", "emailVerified", "createdAt", "updatedAt"],
-            "additionalProperties": true,
-        },
-        "Session": {
-            "type": "object",
-            "properties": {
-                "id": { "type": "string" },
-                "userId": { "type": "string" },
-                "expiresAt": { "type": "string", "format": "date-time" },
-                "token": { "type": "string" },
-                "ipAddress": { "type": "string", "nullable": true },
-                "userAgent": { "type": "string", "nullable": true },
-                "createdAt": { "type": "string", "format": "date-time" },
-                "updatedAt": { "type": "string", "format": "date-time" },
-            },
-            "required": ["id", "userId", "expiresAt", "token", "createdAt", "updatedAt"],
-            "additionalProperties": true,
-        },
-        "Account": {
-            "type": "object",
-            "properties": {
-                "id": { "type": "string" },
-                "providerId": { "type": "string" },
-                "accountId": { "type": "string" },
-                "userId": { "type": "string" },
-                "accessToken": { "type": "string", "nullable": true },
-                "refreshToken": { "type": "string", "nullable": true },
-                "idToken": { "type": "string", "nullable": true },
-                "scope": { "type": "string", "nullable": true },
-                "password": { "type": "string", "nullable": true },
-                "createdAt": { "type": "string", "format": "date-time" },
-                "updatedAt": { "type": "string", "format": "date-time" },
-            },
-            "required": ["id", "providerId", "accountId", "userId", "createdAt", "updatedAt"],
-            "additionalProperties": true,
-        },
-        "Verification": {
-            "type": "object",
-            "properties": {
-                "id": { "type": "string" },
-                "identifier": { "type": "string" },
-                "value": { "type": "string" },
-                "expiresAt": { "type": "string", "format": "date-time" },
-                "createdAt": { "type": "string", "format": "date-time" },
-                "updatedAt": { "type": "string", "format": "date-time" },
-            },
-            "required": ["id", "identifier", "value", "expiresAt", "createdAt", "updatedAt"],
-            "additionalProperties": true,
-        },
-    })
+pub(super) fn openapi_model_schemas(context: &AuthContext) -> Value {
+    let mut schemas = serde_json::Map::new();
+    for (logical_table, table) in context.db_schema.tables() {
+        let mut properties = serde_json::Map::new();
+        let mut required = Vec::new();
+        for (logical_field, field) in &table.fields {
+            let property_name = openapi_property_name(logical_field);
+            if field.required {
+                required.push(Value::String(property_name.clone()));
+            }
+            properties.insert(
+                property_name,
+                openapi_field_schema(context, logical_table, logical_field, field),
+            );
+        }
+        match logical_table {
+            "user" => append_runtime_additional_fields(
+                context,
+                logical_table,
+                &mut properties,
+                &mut required,
+                &context.options.user.additional_fields,
+            ),
+            "session" => append_runtime_additional_fields(
+                context,
+                logical_table,
+                &mut properties,
+                &mut required,
+                &context.options.session.additional_fields,
+            ),
+            _ => {}
+        }
+
+        schemas.insert(
+            openapi_schema_name(logical_table),
+            json!({
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": true,
+            }),
+        );
+    }
+    Value::Object(schemas)
+}
+
+fn append_runtime_additional_fields<F>(
+    context: &AuthContext,
+    logical_table: &str,
+    properties: &mut serde_json::Map<String, Value>,
+    required: &mut Vec<Value>,
+    fields: &std::collections::BTreeMap<String, F>,
+) where
+    F: RuntimeAdditionalField,
+{
+    for (logical_field, field) in fields {
+        let property_name = openapi_property_name(logical_field);
+        if properties.contains_key(&property_name) {
+            continue;
+        }
+        let db_field = DbField {
+            name: field
+                .db_name()
+                .map(str::to_owned)
+                .unwrap_or_else(|| logical_field.clone()),
+            field_type: field.field_type().clone(),
+            required: field.required(),
+            unique: false,
+            index: false,
+            returned: field.returned(),
+            input: field.input(),
+            foreign_key: None,
+            generated_id: None,
+        };
+        if db_field.required {
+            required.push(Value::String(property_name.clone()));
+        }
+        properties.insert(
+            property_name,
+            openapi_field_schema(context, logical_table, logical_field, &db_field),
+        );
+    }
+}
+
+fn openapi_field_schema(
+    context: &AuthContext,
+    logical_table: &str,
+    logical_field: &str,
+    field: &DbField,
+) -> Value {
+    let mut schema = serde_json::Map::new();
+    let type_name = openapi_field_type(&field.field_type);
+    if field.required {
+        schema.insert("type".to_owned(), Value::String(type_name.to_owned()));
+    } else {
+        schema.insert("type".to_owned(), json!([type_name, "null"]));
+    }
+    match field.field_type {
+        DbFieldType::String => {
+            if logical_field == "email" {
+                schema.insert("format".to_owned(), Value::String("email".to_owned()));
+            } else if logical_field == "image" || logical_field == "logo" {
+                schema.insert("format".to_owned(), Value::String("uri".to_owned()));
+            }
+        }
+        DbFieldType::Timestamp => {
+            schema.insert("format".to_owned(), Value::String("date-time".to_owned()));
+        }
+        DbFieldType::StringArray => {
+            schema.insert("items".to_owned(), json!({ "type": "string" }));
+        }
+        DbFieldType::NumberArray => {
+            schema.insert("items".to_owned(), json!({ "type": "number" }));
+        }
+        DbFieldType::Number | DbFieldType::Boolean | DbFieldType::Json => {}
+    }
+    if !field.input {
+        schema.insert("readOnly".to_owned(), Value::Bool(true));
+    }
+    if let Some(default_value) = openapi_field_default(context, logical_table, logical_field) {
+        schema.insert("default".to_owned(), default_value);
+    }
+    Value::Object(schema)
+}
+
+fn openapi_field_type(field_type: &DbFieldType) -> &'static str {
+    match field_type {
+        DbFieldType::String | DbFieldType::Timestamp => "string",
+        DbFieldType::Number => "number",
+        DbFieldType::Boolean => "boolean",
+        DbFieldType::Json => "object",
+        DbFieldType::StringArray | DbFieldType::NumberArray => "array",
+    }
+}
+
+fn openapi_field_default(
+    context: &AuthContext,
+    logical_table: &str,
+    logical_field: &str,
+) -> Option<Value> {
+    let value = match logical_table {
+        "user" => context
+            .options
+            .user
+            .additional_fields
+            .get(logical_field)
+            .and_then(|field| field.default_value.as_ref()),
+        "session" => context
+            .options
+            .session
+            .additional_fields
+            .get(logical_field)
+            .and_then(|field| field.default_value.as_ref()),
+        _ => None,
+    }?;
+    db_value_to_openapi_default(value)
+}
+
+fn db_value_to_openapi_default(value: &DbValue) -> Option<Value> {
+    match value {
+        DbValue::String(value) => Some(Value::String(value.clone())),
+        DbValue::Number(value) => Some(Value::Number((*value).into())),
+        DbValue::Boolean(value) => Some(Value::Bool(*value)),
+        DbValue::Json(value) => Some(value.clone()),
+        DbValue::StringArray(values) => Some(Value::Array(
+            values.iter().cloned().map(Value::String).collect(),
+        )),
+        DbValue::NumberArray(values) => Some(Value::Array(
+            values
+                .iter()
+                .map(|value| Value::Number((*value).into()))
+                .collect(),
+        )),
+        DbValue::Null => Some(Value::Null),
+        DbValue::Timestamp(_) | DbValue::Record(_) | DbValue::RecordArray(_) => None,
+    }
+}
+
+fn openapi_schema_name(logical_table: &str) -> String {
+    match logical_table {
+        "user" => "User".to_owned(),
+        "session" => "Session".to_owned(),
+        "account" => "Account".to_owned(),
+        "verification" => "Verification".to_owned(),
+        "rate_limit" => "RateLimit".to_owned(),
+        "organization" => "Organization".to_owned(),
+        "member" => "Member".to_owned(),
+        "invitation" => "Invitation".to_owned(),
+        "team" => "Team".to_owned(),
+        "team_member" => "TeamMember".to_owned(),
+        "organization_role" => "OrganizationRole".to_owned(),
+        "walletAddress" => "WalletAddress".to_owned(),
+        value => pascal_case(value),
+    }
+}
+
+fn openapi_property_name(logical_field: &str) -> String {
+    snake_to_camel(logical_field)
+}
+
+fn snake_to_camel(value: &str) -> String {
+    let mut output = String::new();
+    let mut uppercase_next = false;
+    for character in value.chars() {
+        if character == '_' {
+            uppercase_next = true;
+            continue;
+        }
+        if uppercase_next {
+            output.extend(character.to_uppercase());
+            uppercase_next = false;
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
+fn pascal_case(value: &str) -> String {
+    let mut output = String::new();
+    let mut capitalize = true;
+    for character in value.chars() {
+        if matches!(character, '_' | '-' | ' ') {
+            capitalize = true;
+            continue;
+        }
+        if capitalize {
+            output.extend(character.to_uppercase());
+            capitalize = false;
+        } else {
+            output.push(character);
+        }
+    }
+    output
 }

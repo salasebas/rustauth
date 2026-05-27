@@ -9,7 +9,10 @@ use openauth_core::db::{
     DbAdapter, DbRecord, DbValue, FindOne, HookedAdapter, JoinAdapter, MemoryAdapter, Update, Where,
 };
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{
+    AdvancedOptions, OnPasswordReset, OpenAuthOptions, PasswordOptions, PasswordResetPayload,
+    UserAdditionalField, UserOptions,
+};
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
@@ -159,6 +162,36 @@ async fn update_phone_number_requires_session_and_rejects_duplicates(
 }
 
 #[tokio::test]
+async fn update_phone_number_returns_current_session_token(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, true).await?;
+    seed_otp(&adapter, NEW_PHONE, "123456", 0, 300).await?;
+    let session = DbSessionStore::new(adapter.as_ref())
+        .create_session(CreateSessionInput::new(
+            "user_1",
+            OffsetDateTime::now_utc() + Duration::hours(1),
+        ))
+        .await?;
+    let cookie = signed_session_cookie(&session.token)?;
+    let router = router_with_options(PhoneNumberOptions::default(), adapter)?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{NEW_PHONE}","code":"123456","updatePhoneNumber":true}}"#),
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["token"], session.token);
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_up_on_verification_creates_user() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     seed_otp(&adapter, PHONE, "123456", 0, 300).await?;
@@ -184,6 +217,46 @@ async fn sign_up_on_verification_creates_user() -> Result<(), Box<dyn std::error
     assert_eq!(
         user.get("email"),
         Some(&DbValue::String("1234567890@temp.example".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_up_on_verification_persists_user_additional_fields(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_otp(&adapter, PHONE, "123456", 0, 300).await?;
+    let options = PhoneNumberOptions::default().sign_up_on_verification(SignUpOnVerification {
+        get_temp_email: Arc::new(|phone| format!("{}@temp.example", phone.trim_start_matches('+'))),
+        get_temp_name: None,
+    });
+    let openauth_options = OpenAuthOptions {
+        user: UserOptions::new().additional_field(
+            "role",
+            UserAdditionalField::new(openauth_core::db::DbFieldType::String),
+        ),
+        ..OpenAuthOptions::default()
+    };
+    let router = router_with_options_and_openauth(options, adapter.clone(), openauth_options)?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(
+                r#"{{"phoneNumber":"{PHONE}","code":"123456","disableSession":true,"role":"phone-user"}}"#
+            ),
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let user = find_user_by_phone(&adapter, PHONE)
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        user.get("role"),
+        Some(&DbValue::String("phone-user".to_owned()))
     );
     Ok(())
 }
@@ -259,6 +332,67 @@ async fn request_and_reset_password_by_phone() -> Result<(), Box<dyn std::error:
 }
 
 #[tokio::test]
+async fn reset_password_runs_callback_and_revokes_sessions_when_configured(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sent = Arc::new(Mutex::new(String::new()));
+    let reset_users = Arc::new(Mutex::new(Vec::new()));
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, true).await?;
+    DbSessionStore::new(adapter.as_ref())
+        .create_session(CreateSessionInput::new(
+            "user_1",
+            OffsetDateTime::now_utc() + Duration::hours(1),
+        ))
+        .await?;
+    let options = PhoneNumberOptions::default().send_password_reset_otp({
+        let sent = Arc::clone(&sent);
+        move |_phone_number, code| {
+            *sent
+                .lock()
+                .map_err(|_| OpenAuthError::Api("lock poisoned".to_owned()))? = code.to_owned();
+            Ok(())
+        }
+    });
+    let openauth_options = OpenAuthOptions {
+        password: PasswordOptions::default()
+            .on_password_reset(RecordPasswordReset {
+                user_ids: Arc::clone(&reset_users),
+            })
+            .revoke_sessions_on_password_reset(true),
+        ..OpenAuthOptions::default()
+    };
+    let router = router_with_options_and_openauth(options, adapter.clone(), openauth_options)?;
+
+    let requested = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/request-password-reset",
+            &format!(r#"{{"phoneNumber":"{PHONE}"}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(requested.status(), StatusCode::OK);
+    let code = sent.lock().map_err(|_| "lock poisoned")?.clone();
+
+    let reset = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/reset-password",
+            &format!(r#"{{"phoneNumber":"{PHONE}","otp":"{code}","newPassword":"newsecret123"}}"#),
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(reset.status(), StatusCode::OK);
+    assert_eq!(
+        reset_users.lock().map_err(|_| "lock poisoned")?.as_slice(),
+        ["user_1"]
+    );
+    assert_eq!(adapter.len("session").await, 0);
+    Ok(())
+}
+
+#[tokio::test]
 async fn update_user_can_clear_phone_and_resets_verified() -> Result<(), Box<dyn std::error::Error>>
 {
     let adapter = Arc::new(MemoryAdapter::new());
@@ -323,36 +457,61 @@ async fn custom_verify_otp_bypasses_internal_otp_store() -> Result<(), Box<dyn s
     Ok(())
 }
 
+#[tokio::test]
+async fn custom_verify_otp_deletes_existing_internal_otp() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, false).await?;
+    seed_otp(&adapter, PHONE, "123456", 0, 300).await?;
+    let options =
+        PhoneNumberOptions::default().verify_otp(|_phone_number, code| Ok(code == "external"));
+    let router = router_with_options(options, adapter.clone())?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{PHONE}","code":"external","disableSession":true}}"#),
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(find_verification(&adapter, PHONE).await?.is_none());
+    Ok(())
+}
+
 fn router_with_options(
     options: PhoneNumberOptions,
     inner: Arc<MemoryAdapter>,
 ) -> Result<AuthRouter, OpenAuthError> {
+    router_with_options_and_openauth(options, inner, OpenAuthOptions::default())
+}
+
+fn router_with_options_and_openauth(
+    options: PhoneNumberOptions,
+    inner: Arc<MemoryAdapter>,
+    openauth_options: OpenAuthOptions,
+) -> Result<AuthRouter, OpenAuthError> {
     let base_adapter: Arc<dyn DbAdapter> = inner;
     let plugin = phone_number(Arc::clone(&base_adapter), options.clone());
-    let initial_context = create_auth_context_with_adapter(
-        OpenAuthOptions {
-            secret: Some(secret().to_owned()),
-            plugins: vec![plugin.clone()],
-            advanced: advanced_options(),
-            ..OpenAuthOptions::default()
-        },
-        Arc::clone(&base_adapter),
-    )?;
+    let mut initial_options = openauth_options.clone();
+    initial_options.secret = Some(secret().to_owned());
+    initial_options.plugins = vec![plugin.clone()];
+    initial_options.advanced = advanced_options();
+    let initial_context =
+        create_auth_context_with_adapter(initial_options, Arc::clone(&base_adapter))?;
     let hooked: Arc<dyn DbAdapter> = Arc::new(HookedAdapter::new(
         Arc::clone(&base_adapter),
         initial_context.plugin_database_hooks.clone(),
     ));
     let adapter: Arc<dyn DbAdapter> =
         Arc::new(JoinAdapter::new(initial_context.db_schema, hooked, false));
-    let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
-            secret: Some(secret().to_owned()),
-            plugins: vec![phone_number(Arc::clone(&adapter), options)],
-            advanced: advanced_options(),
-            ..OpenAuthOptions::default()
-        },
-        Arc::clone(&adapter),
-    )?;
+    let mut final_options = openauth_options;
+    final_options.secret = Some(secret().to_owned());
+    final_options.plugins = vec![phone_number(Arc::clone(&adapter), options)];
+    final_options.advanced = advanced_options();
+    let context = create_auth_context_with_adapter(final_options, Arc::clone(&adapter))?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
 }
 
@@ -494,4 +653,22 @@ async fn find_verification(
             DbValue::String(identifier.to_owned()),
         )))
         .await
+}
+
+struct RecordPasswordReset {
+    user_ids: Arc<Mutex<Vec<String>>>,
+}
+
+impl OnPasswordReset for RecordPasswordReset {
+    fn on_password_reset(
+        &self,
+        payload: PasswordResetPayload,
+        _request: Option<&Request<Vec<u8>>>,
+    ) -> Result<(), OpenAuthError> {
+        self.user_ids
+            .lock()
+            .map_err(|_| OpenAuthError::Api("lock poisoned".to_owned()))?
+            .push(payload.user.id);
+        Ok(())
+    }
 }
