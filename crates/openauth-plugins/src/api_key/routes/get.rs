@@ -32,8 +32,8 @@ pub fn get_endpoint(configurations: SharedConfigurations) -> openauth_core::api:
                 let Some(identity) = current_identity(context, &request).await? else {
                     return error(StatusCode::UNAUTHORIZED, errors::UNAUTHORIZED_SESSION);
                 };
-                let Some(api_key) = ApiKeyStore::new(context, &options).get_by_id(&id).await?
-                else {
+                let store = ApiKeyStore::new(context, &options);
+                let Some(mut api_key) = store.get_by_id(&id).await? else {
                     return error(StatusCode::NOT_FOUND, errors::KEY_NOT_FOUND);
                 };
                 let expected_config_id = options.config_id.as_deref().unwrap_or("default");
@@ -63,6 +63,7 @@ pub fn get_endpoint(configurations: SharedConfigurations) -> openauth_core::api:
                         }
                     }
                 }
+                store.migrate_metadata_if_needed(&mut api_key).await;
                 json(StatusCode::OK, &api_key.public())
             })
         },

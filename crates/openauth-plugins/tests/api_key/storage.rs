@@ -3,7 +3,8 @@ use std::sync::Arc;
 use http::{Method, StatusCode};
 use openauth_core::db::{DbAdapter, DbValue, Delete, MemoryAdapter, Where};
 use openauth_plugins::api_key::{
-    api_key_with_options, ApiKeyConfiguration, ApiKeyOptions, ApiKeyStorageMode, API_KEY_MODEL,
+    api_key_with_options, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions,
+    ApiKeyStorageMode, API_KEY_MODEL,
 };
 use serde_json::json;
 
@@ -56,6 +57,50 @@ async fn secondary_storage_mode_does_not_write_database_rows(
     .await?;
     assert_eq!(verified.status, StatusCode::OK);
     assert_eq!(verified.body["valid"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn malformed_secondary_storage_payload_is_treated_as_missing(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = test_router(
+        adapter,
+        api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                storage: ApiKeyStorageMode::SecondaryStorage,
+                custom_storage: Some(storage.clone()),
+                ..ApiKeyConfiguration::default()
+            },
+        }),
+    )?;
+    let user = sign_up(&router, "Bad Cache", "bad-cache-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"malformed"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    let key = created.body["key"].as_str().ok_or("missing api key")?;
+    let hashed = default_key_hasher(key);
+    storage.insert_raw(format!("api-key:{hashed}"), "not-json");
+
+    let verified = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/verify",
+        json!({"key": key}),
+        None,
+        None,
+    )
+    .await?;
+
+    assert_eq!(verified.status, StatusCode::OK);
+    assert_eq!(verified.body["valid"], false);
     Ok(())
 }
 

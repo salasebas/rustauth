@@ -181,7 +181,7 @@ pub fn create_endpoint(
                             .unwrap_or(options.rate_limit.max_requests),
                     ),
                     request_count: 0,
-                    remaining: input.remaining.or(input.refill_amount),
+                    remaining: input.remaining,
                     last_request: None,
                     expires_at,
                     created_at: now,

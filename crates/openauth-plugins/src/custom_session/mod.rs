@@ -16,6 +16,7 @@ pub const UPSTREAM_PLUGIN_ID: &str = "custom-session";
 
 /// Options for the custom session plugin.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CustomSessionOptions {
     pub should_mutate_list_device_sessions_endpoint: bool,
 }

@@ -94,6 +94,14 @@ impl ApiKeyRecord {
         }
     }
 
+    pub(crate) fn normalized_metadata(&self) -> Option<Value> {
+        normalize_metadata(self.metadata.clone())
+    }
+
+    pub(crate) fn needs_metadata_migration(&self) -> bool {
+        matches!(self.metadata, Some(Value::String(_)))
+    }
+
     pub fn to_record(&self) -> DbRecord {
         DbRecord::from([
             ("id".to_owned(), DbValue::String(self.id.clone())),

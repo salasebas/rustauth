@@ -53,3 +53,16 @@ async fn raw_session_token_is_rejected_when_signature_is_required(
     assert!(body.is_null());
     Ok(())
 }
+
+#[test]
+fn bearer_options_serialize_with_upstream_camel_case() {
+    let plugin =
+        openauth_plugins::bearer::bearer_with_options(openauth_plugins::bearer::BearerOptions {
+            require_signature: true,
+        });
+
+    assert_eq!(
+        plugin.options,
+        Some(serde_json::json!({ "requireSignature": true }))
+    );
+}

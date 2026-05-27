@@ -20,6 +20,7 @@ use openauth_core::db::Session;
 use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::{AuthPlugin, PluginBeforeHookAction};
 use openauth_core::user::DbUserStore;
+use openauth_core::utils::ip::{is_valid_ip, normalize_ip_with_options, NormalizeIpOptions};
 use serde::Serialize;
 use time::{Duration, OffsetDateTime};
 
@@ -96,7 +97,8 @@ async fn session_hook(
     }
     if let Some(validator) = &options.custom_api_key_validator {
         if !validator(context, &raw_key).await? {
-            return Ok(PluginBeforeHookAction::Continue(request));
+            return errors::error_response(StatusCode::FORBIDDEN, errors::INVALID_API_KEY)
+                .map(PluginBeforeHookAction::Respond);
         }
     }
     let hashed = if options.disable_key_hashing {
@@ -106,10 +108,17 @@ async fn session_hook(
     };
     let api_key = match routes::validate_api_key(context, &options, &hashed, None).await {
         Ok(api_key) => api_key,
-        Err(_) => return Ok(PluginBeforeHookAction::Continue(request)),
+        Err(error) => {
+            return errors::error_response(error.status, error.code)
+                .map(PluginBeforeHookAction::Respond);
+        }
     };
     if options.reference != ApiKeyReference::User {
-        return Ok(PluginBeforeHookAction::Continue(request));
+        return errors::error_response(
+            StatusCode::UNAUTHORIZED,
+            errors::INVALID_REFERENCE_ID_FROM_API_KEY,
+        )
+        .map(PluginBeforeHookAction::Respond);
     }
     let Some(adapter) = context.adapter() else {
         return Ok(PluginBeforeHookAction::Continue(request));
@@ -118,7 +127,11 @@ async fn session_hook(
         .find_user_by_id(&api_key.reference_id)
         .await?
     else {
-        return Ok(PluginBeforeHookAction::Continue(request));
+        return errors::error_response(
+            StatusCode::UNAUTHORIZED,
+            errors::INVALID_REFERENCE_ID_FROM_API_KEY,
+        )
+        .map(PluginBeforeHookAction::Respond);
     };
     let now = OffsetDateTime::now_utc();
     let expires_at = match api_key.expires_at {
@@ -130,7 +143,7 @@ async fn session_hook(
         user_id: api_key.reference_id.clone(),
         expires_at,
         token: raw_key,
-        ip_address: None,
+        ip_address: request_ip(context, &request),
         user_agent: request
             .headers()
             .get(header::USER_AGENT)
@@ -175,6 +188,38 @@ async fn find_session_key(
         }
     }
     Ok(None)
+}
+
+fn request_ip(
+    context: &openauth_core::context::AuthContext,
+    request: &openauth_core::plugin::PluginRequest,
+) -> Option<String> {
+    if context.options.advanced.ip_address.disable_ip_tracking {
+        return None;
+    }
+
+    for header_name in &context.options.advanced.ip_address.headers {
+        let Some(value) = request
+            .headers()
+            .get(header_name.as_str())
+            .and_then(|value| value.to_str().ok())
+        else {
+            continue;
+        };
+        for candidate in value.split(',').map(str::trim) {
+            if candidate.is_empty() || !is_valid_ip(candidate) {
+                continue;
+            }
+            return Some(normalize_ip_with_options(
+                candidate,
+                NormalizeIpOptions {
+                    ipv6_subnet: context.options.advanced.ip_address.ipv6_subnet,
+                },
+            ));
+        }
+    }
+
+    None
 }
 
 fn session_expiration_from_context(

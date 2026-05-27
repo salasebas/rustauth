@@ -147,12 +147,13 @@ pub fn update_endpoint(
                 if let Err(code) = apply_update(&mut api_key, input, &options) {
                     return error(StatusCode::BAD_REQUEST, code);
                 }
-                let Some(updated) = store.update(&api_key).await? else {
+                let Some(mut updated) = store.update(&api_key).await? else {
                     return error(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         errors::FAILED_TO_UPDATE_API_KEY,
                     );
                 };
+                store.migrate_metadata_if_needed(&mut updated).await;
                 json(StatusCode::OK, &updated.public())
             })
         },
@@ -203,8 +204,11 @@ fn apply_update(
         }
         api_key.metadata = Some(metadata);
     }
-    if input.refill_amount.is_some() ^ input.refill_interval.is_some() {
+    if input.refill_amount.is_some() && input.refill_interval.is_none() {
         return Err(errors::REFILL_AMOUNT_AND_INTERVAL_REQUIRED);
+    }
+    if input.refill_interval.is_some() && input.refill_amount.is_none() {
+        return Err(errors::REFILL_INTERVAL_AND_AMOUNT_REQUIRED);
     }
     match input.expires_in {
         UpdateField::Missing => {}
