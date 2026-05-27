@@ -120,11 +120,6 @@ pub fn validate_single_assertion(encoded_response: &str) -> Result<(), OpenAuthE
             "SAML response contains no assertions".to_owned(),
         ));
     }
-    if counts.assertions == 0 && counts.encrypted_assertions == 1 {
-        return Err(OpenAuthError::Api(
-            ENCRYPTED_ASSERTION_UNSUPPORTED.to_owned(),
-        ));
-    }
     if counts.total > 1 {
         return Err(OpenAuthError::Api(format!(
             "SAML response contains {} assertions, expected exactly 1",
@@ -160,6 +155,7 @@ pub struct ParsedSamlAssertion {
     pub id: String,
     pub issuer: Option<String>,
     pub name_id: Option<String>,
+    pub audiences: Vec<String>,
     pub conditions: Option<SamlConditions>,
     pub subject_confirmation: Option<ParsedSubjectConfirmation>,
     pub attributes: BTreeMap<String, String>,
@@ -322,6 +318,7 @@ struct SamlResponseParseState {
     status_code: Option<String>,
     assertion_id: Option<String>,
     name_id: Option<String>,
+    audiences: Vec<String>,
     conditions: Option<SamlConditions>,
     subject_confirmation: Option<ParsedSubjectConfirmation>,
     attributes: BTreeMap<String, String>,
@@ -371,6 +368,15 @@ impl SamlResponseParseState {
             "NameID" if self.name_id.is_none() && !self.current_text.is_empty() => {
                 self.name_id = Some(self.current_text.clone());
             }
+            "Audience"
+                if self.stack_contains("Assertion")
+                    && self.stack_contains("AudienceRestriction") =>
+            {
+                let audience = self.current_text.trim();
+                if !audience.is_empty() {
+                    self.audiences.push(audience.to_owned());
+                }
+            }
             "AttributeValue" => {
                 if let Some((_, value)) = &mut self.current_attribute {
                     if value.is_empty() {
@@ -419,6 +425,7 @@ impl SamlResponseParseState {
                 id: assertion_id,
                 issuer: self.assertion_issuer,
                 name_id: self.name_id,
+                audiences: self.audiences,
                 conditions: self.conditions,
                 subject_confirmation: self.subject_confirmation,
                 attributes: self.attributes,

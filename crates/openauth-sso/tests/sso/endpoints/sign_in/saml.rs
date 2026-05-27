@@ -143,3 +143,64 @@ async fn sign_in_sso_with_saml_provider_prefers_explicit_acs_url(
 
     Ok(())
 }
+
+#[tokio::test]
+async fn sign_in_sso_with_configured_saml_services_prefers_redirect_binding(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_options(SsoOptions::default())?;
+    let cookie = seed_session(&adapter).await?;
+    router
+        .handle_async(json_request(
+            Method::POST,
+            "/sso/register",
+            r#"{
+                "providerId":"saml-okta",
+                "issuer":"https://idp.example.com",
+                "domain":"example.com",
+                "samlConfig":{
+                    "issuer":"https://app.example.com/sso/saml2/sp/metadata",
+                    "cert":"CERTIFICATE",
+                    "callbackUrl":"https://app.example.com/sso/saml2/sp/acs/saml-okta",
+                    "spMetadata":{"entityId":"https://app.example.com/saml/sp"},
+                    "wantAssertionsSigned":false,
+                    "authnRequestsSigned":false,
+                    "idpMetadata":{
+                        "singleSignOnService":[{
+                            "Binding":"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST",
+                            "Location":"https://idp.example.com/saml/post"
+                        },{
+                            "Binding":"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect",
+                            "Location":"https://idp.example.com/saml/redirect"
+                        }]
+                    }
+                }
+            }"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    let records = adapter.records("ssoProvider").await;
+    let Some(DbValue::String(config)) = records[0].get("samlConfig") else {
+        return Err("missing stored SAML config".into());
+    };
+    assert!(config.contains(r#""entryPoint":"https://idp.example.com/saml/redirect""#));
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sign-in/sso",
+            r#"{"providerId":"saml-okta","providerType":"saml","callbackURL":"/dashboard"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response)?;
+    let url = url::Url::parse(body["url"].as_str().ok_or("missing URL")?)?;
+    assert_eq!(
+        url.as_str().split('?').next(),
+        Some("https://idp.example.com/saml/redirect")
+    );
+
+    Ok(())
+}

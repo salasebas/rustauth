@@ -819,6 +819,17 @@ fn validate_parsed_saml_response(
     {
         return Err("SAML_ISSUER_MISMATCH");
     }
+    if !parsed.assertion.audiences.is_empty() {
+        let expected_audience = expected_saml_audience(config);
+        if !parsed
+            .assertion
+            .audiences
+            .iter()
+            .any(|audience| audience == expected_audience)
+        {
+            return Err("SAML_AUDIENCE_MISMATCH");
+        }
+    }
     if let Some(record) = authn_record {
         let expected = record.id.as_str();
         let response_matches = parsed.response_in_response_to.as_deref() == Some(expected);
@@ -861,6 +872,14 @@ fn expected_idp_issuer<'a>(
         .as_ref()
         .and_then(|metadata| metadata.entity_id.as_deref())
         .unwrap_or(provider.issuer.as_str())
+}
+
+fn expected_saml_audience(config: &SamlConfig) -> &str {
+    config
+        .audience
+        .as_deref()
+        .or(config.sp_metadata.entity_id.as_deref())
+        .unwrap_or(config.issuer.as_str())
 }
 
 fn saml_user_info(

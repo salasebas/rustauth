@@ -1,11 +1,12 @@
 use openauth_saml::{
     assertions::{count_assertions, parse_saml_response, validate_single_assertion},
-    collect_saml_runtime_algorithms, validate_saml_config_algorithms,
-    validate_saml_config_algorithms_with_policy, validate_saml_runtime_algorithms,
-    validate_saml_timestamp,
+    collect_saml_runtime_algorithms,
+    metadata::service_provider_metadata,
+    validate_saml_config_algorithms, validate_saml_config_algorithms_with_policy,
+    validate_saml_runtime_algorithms, validate_saml_timestamp,
     xml::validate_saml_xml,
-    DeprecatedAlgorithmBehavior, DigestAlgorithm, SamlConditions, SamlRuntimeAlgorithmPolicy,
-    SamlSecurityError, SignatureAlgorithm, TimestampValidationOptions,
+    DeprecatedAlgorithmBehavior, DigestAlgorithm, SamlConditions, SamlConfig, SamlIdpMetadata,
+    SamlRuntimeAlgorithmPolicy, SamlSecurityError, SignatureAlgorithm, TimestampValidationOptions,
 };
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
@@ -57,6 +58,21 @@ fn validate_single_assertion_accepts_namespaced_assertion() -> Result<(), Box<dy
     let xml = r#"
         <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion">
             <saml2:Assertion ID="assertion-1"></saml2:Assertion>
+        </samlp:Response>
+    "#;
+
+    validate_single_assertion(&encode_saml_xml(xml))?;
+    Ok(())
+}
+
+#[test]
+fn validate_single_assertion_accepts_single_encrypted_assertion(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#">
+            <saml:EncryptedAssertion>
+                <xenc:EncryptedData>encrypted</xenc:EncryptedData>
+            </saml:EncryptedAssertion>
         </samlp:Response>
     "#;
 
@@ -145,6 +161,153 @@ fn encrypted_assertion_without_decryption_support_fails_closed(
     assert!(error
         .to_string()
         .contains("Encrypted SAML assertions are not supported"));
+    Ok(())
+}
+
+#[test]
+fn parse_saml_response_extracts_audience_restrictions() -> Result<(), Box<dyn std::error::Error>> {
+    let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+            <saml:Assertion ID="assertion-1">
+                <saml:Conditions>
+                    <saml:AudienceRestriction>
+                        <saml:Audience>https://sp.example.com/entity</saml:Audience>
+                        <saml:Audience>https://sp.example.com/secondary</saml:Audience>
+                    </saml:AudienceRestriction>
+                </saml:Conditions>
+            </saml:Assertion>
+        </samlp:Response>
+    "#;
+
+    let parsed = parse_saml_response(&encode_saml_xml(xml))?;
+
+    assert_eq!(
+        parsed.assertion.audiences,
+        vec![
+            "https://sp.example.com/entity".to_owned(),
+            "https://sp.example.com/secondary".to_owned()
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn saml_config_uses_upstream_acronym_wire_names_and_accepts_legacy_aliases(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = serde_json::json!({
+        "issuer": "https://sp.example.com/metadata",
+        "entryPoint": "https://idp.example.com/sso",
+        "cert": "CERTIFICATE",
+        "callbackUrl": "https://sp.example.com/acs",
+        "spMetadata": {
+            "entityID": "https://sp.example.com/entity"
+        },
+        "idpMetadata": {
+            "entityID": "https://idp.example.com/entity",
+            "entityURL": "https://idp.example.com/metadata",
+            "redirectURL": "https://idp.example.com/redirect"
+        },
+        "wantAssertionsSigned": false,
+        "authnRequestsSigned": false
+    });
+    let parsed: SamlConfig = serde_json::from_value(config)?;
+
+    let serialized = serde_json::to_value(&parsed)?;
+
+    assert_eq!(
+        serialized["spMetadata"]["entityID"],
+        "https://sp.example.com/entity"
+    );
+    assert_eq!(
+        serialized["idpMetadata"]["entityID"],
+        "https://idp.example.com/entity"
+    );
+    assert_eq!(
+        serialized["idpMetadata"]["entityURL"],
+        "https://idp.example.com/metadata"
+    );
+    assert_eq!(
+        serialized["idpMetadata"]["redirectURL"],
+        "https://idp.example.com/redirect"
+    );
+
+    let legacy: SamlConfig = serde_json::from_value(serde_json::json!({
+        "issuer": "https://sp.example.com/metadata",
+        "entryPoint": "https://idp.example.com/sso",
+        "cert": "CERTIFICATE",
+        "callbackUrl": "https://sp.example.com/acs",
+        "spMetadata": {
+            "entityId": "https://sp.example.com/legacy"
+        },
+        "idpMetadata": {
+            "entityId": "https://idp.example.com/legacy",
+            "entityUrl": "https://idp.example.com/legacy-metadata",
+            "redirectUrl": "https://idp.example.com/legacy-redirect"
+        },
+        "wantAssertionsSigned": false,
+        "authnRequestsSigned": false
+    }))?;
+
+    assert_eq!(
+        legacy.sp_metadata.entity_id.as_deref(),
+        Some("https://sp.example.com/legacy")
+    );
+    assert_eq!(
+        legacy
+            .idp_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.entity_id.as_deref()),
+        Some("https://idp.example.com/legacy")
+    );
+    assert_eq!(
+        legacy
+            .idp_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.entity_url.as_deref()),
+        Some("https://idp.example.com/legacy-metadata")
+    );
+    assert_eq!(
+        legacy
+            .idp_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.redirect_url.as_deref()),
+        Some("https://idp.example.com/legacy-redirect")
+    );
+    Ok(())
+}
+
+#[test]
+fn service_provider_metadata_orders_slo_post_before_redirect(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = SamlConfig {
+        issuer: "https://sp.example.com/metadata".to_owned(),
+        entry_point: "https://idp.example.com/sso".to_owned(),
+        cert: "CERTIFICATE".to_owned(),
+        callback_url: "https://sp.example.com/acs".to_owned(),
+        acs_url: None,
+        audience: None,
+        idp_metadata: Some(SamlIdpMetadata::default()),
+        sp_metadata: Default::default(),
+        mapping: None,
+        want_assertions_signed: false,
+        authn_requests_signed: false,
+        signature_algorithm: None,
+        digest_algorithm: None,
+        identifier_format: None,
+        private_key: None,
+        decryption_pvk: None,
+        additional_params: None,
+    };
+
+    let metadata = service_provider_metadata("provider", "https://app.example.com", &config, true);
+    let post_index = metadata
+        .find(r#"SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST""#)
+        .ok_or("missing POST SLO binding")?;
+    let redirect_index = metadata
+        .find(r#"SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect""#)
+        .ok_or("missing Redirect SLO binding")?;
+
+    assert!(post_index < redirect_index);
     Ok(())
 }
 
