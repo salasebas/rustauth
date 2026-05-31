@@ -9,6 +9,9 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed trusted server-side dispatch so `AuthRouter::handle_async_server` can
+  reach plugin `server_only` endpoints (such as the JWT plugin's `/sign-jwt`
+  and `/verify-jwt`), while public `handle_async` still returns `404` for them.
 - Fixed session cookie cache authentication so cached session data is only
   returned after the backing session token still exists and is unexpired.
 - Fixed Axum request base URL inference so request-derived `Host` values are

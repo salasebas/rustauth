@@ -237,7 +237,7 @@ impl AuthRouter {
             return rate_limit_response(rejection);
         }
         if let Some((endpoint, params)) = async_endpoint {
-            if endpoint.options.server_only {
+            if endpoint.options.server_only && external {
                 return api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound);
             }
             set_current_request_path(path.clone())?;

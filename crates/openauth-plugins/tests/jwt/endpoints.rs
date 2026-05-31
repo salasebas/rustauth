@@ -38,6 +38,39 @@ async fn sign_and_verify_endpoints_are_server_only() -> Result<(), Box<dyn std::
 }
 
 #[tokio::test]
+async fn sign_and_verify_endpoints_are_reachable_through_handle_async_server(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let router = router_with_plugin(Arc::new(MemoryAdapter::new()), jwt()?)?;
+
+    let sign = router
+        .handle_async_server(request(
+            Method::POST,
+            "/api/auth/sign-jwt",
+            r#"{"payload":{"sub":"user_1"}}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign.status(), StatusCode::OK);
+    let token = serde_json::from_slice::<Value>(sign.body())?["token"]
+        .as_str()
+        .ok_or("missing token")?
+        .to_owned();
+
+    let verify = router
+        .handle_async_server(request(
+            Method::POST,
+            "/api/auth/verify-jwt",
+            &format!(r#"{{"token":"{token}"}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(verify.status(), StatusCode::OK);
+    let payload = serde_json::from_slice::<Value>(verify.body())?;
+    assert_eq!(payload["payload"]["sub"], "user_1");
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_jwt_endpoint_accepts_serializable_override_options(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());

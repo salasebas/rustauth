@@ -374,6 +374,40 @@ async fn server_only_plugin_endpoint_is_hidden_and_returns_not_found(
     Ok(())
 }
 
+#[tokio::test]
+async fn server_only_plugin_endpoint_is_reachable_through_handle_async_server(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin_endpoint = create_auth_endpoint(
+        "/plugin/server-only",
+        Method::POST,
+        AuthEndpointOptions::new()
+            .operation_id("serverOnly")
+            .server_only(),
+        |_context, _request| Box::pin(async { response(StatusCode::OK, b"SERVER".to_vec()) }),
+    );
+    let plugin = AuthPlugin::new("server-only-plugin").with_endpoint(plugin_endpoint);
+    let context = create_auth_context(OpenAuthOptions {
+        plugins: vec![plugin],
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
+
+    let request = || {
+        Request::builder()
+            .method(Method::POST)
+            .uri("http://localhost:3000/api/auth/plugin/server-only")
+            .body(Vec::new())
+    };
+    let public_response = router.handle_async(request()?).await?;
+    let server_response = router.handle_async_server(request()?).await?;
+
+    assert_eq!(public_response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(server_response.status(), StatusCode::OK);
+    assert_eq!(server_response.body(), b"SERVER");
+    Ok(())
+}
+
 #[test]
 fn plugin_endpoint_conflicts_with_core_endpoint() -> Result<(), Box<dyn std::error::Error>> {
     let plugin_endpoint = create_auth_endpoint(

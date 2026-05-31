@@ -6,6 +6,9 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Fixed
 
+- Fixed trusted server-side dispatch so `AuthRouter::handle_async_server` can
+  reach plugin `server_only` endpoints, while public `handle_async` still
+  returns `404` for them.
 - Fixed session cookie cache authentication so cached session data is only
   returned after the backing session token still exists and is unexpired.
 
