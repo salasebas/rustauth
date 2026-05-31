@@ -7,11 +7,17 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use josekit::jwk::{Jwk, JwkSet};
+use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
+use josekit::jws::JwsHeader;
+use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract};
 use openauth_social_providers::cognito::{
     cognito, cognito_issuer, cognito_jwks_uri, CognitoAuthorizationUrlInput, CognitoOptions,
 };
+use openauth_social_providers::http::ProviderHttpClient;
 use serde_json::json;
+use time::OffsetDateTime;
 use url::Url;
 
 #[test]
@@ -227,4 +233,98 @@ fn unsigned_jwt(claims: serde_json::Value) -> String {
     let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#);
     let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
     format!("{header}.{payload}.")
+}
+
+#[test]
+fn cognito_verify_id_token_accepts_complete_signed_token() -> Result<(), Box<dyn std::error::Error>>
+{
+    let provider = test_provider();
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let (token, jwk) = signed_token(json!({
+        "sub": "user-123",
+        "aud": "client-id",
+        "iss": cognito_issuer("us-east-1", "pool-id"),
+        "nonce": "nonce-1",
+        "iat": now,
+        "exp": now + 3600
+    }));
+    let jwks = jwks_with_key(jwk)?;
+
+    assert!(provider.verify_id_token_with_jwk_set(&token, Some("nonce-1"), &jwks)?);
+    Ok(())
+}
+
+#[test]
+fn cognito_verify_id_token_rejects_tokens_missing_standard_claims(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider = test_provider();
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let base = json!({
+        "sub": "user-123",
+        "aud": "client-id",
+        "iss": cognito_issuer("us-east-1", "pool-id"),
+        "iat": now,
+        "exp": now + 3600
+    });
+
+    // `iat` is required here because Cognito enforces an ID-token max age.
+    for missing in ["sub", "aud", "iss", "exp", "iat"] {
+        let mut claims = base.clone();
+        claims
+            .as_object_mut()
+            .expect("claims object")
+            .remove(missing);
+        let (token, jwk) = signed_token(claims);
+        let jwks = jwks_with_key(jwk)?;
+        let verified = provider.verify_id_token_with_jwk_set(&token, None, &jwks);
+
+        assert!(
+            !matches!(verified, Ok(true)),
+            "token missing `{missing}` must be rejected"
+        );
+    }
+    Ok(())
+}
+
+fn test_provider() -> openauth_social_providers::cognito::CognitoProvider {
+    cognito(CognitoOptions::new(
+        "client-id",
+        "example.auth.us-east-1.amazoncognito.com",
+        "us-east-1",
+        "pool-id",
+    ))
+    .expect("provider should build")
+    .with_http_client(ProviderHttpClient::permissive())
+}
+
+fn signed_token(claims: serde_json::Value) -> (String, Jwk) {
+    let kid = "cognito-test-key";
+    let mut jwk = Jwk::generate_rsa_key(2048).expect("rsa key should generate");
+    jwk.set_key_id(kid);
+    jwk.set_algorithm("RS256");
+    jwk.set_key_use("sig");
+    let signer = Rs256
+        .signer_from_jwk(&jwk)
+        .expect("rsa signer should build");
+    let mut payload = JwtPayload::new();
+    for (key, value) in claims.as_object().expect("claims should be an object") {
+        payload
+            .set_claim(key, Some(value.clone()))
+            .expect("claim should set");
+    }
+    let mut header = JwsHeader::new();
+    header.set_algorithm("RS256");
+    header.set_key_id(kid);
+    let token = jwt::encode_with_signer(&payload, &header, &signer).expect("token should encode");
+    let mut public_jwk = jwk.to_public_key().expect("public jwk should export");
+    public_jwk.set_key_id(kid);
+    public_jwk.set_algorithm("RS256");
+    public_jwk.set_key_use("sig");
+    (token, public_jwk)
+}
+
+fn jwks_with_key(jwk: Jwk) -> Result<JwkSet, Box<dyn std::error::Error>> {
+    Ok(JwkSet::from_bytes(
+        json!({ "keys": [jwk] }).to_string().as_bytes(),
+    )?)
 }

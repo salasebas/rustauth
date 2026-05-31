@@ -198,7 +198,7 @@ impl AppleProvider {
             TokenValidationOptions {
                 audience,
                 issuer: vec![APPLE_ISSUER.to_owned()],
-                ..TokenValidationOptions::default()
+                ..TokenValidationOptions::default().require_standard_claims()
             },
         )
         .await
@@ -305,7 +305,7 @@ fn full_name(name: &AppleName) -> String {
 
 fn validate_max_token_age(payload: &Value) -> bool {
     let Some(issued_at) = payload.get("iat").and_then(Value::as_i64) else {
-        return true;
+        return false;
     };
     issued_at >= OffsetDateTime::now_utc().unix_timestamp() - ID_TOKEN_MAX_AGE_SECONDS
 }

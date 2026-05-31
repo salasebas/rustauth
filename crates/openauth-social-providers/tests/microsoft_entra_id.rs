@@ -254,6 +254,7 @@ async fn verify_id_token_accepts_multiple_audiences_and_common_tenant_without_is
     let (tokens, jwk) = signed_tokens(vec![json!({
         "sub": "ms-user",
         "aud": "native-client",
+        "iss": "https://login.microsoftonline.com/common/v2.0",
         "nonce": "nonce-123",
         "iat": OffsetDateTime::now_utc().unix_timestamp(),
         "exp": OffsetDateTime::now_utc().unix_timestamp() + 3600
@@ -333,6 +334,51 @@ async fn verify_id_token_respects_disable_sign_in_and_specific_tenant_issuer() {
         .verify_id_token_with_jwks_url(valid_token, None, &server.url())
         .await
         .expect("verification should run"));
+}
+
+#[tokio::test]
+async fn verify_id_token_rejects_tokens_missing_standard_claims() {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let tenant = "tenant-123";
+    let base = json!({
+        "sub": "ms-user",
+        "aud": "web-client",
+        "iss": format!("https://login.microsoftonline.com/{tenant}/v2.0"),
+        "iat": now,
+        "exp": now + 3600
+    });
+    let missing_claims = ["sub", "aud", "iss", "exp"];
+    let token_claims = missing_claims
+        .iter()
+        .map(|missing| {
+            let mut claims = base.clone();
+            claims
+                .as_object_mut()
+                .expect("claims object")
+                .remove(*missing);
+            claims
+        })
+        .collect();
+    let (tokens, jwk) = signed_tokens(token_claims);
+    let server = JsonServer::spawn(json!({ "keys": [jwk] }), missing_claims.len());
+    let provider = microsoft_entra_id(MicrosoftEntraIdOptions {
+        tenant_id: Some(tenant.to_owned()),
+        oauth: ProviderOptions {
+            client_id: Some(ClientId::from("web-client")),
+            ..ProviderOptions::default()
+        },
+        ..MicrosoftEntraIdOptions::default()
+    });
+
+    for (token, missing) in tokens.iter().zip(missing_claims) {
+        assert!(
+            !provider
+                .verify_id_token_with_jwks_url(token, None, &server.url())
+                .await
+                .expect("verification should run"),
+            "token missing `{missing}` must be rejected"
+        );
+    }
 }
 
 fn options_with_client_id(client_id: &str) -> MicrosoftEntraIdOptions {

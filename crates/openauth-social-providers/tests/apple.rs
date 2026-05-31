@@ -204,6 +204,40 @@ async fn apple_provider_verifies_id_token_with_local_jwks_and_nonce() {
         .expect("token verification should run"));
 }
 
+#[tokio::test]
+async fn apple_provider_rejects_id_tokens_missing_standard_claims() {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let base = json!({
+        "sub": "001341.example.verified",
+        "iss": "https://appleid.apple.com",
+        "aud": "apple-web",
+        "exp": now + 3600,
+        "iat": now
+    });
+    let provider = apple(options_with_client_id(ClientId::Single(
+        "apple-web".to_owned(),
+    )));
+
+    // `iat` is required here because Apple enforces an ID-token max age.
+    for missing in ["sub", "iss", "aud", "exp", "iat"] {
+        let mut claims = base.clone();
+        claims
+            .as_object_mut()
+            .expect("claims object")
+            .remove(missing);
+        let (token, jwk) = signed_token("apple-key", claims);
+        let server = JsonServer::spawn(json!({ "keys": [jwk] }));
+
+        assert!(
+            !provider
+                .verify_id_token_with_jwks_url(&token, None, &server.url())
+                .await
+                .expect("token verification should run"),
+            "token missing `{missing}` must be rejected"
+        );
+    }
+}
+
 fn options_with_client_id(client_id: ClientId) -> AppleOptions {
     AppleOptions {
         provider: ProviderOptions {

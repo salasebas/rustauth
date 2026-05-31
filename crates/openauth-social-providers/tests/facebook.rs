@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    reason = "provider tests intentionally fail fast with contextual setup errors"
+)]
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use josekit::jwk::{Jwk, JwkSet};
@@ -10,6 +16,7 @@ use openauth_social_providers::facebook::{
     FACEBOOK_LIMITED_LOGIN_ISSUER,
 };
 use serde_json::json;
+use time::OffsetDateTime;
 
 #[test]
 fn facebook_authorization_url_uses_upstream_defaults() -> Result<(), Box<dyn std::error::Error>> {
@@ -246,6 +253,87 @@ fn unsigned_jwt(payload: serde_json::Value) -> Result<String, Box<dyn std::error
     let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({ "alg": "none" }))?);
     let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload)?);
     Ok(format!("{header}.{payload}."))
+}
+
+#[test]
+fn facebook_verify_id_token_accepts_complete_signed_token_with_standard_claims(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider = FacebookProvider::new(FacebookOptions {
+        oauth: provider_options(),
+        ..FacebookOptions::default()
+    });
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let (token, jwk) = signed_token(json!({
+        "sub": "limited-user",
+        "aud": "fb-web",
+        "iss": FACEBOOK_LIMITED_LOGIN_ISSUER,
+        "nonce": "nonce-1",
+        "exp": now + 3600,
+        "iat": now
+    }));
+    let jwks = jwks_with_key(jwk)?;
+
+    assert!(provider.verify_id_token_with_jwk_set(&token, Some("nonce-1"), &jwks));
+    Ok(())
+}
+
+#[test]
+fn facebook_verify_id_token_rejects_signed_tokens_missing_standard_claims(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider = FacebookProvider::new(FacebookOptions {
+        oauth: provider_options(),
+        ..FacebookOptions::default()
+    });
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let base = json!({
+        "sub": "limited-user",
+        "aud": "fb-web",
+        "iss": FACEBOOK_LIMITED_LOGIN_ISSUER,
+        "exp": now + 3600,
+        "iat": now
+    });
+
+    for missing in ["sub", "aud", "iss", "exp"] {
+        let mut claims = base.clone();
+        claims
+            .as_object_mut()
+            .expect("claims object")
+            .remove(missing);
+        let (token, jwk) = signed_token(claims);
+        let jwks = jwks_with_key(jwk)?;
+
+        assert!(
+            !provider.verify_id_token_with_jwk_set(&token, None, &jwks),
+            "token missing `{missing}` must be rejected"
+        );
+    }
+    Ok(())
+}
+
+fn signed_token(claims: serde_json::Value) -> (String, Jwk) {
+    let kid = "facebook-test-key";
+    let mut jwk = Jwk::generate_rsa_key(2048).expect("rsa key should generate");
+    jwk.set_key_id(kid);
+    jwk.set_algorithm("RS256");
+    jwk.set_key_use("sig");
+    let signer = Rs256
+        .signer_from_jwk(&jwk)
+        .expect("rsa signer should build");
+    let mut payload = JwtPayload::new();
+    for (key, value) in claims.as_object().expect("claims should be an object") {
+        payload
+            .set_claim(key, Some(value.clone()))
+            .expect("claim should set");
+    }
+    let mut header = JwsHeader::new();
+    header.set_algorithm("RS256");
+    header.set_key_id(kid);
+    let token = jwt::encode_with_signer(&payload, &header, &signer).expect("token should encode");
+    let mut public_jwk = jwk.to_public_key().expect("public jwk should export");
+    public_jwk.set_key_id(kid);
+    public_jwk.set_algorithm("RS256");
+    public_jwk.set_key_use("sig");
+    (token, public_jwk)
 }
 
 fn signed_limited_login_jwt(

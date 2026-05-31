@@ -323,6 +323,35 @@ async fn twitch_verify_id_token_rejects_unsigned_invalid_claims_and_wrong_keys(
     Ok(())
 }
 
+#[tokio::test]
+async fn twitch_verify_id_token_rejects_tokens_missing_standard_claims() -> Result<(), OAuthError> {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let base = json!({
+        "sub": "twitch-user-1",
+        "aud": "twitch-client",
+        "iss": TWITCH_ISSUER,
+        "exp": now + 3600,
+        "iat": now
+    });
+    let provider = twitch(twitch_options());
+
+    for missing in ["sub", "aud", "iss", "exp"] {
+        let mut claims = base.clone();
+        claims
+            .as_object_mut()
+            .expect("claims object")
+            .remove(missing);
+        let (token, jwk) = signed_twitch_id_token_from_claims(claims);
+        let jwks = jwks_with_keys(vec![jwk]);
+
+        assert!(
+            !provider.verify_id_token_with_jwk_set(&token, None, &jwks)?,
+            "token missing `{missing}` must be rejected"
+        );
+    }
+    Ok(())
+}
+
 fn twitch_options() -> TwitchOptions {
     TwitchOptions {
         oauth: ProviderOptions {
@@ -431,4 +460,30 @@ fn signed_twitch_id_token(
 fn jwks_with_keys(keys: Vec<Jwk>) -> JwkSet {
     let bytes = json!({ "keys": keys }).to_string();
     JwkSet::from_bytes(bytes.as_bytes()).expect("jwks should parse")
+}
+
+fn signed_twitch_id_token_from_claims(claims: serde_json::Value) -> (String, Jwk) {
+    let kid = "twitch-test-key";
+    let mut jwk = Jwk::generate_rsa_key(2048).expect("rsa key should generate");
+    jwk.set_key_id(kid);
+    jwk.set_algorithm("RS256");
+    jwk.set_key_use("sig");
+    let signer = Rs256
+        .signer_from_jwk(&jwk)
+        .expect("rsa signer should build");
+    let mut payload = JwtPayload::new();
+    for (key, value) in claims.as_object().expect("claims should be an object") {
+        payload
+            .set_claim(key, Some(value.clone()))
+            .expect("claim should set");
+    }
+    let mut header = JwsHeader::new();
+    header.set_algorithm("RS256");
+    header.set_key_id(kid);
+    let token = jwt::encode_with_signer(&payload, &header, &signer).expect("token should encode");
+    let mut public_jwk = jwk.to_public_key().expect("public jwk should export");
+    public_jwk.set_key_id(kid);
+    public_jwk.set_algorithm("RS256");
+    public_jwk.set_key_use("sig");
+    (token, public_jwk)
 }

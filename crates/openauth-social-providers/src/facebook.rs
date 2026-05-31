@@ -206,7 +206,7 @@ impl FacebookProvider {
         TokenValidationOptions {
             audience: client_id_audiences(&self.options.oauth.client_id),
             issuer: vec![FACEBOOK_LIMITED_LOGIN_ISSUER.to_owned()],
-            ..TokenValidationOptions::default()
+            ..TokenValidationOptions::default().require_standard_claims()
         }
     }
 

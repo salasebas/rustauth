@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use josekit::jwk::JwkSet;
 use openauth_oauth::oauth2::{
     create_authorization_url, get_primary_client_id, refresh_access_token,
-    validate_authorization_code, validate_token, AuthorizationCodeRequest, AuthorizationUrlRequest,
-    ClientAuthentication, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError,
-    OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest, TokenValidationOptions,
+    validate_authorization_code, validate_token, verify_jws_with_jwks, AuthorizationCodeRequest,
+    AuthorizationUrlRequest, ClientAuthentication, ClientId, ClientTokenRequest, OAuth2Tokens,
+    OAuth2UserInfo, OAuthError, OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest,
+    TokenValidationOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -271,6 +273,17 @@ impl CognitoProvider {
         token: &str,
         nonce: Option<&str>,
     ) -> Result<bool, OAuthError> {
+        let jwks_endpoint = self.jwks_endpoint();
+        self.verify_id_token_with_jwks_url(token, nonce, &jwks_endpoint)
+            .await
+    }
+
+    pub async fn verify_id_token_with_jwks_url(
+        &self,
+        token: &str,
+        nonce: Option<&str>,
+        jwks_url: &str,
+    ) -> Result<bool, OAuthError> {
         if self.options.disable_id_token_sign_in {
             return Ok(false);
         }
@@ -278,22 +291,50 @@ impl CognitoProvider {
         let audience = client_id_audiences(&self.options.client_id);
         let result = validate_token(
             token,
-            &self.jwks_endpoint(),
+            jwks_url,
             TokenValidationOptions {
                 audience,
                 issuer: vec![self.expected_issuer()],
-                ..TokenValidationOptions::default()
+                ..TokenValidationOptions::default().require_standard_claims()
             },
         )
         .await?;
 
+        Self::accept_id_token(&result.payload, nonce)
+    }
+
+    pub fn verify_id_token_with_jwk_set(
+        &self,
+        token: &str,
+        nonce: Option<&str>,
+        jwk_set: &JwkSet,
+    ) -> Result<bool, OAuthError> {
+        if self.options.disable_id_token_sign_in {
+            return Ok(false);
+        }
+
+        let audience = client_id_audiences(&self.options.client_id);
+        let result = verify_jws_with_jwks(
+            token,
+            jwk_set,
+            &TokenValidationOptions {
+                audience,
+                issuer: vec![self.expected_issuer()],
+                ..TokenValidationOptions::default().require_standard_claims()
+            },
+        )?;
+
+        Self::accept_id_token(&result.payload, nonce)
+    }
+
+    fn accept_id_token(payload: &Value, nonce: Option<&str>) -> Result<bool, OAuthError> {
         if let Some(expected_nonce) = nonce {
-            if result.payload.get("nonce").and_then(Value::as_str) != Some(expected_nonce) {
+            if payload.get("nonce").and_then(Value::as_str) != Some(expected_nonce) {
                 return Ok(false);
             }
         }
 
-        if !issued_within_max_age(&result.payload, ID_TOKEN_MAX_AGE_SECONDS) {
+        if !issued_within_max_age(payload, ID_TOKEN_MAX_AGE_SECONDS) {
             return Ok(false);
         }
 
