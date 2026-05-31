@@ -18,18 +18,19 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{
-    clear_jwks_cache, client_credentials_token, create_authorization_code_request,
+    clear_jwks_cache, client_credentials_token_with_client, create_authorization_code_request,
     create_authorization_url, create_client_credentials_token_request,
     create_refresh_access_token_request, generate_code_challenge, get_oauth2_tokens,
-    get_primary_client_id, refresh_access_token, validate_token, verify_access_token,
-    verify_access_token_with_client, verify_jws_access_token,
-    verify_jws_access_token_with_cache_config, AuthorizationCodeRequest, AuthorizationEndpoint,
-    AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
+    get_primary_client_id, refresh_access_token_with_client, validate_token_with_client,
+    verify_access_token_with_client, verify_jws_access_token_with_client,
+    verify_jws_access_token_with_client_and_cache_config, AuthorizationCodeRequest,
+    AuthorizationEndpoint, AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
     ClientCredentialsTokenRequest, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo,
-    OAuthError, OAuthHttpClient, OAuthHttpClientConfig, OAuthJwksCacheConfig, ProviderOptions,
-    RedirectUri, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
+    OAuthError, OAuthFormRequest, OAuthHttpClient, OAuthHttpClientConfig, OAuthJwksCacheConfig,
+    ProviderOptions, RedirectUri, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
     SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
-    TokenEndpoint, TokenValidationOptions, VerifyAccessTokenOptions, VerifyAccessTokenRemote,
+    TokenEndpoint, TokenValidationOptions, TokenValidationResult, VerifyAccessTokenOptions,
+    VerifyAccessTokenRemote,
 };
 use serde_json::json;
 use std::time::Duration;
@@ -1263,7 +1264,7 @@ async fn verify_access_token_accepts_injected_http_client_for_introspection() {
         "iss": "https://issuer.example.com",
         "scope": "read"
     }));
-    let client = OAuthHttpClient::default_client().expect("client should build");
+    let client = permissive_client();
 
     let payload = verify_access_token_with_client(
         "opaque-token",
@@ -1299,12 +1300,125 @@ async fn verify_jws_access_token_maps_azp_to_client_id() {
     assert_eq!(payload["client_id"], "authorized-party");
 }
 
+#[tokio::test]
+async fn default_client_blocks_get_and_post_to_literal_private_ip_urls() {
+    let client = OAuthHttpClient::default_client().expect("default client should build");
+    for url in [
+        "http://127.0.0.1/jwks",
+        "http://169.254.169.254/latest/meta-data/",
+        "https://10.0.0.5:8443/token",
+        "http://[::1]/introspect",
+    ] {
+        let get_error = client
+            .get_bytes(url)
+            .await
+            .expect_err("default client should block GET to a literal private IP");
+        assert!(
+            matches!(get_error, OAuthError::BlockedRequestUrl),
+            "GET {url} produced unexpected error: {get_error}"
+        );
+
+        let post_error = client
+            .post_form(url, OAuthFormRequest::new())
+            .await
+            .expect_err("default client should block POST to a literal private IP");
+        assert!(
+            matches!(post_error, OAuthError::BlockedRequestUrl),
+            "POST {url} produced unexpected error: {post_error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn permissive_client_reaches_local_get_and_post_servers() {
+    let client = permissive_client();
+
+    let get_server = JsonServer::spawn(json!({ "keys": [] }));
+    let bytes = client
+        .get_bytes(&get_server.url())
+        .await
+        .expect("permissive client should reach a local GET server");
+    assert!(!bytes.is_empty());
+
+    let post_server = JsonServer::spawn(json!({ "ok": true }));
+    let value = client
+        .post_form(&post_server.url(), OAuthFormRequest::new())
+        .await
+        .expect("permissive client should reach a local POST server");
+    assert_eq!(value["ok"], true);
+}
+
 fn provider_options() -> ProviderOptions {
     ProviderOptions {
         client_id: Some(ClientId::Single("client-id".to_owned())),
         client_secret: Some("client-secret".to_owned()),
         ..ProviderOptions::default()
     }
+}
+
+/// An explicitly permissive client that reaches loopback test servers; the
+/// default guarded client blocks literal private IP URLs (SSRF hardening).
+fn permissive_client() -> OAuthHttpClient {
+    OAuthHttpClient::from_config(OAuthHttpClientConfig {
+        allow_private_ips: true,
+        ..OAuthHttpClientConfig::default()
+    })
+    .expect("permissive client should build")
+}
+
+// The default OAuth client now blocks literal private/loopback IP request URLs.
+// These thin wrappers route the existing network tests through an explicitly
+// permissive client so they can keep exercising loopback test servers, while
+// the default-client SSRF behavior is covered by dedicated tests below.
+async fn refresh_access_token(
+    input: ClientTokenRequest<RefreshAccessTokenRequest>,
+) -> Result<OAuth2Tokens, OAuthError> {
+    refresh_access_token_with_client(input, &permissive_client()).await
+}
+
+async fn client_credentials_token(
+    input: ClientCredentialsGrant,
+) -> Result<OAuth2Tokens, OAuthError> {
+    client_credentials_token_with_client(input, &permissive_client()).await
+}
+
+async fn validate_token(
+    token: &str,
+    jwks_endpoint: &str,
+    options: TokenValidationOptions,
+) -> Result<TokenValidationResult, OAuthError> {
+    validate_token_with_client(token, jwks_endpoint, options, &permissive_client()).await
+}
+
+async fn verify_access_token(
+    token: &str,
+    options: VerifyAccessTokenOptions,
+) -> Result<serde_json::Value, OAuthError> {
+    verify_access_token_with_client(token, options, &permissive_client()).await
+}
+
+async fn verify_jws_access_token(
+    token: &str,
+    jwks_url: &str,
+    verify_options: TokenValidationOptions,
+) -> Result<TokenValidationResult, OAuthError> {
+    verify_jws_access_token_with_client(token, jwks_url, verify_options, &permissive_client()).await
+}
+
+async fn verify_jws_access_token_with_cache_config(
+    token: &str,
+    jwks_url: &str,
+    verify_options: TokenValidationOptions,
+    cache_config: OAuthJwksCacheConfig,
+) -> Result<TokenValidationResult, OAuthError> {
+    verify_jws_access_token_with_client_and_cache_config(
+        token,
+        jwks_url,
+        verify_options,
+        &permissive_client(),
+        cache_config,
+    )
+    .await
 }
 
 fn remote_verify_options(introspect_url: String, scopes: Vec<String>) -> VerifyAccessTokenOptions {
