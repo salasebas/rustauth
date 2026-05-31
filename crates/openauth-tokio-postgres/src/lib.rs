@@ -14,6 +14,7 @@ mod rate_limit;
 mod row;
 mod schema;
 mod transaction;
+mod tx_guard;
 
 pub use self::adapter::TokioPostgresAdapter;
 pub use self::migration::{

@@ -2,6 +2,15 @@
 
 All notable changes to `openauth-tokio-postgres` are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Roll back in-flight transactions when `transaction()` or rate-limit `consume()`
+  is dropped before explicit `COMMIT`/`ROLLBACK` (cancellation, task abort, or
+  panic), holding the shared connection gate until cleanup completes so later
+  operations cannot commit orphaned writes.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added

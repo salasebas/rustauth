@@ -19,6 +19,7 @@ use crate::config::{
     DEFAULT_POOL_MAX_SIZE,
 };
 use crate::transaction::DeadpoolPostgresTxAdapter;
+use crate::tx_guard::PooledClientRollbackGuard;
 use crate::SchemaMigrationPlan;
 
 /// Production-oriented Postgres adapter backed by a `deadpool-postgres` pool.
@@ -308,23 +309,27 @@ impl DbAdapter for DeadpoolPostgresAdapter {
                 .await
                 .map_err(postgres_error)?;
             let client = Arc::new(Mutex::new(client));
+            let mut guard = PooledClientRollbackGuard::new(Arc::clone(&client));
             let adapter = DeadpoolPostgresTxAdapter {
                 client: Arc::clone(&client),
                 schema: Arc::clone(&self.schema),
             };
             let result = callback(Box::new(adapter)).await;
 
-            let client = client.lock().await;
+            let locked = client.lock().await;
             match result {
                 Ok(()) => {
-                    if let Err(error) = client.batch_execute("COMMIT").await {
-                        let _rollback_result = client.batch_execute("ROLLBACK").await;
+                    if let Err(error) = locked.batch_execute("COMMIT").await {
+                        let _rollback_result = locked.batch_execute("ROLLBACK").await;
+                        guard.disarm();
                         return Err(postgres_error(error));
                     }
+                    guard.disarm();
                     Ok(())
                 }
                 Err(error) => {
-                    let _rollback_result = client.batch_execute("ROLLBACK").await;
+                    let _rollback_result = locked.batch_execute("ROLLBACK").await;
+                    guard.disarm();
                     Err(error)
                 }
             }

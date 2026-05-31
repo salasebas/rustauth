@@ -408,6 +408,19 @@ async fn tokio_postgres_adapter_rolls_back_after_sql_error_in_transaction(
 }
 
 #[tokio::test]
+async fn tokio_postgres_adapter_rolls_back_on_cancelled_transaction() -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::assert_rolls_back_on_cancelled_transaction(&adapter).await
+}
+
+#[tokio::test]
+async fn tokio_postgres_adapter_does_not_bleed_aborted_writes_into_commit(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    conformance::assert_no_commit_bleed_after_cancel(&adapter).await
+}
+
+#[tokio::test]
 async fn tokio_postgres_adapter_rejects_nested_transactions() -> Result<(), OpenAuthError> {
     let adapter = adapter().await?;
     conformance::assert_rejects_nested_transactions(&adapter).await

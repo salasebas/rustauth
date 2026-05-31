@@ -60,6 +60,17 @@ async fn adapter() -> Result<DeadpoolPostgresAdapter, OpenAuthError> {
     Ok(adapter)
 }
 
+/// Adapter backed by a single pooled connection so that a later operation is
+/// forced to reuse the exact connection a cancelled transaction checked out.
+async fn single_connection_adapter() -> Result<DeadpoolPostgresAdapter, OpenAuthError> {
+    let schema = test_schema();
+    let mut config = Config::new();
+    config.url = Some(database_url());
+    let adapter = DeadpoolPostgresAdapter::from_config_with_schema(config, schema.clone(), 1)?;
+    adapter.create_schema(&schema, None).await?;
+    Ok(adapter)
+}
+
 async fn raw_client() -> Result<tokio_postgres::Client, OpenAuthError> {
     conformance::raw_client().await
 }
@@ -1024,6 +1035,20 @@ async fn deadpool_postgres_adapter_rolls_back_after_sql_error_in_transaction(
 ) -> Result<(), OpenAuthError> {
     let adapter = adapter().await?;
     conformance::assert_rolls_back_after_sql_error_in_transaction(&adapter).await
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_rolls_back_on_cancelled_transaction() -> Result<(), OpenAuthError>
+{
+    let adapter = single_connection_adapter().await?;
+    conformance::assert_rolls_back_on_cancelled_transaction(&adapter).await
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_does_not_bleed_aborted_writes_into_commit(
+) -> Result<(), OpenAuthError> {
+    let adapter = single_connection_adapter().await?;
+    conformance::assert_no_commit_bleed_after_cancel(&adapter).await
 }
 
 #[tokio::test]

@@ -16,6 +16,7 @@ use crate::schema::{
     create_schema, execute_migration_plan, plan_migrations as plan_schema_migrations,
 };
 use crate::transaction::TokioPostgresTxAdapter;
+use crate::tx_guard::SharedClientRollbackGuard;
 use crate::SchemaMigrationPlan;
 
 #[derive(Clone)]
@@ -176,11 +177,12 @@ impl DbAdapter for TokioPostgresAdapter {
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            let _gate = self.tx_gate.write().await;
+            let gate = Arc::clone(&self.tx_gate).write_owned().await;
             self.client
                 .batch_execute("BEGIN")
                 .await
                 .map_err(postgres_error)?;
+            let mut guard = SharedClientRollbackGuard::new(Arc::clone(&self.client), gate);
 
             let adapter =
                 TokioPostgresTxAdapter::new(Arc::clone(&self.client), Arc::clone(&self.schema));
@@ -190,12 +192,15 @@ impl DbAdapter for TokioPostgresAdapter {
                 Ok(()) => {
                     if let Err(error) = self.client.batch_execute("COMMIT").await {
                         let _rollback_result = self.client.batch_execute("ROLLBACK").await;
+                        guard.disarm();
                         return Err(postgres_error(error));
                     }
+                    guard.disarm();
                     Ok(())
                 }
                 Err(error) => {
                     let _rollback_result = self.client.batch_execute("ROLLBACK").await;
+                    guard.disarm();
                     Err(error)
                 }
             }

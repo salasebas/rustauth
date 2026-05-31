@@ -12,6 +12,7 @@ use tokio_postgres::Client;
 use crate::adapter::TokioPostgresAdapter;
 use crate::driver::{consume_postgres_rate_limit_in_tx, postgres_rate_limit_plan};
 use crate::errors::postgres_error;
+use crate::tx_guard::SharedClientRollbackGuard;
 
 #[derive(Clone)]
 pub struct TokioPostgresRateLimitStore {
@@ -69,23 +70,27 @@ async fn consume_postgres_rate_limit(
         &store.names.count,
         &store.names.last_request,
     )?;
-    let _gate = store.tx_gate.write().await;
+    let gate = Arc::clone(&store.tx_gate).write_owned().await;
     store
         .client
         .batch_execute("BEGIN")
         .await
         .map_err(postgres_error)?;
+    let mut guard = SharedClientRollbackGuard::new(Arc::clone(&store.client), gate);
     let result = consume_postgres_rate_limit_in_tx(store.client.as_ref(), &plan, input).await;
     match result {
         Ok(decision) => {
             if let Err(error) = store.client.batch_execute("COMMIT").await {
                 let _rollback_result = store.client.batch_execute("ROLLBACK").await;
+                guard.disarm();
                 return Err(postgres_error(error));
             }
+            guard.disarm();
             Ok(decision)
         }
         Err(error) => {
             let _rollback_result = store.client.batch_execute("ROLLBACK").await;
+            guard.disarm();
             Err(error)
         }
     }

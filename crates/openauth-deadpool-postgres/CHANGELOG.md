@@ -2,6 +2,15 @@
 
 All notable changes to `openauth-deadpool-postgres` are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Roll back in-flight transactions when `transaction()` or rate-limit `consume()`
+  is dropped before explicit `COMMIT`/`ROLLBACK`, keeping the checked-out pool
+  connection until cleanup completes so recycled connections cannot commit
+  orphaned writes from an aborted request.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added

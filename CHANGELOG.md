@@ -5,6 +5,15 @@ All notable changes to the OpenAuth workspace are documented in this file.
 The format is based on Keep a Changelog, and this project follows Semantic
 Versioning while the API is still pre-1.0.
 
+## Unreleased
+
+### Fixed
+
+- Fixed `openauth-tokio-postgres` and `openauth-deadpool-postgres` leaving
+  connections in open transactions when `transaction()` or rate-limit `consume()`
+  is cancelled or panics mid-callback, which could let a later `COMMIT` persist
+  aborted auth writes (cross-request transaction bleed).
+
 ## [0.0.6] - 2026-05-24
 
 ### Added

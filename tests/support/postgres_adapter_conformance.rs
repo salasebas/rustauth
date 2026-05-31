@@ -608,6 +608,101 @@ where
     Ok(())
 }
 
+/// A cancelled transaction (future dropped mid-callback) must not leave the
+/// connection in an open transaction: the write is rolled back and a later
+/// operation observes zero rows.
+pub async fn assert_rolls_back_on_cancelled_transaction<A>(adapter: &A) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter + ?Sized,
+{
+    let cancelled = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        adapter.transaction(Box::new(|tx| {
+            Box::pin(async move {
+                seed_user(
+                    tx.as_ref(),
+                    "user_cancel",
+                    "cancel@example.com",
+                    OffsetDateTime::now_utc(),
+                )
+                .await?;
+                std::future::pending::<Result<(), OpenAuthError>>().await
+            })
+        })),
+    )
+    .await;
+
+    assert!(
+        cancelled.is_err(),
+        "transaction future should have been cancelled by the timeout"
+    );
+    assert_eq!(adapter.count(Count::new("user")).await?, 0);
+    Ok(())
+}
+
+/// Writes from a cancelled transaction must never become durable through a
+/// later successful `COMMIT` (cross-request commit bleed). After cancellation,
+/// a second transaction commits its own row and only that row exists.
+pub async fn assert_no_commit_bleed_after_cancel<A>(adapter: &A) -> Result<(), OpenAuthError>
+where
+    A: DbAdapter + ?Sized,
+{
+    let cancelled = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        adapter.transaction(Box::new(|tx| {
+            Box::pin(async move {
+                seed_user(
+                    tx.as_ref(),
+                    "user_aborted",
+                    "aborted@example.com",
+                    OffsetDateTime::now_utc(),
+                )
+                .await?;
+                std::future::pending::<Result<(), OpenAuthError>>().await
+            })
+        })),
+    )
+    .await;
+    assert!(
+        cancelled.is_err(),
+        "transaction future should have been cancelled by the timeout"
+    );
+
+    adapter
+        .transaction(Box::new(|tx| {
+            Box::pin(async move {
+                seed_user(
+                    tx.as_ref(),
+                    "user_committed",
+                    "committed@example.com",
+                    OffsetDateTime::now_utc(),
+                )
+                .await
+            })
+        }))
+        .await?;
+
+    assert_eq!(adapter.count(Count::new("user")).await?, 1);
+    let committed = adapter
+        .find_one(FindOne::new("user").where_clause(Where::new(
+            "id",
+            DbValue::String("user_committed".to_owned()),
+        )))
+        .await?;
+    assert!(committed.is_some(), "committed user should be present");
+    let aborted = adapter
+        .find_one(
+            FindOne::new("user")
+                .where_clause(Where::new("id", DbValue::String("user_aborted".to_owned()))),
+        )
+        .await?;
+    assert!(
+        aborted.is_none(),
+        "aborted transaction must not bleed into the later commit"
+    );
+    Ok(())
+}
+
 pub async fn assert_rejects_nested_transactions<A>(adapter: &A) -> Result<(), OpenAuthError>
 where
     A: DbAdapter + ?Sized,

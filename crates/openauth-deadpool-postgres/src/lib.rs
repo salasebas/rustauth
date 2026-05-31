@@ -9,6 +9,7 @@ mod config;
 pub mod migration;
 mod rate_limit;
 mod transaction;
+mod tx_guard;
 
 pub use self::adapter::DeadpoolPostgresAdapter;
 pub use self::migration::{

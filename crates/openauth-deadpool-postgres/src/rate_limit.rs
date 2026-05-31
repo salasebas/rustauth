@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use deadpool_postgres::Pool;
 use openauth_core::db::SqlRateLimitNames;
 use openauth_core::error::OpenAuthError;
@@ -7,9 +9,11 @@ use openauth_core::options::{
 use openauth_tokio_postgres::driver::{
     consume_postgres_rate_limit_in_tx, postgres_error, postgres_rate_limit_plan,
 };
+use tokio::sync::Mutex;
 
 use crate::adapter::DeadpoolPostgresAdapter;
 use crate::config::{deadpool_error, pg_client};
+use crate::tx_guard::PooledClientRollbackGuard;
 
 /// Database-backed rate-limit store backed by a `deadpool-postgres` pool.
 #[derive(Clone)]
@@ -71,17 +75,23 @@ async fn consume_deadpool_rate_limit(
         .batch_execute("BEGIN")
         .await
         .map_err(postgres_error)?;
-    let result = consume_postgres_rate_limit_in_tx(pg_client(&client), &plan, input).await;
+    let client = Arc::new(Mutex::new(client));
+    let mut guard = PooledClientRollbackGuard::new(Arc::clone(&client));
+    let locked = client.lock().await;
+    let result = consume_postgres_rate_limit_in_tx(pg_client(&locked), &plan, input).await;
     match result {
         Ok(decision) => {
-            if let Err(error) = client.batch_execute("COMMIT").await {
-                let _rollback_result = client.batch_execute("ROLLBACK").await;
+            if let Err(error) = locked.batch_execute("COMMIT").await {
+                let _rollback_result = locked.batch_execute("ROLLBACK").await;
+                guard.disarm();
                 return Err(postgres_error(error));
             }
+            guard.disarm();
             Ok(decision)
         }
         Err(error) => {
-            let _rollback_result = client.batch_execute("ROLLBACK").await;
+            let _rollback_result = locked.batch_execute("ROLLBACK").await;
+            guard.disarm();
             Err(error)
         }
     }
