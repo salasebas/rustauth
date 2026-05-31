@@ -14,7 +14,7 @@ use crate::api::{
     OpenApiOperation,
 };
 #[cfg(feature = "oauth")]
-use crate::auth::oauth::decrypt_oauth_token;
+use crate::auth::oauth::{decrypt_oauth_token, decrypt_optional_oauth_token};
 use crate::db::DbAdapter;
 use crate::user::DbUserStore;
 
@@ -134,7 +134,7 @@ pub(super) fn get_access_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAut
                                 cookies.extend(account_cookie(context, &account)?);
                                 return json_response(
                                     StatusCode::OK,
-                                    &access_token_response_from_tokens(tokens, &account),
+                                    &access_token_response_from_tokens(context, tokens, &account)?,
                                     cookies,
                                 );
                             }
@@ -159,7 +159,10 @@ pub(super) fn get_access_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAut
                             .transpose()?,
                         access_token_expires_at: account.access_token_expires_at,
                         scopes: account_scopes(&account),
-                        id_token: account.id_token.clone(),
+                        id_token: decrypt_optional_oauth_token(
+                            account.id_token.as_deref(),
+                            context,
+                        )?,
                         token_type: None,
                     },
                     cookies,
@@ -265,7 +268,10 @@ pub(super) fn refresh_token_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
                         access_token_expires_at: updated_account.access_token_expires_at,
                         refresh_token_expires_at: updated_account.refresh_token_expires_at,
                         scope: updated_account.scope.clone(),
-                        id_token: updated_account.id_token.clone(),
+                        id_token: decrypt_optional_oauth_token(
+                            updated_account.id_token.as_deref(),
+                            context,
+                        )?,
                         provider_id: updated_account.provider_id,
                         account_id: updated_account.account_id,
                         token_type: tokens.token_type,

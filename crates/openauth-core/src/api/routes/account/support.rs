@@ -11,7 +11,7 @@ use super::super::shared::{error_response, json_openapi_response};
 use crate::api::ApiResponse;
 use crate::api::{BodyField, BodySchema, JsonSchemaType};
 #[cfg(feature = "oauth")]
-use crate::auth::oauth::{decrypt_oauth_token, set_token_util};
+use crate::auth::oauth::{decrypt_optional_oauth_token, set_token_util};
 use crate::db::Account;
 #[cfg(feature = "oauth")]
 use crate::error::OpenAuthError;
@@ -244,7 +244,10 @@ pub(super) async fn persist_refreshed_tokens(
         Some(token) => set_token_util(Some(token), context)?,
         None => account.refresh_token.clone(),
     };
-    let id_token = tokens.id_token.clone().or_else(|| account.id_token.clone());
+    let id_token = match tokens.id_token.as_deref() {
+        Some(token) => set_token_util(Some(token), context)?,
+        None => account.id_token.clone(),
+    };
     let access_token_expires_at = tokens
         .access_token_expires_at
         .or(account.access_token_expires_at);
@@ -274,10 +277,15 @@ pub(super) async fn persist_refreshed_tokens(
 
 #[cfg(feature = "oauth")]
 pub(super) fn access_token_response_from_tokens(
+    context: &crate::context::AuthContext,
     tokens: OAuth2Tokens,
     account: &Account,
-) -> AccessTokenResponse {
-    AccessTokenResponse {
+) -> Result<AccessTokenResponse, OpenAuthError> {
+    let id_token = match tokens.id_token {
+        Some(id_token) => Some(id_token),
+        None => decrypt_optional_oauth_token(account.id_token.as_deref(), context)?,
+    };
+    Ok(AccessTokenResponse {
         access_token: tokens.access_token,
         access_token_expires_at: tokens
             .access_token_expires_at
@@ -287,9 +295,9 @@ pub(super) fn access_token_response_from_tokens(
         } else {
             tokens.scopes
         },
-        id_token: tokens.id_token.or_else(|| account.id_token.clone()),
+        id_token,
         token_type: tokens.token_type,
-    }
+    })
 }
 
 #[cfg(feature = "oauth")]
@@ -310,20 +318,12 @@ pub(super) fn tokens_from_account(
     account: &Account,
 ) -> Result<OAuth2Tokens, OpenAuthError> {
     Ok(OAuth2Tokens {
-        access_token: account
-            .access_token
-            .as_deref()
-            .map(|token| decrypt_oauth_token(token, context))
-            .transpose()?,
-        refresh_token: account
-            .refresh_token
-            .as_deref()
-            .map(|token| decrypt_oauth_token(token, context))
-            .transpose()?,
+        access_token: decrypt_optional_oauth_token(account.access_token.as_deref(), context)?,
+        refresh_token: decrypt_optional_oauth_token(account.refresh_token.as_deref(), context)?,
         access_token_expires_at: account.access_token_expires_at,
         refresh_token_expires_at: account.refresh_token_expires_at,
         scopes: account_scopes(account),
-        id_token: account.id_token.clone(),
+        id_token: decrypt_optional_oauth_token(account.id_token.as_deref(), context)?,
         ..OAuth2Tokens::default()
     })
 }
