@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -153,6 +153,10 @@ pub struct ExampleConfig {
     pub database_url: String,
     pub redis_url: String,
     pub valkey_url: String,
+    /// Enables the example's privileged control plane (database viewer, schema
+    /// reset, dynamic profile rate-limit header overrides). Secure by default:
+    /// only on for loopback binds unless `OPENAUTH_EXAMPLE_DEV_CONTROLS` is set.
+    pub dev_controls: bool,
 }
 
 impl ExampleConfig {
@@ -193,6 +197,14 @@ impl ExampleConfig {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| db.default_database_url());
         let redis_url = env_or("REDIS_URL", "redis://127.0.0.1:6379");
         let valkey_url = env_or("VALKEY_URL", "valkey://127.0.0.1:6380");
+        let dev_controls = match env::var("OPENAUTH_EXAMPLE_DEV_CONTROLS") {
+            Ok(value) => value.parse::<bool>().map_err(|error| {
+                ExampleError::InvalidConfig(format!(
+                    "OPENAUTH_EXAMPLE_DEV_CONTROLS is invalid: {error}"
+                ))
+            })?,
+            Err(_) => is_loopback_host(&host),
+        };
 
         Ok(Self {
             host,
@@ -207,6 +219,7 @@ impl ExampleConfig {
             database_url,
             redis_url,
             valkey_url,
+            dev_controls,
         })
     }
 
@@ -283,6 +296,7 @@ struct AppState {
     services: Vec<ServiceStatus>,
     memory_adapter: openauth::MemoryAdapter,
     memory_rate_limit_store: Arc<GovernorMemoryRateLimitStore>,
+    dev_controls: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -384,7 +398,18 @@ impl ExamplePreferences {
 }
 
 pub fn app() -> Router {
-    static_app(RuntimeInfo {
+    static_app(demo_runtime(), true)
+}
+
+/// Hardened variant of [`app`] with the privileged control plane disabled,
+/// mirroring a non-loopback deployment (`dev_controls = false`). Used by tests
+/// and as a reference for the secure-by-default behavior.
+pub fn app_hardened() -> Router {
+    static_app(demo_runtime(), false)
+}
+
+fn demo_runtime() -> RuntimeInfo {
+    RuntimeInfo {
         openauth_version: openauth::VERSION.to_owned(),
         framework: "axum".to_owned(),
         auth_base_path: AUTH_BASE_PATH.to_owned(),
@@ -397,7 +422,7 @@ pub fn app() -> Router {
         database_url: String::new(),
         redis_url: "redis://127.0.0.1:6379".to_owned(),
         valkey_url: "valkey://127.0.0.1:6380".to_owned(),
-    })
+    }
 }
 
 pub async fn app_from_env() -> Result<Router, ExampleError> {
@@ -598,7 +623,7 @@ async fn router_with_auth(
     .nest(AUTH_BASE_PATH, openauth_routes))
 }
 
-fn static_app(runtime: RuntimeInfo) -> Router {
+fn static_app(runtime: RuntimeInfo, dev_controls: bool) -> Router {
     static_app_with_data(
         ExampleConfig {
             host: "127.0.0.1".to_owned(),
@@ -613,6 +638,7 @@ fn static_app(runtime: RuntimeInfo) -> Router {
             database_url: DbBackend::Sqlite.default_database_url(),
             redis_url: "redis://127.0.0.1:6379".to_owned(),
             valkey_url: "valkey://127.0.0.1:6380".to_owned(),
+            dev_controls,
         },
         runtime,
         Vec::new(),
@@ -630,6 +656,7 @@ fn static_app_with_data(
     services: Vec<ServiceStatus>,
     memory_rate_limit_store: Arc<GovernorMemoryRateLimitStore>,
 ) -> Router {
+    let dev_controls = config.dev_controls;
     let state = AppState {
         config,
         runtime,
@@ -638,6 +665,7 @@ fn static_app_with_data(
         services,
         memory_adapter: openauth::MemoryAdapter::new(),
         memory_rate_limit_store,
+        dev_controls,
     };
 
     Router::new()
@@ -692,6 +720,9 @@ async fn services_json(State(state): State<AppState>) -> Json<Vec<ServiceStatus>
 }
 
 async fn preferences_json(State(state): State<AppState>) -> Response {
+    if let Some(rejection) = control_plane_guard(&state) {
+        return rejection;
+    }
     match load_preferences(&state.config).await {
         Ok(preferences) => Json(preferences).into_response(),
         Err(error) => json_error(StatusCode::BAD_GATEWAY, &error.to_string()),
@@ -702,6 +733,9 @@ async fn save_preferences(
     State(state): State<AppState>,
     Json(preferences): Json<ExamplePreferences>,
 ) -> Response {
+    if let Some(rejection) = control_plane_guard(&state) {
+        return rejection;
+    }
     if let Err(error) = preferences.validate() {
         return json_error(StatusCode::BAD_REQUEST, &error.to_string());
     }
@@ -711,7 +745,10 @@ async fn save_preferences(
     }
 }
 
-async fn tables_json(State(_state): State<AppState>, Query(query): Query<DbQuery>) -> Response {
+async fn tables_json(State(state): State<AppState>, Query(query): Query<DbQuery>) -> Response {
+    if let Some(rejection) = control_plane_guard(&state) {
+        return rejection;
+    }
     let db = parse_db_query(query.db.as_deref());
     let Ok(db) = db else {
         return json_error(StatusCode::BAD_REQUEST, "invalid db");
@@ -728,6 +765,9 @@ async fn table_rows_json(
     State(state): State<AppState>,
     Query(query): Query<TableQuery>,
 ) -> Response {
+    if let Some(rejection) = control_plane_guard(&state) {
+        return rejection;
+    }
     let db = match parse_db_query(query.db.as_deref()) {
         Ok(db) => db,
         Err(error) => return json_error(StatusCode::BAD_REQUEST, &error.to_string()),
@@ -739,6 +779,9 @@ async fn table_rows_json(
 }
 
 async fn drop_database(State(state): State<AppState>, Query(query): Query<DbQuery>) -> Response {
+    if let Some(rejection) = control_plane_guard(&state) {
+        return rejection;
+    }
     let db = match parse_db_query(query.db.as_deref()) {
         Ok(db) => db,
         Err(error) => return json_error(StatusCode::BAD_REQUEST, &error.to_string()),
@@ -771,7 +814,9 @@ async fn dynamic_auth_handler(
         return json_error(StatusCode::BAD_REQUEST, "invalid rate-limit profile");
     };
     let mut config = state.config.clone();
-    apply_rate_limit_headers(&mut config, request.headers());
+    if state.dev_controls {
+        apply_rate_limit_headers(&mut config, request.headers());
+    }
     let auth_base_path = profile_base_path(db, rate_limit);
     match build_profile_auth(
         config,
@@ -817,6 +862,20 @@ fn json_error(status: StatusCode, message: &str) -> Response {
         .into_response()
 }
 
+/// Rejects privileged control-plane requests unless dev controls are enabled.
+/// Secure by default: only loopback binds (or an explicit
+/// `OPENAUTH_EXAMPLE_DEV_CONTROLS=true`) expose the database viewer, schema
+/// reset, and preferences endpoints.
+fn control_plane_guard(state: &AppState) -> Option<Response> {
+    if state.dev_controls {
+        return None;
+    }
+    Some(json_error(
+        StatusCode::FORBIDDEN,
+        "example control endpoints are disabled; set OPENAUTH_EXAMPLE_DEV_CONTROLS=true for local development",
+    ))
+}
+
 async fn build_profile_auth(
     mut config: ExampleConfig,
     db: DbBackend,
@@ -855,46 +914,43 @@ async fn build_profile_auth(
             let adapter = SqliteAdapter::connect(&config.database_url).await?;
             let database_rate_limit =
                 RateLimitOptions::database(SqliteRateLimitStore::from(&adapter));
-            let auth = build_auth(
+            // Schema work is intentionally not done on the request path; the
+            // configured backend is migrated at startup and the gated reset
+            // action handles explicit (re)initialization.
+            build_auth(
                 config,
                 auth_base_path,
                 adapter,
                 Some(database_rate_limit),
                 memory_rate_limit_store,
             )
-            .await?;
-            auth.run_migrations().await?;
-            Ok(auth)
+            .await
         }
         DbBackend::Postgres => {
             let adapter = PostgresAdapter::connect(&config.database_url).await?;
             let database_rate_limit =
                 RateLimitOptions::database(PostgresRateLimitStore::from(&adapter));
-            let auth = build_auth(
+            build_auth(
                 config,
                 auth_base_path,
                 adapter,
                 Some(database_rate_limit),
                 memory_rate_limit_store,
             )
-            .await?;
-            auth.run_migrations().await?;
-            Ok(auth)
+            .await
         }
         DbBackend::Mysql => {
             let adapter = MySqlAdapter::connect(&config.database_url).await?;
             let database_rate_limit =
                 RateLimitOptions::database(MySqlRateLimitStore::from(&adapter));
-            let auth = build_auth(
+            build_auth(
                 config,
                 auth_base_path,
                 adapter,
                 Some(database_rate_limit),
                 memory_rate_limit_store,
             )
-            .await?;
-            auth.run_migrations().await?;
-            Ok(auth)
+            .await
         }
     }
 }
@@ -1737,6 +1793,13 @@ fn redact_password(url: &str) -> String {
 
 fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 fn escape_html(value: &str) -> String {
@@ -2761,3 +2824,58 @@ dropDialog?.addEventListener("close", async () => {
 
 void loadStudioTables();
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn build_profile_auth_does_not_migrate_on_request_path(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "openauth-ope60-{}-{nanos}.sqlite",
+            std::process::id()
+        ));
+        let database_url = format!("sqlite://{}", path.display());
+        let config = ExampleConfig {
+            host: "127.0.0.1".to_owned(),
+            port: 3000,
+            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
+            secret: DEFAULT_SECRET.to_owned(),
+            db: DbBackend::Sqlite,
+            rate_limit: RateLimitBackend::Database,
+            rate_limit_enabled: true,
+            rate_limit_window: 60,
+            rate_limit_max: 120,
+            database_url: database_url.clone(),
+            redis_url: "redis://127.0.0.1:6379".to_owned(),
+            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
+            dev_controls: true,
+        };
+
+        let auth = build_profile_auth(
+            config,
+            DbBackend::Sqlite,
+            RateLimitBackend::Database,
+            profile_base_path(DbBackend::Sqlite, RateLimitBackend::Database),
+            openauth::MemoryAdapter::new(),
+            Arc::new(GovernorMemoryRateLimitStore::new()),
+        )
+        .await?;
+        drop(auth);
+
+        // The dynamic request path must not create the auth schema, so a fresh
+        // connection to the same database has no `user` table to count.
+        let adapter = SqliteAdapter::connect(&database_url).await?;
+        assert!(
+            adapter.count(Count::new("user")).await.is_err(),
+            "the request path must not run migrations"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+}

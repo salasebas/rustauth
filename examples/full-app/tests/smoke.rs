@@ -153,3 +153,68 @@ async fn rate_limit_settings_apply_to_dynamic_memory_profile(
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn hardened_mode_rejects_database_control_endpoints() -> Result<(), Box<dyn std::error::Error>>
+{
+    let app = openauth_example_full_app::app_hardened();
+
+    let viewer = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/example/table?db=memory&table=user&page_size=50")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(viewer.status(), StatusCode::FORBIDDEN);
+
+    let tables = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/example/tables?db=memory")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(tables.status(), StatusCode::FORBIDDEN);
+
+    let drop = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/example/database/drop?db=memory")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(drop.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn hardened_mode_ignores_rate_limit_override_headers(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app = openauth_example_full_app::app_hardened();
+    // A public caller tries to shrink the limit to 1; hardened mode must ignore
+    // these headers and keep the configured default (max 120), so repeated
+    // probes stay successful instead of returning 429.
+    let request = || {
+        Request::builder()
+            .uri("/api/example/auth/memory/memory/ok")
+            .header("x-openauth-example-rate-enabled", "true")
+            .header("x-openauth-example-rate-window", "60")
+            .header("x-openauth-example-rate-max", "1")
+            .body(Body::empty())
+    };
+
+    assert_eq!(
+        app.clone().oneshot(request()?).await?.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.clone().oneshot(request()?).await?.status(),
+        StatusCode::OK
+    );
+    assert_eq!(app.oneshot(request()?).await?.status(), StatusCode::OK);
+    Ok(())
+}

@@ -76,6 +76,7 @@ cargo run -p openauth-example-full-app
 | `OPENAUTH_EXAMPLE_RATE_LIMIT` | `memory` |
 | `REDIS_URL` | `redis://127.0.0.1:6379` |
 | `VALKEY_URL` | `valkey://127.0.0.1:6380` |
+| `OPENAUTH_EXAMPLE_DEV_CONTROLS` | enabled only for loopback hosts |
 
 Supported `OPENAUTH_EXAMPLE_DB` values are `memory`, `sqlite`, `postgres`, and
 `mysql`. Supported `OPENAUTH_EXAMPLE_RATE_LIMIT` values are `memory`,
@@ -83,3 +84,37 @@ Supported `OPENAUTH_EXAMPLE_DB` values are `memory`, `sqlite`, `postgres`, and
 
 MongoDB and MSSQL are intentionally not wired into this example yet because the
 workspace does not currently expose OpenAuth adapters for them.
+
+## Security: hardened by default
+
+This example ships a privileged "control plane" used by the demo UI: the
+database viewer (`/api/example/tables`, `/api/example/table`), the schema reset
+endpoint (`/api/example/database/drop`), the profile preferences endpoints, and
+per-request rate-limit override headers on the dynamic auth profiles. Those are
+useful locally but dangerous if the app is exposed beyond your machine.
+
+To make the example safe to copy, the control plane is **disabled by default
+unless the server binds to a loopback address** (`127.0.0.1`, `::1`, or
+`localhost`). When it is disabled:
+
+- the database viewer, schema reset, and preferences endpoints return `403`, and
+- the `x-openauth-example-rate-*` headers are ignored, so callers cannot tune or
+  disable the rate limiter for their own requests.
+
+The dynamic auth profiles never run database migrations on the request path.
+The configured backend is migrated once at startup, and re-initialization is
+only available through the gated schema-reset action.
+
+Override the automatic behavior with `OPENAUTH_EXAMPLE_DEV_CONTROLS`:
+
+```bash
+# Force-enable the control plane (only do this on a trusted network):
+OPENAUTH_EXAMPLE_HOST=0.0.0.0 OPENAUTH_EXAMPLE_DEV_CONTROLS=true \
+  cargo run -p openauth-example-full-app
+
+# Force-disable it even on localhost:
+OPENAUTH_EXAMPLE_DEV_CONTROLS=false cargo run -p openauth-example-full-app
+```
+
+If you build a real application from this example, keep the control plane
+disabled in any deployment that is reachable outside your development machine.
