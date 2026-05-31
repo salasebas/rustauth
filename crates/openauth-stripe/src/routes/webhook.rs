@@ -1,5 +1,7 @@
 use http::{Method, StatusCode};
 use openauth_core::api::{create_auth_endpoint, AuthEndpointOptions};
+use openauth_core::db::{Create, DbAdapter, DbValue, Delete, FindOne, Where};
+use openauth_core::error::OpenAuthError;
 use serde_json::json;
 use time::OffsetDateTime;
 
@@ -9,6 +11,9 @@ use crate::models::StripeEvent;
 use crate::options::StripeOptions;
 
 use super::support::{error_response, json_response};
+
+/// Logical model name of the durable webhook idempotency table.
+const WEBHOOK_EVENT_MODEL: &str = "stripeWebhookEvent";
 
 pub fn stripe_webhook(options: StripeOptions) -> openauth_core::api::AsyncAuthEndpoint {
     create_auth_endpoint(
@@ -64,6 +69,26 @@ pub fn stripe_webhook(options: StripeOptions) -> openauth_core::api::AsyncAuthEn
                         );
                     }
                 };
+                // Idempotency guard: skip events we have already processed and
+                // claim new ones before running side effects so Stripe retries,
+                // manual resends, and concurrent duplicate deliveries do not
+                // re-run built-in handlers or user hooks.
+                let adapter = context.adapter();
+                if let Some(adapter) = adapter.as_deref() {
+                    if webhook_event_seen(adapter, &event.id).await? {
+                        logging::webhook_info(
+                            context,
+                            &format!(
+                                "Stripe webhook: event {} already processed, skipping",
+                                event.id
+                            ),
+                        );
+                        return json_response(StatusCode::OK, &json!({ "success": true }));
+                    }
+                    record_webhook_event(adapter, &event).await?;
+                }
+
+                let event_id = event.id.clone();
                 crate::hooks::handle_stripe_event(context, &options, &event).await?;
                 if let Some(on_event) = &options.on_event {
                     if let Err(error) = on_event(event).await {
@@ -71,6 +96,11 @@ pub fn stripe_webhook(options: StripeOptions) -> openauth_core::api::AsyncAuthEn
                             context,
                             &format!("Stripe on_event hook failed: {error}"),
                         );
+                        // Do not leave the event marked as processed so Stripe
+                        // retries can recover.
+                        if let Some(adapter) = adapter.as_deref() {
+                            forget_webhook_event(adapter, &event_id).await;
+                        }
                         return error_response(
                             StatusCode::BAD_REQUEST,
                             StripeErrorCode::StripeWebhookError,
@@ -81,4 +111,46 @@ pub fn stripe_webhook(options: StripeOptions) -> openauth_core::api::AsyncAuthEn
             })
         },
     )
+}
+
+/// Return true when the Stripe `event.id` has already been recorded.
+async fn webhook_event_seen(
+    adapter: &dyn DbAdapter,
+    event_id: &str,
+) -> Result<bool, OpenAuthError> {
+    Ok(adapter
+        .find_one(
+            FindOne::new(WEBHOOK_EVENT_MODEL)
+                .where_clause(Where::new("id", DbValue::String(event_id.to_owned()))),
+        )
+        .await?
+        .is_some())
+}
+
+/// Persist the Stripe `event.id` so future deliveries are deduplicated. On SQL
+/// adapters the primary key rejects concurrent duplicate claims.
+async fn record_webhook_event(
+    adapter: &dyn DbAdapter,
+    event: &StripeEvent,
+) -> Result<(), OpenAuthError> {
+    adapter
+        .create(
+            Create::new(WEBHOOK_EVENT_MODEL)
+                .data("id", DbValue::String(event.id.clone()))
+                .data("event_type", DbValue::String(event.event_type.clone()))
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .force_allow_id(),
+        )
+        .await
+        .map(|_| ())
+}
+
+/// Remove a previously claimed event so a failed delivery can be retried.
+async fn forget_webhook_event(adapter: &dyn DbAdapter, event_id: &str) {
+    let _ = adapter
+        .delete(
+            Delete::new(WEBHOOK_EVENT_MODEL)
+                .where_clause(Where::new("id", DbValue::String(event_id.to_owned()))),
+        )
+        .await;
 }

@@ -6,11 +6,14 @@ use crate::options::StripeOptions;
 
 pub fn schema_contributions(options: &StripeOptions) -> Vec<PluginSchemaContribution> {
     let subscriptions_enabled = options.subscription.as_ref().is_some_and(|sub| sub.enabled);
-    let mut contributions = vec![PluginSchemaContribution::field(
-        "user",
-        "stripeCustomerId",
-        DbField::new("stripe_customer_id", DbFieldType::String).optional(),
-    )];
+    let mut contributions = vec![
+        PluginSchemaContribution::field(
+            "user",
+            "stripeCustomerId",
+            DbField::new("stripe_customer_id", DbFieldType::String).optional(),
+        ),
+        PluginSchemaContribution::table("stripeWebhookEvent", webhook_event_table()),
+    ];
     if options.organization.as_ref().is_some_and(|org| org.enabled) {
         contributions.push(PluginSchemaContribution::field(
             "organization",
@@ -51,6 +54,26 @@ fn merge_subscription_table(base: &mut DbTable, custom: &DbTable) {
     for (logical_name, field) in &custom.fields {
         base.fields.insert(logical_name.clone(), field.clone());
     }
+}
+
+/// Durable record of processed Stripe webhook events, keyed by Stripe `event.id`,
+/// used to make webhook delivery idempotent (skip already-processed events).
+fn webhook_event_table() -> DbTable {
+    table(
+        "stripe_webhook_event",
+        Some(71),
+        [
+            ("id", DbField::new("id", DbFieldType::String)),
+            (
+                "eventType",
+                DbField::new("event_type", DbFieldType::String).indexed(),
+            ),
+            (
+                "createdAt",
+                DbField::new("created_at", DbFieldType::Timestamp),
+            ),
+        ],
+    )
 }
 
 fn subscription_table() -> DbTable {
