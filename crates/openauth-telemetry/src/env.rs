@@ -12,9 +12,13 @@ pub fn first_env(keys: &[&'static str]) -> Option<String> {
     None
 }
 
+fn parse_bool(value: &str) -> bool {
+    value != "0" && value.to_lowercase() != "false"
+}
+
 fn bool_env_single(key: &'static str, fallback: bool) -> bool {
     match std::env::var(key) {
-        Ok(value) if !value.is_empty() => value != "0" && value.to_lowercase() != "false",
+        Ok(value) if !value.is_empty() => parse_bool(&value),
         _ => fallback,
     }
 }
@@ -25,8 +29,18 @@ pub fn telemetry_endpoint() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-pub fn telemetry_enabled_env() -> bool {
-    bool_env_single("OPENAUTH_TELEMETRY", false)
+/// Three-state read of the `OPENAUTH_TELEMETRY` master switch.
+///
+/// - `None` when unset or empty (defer to [`TelemetryOptions`]).
+/// - `Some(false)` for `0` / `false` (explicit opt-out, a hard override).
+/// - `Some(true)` for any other value (explicit opt-in).
+///
+/// [`TelemetryOptions`]: openauth_core::options::TelemetryOptions
+pub fn telemetry_env_setting() -> Option<bool> {
+    match std::env::var("OPENAUTH_TELEMETRY") {
+        Ok(value) if !value.is_empty() => Some(parse_bool(&value)),
+        _ => None,
+    }
 }
 
 pub fn telemetry_debug_env() -> bool {

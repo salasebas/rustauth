@@ -683,6 +683,78 @@ async fn telemetry_env_zero_does_not_enable_init_publish() {
 }
 
 #[tokio::test]
+async fn env_opt_out_overrides_options_enabled() {
+    let _guard = telemetry_env_lock().lock().await;
+    let _teardown = EnvRestore::unset(&["OPENAUTH_TELEMETRY", "OPENAUTH_TELEMETRY_ENDPOINT"]);
+    std::env::set_var("OPENAUTH_TELEMETRY", "false");
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let custom: CustomTrackFn = Arc::new(move |_ev| {
+        c.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {})
+    });
+
+    let options = OpenAuthOptions {
+        base_url: Some("http://localhost".into()),
+        telemetry: TelemetryOptions {
+            enabled: Some(true),
+            debug: false,
+        },
+        ..Default::default()
+    };
+
+    create_telemetry(
+        &options,
+        TelemetryContext {
+            custom_track: Some(custom),
+            skip_test_check: true,
+            ..Default::default()
+        },
+    )
+    .await;
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn env_opt_in_overrides_options_disabled() {
+    let _guard = telemetry_env_lock().lock().await;
+    let _teardown = EnvRestore::unset(&["OPENAUTH_TELEMETRY", "OPENAUTH_TELEMETRY_ENDPOINT"]);
+    std::env::set_var("OPENAUTH_TELEMETRY", "true");
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let custom: CustomTrackFn = Arc::new(move |_ev| {
+        c.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {})
+    });
+
+    let options = OpenAuthOptions {
+        base_url: Some("http://localhost".into()),
+        telemetry: TelemetryOptions {
+            enabled: Some(false),
+            debug: false,
+        },
+        ..Default::default()
+    };
+
+    create_telemetry(
+        &options,
+        TelemetryContext {
+            custom_track: Some(custom),
+            skip_test_check: true,
+            ..Default::default()
+        },
+    )
+    .await;
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn test_environment_suppresses_telemetry_without_skip_test_check() {
     let _guard = telemetry_env_lock().lock().await;
     let _teardown = EnvRestore::unset(&[

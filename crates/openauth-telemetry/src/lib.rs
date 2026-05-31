@@ -10,6 +10,21 @@
 //! | Debug logging (prints JSON instead of POST) | `OPENAUTH_TELEMETRY_DEBUG` |
 //! | Collector URL | `OPENAUTH_TELEMETRY_ENDPOINT` |
 //!
+//! ## Enablement precedence
+//!
+//! `OPENAUTH_TELEMETRY` is a master switch that takes precedence over
+//! [`TelemetryOptions::enabled`](openauth_core::options::TelemetryOptions):
+//!
+//! - `OPENAUTH_TELEMETRY=false` (or `0`) is a hard opt-out: telemetry stays off
+//!   even when application code sets `TelemetryOptions::enabled(true)`.
+//! - `OPENAUTH_TELEMETRY=true` (or `1`) is an opt-in that enables telemetry on
+//!   its own, regardless of the options value.
+//! - When the variable is unset, [`TelemetryOptions`](openauth_core::options::TelemetryOptions)
+//!   decides (disabled by default).
+//!
+//! Regardless of the switch, telemetry is also suppressed under tests (unless
+//! [`TelemetryContext::skip_test_check`](crate::TelemetryContext) is set).
+//!
 //! Unless `OPENAUTH_TELEMETRY_ENDPOINT` is set **or** [`TelemetryContext::custom_track`](crate::TelemetryContext) is provided, the publisher is a no-op: nothing is sent over the network. The maintainer of OpenAuth does not receive telemetry by default; whoever deploys the app chooses the endpoint (their own collector, internal analytics, etc.) or wires `custom_track`.
 //!
 //! # Intentional gaps vs upstream
@@ -124,10 +139,17 @@ fn resolve_transport(context: &TelemetryContext) -> Arc<dyn TelemetryHttpTranspo
 }
 
 async fn is_enabled(options: &OpenAuthOptions, context: &TelemetryContext) -> bool {
-    let env_on = crate::env::telemetry_enabled_env();
+    // `OPENAUTH_TELEMETRY` is the master switch and takes precedence over
+    // `TelemetryOptions`: an explicit opt-out (`false` / `0`) forces telemetry
+    // off even when options enable it. When unset, options decide; an explicit
+    // opt-in (`true` / `1`) enables telemetry on its own.
+    let env_setting = crate::env::telemetry_env_setting();
+    if env_setting == Some(false) {
+        return false;
+    }
     let opt_on = options.telemetry.enabled.unwrap_or(false);
     let allow_under_test = context.skip_test_check || !crate::env::is_test();
-    (env_on || opt_on) && allow_under_test
+    (env_setting == Some(true) || opt_on) && allow_under_test
 }
 
 fn debug_enabled(options: &OpenAuthOptions) -> bool {

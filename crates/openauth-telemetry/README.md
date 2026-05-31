@@ -43,9 +43,23 @@ enabled in options.
 
 ## Environment
 
-- `OPENAUTH_TELEMETRY`: master switch.
+- `OPENAUTH_TELEMETRY`: master switch (see precedence below).
 - `OPENAUTH_TELEMETRY_DEBUG`: print JSON instead of POSTing.
 - `OPENAUTH_TELEMETRY_ENDPOINT`: collector URL.
+
+### Enablement precedence
+
+`OPENAUTH_TELEMETRY` takes precedence over `TelemetryOptions::enabled`:
+
+- `OPENAUTH_TELEMETRY=false` (or `0`) is a hard opt-out: telemetry stays off
+  even when application code calls `TelemetryOptions::enabled(true)`.
+- `OPENAUTH_TELEMETRY=true` (or `1`) enables telemetry on its own, regardless
+  of the options value.
+- When the variable is unset, `TelemetryOptions` decides (disabled by default).
+
+Telemetry is additionally suppressed under tests unless
+`TelemetryContext::skip_test_check` is set, and remains a no-op until an
+endpoint or custom sink exists (see above).
 
 ## Status
 
