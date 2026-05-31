@@ -84,7 +84,7 @@ pub(in crate::api) async fn sign_up_email(
     sign_up = sign_up
         .additional_user_fields(input.additional_user_fields)
         .additional_session_fields(input.additional_session_fields);
-    sign_up = with_sign_up_request_metadata(sign_up, request);
+    sign_up = with_sign_up_request_metadata(sign_up, context, request);
 
     if context.has_plugin("username") {
         if let Some(username) = sign_up.username.as_deref() {
@@ -182,6 +182,7 @@ pub(in crate::api) async fn sign_in_email(
         SignInInput::new(email, input.password)
             .remember_me(input.remember_me)
             .additional_session_fields(input.additional_session_fields),
+        context,
         request,
     );
     let auth = EmailPasswordAuth::new(
@@ -290,8 +291,12 @@ fn send_verification_email(
     sender.send_verification_email(VerificationEmail { user, url, token }, Some(request))
 }
 
-fn with_sign_up_request_metadata(mut input: SignUpInput, request: &ApiRequest) -> SignUpInput {
-    if let Some(ip_address) = request_ip(request) {
+fn with_sign_up_request_metadata(
+    mut input: SignUpInput,
+    context: &AuthContext,
+    request: &ApiRequest,
+) -> SignUpInput {
+    if let Some(ip_address) = crate::rate_limit::resolve_client_ip(context, request) {
         input = input.ip_address(ip_address);
     }
     if let Some(user_agent) = request_user_agent(request) {
@@ -300,8 +305,12 @@ fn with_sign_up_request_metadata(mut input: SignUpInput, request: &ApiRequest) -
     input
 }
 
-fn with_sign_in_request_metadata(mut input: SignInInput, request: &ApiRequest) -> SignInInput {
-    if let Some(ip_address) = request_ip(request) {
+fn with_sign_in_request_metadata(
+    mut input: SignInInput,
+    context: &AuthContext,
+    request: &ApiRequest,
+) -> SignInInput {
+    if let Some(ip_address) = crate::rate_limit::resolve_client_ip(context, request) {
         input = input.ip_address(ip_address);
     }
     if let Some(user_agent) = request_user_agent(request) {
@@ -316,24 +325,6 @@ fn request_user_agent(request: &ApiRequest) -> Option<String> {
         .get(header::USER_AGENT)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
-}
-
-fn request_ip(request: &ApiRequest) -> Option<String> {
-    request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .or_else(|| {
-            request
-                .headers()
-                .get("x-real-ip")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned)
-        })
 }
 
 fn percent_encode(value: &str) -> String {

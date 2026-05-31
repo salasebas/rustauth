@@ -306,7 +306,7 @@ fn resolve_config(
     let Some(rule) = resolve_rule(context, request, &path)? else {
         return Ok(RateLimitPlan::Skip);
     };
-    if let Some(ip) = request_ip(context, request) {
+    if let Some(ip) = resolve_client_ip(context, request) {
         return Ok(RateLimitPlan::Consume(ResolvedRateLimit {
             key: create_rate_limit_key(&ip, &path),
             rule,
@@ -390,7 +390,11 @@ fn default_special_rule(path: &str) -> Option<RateLimitRule> {
     None
 }
 
-fn request_ip(context: &AuthContext, request: &Request<Body>) -> Option<String> {
+/// Resolve the trusted client IP for a request using `advanced.ip_address`
+/// configuration. Shared by rate limiting and request metadata so the two
+/// never disagree about the same request. Returns `None` when no trusted IP
+/// can be resolved instead of trusting raw forwarding headers.
+pub(crate) fn resolve_client_ip(context: &AuthContext, request: &Request<Body>) -> Option<String> {
     if context.options.advanced.ip_address.disable_ip_tracking {
         return None;
     }
