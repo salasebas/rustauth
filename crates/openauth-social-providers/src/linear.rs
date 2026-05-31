@@ -120,7 +120,7 @@ impl LinearProvider {
     pub fn new(options: LinearOptions) -> Self {
         Self {
             options,
-            http_client: reqwest::Client::new(),
+            http_client: crate::http::shared_client(),
         }
     }
 

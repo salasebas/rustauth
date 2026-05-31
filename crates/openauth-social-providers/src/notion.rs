@@ -181,7 +181,7 @@ impl NotionProvider {
 
     pub async fn get_user_info(&self, token: &OAuth2Tokens) -> Option<NotionUserInfo> {
         let access_token = token.access_token.as_deref()?;
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .get(NOTION_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .header("Notion-Version", NOTION_VERSION)

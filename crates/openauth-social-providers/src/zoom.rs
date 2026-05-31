@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
+use crate::http::ProviderHttpClient;
+
 pub const ZOOM_ID: &str = "zoom";
 pub const ZOOM_NAME: &str = "Zoom";
 pub const ZOOM_AUTHORIZATION_ENDPOINT: &str = "https://zoom.us/oauth/authorize";
@@ -126,10 +128,11 @@ pub struct ZoomUserInfo {
     pub data: ZoomProfile,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ZoomProvider {
     options: ZoomOptions,
     user_info_endpoint: String,
+    http_client: ProviderHttpClient,
 }
 
 pub fn zoom(options: ZoomOptions) -> ZoomProvider {
@@ -141,6 +144,7 @@ impl ZoomProvider {
         Self {
             options,
             user_info_endpoint: ZOOM_USER_INFO_ENDPOINT.to_owned(),
+            http_client: ProviderHttpClient::shared(),
         }
     }
 
@@ -151,7 +155,15 @@ impl ZoomProvider {
         Self {
             options,
             user_info_endpoint: user_info_endpoint.into(),
+            http_client: ProviderHttpClient::shared(),
         }
+    }
+
+    /// Overrides the HTTP client used for userinfo requests. Use
+    /// [`ProviderHttpClient::permissive`] in tests to reach local fixtures.
+    pub fn with_http_client(mut self, http_client: ProviderHttpClient) -> Self {
+        self.http_client = http_client;
+        self
     }
 
     pub fn options(&self) -> &ZoomOptions {
@@ -284,8 +296,9 @@ impl ZoomProvider {
             return Ok(None);
         };
 
-        let response = match reqwest::Client::new()
-            .get(&self.user_info_endpoint)
+        let response = match self
+            .http_client
+            .get(&self.user_info_endpoint)?
             .header("authorization", format!("Bearer {access_token}"))
             .send()
             .await

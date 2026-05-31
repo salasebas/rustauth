@@ -175,7 +175,7 @@ impl LineProvider {
             params.push(("nonce".to_owned(), nonce.to_owned()));
         }
 
-        let response = match reqwest::Client::new()
+        let response = match crate::http::shared_client()
             .post(LINE_VERIFY_ID_TOKEN_ENDPOINT)
             .header("content-type", "application/x-www-form-urlencoded")
             .form(&params)
@@ -209,7 +209,7 @@ impl LineProvider {
         let Some(access_token) = tokens.access_token.as_deref() else {
             return Ok(None);
         };
-        let response = match reqwest::Client::new()
+        let response = match crate::http::shared_client()
             .get(LINE_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()

@@ -7,7 +7,7 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract};
+use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract};
 use openauth_social_providers::cognito::{
     cognito, cognito_issuer, cognito_jwks_uri, CognitoAuthorizationUrlInput, CognitoOptions,
 };
@@ -198,6 +198,29 @@ fn cognito_public_metadata_helpers_match_upstream_urls() {
         cognito_jwks_uri("us-west-2", "pool-id"),
         "https://cognito-idp.us-west-2.amazonaws.com/pool-id/.well-known/jwks.json"
     );
+}
+
+#[tokio::test]
+async fn cognito_userinfo_rejects_private_literal_ip_domain_by_default() {
+    // A domain that resolves to a private literal IP derives a userinfo URL
+    // (`https://10.0.0.5/oauth2/userinfo`) the default client must refuse.
+    let provider = cognito(CognitoOptions::new(
+        "client-id",
+        "10.0.0.5",
+        "us-east-1",
+        "pool-id",
+    ))
+    .expect("provider should build");
+
+    // No id_token, so the access-token userinfo HTTP path is exercised.
+    let result = provider
+        .get_user_info(&OAuth2Tokens {
+            access_token: Some("access-token".to_owned()),
+            ..OAuth2Tokens::default()
+        })
+        .await;
+
+    assert!(matches!(result, Err(OAuthError::InvalidConfiguration(_))));
 }
 
 fn unsigned_jwt(claims: serde_json::Value) -> String {

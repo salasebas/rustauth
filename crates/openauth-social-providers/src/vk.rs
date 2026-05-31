@@ -180,7 +180,7 @@ impl VkProvider {
             return Ok(None);
         };
 
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .post(VK_USER_INFO_ENDPOINT)
             .header("content-type", "application/x-www-form-urlencoded")
             .form(&[("access_token", access_token), ("client_id", client_id)])

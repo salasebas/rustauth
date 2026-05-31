@@ -279,7 +279,7 @@ impl FacebookProvider {
         &self,
         access_token: &str,
     ) -> Result<Option<FacebookProfile>, OAuthError> {
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .get(self.user_info_url()?)
             .bearer_auth(access_token)
             .send()

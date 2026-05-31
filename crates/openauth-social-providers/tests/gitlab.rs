@@ -17,6 +17,7 @@ use openauth_social_providers::gitlab::{
     gitlab, GitlabAuthorizationUrlRequest, GitlabOptions, GitlabProfile,
     GITLAB_AUTHORIZATION_ENDPOINT, GITLAB_ID, GITLAB_NAME, GITLAB_TOKEN_ENDPOINT,
 };
+use openauth_social_providers::http::ProviderHttpClient;
 use serde_json::json;
 
 #[test]
@@ -184,7 +185,8 @@ async fn gitlab_userinfo_accepts_active_unlocked_profiles() -> Result<(), OAuthE
             oauth: gitlab_provider_options(),
             ..GitlabOptions::default()
         }
-    });
+    })
+    .with_http_client(ProviderHttpClient::permissive());
 
     let info = provider
         .get_user_info(&tokens("access-1"))
@@ -219,7 +221,8 @@ async fn gitlab_userinfo_rejects_inactive_locked_and_http_errors() -> Result<(),
             oauth: gitlab_provider_options(),
             ..GitlabOptions::default()
         }
-    });
+    })
+    .with_http_client(ProviderHttpClient::permissive());
     assert!(inactive_provider
         .get_user_info(&tokens("access-1"))
         .await?
@@ -243,7 +246,8 @@ async fn gitlab_userinfo_rejects_inactive_locked_and_http_errors() -> Result<(),
             oauth: gitlab_provider_options(),
             ..GitlabOptions::default()
         }
-    });
+    })
+    .with_http_client(ProviderHttpClient::permissive());
     assert!(locked_provider
         .get_user_info(&tokens("access-1"))
         .await?
@@ -256,11 +260,57 @@ async fn gitlab_userinfo_rejects_inactive_locked_and_http_errors() -> Result<(),
             oauth: gitlab_provider_options(),
             ..GitlabOptions::default()
         }
-    });
+    })
+    .with_http_client(ProviderHttpClient::permissive());
     assert!(http_error_provider
         .get_user_info(&tokens("access-1"))
         .await?
         .is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn gitlab_userinfo_rejects_private_literal_ip_issuer_by_default() -> Result<(), OAuthError> {
+    let server = JsonServer::spawn(
+        200,
+        json!({
+            "id": 7,
+            "username": "ada",
+            "email": "ada@example.com",
+            "name": "Ada Lovelace",
+            "state": "active",
+            "email_verified": true
+        }),
+    );
+
+    // `server.url()` is a loopback literal IP (127.0.0.1:port). The default
+    // SSRF-guarded client must refuse it before connecting.
+    let guarded = gitlab(GitlabOptions {
+        issuer: Some(server.url()),
+        ..GitlabOptions {
+            oauth: gitlab_provider_options(),
+            ..GitlabOptions::default()
+        }
+    });
+    assert!(matches!(
+        guarded.get_user_info(&tokens("access-1")).await,
+        Err(OAuthError::InvalidConfiguration(_))
+    ));
+
+    // An explicitly permissive client may still reach the loopback fixture.
+    let permissive = gitlab(GitlabOptions {
+        issuer: Some(server.url()),
+        ..GitlabOptions {
+            oauth: gitlab_provider_options(),
+            ..GitlabOptions::default()
+        }
+    })
+    .with_http_client(ProviderHttpClient::permissive());
+    let info = permissive
+        .get_user_info(&tokens("access-1"))
+        .await?
+        .expect("permissive client should reach loopback fixture");
+    assert_eq!(info.user.id, "7");
     Ok(())
 }
 

@@ -348,7 +348,7 @@ impl TwitterProvider {
             return Ok(None);
         };
 
-        let client = reqwest::Client::new();
+        let client = crate::http::shared_client();
         let Some(profile) = fetch_twitter_profile(&client, access_token).await else {
             return Ok(None);
         };

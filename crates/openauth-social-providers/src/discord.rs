@@ -186,7 +186,7 @@ impl DiscordProvider {
         let Some(access_token) = token.access_token.as_deref() else {
             return Ok(None);
         };
-        let response = match reqwest::Client::new()
+        let response = match crate::http::shared_client()
             .get(USER_INFO_ENDPOINT)
             .header("authorization", format!("Bearer {access_token}"))
             .send()

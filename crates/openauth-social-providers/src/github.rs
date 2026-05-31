@@ -236,7 +236,7 @@ impl GitHubProvider {
             return Ok(None);
         };
 
-        let client = reqwest::Client::new();
+        let client = crate::http::shared_client();
         let Some(profile) = fetch_github_profile(&client, access_token).await else {
             return Ok(None);
         };

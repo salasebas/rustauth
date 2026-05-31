@@ -16,6 +16,8 @@ use serde_json::Value;
 use time::OffsetDateTime;
 use url::Url;
 
+use crate::http::ProviderHttpClient;
+
 const DEFAULT_SCOPES: &[&str] = &["openid", "profile", "email"];
 const ID_TOKEN_MAX_AGE_SECONDS: i64 = 60 * 60;
 
@@ -143,6 +145,7 @@ pub struct CognitoProvider {
     authorization_endpoint: String,
     token_endpoint: String,
     user_info_endpoint: String,
+    http_client: ProviderHttpClient,
 }
 
 impl CognitoProvider {
@@ -158,7 +161,15 @@ impl CognitoProvider {
             authorization_endpoint: format!("https://{clean_domain}/oauth2/authorize"),
             token_endpoint: format!("https://{clean_domain}/oauth2/token"),
             user_info_endpoint: format!("https://{clean_domain}/oauth2/userinfo"),
+            http_client: ProviderHttpClient::shared(),
         })
+    }
+
+    /// Overrides the HTTP client used for userinfo requests. Use
+    /// [`ProviderHttpClient::permissive`] in tests to reach local fixtures.
+    pub fn with_http_client(mut self, http_client: ProviderHttpClient) -> Self {
+        self.http_client = http_client;
+        self
     }
 
     pub fn options(&self) -> &CognitoOptions {
@@ -303,8 +314,9 @@ impl CognitoProvider {
             return Ok(None);
         };
 
-        let response = match reqwest::Client::new()
-            .get(&self.user_info_endpoint)
+        let response = match self
+            .http_client
+            .get(&self.user_info_endpoint)?
             .bearer_auth(access_token)
             .header("accept", "application/json")
             .send()

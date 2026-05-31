@@ -169,7 +169,7 @@ impl WeChatProvider {
         code: impl AsRef<str>,
     ) -> Result<OAuth2Tokens, OAuthError> {
         let url = self.authorization_code_url(code)?;
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .get(url)
             .send()
             .await?
@@ -198,7 +198,7 @@ impl WeChatProvider {
         refresh_token: impl AsRef<str>,
     ) -> Result<OAuth2Tokens, OAuthError> {
         let url = self.refresh_access_token_url(refresh_token)?;
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .get(url)
             .send()
             .await?
@@ -229,7 +229,7 @@ impl WeChatProvider {
         let Some(url) = self.user_info_url(tokens)? else {
             return Ok(None);
         };
-        let response = match reqwest::Client::new().get(url).send().await {
+        let response = match crate::http::shared_client().get(url).send().await {
             Ok(response) => response,
             Err(_) => return Ok(None),
         };

@@ -180,7 +180,7 @@ impl LinkedInProvider {
 
     pub async fn get_user_info(&self, token: &OAuth2Tokens) -> Option<LinkedInUserInfo> {
         let access_token = token.access_token.as_deref()?;
-        let profile = reqwest::Client::new()
+        let profile = crate::http::shared_client()
             .get(LINKEDIN_USERINFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()

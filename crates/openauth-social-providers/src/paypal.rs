@@ -141,7 +141,7 @@ impl PayPalProvider {
             authorization_endpoint,
             token_endpoint,
             user_info_endpoint,
-            http_client: reqwest::Client::new(),
+            http_client: crate::http::shared_client(),
         }
     }
 
@@ -342,7 +342,7 @@ async fn post_form(
     token_endpoint: &str,
     request: OAuthFormRequest,
 ) -> Result<serde_json::Value, OAuthError> {
-    let client = reqwest::Client::new();
+    let client = crate::http::shared_client();
     let mut builder = client.post(token_endpoint);
     for (key, value) in &request.headers {
         builder = builder.header(key, value);

@@ -14,6 +14,8 @@ use openauth_oauth::oauth2::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use url::Url;
 
+use crate::http::ProviderHttpClient;
+
 pub const HUGGINGFACE_ID: &str = "huggingface";
 pub const HUGGINGFACE_NAME: &str = "Hugging Face";
 pub const HUGGINGFACE_AUTHORIZATION_ENDPOINT: &str = "https://huggingface.co/oauth/authorize";
@@ -199,6 +201,7 @@ impl From<ProviderOptions> for HuggingFaceOptions {
 pub struct HuggingFaceProvider {
     options: HuggingFaceOptions,
     userinfo_endpoint: String,
+    http_client: ProviderHttpClient,
 }
 
 impl Default for HuggingFaceProvider {
@@ -212,7 +215,15 @@ impl HuggingFaceProvider {
         Self {
             options: options.into(),
             userinfo_endpoint: HUGGINGFACE_USERINFO_ENDPOINT.to_owned(),
+            http_client: ProviderHttpClient::shared(),
         }
+    }
+
+    /// Overrides the HTTP client used for userinfo requests. Use
+    /// [`ProviderHttpClient::permissive`] in tests to reach local fixtures.
+    pub fn with_http_client(mut self, http_client: ProviderHttpClient) -> Self {
+        self.http_client = http_client;
+        self
     }
 
     pub fn options(&self) -> &HuggingFaceOptions {
@@ -330,8 +341,9 @@ impl HuggingFaceProvider {
             return Ok(None);
         };
 
-        let response = match reqwest::Client::new()
-            .get(&self.userinfo_endpoint)
+        let response = match self
+            .http_client
+            .get(&self.userinfo_endpoint)?
             .bearer_auth(access_token)
             .send()
             .await
@@ -425,6 +437,7 @@ mod tests {
         let provider = HuggingFaceProvider {
             options: HuggingFaceOptions::default(),
             userinfo_endpoint: server.url(),
+            http_client: ProviderHttpClient::permissive(),
         };
 
         let result = provider

@@ -115,7 +115,7 @@ impl AtlassianProvider {
             authorization_endpoint: ATLASSIAN_AUTHORIZATION_ENDPOINT,
             token_endpoint: ATLASSIAN_TOKEN_ENDPOINT.to_owned(),
             user_info_endpoint: ATLASSIAN_USER_INFO_ENDPOINT.to_owned(),
-            http_client: reqwest::Client::new(),
+            http_client: crate::http::shared_client(),
         }
     }
 
@@ -130,7 +130,7 @@ impl AtlassianProvider {
             authorization_endpoint: ATLASSIAN_AUTHORIZATION_ENDPOINT,
             token_endpoint: token_endpoint.into(),
             user_info_endpoint: user_info_endpoint.into(),
-            http_client: reqwest::Client::new(),
+            http_client: crate::http::shared_client(),
         }
     }
 
