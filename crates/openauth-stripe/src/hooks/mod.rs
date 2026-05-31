@@ -15,34 +15,29 @@ pub async fn handle_stripe_event(
     event: &StripeEvent,
 ) -> Result<(), OpenAuthError> {
     let event_type = event.event_type.as_str();
-    let handler_error = match event_type {
+    let result = match event_type {
         "checkout.session.completed" => {
-            checkout::on_checkout_session_completed(context, options, event)
-                .await
-                .err()
+            checkout::on_checkout_session_completed(context, options, event).await
         }
         "customer.subscription.created" => {
-            subscriptions::on_subscription_created(context, options, event)
-                .await
-                .err()
+            subscriptions::on_subscription_created(context, options, event).await
         }
         "customer.subscription.updated" => {
-            subscriptions::on_subscription_updated(context, options, event)
-                .await
-                .err()
+            subscriptions::on_subscription_updated(context, options, event).await
         }
         "customer.subscription.deleted" => {
-            subscriptions::on_subscription_deleted(context, options, event)
-                .await
-                .err()
+            subscriptions::on_subscription_deleted(context, options, event).await
         }
-        _ => None,
+        _ => Ok(()),
     };
-    if let Some(error) = handler_error {
+    // Surface handler failures to the caller so the webhook route can release
+    // the idempotency claim and let Stripe retries recover, instead of marking
+    // the event processed after a partial update.
+    if let Err(error) = &result {
         logging::webhook_error(
             context,
             &format!("Stripe webhook failed ({event_type}): {error}"),
         );
     }
-    Ok(())
+    result
 }
