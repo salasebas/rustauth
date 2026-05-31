@@ -1,8 +1,13 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use josekit::jwk::{Jwk, JwkSet};
+use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
+use josekit::jws::JwsHeader;
+use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, ProviderOptions};
 use openauth_social_providers::facebook::{
     FacebookOptions, FacebookPicture, FacebookPictureData, FacebookProfile, FacebookProvider,
+    FACEBOOK_LIMITED_LOGIN_ISSUER,
 };
 use serde_json::json;
 
@@ -155,13 +160,56 @@ fn facebook_user_info_url_extends_default_fields() -> Result<(), Box<dyn std::er
 }
 
 #[tokio::test]
-async fn facebook_verify_id_token_accepts_opaque_access_tokens() {
+async fn facebook_verify_id_token_rejects_opaque_access_tokens() {
     let provider = FacebookProvider::new(FacebookOptions {
         oauth: provider_options(),
         ..FacebookOptions::default()
     });
 
-    assert!(provider.verify_id_token("opaque-token", None).await);
+    assert!(!provider.verify_id_token("opaque-token", None).await);
+}
+
+#[test]
+fn facebook_verify_id_token_accepts_limited_login_jwt_via_jwks(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider = FacebookProvider::new(FacebookOptions {
+        oauth: provider_options(),
+        ..FacebookOptions::default()
+    });
+    let (token, jwk) =
+        signed_limited_login_jwt("fb-web", FACEBOOK_LIMITED_LOGIN_ISSUER, Some("n"))?;
+    let jwks = jwks_with_key(jwk)?;
+
+    assert!(provider.verify_id_token_with_jwk_set(&token, Some("n"), &jwks));
+    Ok(())
+}
+
+#[test]
+fn facebook_verify_id_token_rejects_wrong_nonce_issuer_and_disabled_sign_in(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider = FacebookProvider::new(FacebookOptions {
+        oauth: provider_options(),
+        ..FacebookOptions::default()
+    });
+    let (token, jwk) =
+        signed_limited_login_jwt("fb-web", FACEBOOK_LIMITED_LOGIN_ISSUER, Some("n"))?;
+    let jwks = jwks_with_key(jwk)?;
+    assert!(!provider.verify_id_token_with_jwk_set(&token, Some("different"), &jwks));
+
+    let (other_issuer, jwk) =
+        signed_limited_login_jwt("fb-web", "https://evil.example", Some("n"))?;
+    let other_jwks = jwks_with_key(jwk)?;
+    assert!(!provider.verify_id_token_with_jwk_set(&other_issuer, Some("n"), &other_jwks));
+
+    let disabled = FacebookProvider::new(FacebookOptions {
+        oauth: ProviderOptions {
+            disable_id_token_sign_in: true,
+            ..provider_options()
+        },
+        ..FacebookOptions::default()
+    });
+    assert!(!disabled.verify_id_token_with_jwk_set(&token, Some("n"), &jwks));
+    Ok(())
 }
 
 #[tokio::test]
@@ -198,4 +246,44 @@ fn unsigned_jwt(payload: serde_json::Value) -> Result<String, Box<dyn std::error
     let header = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({ "alg": "none" }))?);
     let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload)?);
     Ok(format!("{header}.{payload}."))
+}
+
+fn signed_limited_login_jwt(
+    audience: &str,
+    issuer: &str,
+    nonce: Option<&str>,
+) -> Result<(String, Jwk), Box<dyn std::error::Error>> {
+    let kid = "facebook-test-key";
+    let mut jwk = Jwk::generate_rsa_key(2048)?;
+    jwk.set_key_id(kid);
+    jwk.set_algorithm("RS256");
+    jwk.set_key_use("sig");
+
+    let signer = Rs256.signer_from_jwk(&jwk)?;
+    let mut payload = JwtPayload::new();
+    payload.set_claim("aud", Some(json!(audience)))?;
+    payload.set_claim("iss", Some(json!(issuer)))?;
+    payload.set_claim("sub", Some(json!("limited-user")))?;
+    if let Some(nonce) = nonce {
+        payload.set_claim("nonce", Some(json!(nonce)))?;
+    }
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    payload.set_claim("exp", Some(json!(now + 3600)))?;
+
+    let mut header = JwsHeader::new();
+    header.set_algorithm("RS256");
+    header.set_key_id(kid);
+    let token = jwt::encode_with_signer(&payload, &header, &signer)?;
+
+    let mut public_jwk = jwk.to_public_key()?;
+    public_jwk.set_key_id(kid);
+    public_jwk.set_algorithm("RS256");
+    public_jwk.set_key_use("sig");
+    Ok((token, public_jwk))
+}
+
+fn jwks_with_key(jwk: Jwk) -> Result<JwkSet, Box<dyn std::error::Error>> {
+    Ok(JwkSet::from_bytes(
+        json!({ "keys": [jwk] }).to_string().as_bytes(),
+    )?)
 }
