@@ -269,6 +269,62 @@ fn request_builders_support_post_and_basic_authentication() {
 }
 
 #[test]
+fn basic_authentication_form_encodes_reserved_and_non_ascii_credentials() {
+    use base64::Engine as _;
+
+    let decode_basic = |request: &openauth_oauth::oauth2::OAuthFormRequest| {
+        let encoded = request
+            .header("authorization")
+            .and_then(|header| header.strip_prefix("Basic "))
+            .expect("basic authorization header should be set")
+            .to_owned();
+        String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .expect("credentials should be valid base64"),
+        )
+        .expect("decoded credentials should be utf-8")
+    };
+
+    let reserved = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        refresh_token: "refresh-token".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("a:b c".to_owned())),
+            client_secret: Some("é+&=%".to_owned()),
+            ..ProviderOptions::default()
+        },
+        authentication: ClientAuthentication::Basic,
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect("basic auth request should build");
+
+    // Each component is form-encoded independently (RFC 6749 §2.3.1), so reserved and
+    // non-ASCII bytes survive Base64 and the only literal `:` is the separator a server
+    // splits on before decoding each half.
+    let decoded = decode_basic(&reserved);
+    assert_eq!(decoded, "a%3Ab+c:%C3%A9%2B%26%3D%25");
+    let (id, secret) = decoded
+        .split_once(':')
+        .expect("exactly one separator colon should remain");
+    assert_eq!(form_urldecode(id), "a:b c");
+    assert_eq!(form_urldecode(secret), "é+&=%");
+
+    // Compatibility: simple unreserved ASCII credentials are unchanged on the wire.
+    let simple = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        refresh_token: "refresh-token".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            client_secret: Some("client-secret".to_owned()),
+            ..ProviderOptions::default()
+        },
+        authentication: ClientAuthentication::Basic,
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect("basic auth request should build");
+    assert_eq!(decode_basic(&simple), "client-id:client-secret");
+}
+
+#[test]
 fn authorization_code_additional_params_do_not_overwrite_standard_fields() {
     let request = create_authorization_code_request(AuthorizationCodeRequest {
         code: "code-123".to_owned(),
@@ -1297,6 +1353,13 @@ async fn verify_jws_access_token_maps_azp_to_client_id() {
     .payload;
 
     assert_eq!(payload["client_id"], "authorized-party");
+}
+
+fn form_urldecode(value: &str) -> String {
+    url::form_urlencoded::parse(format!("x={value}").as_bytes())
+        .next()
+        .map(|(_, decoded)| decoded.into_owned())
+        .unwrap_or_default()
 }
 
 fn provider_options() -> ProviderOptions {

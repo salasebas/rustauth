@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use url::form_urlencoded::Serializer;
+use url::form_urlencoded::{byte_serialize, Serializer};
 
 use super::error::OAuthError;
 use super::http::{default_http_client, OAuthHttpClient};
@@ -105,7 +105,15 @@ pub fn apply_client_authentication(
             } else {
                 client_secret.unwrap_or("")
             };
-            let credentials = STANDARD.encode(format!("{client_id}:{client_secret}"));
+            // RFC 6749 §2.3.1: the client id and secret are each encoded with the
+            // `application/x-www-form-urlencoded` algorithm before being joined with
+            // `:` and Base64-encoded, so reserved characters (`:`, `+`, `=`, spaces,
+            // non-ASCII bytes, ...) cannot corrupt the decoded Basic credentials.
+            let credentials = STANDARD.encode(format!(
+                "{}:{}",
+                form_encode_credential(client_id),
+                form_encode_credential(client_secret)
+            ));
             request.set_header("authorization", format!("Basic {credentials}"));
         }
         ClientAuthentication::Post => {
@@ -128,6 +136,13 @@ fn non_empty_secret(options: &ProviderOptions) -> Option<&str> {
         .client_secret
         .as_deref()
         .filter(|secret| !secret.is_empty())
+}
+
+/// Encodes a Basic-auth credential component with `application/x-www-form-urlencoded`
+/// rules per RFC 6749 §2.3.1. Unreserved ASCII (including `-`, `_`, `.`, `*`) is left
+/// unchanged, preserving the wire format for simple credentials.
+fn form_encode_credential(value: &str) -> String {
+    byte_serialize(value.as_bytes()).collect()
 }
 
 pub async fn post_form(
