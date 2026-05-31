@@ -63,10 +63,24 @@ pub(super) fn create(options: OrganizationOptions) -> AsyncAuthEndpoint {
                 }
 
                 let session = http::current_session(context, &request, &store).await?;
-                let user = match (session.as_ref(), input.user_id.as_deref()) {
-                    (Some(session), _) => session.user.clone(),
-                    (None, Some(user_id)) => match store.user_by_id(user_id).await? {
-                        Some(user) => user,
+                // `userId` lets a trusted server-side caller create an organization on
+                // behalf of another user. It must never be honored for internet-facing
+                // requests: an unauthenticated client could otherwise forge any `userId`
+                // and provision organizations for arbitrary users (OPE-9). Mirrors
+                // upstream `if (!session && (ctx.request || ctx.headers)) UNAUTHORIZED`.
+                let user = match session.as_ref() {
+                    Some(session) => session.user.clone(),
+                    None if !http::request_is_external() => match input.user_id.as_deref() {
+                        Some(user_id) => match store.user_by_id(user_id).await? {
+                            Some(user) => user,
+                            None => {
+                                return http::error(
+                                    StatusCode::UNAUTHORIZED,
+                                    "UNAUTHORIZED",
+                                    "Unauthorized",
+                                );
+                            }
+                        },
                         None => {
                             return http::error(
                                 StatusCode::UNAUTHORIZED,
@@ -75,7 +89,7 @@ pub(super) fn create(options: OrganizationOptions) -> AsyncAuthEndpoint {
                             );
                         }
                     },
-                    (None, None) => {
+                    None => {
                         return http::error(
                             StatusCode::UNAUTHORIZED,
                             "UNAUTHORIZED",

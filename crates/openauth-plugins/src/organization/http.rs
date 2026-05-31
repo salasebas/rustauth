@@ -69,6 +69,13 @@ pub fn adapter(context: &AuthContext) -> Result<std::sync::Arc<dyn DbAdapter>, O
     })
 }
 
+/// Returns true when the request originates from the internet-facing HTTP
+/// router. Server-only inputs (such as an explicit `userId` acting on behalf of
+/// another user) must never be trusted for such requests.
+pub fn request_is_external() -> bool {
+    openauth_core::context::request_state::is_external_request()
+}
+
 pub fn refreshed_session_cookies(
     context: &AuthContext,
     session: &Session,

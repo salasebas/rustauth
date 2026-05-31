@@ -125,6 +125,42 @@ async fn keep_current_active_organization_and_set_active_by_slug(
 }
 
 #[tokio::test]
+async fn unauthenticated_create_with_user_id_is_rejected() -> Result<(), Box<dyn std::error::Error>>
+{
+    let auth = super::test_router(
+        Arc::new(MemoryAdapter::new()),
+        OrganizationOptions::default(),
+    )?;
+    // A real user exists, but the attacker holds no session for them.
+    let victim = super::sign_up(&auth, "Victim", "victim-ope9@example.com").await?;
+
+    // An internet-facing request that forges the victim's `userId` without a
+    // session must be rejected. `userId` is server-only (OPE-9).
+    let forged = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/create",
+        json!({"name":"Forged Org","slug":"forged-org","userId": victim.user_id}),
+        None,
+    )
+    .await?;
+    assert_eq!(forged.status, StatusCode::UNAUTHORIZED);
+
+    // The slug must still be free, proving no organization was provisioned for
+    // the victim by the unauthenticated request.
+    let legitimate = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/create",
+        json!({"name":"Forged Org","slug":"forged-org"}),
+        Some(&victim.cookie),
+    )
+    .await?;
+    assert_eq!(legitimate.status, StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
 async fn active_team_is_returned_from_get_session_when_teams_are_enabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let options = OrganizationOptions::builder()
