@@ -3,8 +3,8 @@ use crate::diagnostics::{doctor, DiagnosticReport, Severity};
 use crate::output::print_json;
 
 pub async fn run(context: &AppContext, args: DiagnosticArgs) -> Result<(), AppError> {
-    let config = context.load_config()?;
-    let report = doctor(context.cwd(), &config, args.production).await;
+    let (config, config_loaded) = context.load_config_or_default()?;
+    let report = doctor(context.cwd(), &config, args.production, config_loaded).await;
     if args.json {
         print_json(&report)?;
     } else {

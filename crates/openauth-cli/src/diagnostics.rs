@@ -60,15 +60,23 @@ pub async fn doctor(
     cwd: &std::path::Path,
     config: &CliConfig,
     production_override: bool,
+    config_loaded: bool,
 ) -> DiagnosticReport {
     let production = production_override || config.project.production;
     let workspace = inspect(cwd).ok();
     let mut findings = Vec::new();
 
-    findings.push(info(
-        "config.loaded",
-        "Loaded OpenAuth CLI configuration from openauth.toml.",
-    ));
+    if config_loaded {
+        findings.push(info(
+            "config.loaded",
+            "Loaded OpenAuth CLI configuration from openauth.toml.",
+        ));
+    } else {
+        findings.push(warn(
+            "config.missing",
+            "No openauth.toml found; using defaults. Run `openauth init` to create one.",
+        ));
+    }
     inspect_workspace(&mut findings, workspace.as_ref(), config);
     inspect_security(&mut findings, config, production);
     inspect_database(&mut findings, config, production).await;

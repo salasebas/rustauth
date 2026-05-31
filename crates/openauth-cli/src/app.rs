@@ -283,6 +283,18 @@ impl AppContext {
         })
     }
 
+    /// Loads the config when present, otherwise falls back to defaults.
+    ///
+    /// Returns the config plus a flag indicating whether it was loaded from
+    /// disk. A missing `openauth.toml` is not an error so read-only commands
+    /// can run in a fresh checkout, but parse failures still surface.
+    pub(crate) fn load_config_or_default(&self) -> Result<(CliConfig, bool), AppError> {
+        match CliConfig::load_optional(&self.config_path)? {
+            Some(config) => Ok((config, true)),
+            None => Ok((CliConfig::default(), false)),
+        }
+    }
+
     pub(crate) fn resolve_project_path(&self, path: &Path) -> PathBuf {
         crate::paths::resolve_project_path(&self.cwd, path)
     }

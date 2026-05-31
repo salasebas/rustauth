@@ -3,7 +3,7 @@ use crate::output::print_json;
 use crate::schema::{dialect_from_provider, full_schema_plan, target_schema};
 
 pub fn print(context: &AppContext, args: SchemaPrintArgs) -> Result<(), AppError> {
-    let config = context.load_config()?;
+    let (config, _config_loaded) = context.load_config_or_default()?;
     let schema = target_schema(&config)?;
     match args.format {
         SchemaFormat::Json => print_json(&schema)?,

@@ -19,11 +19,27 @@ published package exposes the `openauth` binary and cargo-style aliases.
 
 ## Quick Start
 
+These commands work in any directory and do not need an `openauth.toml`:
+
 ```sh
-openauth secret --bytes 32
-openauth doctor --production
-openauth schema print --dialect sqlite
-openauth plugins list
+openauth secret --bytes 32              # generate a signing secret
+openauth plugins list                   # list official plugins
+openauth schema print --dialect sqlite  # print the base OpenAuth schema
+openauth doctor                         # diagnose the environment
+```
+
+Without a config, `doctor` reports what is missing (including the absent
+`openauth.toml`) and `schema print` emits the default schema, so the CLI is
+useful before any project setup.
+
+To create a project and unlock the config-bound workflow, run `openauth init`
+first. It writes `openauth.toml`; the following commands read it:
+
+```sh
+openauth init                # write openauth.toml and .env.example
+openauth doctor --production # config-aware production readiness checks
+openauth db generate         # generate a migration from the configured schema
+openauth db migrate          # apply pending migrations
 ```
 
 The CLI is intentionally transparent: it inspects the current Rust workspace
