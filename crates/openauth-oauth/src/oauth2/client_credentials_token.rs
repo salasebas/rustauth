@@ -1,6 +1,7 @@
 use super::error::OAuthError;
+use super::http::{default_http_client, OAuthHttpClient};
 use super::request::{
-    apply_client_authentication, post_form, ClientAuthentication, OAuthFormRequest,
+    apply_client_authentication, post_form_with_client, ClientAuthentication, OAuthFormRequest,
 };
 use super::tokens::{get_oauth2_tokens, get_primary_client_id, OAuth2Tokens, ProviderOptions};
 
@@ -91,7 +92,14 @@ pub fn client_credentials_token_request(
 pub async fn client_credentials_token(
     input: ClientCredentialsGrant,
 ) -> Result<OAuth2Tokens, OAuthError> {
+    client_credentials_token_with_client(input, &default_http_client()?).await
+}
+
+pub async fn client_credentials_token_with_client(
+    input: ClientCredentialsGrant,
+    client: &OAuthHttpClient,
+) -> Result<OAuth2Tokens, OAuthError> {
     let request = client_credentials_token_request(input.request)?;
-    let data = post_form(&input.token_endpoint, request).await?;
+    let data = post_form_with_client(&input.token_endpoint, request, client).await?;
     get_oauth2_tokens(data)
 }
