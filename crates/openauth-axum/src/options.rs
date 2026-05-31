@@ -65,7 +65,7 @@ impl Default for OpenAuthAxumOptions {
         Self {
             body_limit: DEFAULT_BODY_LIMIT,
             use_connect_info_for_ip: true,
-            infer_base_url_from_request: true,
+            infer_base_url_from_request: false,
             trust_proxy_headers_for_base_url: false,
         }
     }

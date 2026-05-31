@@ -332,6 +332,67 @@ async fn get_session_route_disable_cookie_cache_forces_database_read(
     Ok(())
 }
 
+#[tokio::test]
+async fn get_session_route_cookie_cache_requires_authoritative_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    let active_session = session(now, now + Duration::hours(1));
+    let options = OpenAuthOptions {
+        session: SessionOptions {
+            cookie_cache: CookieCacheOptions {
+                enabled: true,
+                max_age: Some(300),
+                ..CookieCacheOptions::default()
+            },
+            ..SessionOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    };
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some(secret().to_owned()),
+        ..options.clone()
+    })?;
+    let cache_cookies = set_cookie_cache(
+        &context.auth_cookies,
+        &context.secret,
+        &CookieCachePayload {
+            session: active_session,
+            user: user(now),
+            updated_at: now.unix_timestamp(),
+            version: "1".to_owned(),
+        },
+        context.options.session.cookie_cache.strategy,
+        300,
+    )?;
+    let cookie = format!(
+        "{}; {}",
+        signed_session_cookie("token_1")?,
+        cookie_header(&cache_cookies)
+    );
+    let router = router_with_options(adapter, options)?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/get-session",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert!(body.is_null());
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|value| value.starts_with("open-auth.session_token=; Max-Age=0")));
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|value| value.starts_with("open-auth.session_data=; Max-Age=0")));
+    Ok(())
+}
+
 fn user_field_options() -> OpenAuthOptions {
     OpenAuthOptions {
         user: UserOptions {

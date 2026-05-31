@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::context::{create_auth_context, AuthContext};
 use openauth_core::cookies::{
-    get_cookies, parse_cookies, set_session_cookie, Cookie, SessionCookieOptions,
+    get_cookies, parse_cookies, set_cookie_cache, set_session_cookie, Cookie, CookieCachePayload,
+    SessionCookieOptions,
 };
 use openauth_core::db::{
     run_transaction_without_native_support, AdapterFuture, Count, Create, DbAdapter, DbRecord,
@@ -205,6 +206,66 @@ async fn get_session_clears_cookies_when_signed_token_is_missing_from_store(
 }
 
 #[tokio::test]
+async fn get_session_revalidates_cookie_cache_against_session_store(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = SessionAuthAdapter::default();
+    let context = context()?;
+    let now = OffsetDateTime::now_utc();
+    let cached_session = session(now, now + Duration::hours(1));
+    let cached_user = user(now);
+    let cookie_header = format!(
+        "{}; {}",
+        session_cookie_header(&context, "token_1", false)?,
+        cookie_cache_header(&context, &cached_session, &cached_user)?
+    );
+
+    let result = SessionAuth::new(&adapter, &context)
+        .get_session(GetSessionInput::new(cookie_header))
+        .await?;
+
+    let Some(result) = result else {
+        return Err("missing anonymous result".into());
+    };
+    assert!(result.session.is_none());
+    assert!(result.cookies.iter().any(|cookie| cookie.name
+        == context.auth_cookies.session_token.name
+        && cookie.attributes.max_age == Some(0)));
+    assert!(result.cookies.iter().any(|cookie| cookie.name
+        == context.auth_cookies.session_data.name
+        && cookie.attributes.max_age == Some(0)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_session_rejects_cookie_cache_when_database_session_is_expired(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = SessionAuthAdapter::default();
+    let context = context()?;
+    let now = OffsetDateTime::now_utc();
+    let cached_session = session(now, now + Duration::hours(1));
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now - Duration::seconds(1)))
+        .await;
+    let cookie_header = format!(
+        "{}; {}",
+        session_cookie_header(&context, "token_1", false)?,
+        cookie_cache_header(&context, &cached_session, &user(now))?
+    );
+
+    let result = SessionAuth::new(&adapter, &context)
+        .get_session(GetSessionInput::new(cookie_header))
+        .await?;
+
+    let Some(result) = result else {
+        return Err("missing anonymous result".into());
+    };
+    assert!(result.session.is_none());
+    assert!(adapter.sessions.lock().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_out_deletes_session_and_expires_session_cookies(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = SessionAuthAdapter::default();
@@ -292,6 +353,31 @@ fn cookie_header(cookies: &[Cookie]) -> String {
         .map(|cookie| format!("{}={}", cookie.name, cookie.value))
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn cookie_cache_header(
+    context: &AuthContext,
+    session: &Session,
+    user: &User,
+) -> Result<String, OpenAuthError> {
+    let cookies = set_cookie_cache(
+        &context.auth_cookies,
+        &context.secret,
+        &CookieCachePayload {
+            session: session.clone(),
+            user: user.clone(),
+            updated_at: OffsetDateTime::now_utc().unix_timestamp(),
+            version: "1".to_owned(),
+        },
+        context.options.session.cookie_cache.strategy,
+        context
+            .options
+            .session
+            .cookie_cache
+            .max_age
+            .unwrap_or(60 * 5),
+    )?;
+    Ok(cookie_header(&cookies))
 }
 
 fn user(now: OffsetDateTime) -> User {

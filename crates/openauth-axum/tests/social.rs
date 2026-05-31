@@ -2,7 +2,7 @@ mod common;
 
 use axum::http::{header, Method, StatusCode};
 use common::*;
-use openauth::{MemoryAdapter, OpenAuthOptions};
+use openauth::{MemoryAdapter, OpenAuthOptions, TrustedOriginOptions};
 use openauth_axum::{router, router_with_options, OpenAuthAxumOptions};
 use tower::ServiceExt;
 
@@ -81,10 +81,17 @@ async fn social_sign_in_oauth2_and_callback_routes_work_over_axum(
 #[tokio::test]
 async fn social_sign_in_infers_base_url_from_host_when_unconfigured(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let app = router(auth_with_adapter(
-        MemoryAdapter::new(),
-        OpenAuthOptions::default().social_provider(FakeProvider::new("github")),
-    )?)?;
+    let app = router_with_options(
+        auth_with_adapter(
+            MemoryAdapter::new(),
+            OpenAuthOptions::default()
+                .trusted_origins(TrustedOriginOptions::Static(vec![
+                    "https://app.example.com".to_owned(),
+                ]))
+                .social_provider(FakeProvider::new("github")),
+        )?,
+        OpenAuthAxumOptions::new().infer_base_url_from_request(true),
+    )?;
 
     let sign_in = app
         .oneshot(
@@ -109,16 +116,50 @@ async fn social_sign_in_infers_base_url_from_host_when_unconfigured(
 }
 
 #[tokio::test]
+async fn social_sign_in_rejects_host_origin_callback_by_default(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app = router(auth_with_adapter(
+        MemoryAdapter::new(),
+        OpenAuthOptions::default().social_provider(FakeProvider::new("github")),
+    )?)?;
+
+    let response = app
+        .oneshot(
+            json_request(
+                Method::POST,
+                "/api/auth/sign-in/social",
+                r#"{"provider":"github","callbackURL":"https://evil.example.com/dashboard"}"#,
+                None,
+            )?
+            .with_header(header::HOST, "evil.example.com")?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = body_json(response).await?;
+    assert_eq!(body["code"], "INVALID_CALLBACK_URL");
+    Ok(())
+}
+
+#[tokio::test]
 async fn social_sign_in_uses_trusted_proxy_headers_only_when_enabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let auth = || {
         auth_with_adapter(
             MemoryAdapter::new(),
-            OpenAuthOptions::default().social_provider(FakeProvider::new("github")),
+            OpenAuthOptions::default()
+                .trusted_origins(TrustedOriginOptions::Static(vec![
+                    "http://internal.localhost".to_owned(),
+                    "https://public.example.com".to_owned(),
+                ]))
+                .social_provider(FakeProvider::new("github")),
         )
     };
 
-    let default_app = router(auth()?)?;
+    let default_app = router_with_options(
+        auth()?,
+        OpenAuthAxumOptions::new().infer_base_url_from_request(true),
+    )?;
     let default_response = default_app
         .oneshot(
             json_request(
@@ -147,7 +188,9 @@ async fn social_sign_in_uses_trusted_proxy_headers_only_when_enabled(
 
     let trusted_app = router_with_options(
         auth()?,
-        OpenAuthAxumOptions::new().trust_proxy_headers_for_base_url(true),
+        OpenAuthAxumOptions::new()
+            .infer_base_url_from_request(true)
+            .trust_proxy_headers_for_base_url(true),
     )?;
     let trusted_response = trusted_app
         .oneshot(

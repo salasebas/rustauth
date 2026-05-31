@@ -1,4 +1,5 @@
 use http::Request;
+use openauth_core::api::RequestBaseUrl;
 use openauth_core::auth::trusted_origins::matches_origin_pattern;
 use openauth_core::context::create_auth_context;
 use openauth_core::error::OpenAuthError;
@@ -57,6 +58,27 @@ fn context_merges_request_aware_trusted_origins() -> Result<(), Box<dyn std::err
     assert!(!ctx.is_trusted_origin("https://tenant.example.com/dashboard", None));
     assert!(ctx.is_trusted_origin_for_request(
         "https://tenant.example.com/dashboard",
+        None,
+        Some(&request)
+    )?);
+    Ok(())
+}
+
+#[test]
+fn context_does_not_trust_request_base_url_extension() -> Result<(), Box<dyn std::error::Error>> {
+    let ctx = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let mut request = Request::builder()
+        .uri("http://localhost:3000/api/auth/ok")
+        .body(Vec::new())?;
+    request.extensions_mut().insert(RequestBaseUrl(
+        "https://evil.example.com/api/auth".to_owned(),
+    ));
+
+    assert!(!ctx.is_trusted_origin_for_request(
+        "https://evil.example.com/dashboard",
         None,
         Some(&request)
     )?);

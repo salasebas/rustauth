@@ -2,6 +2,13 @@
 
 All notable changes to `openauth-axum` are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Fixed request base URL inference so request-derived `Host` values are not
+  trusted origins, and disabled that inference by default.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added

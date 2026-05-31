@@ -9,6 +9,10 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed session cookie cache authentication so cached session data is only
+  returned after the backing session token still exists and is unexpired.
+- Fixed Axum request base URL inference so request-derived `Host` values are
+  not trusted origins, and disabled that inference by default.
 - Fixed `openauth-tokio-postgres` and `openauth-deadpool-postgres` leaving
   connections in open transactions when `transaction()` or rate-limit `consume()`
   is cancelled or panics mid-callback, which could let a later `COMMIT` persist

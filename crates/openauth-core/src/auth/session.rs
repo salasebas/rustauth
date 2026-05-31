@@ -95,6 +95,7 @@ impl<'a> SessionAuth<'a> {
             ))));
         };
 
+        let session_store = SessionStore::new(self.adapter, self.context);
         if self.context.options.session.cookie_cache.enabled && !input.disable_cookie_cache {
             if let Some(cached) = get_cookie_cache::<Session, User>(
                 &input.cookie_header,
@@ -103,7 +104,16 @@ impl<'a> SessionAuth<'a> {
                 self.context.options.session.cookie_cache.strategy,
                 self.context.options.session.cookie_cache.version.as_deref(),
             )? {
-                if cached.session.expires_at > OffsetDateTime::now_utc() {
+                if cached.session.token == token
+                    && cached.session.expires_at > OffsetDateTime::now_utc()
+                {
+                    if session_store.find_session(&token).await?.is_none() {
+                        return Ok(Some(unauthenticated(delete_session_cookie(
+                            &self.context.auth_cookies,
+                            &input.cookie_header,
+                            false,
+                        ))));
+                    }
                     return Ok(Some(authenticated(
                         cached.session,
                         cached.user,
@@ -114,7 +124,6 @@ impl<'a> SessionAuth<'a> {
             }
         }
 
-        let session_store = SessionStore::new(self.adapter, self.context);
         let Some(mut session) = session_store.find_session(&token).await? else {
             return Ok(Some(unauthenticated(delete_session_cookie(
                 &self.context.auth_cookies,
