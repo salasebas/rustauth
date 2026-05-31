@@ -415,6 +415,44 @@ fn real_webauthn_backend_rejects_invalid_origin_config() {
     assert!(result.is_err());
 }
 
+/// The configured user-verification policy must be threaded into the ceremony
+/// state that the verifier enforces, so the advertised `userVerification` can
+/// never diverge from the policy the server later checks (OPE-48).
+#[test]
+fn real_webauthn_backend_registration_advertised_policy_matches_verified_state(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let backend = RealPasskeyWebAuthnBackend;
+    let config = WebAuthnConfig {
+        rp_id: "localhost".to_owned(),
+        rp_name: "OpenAuth".to_owned(),
+        origins: vec!["http://localhost:3000".to_owned()],
+    };
+    let user = PasskeyRegistrationUser::new("real-user", "real@example.com");
+
+    for (policy, expected) in [
+        (UserVerificationRequirement::Preferred, "preferred"),
+        (UserVerificationRequirement::Discouraged, "discouraged"),
+        (UserVerificationRequirement::Required, "required"),
+    ] {
+        let start = backend.start_registration(
+            config.clone(),
+            &user,
+            Vec::new(),
+            RegistrationWebAuthnOptions {
+                authenticator_selection: AuthenticatorSelection::new().user_verification(policy),
+                extensions: None,
+            },
+        )?;
+
+        let advertised = start.options["authenticatorSelection"]["userVerification"].as_str();
+        let verified = start.state["policy"].as_str();
+        assert_eq!(advertised, Some(expected));
+        assert_eq!(verified, Some(expected));
+        assert_eq!(advertised, verified);
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn verify_registration_creates_passkey_and_deletes_challenge(
 ) -> Result<(), Box<dyn std::error::Error>> {

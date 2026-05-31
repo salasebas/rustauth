@@ -98,6 +98,7 @@ unicode-normalization = "0.1"
 url = "2"
 uuid = { version = "1", features = ["serde", "v4", "v5"] }
 webauthn-rs = { version = "0.5", features = ["conditional-ui", "danger-allow-state-serialisation", "danger-credential-internals"] }
+webauthn-rs-core = "=0.5.5"
 x509-parser = "0.18"
 
 [workspace.lints.rust]
