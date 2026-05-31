@@ -1,7 +1,6 @@
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use http::{Method, Request};
-use openauth_stripe::stripe_api::webhook_signing_key;
 use sha2::Sha256;
 use time::OffsetDateTime;
 
@@ -10,9 +9,8 @@ pub fn sign_webhook_payload(
     payload: &[u8],
     timestamp: i64,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let signing_key = webhook_signing_key(secret)?;
     let signed_payload = format!("{timestamp}.{}", String::from_utf8_lossy(payload));
-    let mut mac = Hmac::<Sha256>::new_from_slice(&signing_key)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
     mac.update(signed_payload.as_bytes());
     let signature = hex::encode(mac.finalize().into_bytes());
     Ok(format!("t={timestamp},v1={signature}"))

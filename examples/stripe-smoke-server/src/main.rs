@@ -187,9 +187,7 @@ async fn smoke_webhook_self_test(
 
     let payload = br#"{"id":"evt_smoke_self_test","type":"customer.subscription.created","data":{"object":{"id":"sub_smoke_self","customer":"cus_smoke","status":"active","metadata":{},"cancel_at_period_end":false,"items":{"data":[{"id":"si_smoke","price":{"id":"price_smoke","recurring":{"interval":"month","usage_type":"licensed"}},"quantity":1}]}}}}"#;
     let timestamp = OffsetDateTime::now_utc().unix_timestamp();
-    let signing_key = openauth_stripe::stripe_api::webhook_signing_key(webhook_secret)
-        .map_err(|error| error.to_string())?;
-    let mut mac = Hmac::<Sha256>::new_from_slice(&signing_key)
+    let mut mac = Hmac::<Sha256>::new_from_slice(webhook_secret.as_bytes())
         .map_err(|error| format!("failed to build webhook self-test HMAC: {error}"))?;
     mac.update(timestamp.to_string().as_bytes());
     mac.update(b".");

@@ -4,7 +4,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use reqwest::Method;
 use serde_json::Value;
@@ -104,21 +103,6 @@ fn map_stripe_code_to_plugin(
             StripeErrorCode::SubscriptionNotFound
         }
         _ => default,
-    }
-}
-
-/// Signing key bytes for Stripe webhook HMAC verification.
-///
-/// `whsec_` suffix is base64-encoded (Dashboard and Stripe CLI `listen`).
-pub fn webhook_signing_key(secret: &str) -> Result<Vec<u8>, StripeApiError> {
-    if let Some(encoded) = secret.strip_prefix("whsec_") {
-        match base64::engine::general_purpose::STANDARD.decode(encoded) {
-            Ok(bytes) => Ok(bytes),
-            // Test secrets such as `whsec_test` are not dashboard-style base64 payloads.
-            Err(_) => Ok(secret.as_bytes().to_vec()),
-        }
-    } else {
-        Ok(secret.as_bytes().to_vec())
     }
 }
 
@@ -488,8 +472,9 @@ fn webhook_signature(
     secret: &str,
     timestamp: i64,
 ) -> Result<Vec<u8>, StripeApiError> {
-    let signing_key = webhook_signing_key(secret)?;
-    let mut mac = Hmac::<Sha256>::new_from_slice(&signing_key).map_err(|error| {
+    // Stripe signs with the endpoint secret used verbatim as the HMAC key,
+    // including the `whsec_` prefix. Do not strip or base64-decode it.
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|error| {
         StripeApiError::Transport(format!("failed to initialize webhook verifier: {error}"))
     })?;
     mac.update(timestamp.to_string().as_bytes());

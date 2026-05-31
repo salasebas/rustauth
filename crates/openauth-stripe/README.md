@@ -74,7 +74,8 @@ should target `/api/auth/stripe/webhook`.
 
 The webhook endpoint validates the `stripe-signature` header with the secret
 passed to `StripeOptions::new`. Use the signing secret from the Stripe dashboard
-as-is (including the `whsec_` prefix); the plugin decodes it before verification.
+as-is (including the `whsec_` prefix); the plugin uses it verbatim as the HMAC
+key, matching Stripe's official libraries.
 It currently handles checkout completion and subscription created, updated,
 canceled, and deleted events.
 

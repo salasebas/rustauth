@@ -11,7 +11,7 @@ OpenAuth-stripe is an idiomatic Rust port, not a line-by-line copy. This documen
 | **Database hooks** (sign-up customer, email sync, org name, seat sync) | Best-effort: failures are logged and do not fail the primary DB operation. |
 | **Webhook handlers** (`checkout.session.completed`, subscription lifecycle) | Handler errors are logged; Stripe still receives HTTP 200 when signature and JSON parsing succeed. |
 | **`on_event` hook** | If it returns an error, the webhook responds with `STRIPE_WEBHOOK_ERROR` (same as upstream outer `catch`). |
-| **Webhook signature** | Dashboard `whsec_…` secrets are decoded before HMAC (Stripe SDK convention). |
+| **Webhook signature** | The endpoint signing secret is used verbatim (including the `whsec_` prefix) as the HMAC key, matching Stripe's official libraries. |
 | **HTTP route errors** | Structured `StripeErrorCode` JSON via `respond_stripe_api_error` where Stripe API calls run on subscription endpoints. |
 | **Checkout webhook fallback** | Resolves local subscription by `client_reference_id` / metadata `referenceId` when `subscriptionId` metadata is missing. |
 | **Logging** | `warn` / `error` messages follow upstream wording where applicable (`ctx.logger` in TS → `AuthContext::logger` or hook fallback logger). |

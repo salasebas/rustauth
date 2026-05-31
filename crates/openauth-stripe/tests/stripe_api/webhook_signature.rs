@@ -1,5 +1,7 @@
 use base64::Engine as _;
-use openauth_stripe::stripe_api::{verify_webhook_signature, webhook_signing_key};
+use hmac::{Hmac, Mac};
+use openauth_stripe::stripe_api::verify_webhook_signature;
+use sha2::Sha256;
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -7,30 +9,46 @@ mod common;
 use common::webhook::{dashboard_webhook_secret, sign_webhook_payload};
 
 #[test]
-fn accepts_whsec_prefix_with_base64_secret() -> Result<(), Box<dyn std::error::Error>> {
-    let raw_key = b"super-secret-signing-key!";
-    let secret = dashboard_webhook_secret(raw_key);
+fn accepts_realistic_dashboard_secret() -> Result<(), Box<dyn std::error::Error>> {
+    // Realistic Dashboard secret; the suffix is base64-decodable but must be
+    // ignored: Stripe signs with the verbatim `whsec_...` string as the key.
+    let secret = dashboard_webhook_secret(b"super-secret-signing-key!");
     let payload = br#"{"id":"evt_dashboard","type":"customer.subscription.updated"}"#;
     let timestamp = 1_700_000_000_i64;
     let header = sign_webhook_payload(&secret, payload, timestamp)?;
 
     verify_webhook_signature(payload, &header, &secret, 300, timestamp + 30)?;
-    assert_eq!(webhook_signing_key(&secret)?, raw_key.as_slice());
     Ok(())
 }
 
 #[test]
-fn accepts_whsec_prefix_with_cli_style_base64_secret() -> Result<(), Box<dyn std::error::Error>> {
-    // Stripe CLI prints secrets whose suffix is valid base64 (48-byte key when decoded).
+fn rejects_legacy_base64_decoded_key() -> Result<(), Box<dyn std::error::Error>> {
+    // Regression for OPE-39: a hex/alphanumeric `whsec_` suffix that is valid
+    // base64. The previous implementation decoded the suffix and used those
+    // bytes as the HMAC key. Signing with the literal secret must verify, while
+    // signing with the legacy base64-decoded key must now fail.
     let suffix = "e5001980d26252f9b2b3460050d4bf794f6e7bce6bd00ddc181d6175974b8c98";
     let secret = format!("whsec_{suffix}");
-    let raw_key = base64::engine::general_purpose::STANDARD.decode(suffix)?;
     let payload = br#"{"id":"evt_cli","type":"customer.subscription.created"}"#;
     let timestamp = 1_700_000_000_i64;
-    let header = sign_webhook_payload(&secret, payload, timestamp)?;
 
+    let header = sign_webhook_payload(&secret, payload, timestamp)?;
     verify_webhook_signature(payload, &header, &secret, 300, timestamp + 30)?;
-    assert_eq!(webhook_signing_key(&secret)?, raw_key.as_slice());
+
+    let legacy_key = base64::engine::general_purpose::STANDARD
+        .decode(suffix)
+        .map_err(|error| error.to_string())?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&legacy_key)?;
+    mac.update(format!("{timestamp}.{}", String::from_utf8_lossy(payload)).as_bytes());
+    let legacy_header = format!(
+        "t={timestamp},v1={}",
+        hex::encode(mac.finalize().into_bytes())
+    );
+
+    let error = verify_webhook_signature(payload, &legacy_header, &secret, 300, timestamp + 30)
+        .err()
+        .ok_or("legacy base64-decoded signature must no longer verify")?;
+    assert_eq!(error.code(), "FAILED_TO_CONSTRUCT_STRIPE_EVENT");
     Ok(())
 }
 

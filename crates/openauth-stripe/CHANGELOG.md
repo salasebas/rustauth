@@ -2,6 +2,16 @@
 
 All notable changes to `openauth-stripe` are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Webhook signature verification now uses the endpoint signing secret verbatim
+  (including the `whsec_` prefix) as the HMAC key, matching Stripe's official
+  libraries. Previously the `whsec_` prefix was stripped and the suffix
+  base64-decoded, which rejected valid Dashboard/CLI webhook deliveries whose
+  suffix was valid base64. Removed the `webhook_signing_key` helper.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added
