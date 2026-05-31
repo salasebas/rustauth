@@ -198,9 +198,9 @@ impl<'a> SessionAuth<'a> {
             get_session_cookie(cookie_header, cookie_prefix(self.context), None)
         {
             if let Some(token) = verify_cookie_value(&signed_token, &self.context.secret)? {
-                let _delete_result = SessionStore::new(self.adapter, self.context)
+                SessionStore::new(self.adapter, self.context)
                     .delete_session(&token)
-                    .await;
+                    .await?;
             }
         }
 
