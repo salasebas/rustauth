@@ -2,7 +2,7 @@ use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindMany, Update, Where};
 use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::{
     PluginDatabaseAfterInput, PluginDatabaseBeforeAction, PluginDatabaseBeforeInput,
-    PluginDatabaseHook, PluginDatabaseOperation,
+    PluginDatabaseHook, PluginDatabaseHookContext, PluginDatabaseOperation,
 };
 
 use crate::errors::StripeErrorCode;
@@ -48,6 +48,7 @@ pub(crate) fn subscription_database_hooks(options: StripeOptions) -> Vec<PluginD
     vec![
         sync_seats_after_member_create_hook(options.clone()),
         sync_seats_after_member_delete_hook(options.clone()),
+        sync_seats_after_member_delete_many_hook(options.clone()),
         sync_seats_after_invitation_accept_hook(options),
         block_active_delete_hook(),
         block_active_delete_many_hook(),
@@ -165,7 +166,7 @@ fn sync_seats_after_member_create_hook(options: StripeOptions) -> PluginDatabase
                 };
                 log_seat_sync_error(
                     &context,
-                    sync_subscription_seats(context.adapter, &options, organization_id).await,
+                    sync_subscription_seats(&context, &options, organization_id).await,
                 );
                 Ok(())
             })
@@ -192,7 +193,42 @@ fn sync_seats_after_member_delete_hook(options: StripeOptions) -> PluginDatabase
                     };
                     log_seat_sync_error(
                         &context,
-                        sync_subscription_seats(context.adapter, &options, organization_id).await,
+                        sync_subscription_seats(&context, &options, organization_id).await,
+                    );
+                }
+                Ok(())
+            })
+        },
+    )
+}
+
+fn sync_seats_after_member_delete_many_hook(options: StripeOptions) -> PluginDatabaseHook {
+    PluginDatabaseHook::after_async(
+        "stripe-sync-organization-seats-after-member-delete-many",
+        PluginDatabaseOperation::DeleteMany,
+        move |context, input| {
+            let options = options.clone();
+            Box::pin(async move {
+                let PluginDatabaseAfterInput::DeleteMany {
+                    query, snapshots, ..
+                } = input
+                else {
+                    return Ok(());
+                };
+                if query.model != "member" {
+                    return Ok(());
+                }
+                let mut synced = std::collections::HashSet::new();
+                for member in &snapshots {
+                    let Some(organization_id) = record_string(member, "organization_id") else {
+                        continue;
+                    };
+                    if !synced.insert(organization_id.to_owned()) {
+                        continue;
+                    }
+                    log_seat_sync_error(
+                        &context,
+                        sync_subscription_seats(&context, &options, organization_id).await,
                     );
                 }
                 Ok(())
@@ -232,7 +268,7 @@ fn sync_seats_after_invitation_accept_hook(options: StripeOptions) -> PluginData
                 };
                 log_seat_sync_error(
                     &context,
-                    sync_subscription_seats(context.adapter, &options, organization_id).await,
+                    sync_subscription_seats(&context, &options, organization_id).await,
                 );
                 Ok(())
             })
@@ -254,10 +290,11 @@ fn log_seat_sync_error(
 }
 
 async fn sync_subscription_seats(
-    adapter: &dyn DbAdapter,
+    context: &PluginDatabaseHookContext<'_>,
     options: &StripeOptions,
     organization_id: &str,
 ) -> Result<(), OpenAuthError> {
+    let adapter = context.adapter;
     let Some(subscription_options) = options.subscription.as_ref() else {
         return Ok(());
     };
@@ -311,6 +348,14 @@ async fn sync_subscription_seats(
     if !utils::is_active_or_trialing(stripe_status) {
         return Ok(());
     }
+    let seat_quantity = member_count.max(1);
+    if member_count == 0 {
+        logging::hook_warn(
+            context,
+            "Clamped organization seat sync to 1 for active seat-priced subscription with zero members",
+            organization_id,
+        );
+    }
     let seat_item_id = stripe_subscription
         .get("items")
         .and_then(|items| items.get("data"))
@@ -329,12 +374,12 @@ async fn sync_subscription_seats(
     let item_update = if let Some(seat_item_id) = seat_item_id {
         serde_json::json!({
             "id": seat_item_id,
-            "quantity": member_count,
+            "quantity": seat_quantity,
         })
     } else {
         serde_json::json!({
             "price": seat_price_id,
-            "quantity": member_count,
+            "quantity": seat_quantity,
         })
     };
     options
@@ -359,7 +404,7 @@ async fn sync_subscription_seats(
                         "id",
                         DbValue::String(local_subscription_id.to_owned()),
                     ))
-                    .data("seats", DbValue::Number(member_count)),
+                    .data("seats", DbValue::Number(seat_quantity)),
             )
             .await?;
     }
