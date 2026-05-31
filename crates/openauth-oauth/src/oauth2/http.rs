@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use super::error::{oauth_error_description, OAuthError};
 use super::request::OAuthFormRequest;
+use super::ssrf::ssrf_guarded_client_builder;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_USER_AGENT: &str = concat!("openauth-oauth/", env!("CARGO_PKG_VERSION"));
@@ -31,6 +32,11 @@ pub struct OAuthHttpClient {
 pub struct OAuthHttpClientConfig {
     pub timeout: Duration,
     pub user_agent: Option<String>,
+    /// When `false` (the default), the client blocks requests that resolve to
+    /// private, loopback, or otherwise non-public IP addresses to mitigate
+    /// SSRF. Set to `true` only for deployments that intentionally talk to
+    /// internal identity providers.
+    pub allow_private_ips: bool,
 }
 
 impl Default for OAuthHttpClientConfig {
@@ -38,6 +44,7 @@ impl Default for OAuthHttpClientConfig {
         Self {
             timeout: DEFAULT_TIMEOUT,
             user_agent: Some(DEFAULT_USER_AGENT.to_owned()),
+            allow_private_ips: false,
         }
     }
 }
@@ -45,6 +52,15 @@ impl Default for OAuthHttpClientConfig {
 impl OAuthHttpClient {
     pub fn new(client: Client) -> Self {
         Self { client }
+    }
+
+    /// Returns the underlying `reqwest::Client`.
+    ///
+    /// Useful for callers that must issue requests outside the OAuth form-post
+    /// helpers (for example OIDC discovery, JWKS, or userinfo fetches) while
+    /// sharing the same SSRF guard, timeout, and connection pool.
+    pub fn reqwest_client(&self) -> &Client {
+        &self.client
     }
 
     pub fn default_client() -> Result<Self, OAuthError> {
@@ -57,7 +73,12 @@ impl OAuthHttpClient {
                 "HTTP timeout must be greater than zero".to_owned(),
             ));
         }
-        let mut builder = Client::builder().timeout(config.timeout);
+        let mut builder = if config.allow_private_ips {
+            Client::builder()
+        } else {
+            ssrf_guarded_client_builder()
+        }
+        .timeout(config.timeout);
         if let Some(user_agent) = config.user_agent {
             builder = builder.user_agent(user_agent);
         }

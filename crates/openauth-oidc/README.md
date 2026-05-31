@@ -15,7 +15,9 @@ userinfo, or client credentials, use `openauth-oauth-provider` instead.
 ## What It Provides
 
 - OIDC provider configuration types.
-- Discovery URL calculation and discovery document fetching.
+- Discovery URL calculation and discovery document fetching with a
+  caller-supplied `reqwest::Client` (so the relying party owns SSRF hardening,
+  timeouts, and proxy configuration).
 - Runtime discovery for partially stored provider configs.
 - Endpoint origin validation for issuer, authorization, token, userinfo, JWKS,
   revocation, introspection, and end-session endpoints.
@@ -32,6 +34,13 @@ use openauth_oidc::{
     OidcFlowOptions, SecretString,
 };
 
+// Discovery, JWKS, and token requests are issued with a caller-supplied
+// `reqwest::Client`, so the relying party controls timeouts, proxies, and SSRF
+// hardening. Production callers should pass an SSRF-guarded client (the
+// `openauth-sso` plugin wires one in automatically and blocks private/internal
+// IPs by default).
+let http_client = reqwest::Client::new();
+
 let discovered = discover_oidc_config(
     "https://idp.example.com",
     None,
@@ -47,6 +56,7 @@ let discovered = discover_oidc_config(
         introspection_endpoint: None,
         token_endpoint_authentication: None,
     },
+    &http_client,
 )
 .await?;
 

@@ -122,6 +122,68 @@ async fn oidc_callback_exchanges_code_creates_session_and_redirects(
 }
 
 #[tokio::test]
+async fn oidc_callback_rejects_replayed_cookie_state() -> Result<(), Box<dyn std::error::Error>> {
+    // OPE-19: the default cookie-backed OAuth state must be single-use. A captured
+    // `state` replayed within its TTL must be refused instead of minting a second
+    // session or account link, mirroring the database strategy.
+    let oidc = MockOidcServer::start().await?;
+    let (adapter, router) = router_with_options(SsoOptions::default())?;
+    let cookie = seed_session(&adapter).await?;
+    register_oidc_provider_with_endpoints(&router, &cookie, &oidc.base_url).await?;
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sign-in/sso",
+            r#"{"providerId":"okta","callbackURL":"/dashboard","errorCallbackURL":"/login-error"}"#,
+            None,
+        )?)
+        .await?;
+    let state = authorization_state(sign_in)?;
+
+    let first = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            "",
+            None,
+        )?)
+        .await?;
+    assert_eq!(first.status(), StatusCode::FOUND);
+    assert_eq!(
+        first.headers().get(header::LOCATION),
+        Some(&http::HeaderValue::from_static("/dashboard"))
+    );
+
+    let sessions_after_first = adapter.records("session").await.len();
+    let token_requests_after_first = oidc.token_requests().len();
+
+    // Replay the exact same captured state.
+    let replay = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(replay.status(), StatusCode::FOUND);
+    assert_eq!(
+        replay.headers().get(header::LOCATION),
+        Some(&http::HeaderValue::from_static(
+            "https://app.example.com/error?error=invalid_state"
+        ))
+    );
+    // The consumed state stops the replay before any provider call, so no extra
+    // session is minted and no second token exchange is attempted.
+    assert_eq!(adapter.records("session").await.len(), sessions_after_first);
+    assert_eq!(oidc.token_requests().len(), token_requests_after_first);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn oidc_callback_rejects_provider_id_mismatch_between_path_and_state(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let oidc = MockOidcServer::start().await?;

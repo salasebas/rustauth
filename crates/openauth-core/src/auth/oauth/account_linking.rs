@@ -19,8 +19,15 @@ use super::tokens::set_token_util;
 
 #[cfg(feature = "jose")]
 const ACCOUNT_COOKIE_SALT: &str = "better-auth-account";
+// These account-linking error codes are only surfaced by the social OAuth
+// routes (`api::routes::social`), which are gated behind the `oauth` feature.
+// Gate the definitions the same way so they are not flagged as dead code when
+// `openauth-core` is built without the route layer (for example as a
+// dependency of `openauth-sso`).
+#[cfg(feature = "oauth")]
 pub(crate) const ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER: &str =
     "account_already_linked_to_different_user";
+#[cfg(feature = "oauth")]
 pub(crate) const EMAIL_DOES_NOT_MATCH_LINKED_USER: &str = "email_doesn't_match";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

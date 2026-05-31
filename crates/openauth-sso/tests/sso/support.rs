@@ -18,10 +18,41 @@ use time::{Duration, OffsetDateTime};
 
 const SECRET: &str = "secret-a-at-least-32-chars-long!!";
 
+/// Opt out of the OIDC SSRF guard for tests.
+///
+/// SSO integration tests run mock OIDC providers on loopback addresses, which
+/// the default SSRF guard blocks. The shared router helpers enable the
+/// documented `allow_private_endpoint_ips` opt-out so these tests can reach the
+/// mock servers. Tests that specifically assert the guard's blocking behavior
+/// build their router through [`router_with_options_blocking_private_endpoints`]
+/// instead, which leaves the guard active.
+fn allow_loopback_oidc(mut options: SsoOptions) -> SsoOptions {
+    options.oidc.allow_private_endpoint_ips = true;
+    options
+}
+
 pub fn router_with_options(
     options: SsoOptions,
 ) -> Result<(Arc<MemoryAdapter>, AuthRouter), OpenAuthError> {
     router_with_options_and_trusted_origins(options, Vec::new())
+}
+
+/// Builds a router that keeps the OIDC SSRF guard active (no opt-out), for
+/// tests that assert outbound requests to private/loopback hosts are blocked.
+pub fn router_with_options_blocking_private_endpoints(
+    options: SsoOptions,
+) -> Result<(Arc<MemoryAdapter>, AuthRouter), OpenAuthError> {
+    router_with_options_storage_trusted_origins_extra_plugins_and_advanced(
+        options,
+        None,
+        Vec::new(),
+        Vec::new(),
+        AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
+        },
+    )
 }
 
 pub fn router_with_adapter_and_options(
@@ -32,7 +63,7 @@ pub fn router_with_adapter_and_options(
         OpenAuthOptions {
             base_url: Some("https://app.example.com".to_owned()),
             secret: Some(SECRET.to_owned()),
-            plugins: vec![sso(options)],
+            plugins: vec![sso(allow_loopback_oidc(options))],
             advanced: AdvancedOptions {
                 disable_csrf_check: true,
                 disable_origin_check: true,
@@ -105,7 +136,7 @@ fn router_with_options_storage_trusted_origins_and_extra_plugins(
     extra_plugins: Vec<AuthPlugin>,
 ) -> Result<(Arc<MemoryAdapter>, AuthRouter), OpenAuthError> {
     router_with_options_storage_trusted_origins_extra_plugins_and_advanced(
-        options,
+        allow_loopback_oidc(options),
         secondary_storage,
         trusted_origins,
         extra_plugins,

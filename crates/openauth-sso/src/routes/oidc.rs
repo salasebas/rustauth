@@ -13,8 +13,8 @@ use openauth_core::auth::oauth::{
 };
 use openauth_core::context::AuthContext;
 use openauth_oauth::oauth2::{
-    validate_authorization_code, AuthorizationCodeRequest, ClientAuthentication, ClientId,
-    ClientTokenRequest, OAuth2Tokens, ProviderOptions,
+    validate_authorization_code_with_client, AuthorizationCodeRequest, ClientAuthentication,
+    ClientId, ClientTokenRequest, OAuth2Tokens, ProviderOptions,
 };
 use openidconnect::core::{CoreIdToken, CoreIdTokenVerifier, CoreJsonWebKeySet};
 use openidconnect::{
@@ -123,28 +123,42 @@ async fn callback(
     let Some(token_endpoint) = config.token_endpoint.clone() else {
         return redirect_with_error(&error_url, "invalid_oidc_config");
     };
-    let tokens = match validate_authorization_code(ClientTokenRequest {
-        token_endpoint,
-        request: AuthorizationCodeRequest {
-            code,
-            redirect_uri: oidc_redirect_uri(&context.base_url, &provider.provider_id, options),
-            options: ProviderOptions {
-                client_id: Some(ClientId::Single(config.client_id.clone())),
-                client_secret: Some(config.client_secret.expose_secret().to_owned()),
-                ..ProviderOptions::default()
+    let allow_private_ips = options.oidc.allow_private_endpoint_ips;
+    if ensure_oidc_endpoint_allowed(&token_endpoint, allow_private_ips).is_err() {
+        return redirect_with_error(&error_url, "invalid_oidc_config");
+    }
+    let tokens = match validate_authorization_code_with_client(
+        ClientTokenRequest {
+            token_endpoint,
+            request: AuthorizationCodeRequest {
+                code,
+                redirect_uri: oidc_redirect_uri(&context.base_url, &provider.provider_id, options),
+                options: ProviderOptions {
+                    client_id: Some(ClientId::Single(config.client_id.clone())),
+                    client_secret: Some(config.client_secret.expose_secret().to_owned()),
+                    ..ProviderOptions::default()
+                },
+                code_verifier: config.pkce.then_some(state_data.code_verifier.clone()),
+                authentication: oidc_client_authentication(&config),
+                ..AuthorizationCodeRequest::default()
             },
-            code_verifier: config.pkce.then_some(state_data.code_verifier.clone()),
-            authentication: oidc_client_authentication(&config),
-            ..AuthorizationCodeRequest::default()
         },
-    })
+        utils::oauth_http_client(allow_private_ips),
+    )
     .await
     {
         Ok(tokens) => tokens,
         Err(_) => return redirect_with_error(&error_url, "invalid_code"),
     };
     let raw_user_info = if let Some(user_info_endpoint) = config.user_info_endpoint.as_deref() {
-        match fetch_oidc_user_info(user_info_endpoint, &tokens, config.mapping.as_ref()).await {
+        match fetch_oidc_user_info(
+            user_info_endpoint,
+            &tokens,
+            config.mapping.as_ref(),
+            allow_private_ips,
+        )
+        .await
+        {
             Ok(user_info) => user_info,
             Err(_) => return redirect_with_error(&error_url, "unable_to_get_user_info"),
         }
@@ -157,6 +171,7 @@ async fn callback(
                 .additional_data
                 .get("oidcNonce")
                 .and_then(Value::as_str),
+            allow_private_ips,
         )
         .await
         {
@@ -175,8 +190,7 @@ async fn callback(
         return redirect_with_error(&error_url, "invalid_email_domain");
     }
     let is_trusted_provider = is_trusted_sso_provider(options, &provider, &raw_user_info);
-    let user_info =
-        effective_oidc_user_info(options, &provider, raw_user_info, is_trusted_provider);
+    let user_info = effective_oidc_user_info(raw_user_info, is_trusted_provider);
 
     let result = handle_oauth_user_info(
         context,
@@ -244,21 +258,27 @@ fn is_trusted_sso_provider(
     provider: &crate::SsoProviderRecord,
     user_info: &OAuthUserInfo,
 ) -> bool {
-    (options.trust_email_verified && user_info.email_verified)
-        || (provider.domain_verified.unwrap_or(false)
-            && provider_matches_email_domain(provider, &user_info.email))
+    // Implicit account linking and email-verification trust both require the
+    // IdP to actually attest the email (`email_verified`). DNS domain
+    // verification only proves the operator controls the provider config for
+    // the domain; on its own it is not proof that this specific email address
+    // was verified by the IdP, so it must not bypass the `email_verified`
+    // requirement.
+    user_info.email_verified
+        && (options.trust_email_verified
+            || (provider.domain_verified.unwrap_or(false)
+                && provider_matches_email_domain(provider, &user_info.email)))
 }
 
 fn effective_oidc_user_info(
-    options: &SsoOptions,
-    provider: &crate::SsoProviderRecord,
     mut user_info: OAuthUserInfo,
     is_trusted_provider: bool,
 ) -> OAuthUserInfo {
-    user_info.email_verified = (options.trust_email_verified && user_info.email_verified)
-        || (is_trusted_provider
-            && provider.domain_verified.unwrap_or(false)
-            && provider_matches_email_domain(provider, &user_info.email));
+    // Only honor `email_verified` when the provider is trusted to assert this
+    // identity. `is_trusted_sso_provider` already requires the IdP-attested
+    // `email_verified`, so domain verification alone can never upgrade an
+    // unverified email to verified.
+    user_info.email_verified = is_trusted_provider;
     user_info
 }
 
@@ -319,6 +339,7 @@ async fn validate_oidc_id_token(
     config: &OidcConfig,
     provider_issuer: &str,
     expected_nonce: Option<&str>,
+    allow_private_ips: bool,
 ) -> Result<Option<Value>, openauth_core::error::OpenAuthError> {
     let Some(id_token) = tokens.id_token.as_deref() else {
         return Ok(None);
@@ -328,13 +349,14 @@ async fn validate_oidc_id_token(
             "missing OIDC JWKS endpoint".to_owned(),
         ));
     };
+    ensure_oidc_endpoint_allowed(jwks_endpoint, allow_private_ips)?;
     let mut issuers = vec![provider_issuer.to_owned()];
     if config.issuer != provider_issuer {
         issuers.push(config.issuer.clone());
     }
     let jwks_url = JsonWebKeySetUrl::new(jwks_endpoint.to_owned())
         .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
-    let jwks = CoreJsonWebKeySet::fetch_async(&jwks_url, utils::http_client())
+    let jwks = CoreJsonWebKeySet::fetch_async(&jwks_url, utils::http_client(allow_private_ips))
         .await
         .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
     let raw_payload = jwt_payload_json(id_token)?;
@@ -368,13 +390,18 @@ struct OptionalNonceVerifier<'a>(Option<&'a str>);
 
 impl NonceVerifier for OptionalNonceVerifier<'_> {
     fn verify(self, nonce: Option<&Nonce>) -> Result<(), String> {
-        let (Some(nonce), Some(expected_nonce)) = (nonce, self.0) else {
+        // Fail closed: OpenAuth always sends a `nonce` on OIDC authorization
+        // requests, so per OIDC Core the ID token MUST carry a matching
+        // `nonce` claim. Reject a missing or mismatched nonce; only skip when
+        // no nonce was expected for this flow.
+        let Some(expected_nonce) = self.0 else {
             return Ok(());
         };
-        if nonce.secret() == expected_nonce {
-            return Ok(());
+        match nonce {
+            Some(nonce) if nonce.secret() == expected_nonce => Ok(()),
+            Some(_) => Err("OIDC nonce mismatch".to_owned()),
+            None => Err("missing OIDC nonce claim".to_owned()),
         }
-        Err("nonce mismatch".to_owned())
     }
 }
 
@@ -418,11 +445,13 @@ async fn fetch_oidc_user_info(
     endpoint: &str,
     tokens: &OAuth2Tokens,
     mapping: Option<&OidcMapping>,
+    allow_private_ips: bool,
 ) -> Result<OAuthUserInfo, openauth_core::error::OpenAuthError> {
     let access_token = tokens.access_token.as_deref().ok_or_else(|| {
         openauth_core::error::OpenAuthError::Api("missing access token".to_owned())
     })?;
-    let value = utils::http_client()
+    ensure_oidc_endpoint_allowed(endpoint, allow_private_ips)?;
+    let value = utils::http_client(allow_private_ips)
         .get(endpoint)
         .bearer_auth(access_token)
         .header("accept", "application/json")
@@ -510,12 +539,14 @@ pub(super) async fn ensure_runtime_oidc_config(
     requirement: OidcRuntimeRequirement,
 ) -> Result<OidcConfig, crate::oidc_impl::discovery::OidcDiscoveryError> {
     let config = oidc_config_to_impl(config);
+    let allow_private_ips = options.oidc.allow_private_endpoint_ips;
     ensure_runtime_oidc_config_with_origin_validator(
         issuer,
         config,
         requirement,
-        |url| is_trusted_oidc_url(context, request, url),
+        ssrf_aware_oidc_origin_validator(context, request, allow_private_ips),
         options.oidc.strict_manual_endpoint_origins,
+        utils::http_client(allow_private_ips),
     )
     .await
     .map(oidc_config_from_impl)
@@ -610,4 +641,43 @@ pub(super) fn is_trusted_oidc_url(context: &AuthContext, request: &ApiRequest, u
     context
         .is_trusted_origin_for_request(url, None, Some(request))
         .unwrap_or(false)
+}
+
+/// Rejects an OIDC endpoint URL whose host is a literal private/internal IP
+/// before an outbound request is issued, unless `allow_private_ips` opts out.
+///
+/// Used at runtime request boundaries (JWKS, userinfo) where the endpoint may
+/// come from a manually configured provider that never passed through discovery
+/// origin validation.
+fn ensure_oidc_endpoint_allowed(
+    endpoint: &str,
+    allow_private_ips: bool,
+) -> Result<(), openauth_core::error::OpenAuthError> {
+    if !allow_private_ips && openauth_oauth::oauth2::url_host_is_blocked_ip(endpoint) {
+        return Err(openauth_core::error::OpenAuthError::OAuth(
+            "refusing to connect: OIDC endpoint resolves to a private or internal IP address"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Builds an OIDC endpoint origin validator that first rejects literal
+/// private/internal IP hosts (unless `allow_private_ips` opts out), then applies
+/// the trusted-origin check.
+///
+/// `reqwest` connects to literal-IP URLs without consulting the SSRF DNS guard,
+/// so this closure blocks SSRF to literal IPs (for example cloud metadata
+/// services) during OIDC discovery and endpoint validation.
+pub(super) fn ssrf_aware_oidc_origin_validator<'a>(
+    context: &'a AuthContext,
+    request: &'a ApiRequest,
+    allow_private_ips: bool,
+) -> impl Fn(&str) -> bool + Copy + 'a {
+    move |url| {
+        if !allow_private_ips && openauth_oauth::oauth2::url_host_is_blocked_ip(url) {
+            return false;
+        }
+        is_trusted_oidc_url(context, request, url)
+    }
 }

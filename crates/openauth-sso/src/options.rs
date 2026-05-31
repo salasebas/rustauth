@@ -275,6 +275,16 @@ impl SsoOptions {
         self.oidc.strict_manual_endpoint_origins = enabled;
         self
     }
+
+    #[must_use]
+    /// Allow OIDC outbound requests to resolve to private or internal IPs.
+    ///
+    /// Leave disabled (the default) to keep SSRF protection active. Enable only
+    /// when identity providers are intentionally hosted on a private network.
+    pub fn allow_private_endpoint_ips(mut self, enabled: bool) -> Self {
+        self.oidc.allow_private_endpoint_ips = enabled;
+        self
+    }
 }
 
 #[cfg(feature = "oidc")]
@@ -293,6 +303,16 @@ pub struct OidcOptions {
     /// Disabled by default for compatibility with existing manual `skipDiscovery`
     /// configurations. Enable this for stricter SSRF/configuration hardening.
     pub strict_manual_endpoint_origins: bool,
+    /// Allow OIDC discovery, JWKS, userinfo, and token requests to reach
+    /// private, loopback, or otherwise non-public IP addresses.
+    ///
+    /// Disabled by default: outbound requests are blocked at DNS resolution
+    /// when a hostname resolves only to internal addresses, mitigating SSRF
+    /// against cloud metadata services and internal infrastructure. Enable this
+    /// only for deployments that intentionally talk to identity providers on a
+    /// private network.
+    #[serde(default)]
+    pub allow_private_endpoint_ips: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,6 +1,51 @@
 use super::*;
 
 #[tokio::test]
+async fn oidc_callback_blocks_token_exchange_to_private_ip_by_default(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // The mock provider listens on a loopback address. With the default SSRF
+    // guard active (no `allow_private_endpoint_ips` opt-out), the token request
+    // to that private IP must be refused, surfacing a stable error instead of
+    // completing the login.
+    let oidc = MockOidcServer::start().await?;
+    let (adapter, router) =
+        router_with_options_blocking_private_endpoints(default_oidc_sso_options(&oidc.base_url))?;
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sign-in/sso",
+            r#"{"providerId":"default-okta","callbackURL":"/dashboard","errorCallbackURL":"/login-error"}"#,
+            None,
+        )?)
+        .await?;
+    let state = authorization_state(sign_in)?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/sso/callback?state={state}&code=auth-code"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback.headers().get(header::LOCATION),
+        Some(&http::HeaderValue::from_static(
+            "/login-error?error=invalid_oidc_config"
+        ))
+    );
+    assert!(
+        adapter.records("account").await.is_empty(),
+        "no account should be linked when the SSRF guard blocks the token request"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn oidc_callback_uses_default_sso_provider_from_state(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let oidc = MockOidcServer::start().await?;

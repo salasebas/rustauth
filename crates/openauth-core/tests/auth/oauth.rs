@@ -155,6 +155,68 @@ async fn oauth_state_database_strategy_persists_and_rejects_expired_state(
     Ok(())
 }
 
+#[tokio::test]
+async fn oauth_state_cookie_strategy_is_single_use_with_database(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = MemoryAdapter::new();
+    // Default account options use the cookie strategy.
+    let context = test_context(AccountOptions::default())?;
+
+    let state = generate_oauth_state(
+        &context,
+        Some(&adapter),
+        OAuthStateInput {
+            callback_url: "https://app.example.com/callback".to_owned(),
+            ..OAuthStateInput::default()
+        },
+    )
+    .await?;
+
+    // A single-use marker is persisted even though the payload itself travels in
+    // the encrypted cookie state.
+    assert_eq!(adapter.len("verification").await, 1);
+
+    let parsed = parse_oauth_state(&context, Some(&adapter), &state.state).await?;
+    assert_eq!(parsed.callback_url, "https://app.example.com/callback");
+
+    // The marker is consumed on first parse, so replaying the same cookie state
+    // is rejected within its TTL (OPE-19).
+    assert!(parse_oauth_state(&context, Some(&adapter), &state.state)
+        .await
+        .is_err());
+    assert_eq!(adapter.len("verification").await, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_state_cookie_strategy_without_adapter_skips_single_use_marker(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let context = test_context(AccountOptions::default())?;
+
+    let state = generate_oauth_state(
+        &context,
+        None,
+        OAuthStateInput {
+            callback_url: "https://app.example.com/callback".to_owned(),
+            ..OAuthStateInput::default()
+        },
+    )
+    .await?;
+
+    // Without an adapter no server-side marker can be stored, so the stateless
+    // cookie state stays parseable. Single-use enforcement requires an adapter,
+    // which every real sign-in/callback flow provides.
+    assert!(parse_oauth_state(&context, None, &state.state)
+        .await
+        .is_ok());
+    assert!(parse_oauth_state(&context, None, &state.state)
+        .await
+        .is_ok());
+
+    Ok(())
+}
+
 #[cfg(feature = "jose")]
 #[tokio::test]
 async fn handle_oauth_user_info_sets_account_cookie_when_enabled(

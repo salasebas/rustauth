@@ -64,7 +64,7 @@ pub(super) async fn sign_in_with_id_token(
             account: oauth_account(provider.id(), &user_info, &tokens, context)?,
             disable_sign_up: provider.provider_options().disable_sign_up,
             override_user_info: provider.provider_options().override_user_info_on_sign_in,
-            is_trusted_provider: true,
+            is_trusted_provider: false,
             ..HandleOAuthUserInfoInput::default()
         },
     )

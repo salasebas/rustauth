@@ -60,6 +60,14 @@ impl AccountOptions {
     }
 }
 
+/// Where the OAuth `state` (and the PKCE verifier / OIDC nonce it carries) is
+/// persisted between the authorization redirect and the callback.
+///
+/// Both strategies enforce single-use semantics: the `state` is consumed on the
+/// first successful callback, so a captured value cannot be replayed within its
+/// TTL. `Cookie` keeps the payload in an encrypted, client-held value and binds
+/// it to a short server-side single-use marker; `Database` stores the full
+/// payload server-side and deletes it on first use.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OAuthStateStoreStrategy {
     #[default]

@@ -15,6 +15,7 @@ pub mod jwks;
 pub mod provider;
 pub mod refresh_access_token;
 pub mod request;
+pub mod ssrf;
 #[cfg(feature = "jose")]
 pub mod token_validation;
 pub mod tokens;
@@ -42,6 +43,9 @@ pub use refresh_access_token::{
     RefreshAccessTokenRequest,
 };
 pub use request::{ClientAuthentication, OAuthFormRequest};
+pub use ssrf::{
+    is_blocked_ip, ssrf_guarded_client_builder, url_host_is_blocked_ip, SsrfGuardResolver,
+};
 #[cfg(feature = "jose")]
 pub use token_validation::{
     validate_token, validate_token_with_client, verify_jws_with_jwks, TokenValidationResult,
@@ -54,7 +58,7 @@ pub use types::{AuthorizationEndpoint, ClientSecret, RedirectUri, TokenEndpoint}
 pub use utils::generate_code_challenge;
 pub use validate_authorization_code::{
     authorization_code_request, create_authorization_code_request, validate_authorization_code,
-    AuthorizationCodeRequest, ClientTokenRequest,
+    validate_authorization_code_with_client, AuthorizationCodeRequest, ClientTokenRequest,
 };
 #[cfg(feature = "jose")]
 pub use verify::{

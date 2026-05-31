@@ -537,11 +537,11 @@ async fn run_provider_fixture_callback(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/{provider_id}?state={state}&code={code}"),
+            &format!("/sso/callback/{provider_id}?state={state}&code={code}.{nonce}"),
             "",
             None,
         )?)
@@ -570,11 +570,11 @@ async fn run_provider_fixture_callback_error(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/{provider_id}?state={state}&code={code}"),
+            &format!("/sso/callback/{provider_id}?state={state}&code={code}.{nonce}"),
             "",
             None,
         )?)

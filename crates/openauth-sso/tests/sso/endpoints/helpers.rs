@@ -208,6 +208,28 @@ pub(super) fn authorization_state(
         .ok_or_else(|| "missing state".into())
 }
 
+/// Extracts both the `state` and `nonce` from the OIDC authorization redirect.
+///
+/// ID-token-path tests thread the `nonce` back to the mock IdP by appending it
+/// to the authorization `code` (`<code>.<nonce>`), so the minted ID token can
+/// echo the flow's nonce and exercise the callback's fail-closed nonce check.
+pub(super) fn authorization_state_and_nonce(
+    response: http::Response<Vec<u8>>,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let body = json_body(response)?;
+    let url = url::Url::parse(body["url"].as_str().ok_or("missing URL")?)?;
+    let mut state = None;
+    let mut nonce = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "state" => state = Some(value.into_owned()),
+            "nonce" => nonce = Some(value.into_owned()),
+            _ => {}
+        }
+    }
+    Ok((state.ok_or("missing state")?, nonce.ok_or("missing nonce")?))
+}
+
 pub(super) async fn seed_existing_sso_user(
     adapter: &MemoryAdapter,
 ) -> Result<(), Box<dyn std::error::Error>> {

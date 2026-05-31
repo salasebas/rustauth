@@ -327,7 +327,12 @@ async fn build_oidc_config(
                 token_endpoint_authentication: input.token_endpoint_authentication.map(Into::into),
                 ..PartialOidcDiscoveryConfig::default()
             },
-            |url| super::oidc::is_trusted_oidc_url(context, request, url),
+            super::oidc::ssrf_aware_oidc_origin_validator(
+                context,
+                request,
+                options.oidc.allow_private_endpoint_ips,
+            ),
+            crate::utils::http_client(options.oidc.allow_private_endpoint_ips),
         )
         .await
         .map_err(BuildOidcConfigError::Discovery)?;
@@ -351,9 +356,14 @@ async fn build_oidc_config(
         }
     };
     if options.oidc.strict_manual_endpoint_origins {
-        validate_configured_oidc_endpoint_origins(&config, |url| {
-            super::oidc::is_trusted_oidc_url(context, request, url)
-        })
+        validate_configured_oidc_endpoint_origins(
+            &config,
+            super::oidc::ssrf_aware_oidc_origin_validator(
+                context,
+                request,
+                options.oidc.allow_private_endpoint_ips,
+            ),
+        )
         .map_err(BuildOidcConfigError::Discovery)?;
     }
     serde_json::to_string(&config).map_err(|error| {

@@ -20,8 +20,8 @@ use super::support::router_with_options_and_origin_security;
 use super::support::{
     form_request, json_body, json_request, router_with_adapter_and_options, router_with_options,
     router_with_options_and_extra_plugins, router_with_options_and_secondary_storage,
-    router_with_options_and_trusted_origins, seed_session, seed_session_for_adapter,
-    TestSecondaryStorage,
+    router_with_options_and_trusted_origins, router_with_options_blocking_private_endpoints,
+    seed_session, seed_session_for_adapter, TestSecondaryStorage,
 };
 
 #[path = "endpoints/audit.rs"]

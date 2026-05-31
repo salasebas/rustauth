@@ -19,7 +19,7 @@ use x509_parser::prelude::{FromDer, X509Certificate};
 use x509_parser::public_key::PublicKey;
 
 #[cfg(feature = "oidc")]
-static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+use openauth_oauth::oauth2::{OAuthHttpClient, OAuthHttpClientConfig};
 
 #[cfg(feature = "saml")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,9 +86,40 @@ pub fn json<T: Serialize>(
     json_response(status, body, Vec::new())
 }
 
+/// Returns the shared OIDC HTTP client for the requested SSRF policy.
+///
+/// When `allow_private_ips` is `false` (the default for SSO providers) the
+/// client blocks requests that resolve to private, loopback, or otherwise
+/// non-public addresses. Clients are cached per policy so OIDC discovery,
+/// JWKS, userinfo, and token requests share one connection pool and guard.
 #[cfg(feature = "oidc")]
-pub(crate) fn http_client() -> &'static reqwest::Client {
-    HTTP_CLIENT.get_or_init(reqwest::Client::new)
+pub(crate) fn oauth_http_client(allow_private_ips: bool) -> &'static OAuthHttpClient {
+    fn build(allow_private_ips: bool) -> OAuthHttpClient {
+        OAuthHttpClient::from_config(OAuthHttpClientConfig {
+            allow_private_ips,
+            ..OAuthHttpClientConfig::default()
+        })
+        // The SSRF-guarded builder only adds a custom DNS resolver, so it can
+        // only fail to build for the same reasons a default client would (TLS
+        // backend init). Fall back to a default client to keep this infallible
+        // without panicking; in practice the guarded build always succeeds.
+        .unwrap_or_else(|_| OAuthHttpClient::new(reqwest::Client::new()))
+    }
+
+    if allow_private_ips {
+        static PERMISSIVE_HTTP_CLIENT: OnceLock<OAuthHttpClient> = OnceLock::new();
+        PERMISSIVE_HTTP_CLIENT.get_or_init(|| build(true))
+    } else {
+        static GUARDED_HTTP_CLIENT: OnceLock<OAuthHttpClient> = OnceLock::new();
+        GUARDED_HTTP_CLIENT.get_or_init(|| build(false))
+    }
+}
+
+/// Returns the underlying `reqwest::Client` for the requested SSRF policy,
+/// sharing the same guard and pool as [`oauth_http_client`].
+#[cfg(feature = "oidc")]
+pub(crate) fn http_client(allow_private_ips: bool) -> &'static reqwest::Client {
+    oauth_http_client(allow_private_ips).reqwest_client()
 }
 
 pub fn safe_redirect_url(context: &AuthContext, value: &str) -> Option<String> {

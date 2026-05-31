@@ -87,8 +87,16 @@ pub async fn discover_oidc_config(
     issuer: &str,
     discovery_endpoint: Option<&str>,
     existing: PartialOidcDiscoveryConfig<'_>,
+    client: &reqwest::Client,
 ) -> Result<HydratedOidcDiscovery, OidcDiscoveryError> {
-    discover_oidc_config_with_origin_validator(issuer, discovery_endpoint, existing, |_| true).await
+    discover_oidc_config_with_origin_validator(
+        issuer,
+        discovery_endpoint,
+        existing,
+        |_| true,
+        client,
+    )
+    .await
 }
 
 pub async fn discover_oidc_config_with_origin_validator<F>(
@@ -96,6 +104,7 @@ pub async fn discover_oidc_config_with_origin_validator<F>(
     discovery_endpoint: Option<&str>,
     existing: PartialOidcDiscoveryConfig<'_>,
     is_trusted_origin: F,
+    client: &reqwest::Client,
 ) -> Result<HydratedOidcDiscovery, OidcDiscoveryError>
 where
     F: Fn(&str) -> bool,
@@ -109,7 +118,7 @@ where
         &discovery_endpoint,
         &is_trusted_origin,
     )?;
-    let document = fetch_discovery_document(&discovery_endpoint).await?;
+    let document = fetch_discovery_document(&discovery_endpoint, client).await?;
     validate_discovery_document(&document, issuer)?;
     let normalized = normalize_discovery_document(document, issuer)?;
     let token_endpoint_authentication = existing
@@ -316,6 +325,7 @@ pub async fn ensure_runtime_oidc_config_with_origin_validator<F>(
     requirement: OidcRuntimeRequirement,
     is_trusted_origin: F,
     validate_configured_origins: bool,
+    client: &reqwest::Client,
 ) -> Result<OidcConfig, OidcDiscoveryError>
 where
     F: Fn(&str) -> bool,
@@ -344,6 +354,7 @@ where
             token_endpoint_authentication: config.token_endpoint_authentication,
         },
         &is_trusted_origin,
+        client,
     )
     .await?;
 
@@ -424,8 +435,9 @@ impl OidcDiscoveryError {
 
 async fn fetch_discovery_document(
     discovery_endpoint: &str,
+    client: &reqwest::Client,
 ) -> Result<OidcDiscoveryDocument, OidcDiscoveryError> {
-    let response = crate::utils::http_client()
+    let response = client
         .get(discovery_endpoint)
         .header("accept", "application/json")
         .timeout(std::time::Duration::from_secs(10))
@@ -942,39 +954,50 @@ mod tests {
             }
         });
 
+        let client = reqwest::Client::new();
         let missing_error =
-            match fetch_discovery_document(&format!("http://{address}/missing")).await {
+            match fetch_discovery_document(&format!("http://{address}/missing"), &client).await {
                 Ok(_) => return Err("expected missing discovery document to fail".into()),
                 Err(error) => error,
             };
         assert_eq!(missing_error.code(), "discovery_not_found");
 
-        let server_error =
-            match fetch_discovery_document(&format!("http://{address}/server-error")).await {
-                Ok(_) => return Err("expected server error discovery document to fail".into()),
-                Err(error) => error,
-            };
+        let server_error = match fetch_discovery_document(
+            &format!("http://{address}/server-error"),
+            &client,
+        )
+        .await
+        {
+            Ok(_) => return Err("expected server error discovery document to fail".into()),
+            Err(error) => error,
+        };
         assert_eq!(server_error.code(), "discovery_unexpected_error");
 
         let timeout_error =
-            match fetch_discovery_document(&format!("http://{address}/timeout-status")).await {
+            match fetch_discovery_document(&format!("http://{address}/timeout-status"), &client)
+                .await
+            {
                 Ok(_) => return Err("expected timeout discovery document to fail".into()),
                 Err(error) => error,
             };
         assert_eq!(timeout_error.code(), "discovery_timeout");
 
         let empty_response_error =
-            match fetch_discovery_document(&format!("http://{address}/empty")).await {
+            match fetch_discovery_document(&format!("http://{address}/empty"), &client).await {
                 Ok(_) => return Err("expected empty discovery document to fail".into()),
                 Err(error) => error,
             };
         assert_eq!(empty_response_error.code(), "discovery_invalid_json");
 
-        let invalid_json_error =
-            match fetch_discovery_document(&format!("http://{address}/invalid-json")).await {
-                Ok(_) => return Err("expected invalid JSON discovery document to fail".into()),
-                Err(error) => error,
-            };
+        let invalid_json_error = match fetch_discovery_document(
+            &format!("http://{address}/invalid-json"),
+            &client,
+        )
+        .await
+        {
+            Ok(_) => return Err("expected invalid JSON discovery document to fail".into()),
+            Err(error) => error,
+        };
         assert_eq!(invalid_json_error.code(), "discovery_invalid_json");
         Ok(())
     }
@@ -1024,6 +1047,7 @@ mod tests {
             None,
             PartialOidcDiscoveryConfig::default(),
             |url| url.starts_with(&base_url),
+            &reqwest::Client::new(),
         )
         .await
         {
@@ -1079,6 +1103,7 @@ mod tests {
             None,
             PartialOidcDiscoveryConfig::default(),
             |url| url.starts_with(&base_url),
+            &reqwest::Client::new(),
         )
         .await
         {
@@ -1144,11 +1169,14 @@ mod tests {
             ..PartialOidcDiscoveryConfig::default()
         };
 
-        let hydrated =
-            discover_oidc_config_with_origin_validator(&base_url, None, existing, |url| {
-                url.starts_with(&base_url)
-            })
-            .await?;
+        let hydrated = discover_oidc_config_with_origin_validator(
+            &base_url,
+            None,
+            existing,
+            |url| url.starts_with(&base_url),
+            &reqwest::Client::new(),
+        )
+        .await?;
 
         assert_eq!(
             hydrated.authorization_endpoint,
@@ -1232,6 +1260,7 @@ mod tests {
             OidcRuntimeRequirement::SignIn,
             |url| url.starts_with(&base_url),
             false,
+            &reqwest::Client::new(),
         )
         .await?;
 
@@ -1250,6 +1279,7 @@ mod tests {
             OidcRuntimeRequirement::SignIn,
             |url| url.starts_with(&base_url),
             false,
+            &reqwest::Client::new(),
         )
         .await?;
 

@@ -15,100 +15,25 @@ impl MockOidcServer {
         let address = listener.local_addr()?;
         let base_url = format!("http://{address}");
         let token_requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let (valid_id_token, public_jwk) =
-            signed_oidc_id_token("client_123456", "https://idp.example.com")?;
-        let missing_exp_id_token = signed_oidc_id_token_with_options(
-            "client_123456",
-            "https://idp.example.com",
-            IdTokenOptions {
-                include_exp: false,
-                ..IdTokenOptions::default()
-            },
-        )?
-        .0;
-        let missing_sub_id_token = signed_oidc_id_token_with_options(
-            "client_123456",
-            "https://idp.example.com",
-            IdTokenOptions {
-                include_sub: false,
-                ..IdTokenOptions::default()
-            },
-        )?
-        .0;
-        let (azure_id_token, azure_public_jwk) = signed_oidc_id_token_with_options(
-            "client_123456",
-            "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0",
-            IdTokenOptions::azure(),
-        )?;
-        let (azure_wrong_issuer_id_token, azure_wrong_issuer_public_jwk) =
-            signed_oidc_id_token_with_options(
-                "client_123456",
-                "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0",
-                IdTokenOptions {
-                    issuer: Some(
-                        "https://login.microsoftonline.com/22222222-2222-2222-2222-222222222222/v2.0"
-                            .to_owned(),
-                    ),
-                    key_id: "azure-wrong-issuer-key".to_owned(),
-                    ..IdTokenOptions::azure()
-                },
-            )?;
-        let (multi_audience_missing_azp_id_token, multi_audience_missing_azp_public_jwk) =
-            signed_oidc_id_token_with_options(
-                "client_123456",
-                "https://idp.example.com",
-                IdTokenOptions {
-                    audience_claim: Some(json!(["client_123456", "secondary-client"])),
-                    key_id: "multi-audience-missing-azp-key".to_owned(),
-                    ..IdTokenOptions::default()
-                },
-            )?;
-        let (multi_audience_wrong_azp_id_token, multi_audience_wrong_azp_public_jwk) =
-            signed_oidc_id_token_with_options(
-                "client_123456",
-                "https://idp.example.com",
-                IdTokenOptions {
-                    audience_claim: Some(json!(["client_123456", "secondary-client"])),
-                    key_id: "multi-audience-wrong-azp-key".to_owned(),
-                    extra_claims: vec![("azp".to_owned(), json!("other-client"))],
-                    ..IdTokenOptions::default()
-                },
-            )?;
-        let (multi_audience_valid_azp_id_token, multi_audience_valid_azp_public_jwk) =
-            signed_oidc_id_token_with_options(
-                "client_123456",
-                "https://idp.example.com",
-                IdTokenOptions {
-                    audience_claim: Some(json!(["client_123456", "secondary-client"])),
-                    key_id: "multi-audience-valid-azp-key".to_owned(),
-                    extra_claims: vec![("azp".to_owned(), json!("client_123456"))],
-                    ..IdTokenOptions::default()
-                },
-            )?;
-        let jwks_body = json!({
-            "keys": [
-                public_jwk,
-                azure_public_jwk,
-                azure_wrong_issuer_public_jwk,
-                multi_audience_missing_azp_public_jwk,
-                multi_audience_wrong_azp_public_jwk,
-                multi_audience_valid_azp_public_jwk
-            ]
-        })
-        .to_string();
+        // A single signing key backs every minted ID token. The mock signs
+        // tokens on demand at `/token` time so each token can echo the
+        // per-flow `nonce` (which the test threads in via the authorization
+        // `code`), mirroring how a real IdP binds the nonce from the
+        // authorization request into the issued ID token.
+        let mut default_jwk = Jwk::generate_rsa_key(2048)?;
+        default_jwk.set_key_id(DEFAULT_KEY_ID);
+        default_jwk.set_algorithm("RS256");
+        default_jwk.set_key_use("sig");
+        let mut public_jwk = default_jwk.to_public_key()?;
+        public_jwk.set_key_id(DEFAULT_KEY_ID);
+        public_jwk.set_algorithm("RS256");
+        public_jwk.set_key_use("sig");
+        let jwks_body = json!({ "keys": [public_jwk] }).to_string();
         let captured_token_requests = std::sync::Arc::clone(&token_requests);
         tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
-                let valid_id_token = valid_id_token.clone();
                 let jwks_body = jwks_body.clone();
-                let missing_exp_id_token = missing_exp_id_token.clone();
-                let missing_sub_id_token = missing_sub_id_token.clone();
-                let azure_id_token = azure_id_token.clone();
-                let azure_wrong_issuer_id_token = azure_wrong_issuer_id_token.clone();
-                let multi_audience_missing_azp_id_token =
-                    multi_audience_missing_azp_id_token.clone();
-                let multi_audience_wrong_azp_id_token = multi_audience_wrong_azp_id_token.clone();
-                let multi_audience_valid_azp_id_token = multi_audience_valid_azp_id_token.clone();
+                let default_jwk = default_jwk.clone();
                 let captured_token_requests = std::sync::Arc::clone(&captured_token_requests);
                 tokio::spawn(async move {
                     let mut buffer = [0_u8; 4096];
@@ -122,102 +47,38 @@ impl MockOidcServer {
                             requests.push(request.to_string());
                         }
                     }
-                    let (status, body) = if request.starts_with("POST /token ")
-                        && request.contains("code=id-token-code")
-                    {
-                        (
-                            "200 OK",
-                            r#"{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":"invalid-id-token"}"#.to_owned(),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=valid-id-token-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&valid_id_token).unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=missing-exp-id-token-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&missing_exp_id_token).unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=missing-sub-id-token-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&missing_sub_id_token).unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=azure-id-token-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&azure_id_token).unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=azure-wrong-issuer-id-token-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&azure_wrong_issuer_id_token)
-                                    .unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=multi-audience-missing-azp-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&multi_audience_missing_azp_id_token)
-                                    .unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=multi-audience-wrong-azp-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&multi_audience_wrong_azp_id_token)
-                                    .unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ")
-                        && request.contains("code=multi-audience-valid-azp-code")
-                    {
-                        (
-                            "200 OK",
-                            format!(
-                                r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
-                                serde_json::to_string(&multi_audience_valid_azp_id_token)
-                                    .unwrap_or_default()
-                            ),
-                        )
-                    } else if request.starts_with("POST /token ") {
-                        (
-                            "200 OK",
-                            r#"{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile"}"#.to_owned(),
-                        )
+                    let (status, body) = if request.starts_with("POST /token ") {
+                        // The test threads the per-flow nonce by appending
+                        // `.<nonce>` to the authorization `code`. Split it back
+                        // out and mint a freshly signed ID token that echoes
+                        // the nonce, so the callback's fail-closed nonce check
+                        // can be exercised exactly as in production.
+                        let code = form_field(&request, "code").unwrap_or_default();
+                        let (selector, nonce) = match code.split_once('.') {
+                            Some((selector, nonce)) => (selector, Some(nonce)),
+                            None => (code.as_str(), None),
+                        };
+                        if selector == "id-token-code" {
+                            (
+                                "200 OK",
+                                r#"{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":"invalid-id-token"}"#.to_owned(),
+                            )
+                        } else if let Some(id_token) =
+                            mint_dynamic_id_token(&default_jwk, selector, nonce)
+                        {
+                            (
+                                "200 OK",
+                                format!(
+                                    r#"{{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":{}}}"#,
+                                    serde_json::to_string(&id_token).unwrap_or_default()
+                                ),
+                            )
+                        } else {
+                            (
+                                "200 OK",
+                                r#"{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile"}"#.to_owned(),
+                            )
+                        }
                     } else if request.starts_with("GET /.well-known/openid-configuration ") {
                         let issuer = format!(
                             "http://{}",
@@ -321,11 +182,109 @@ impl MockOidcServer {
     }
 }
 
-pub(crate) fn signed_oidc_id_token(
-    audience: &str,
-    issuer: &str,
-) -> Result<(String, Jwk), Box<dyn std::error::Error>> {
-    signed_oidc_id_token_with_options(audience, issuer, IdTokenOptions::default())
+const DEFAULT_KEY_ID: &str = "sso-test-key";
+
+/// Extracts a single field value from an `application/x-www-form-urlencoded`
+/// request body. The mock only inspects unencoded fields (`code`), so parsing
+/// is intentionally minimal.
+fn form_field(request: &str, key: &str) -> Option<String> {
+    let body = request.split("\r\n\r\n").nth(1)?;
+    body.split('&').find_map(|pair| {
+        let (name, value) = pair.split_once('=')?;
+        if name == key {
+            Some(value.trim().to_owned())
+        } else {
+            None
+        }
+    })
+}
+
+/// Mints a freshly signed ID token for the given authorization `code`
+/// selector, echoing `nonce` whenever the scenario expects a valid nonce.
+///
+/// Returns `None` for codes that do not drive the ID-token path (for example
+/// the userinfo-path `auth-code`), so the caller falls back to an
+/// access-token-only token response.
+fn mint_dynamic_id_token(jwk: &Jwk, selector: &str, nonce: Option<&str>) -> Option<String> {
+    const DEFAULT_ISSUER: &str = "https://idp.example.com";
+    const TENANT_ISSUER: &str =
+        "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0";
+    const WRONG_TENANT_ISSUER: &str =
+        "https://login.microsoftonline.com/22222222-2222-2222-2222-222222222222/v2.0";
+    const AUDIENCE: &str = "client_123456";
+
+    let with_nonce = |mut options: IdTokenOptions| -> IdTokenOptions {
+        if let Some(nonce) = nonce {
+            options
+                .extra_claims
+                .push(("nonce".to_owned(), json!(nonce)));
+        }
+        options
+    };
+
+    let (issuer, options) = match selector {
+        "valid-id-token-code" => (DEFAULT_ISSUER, with_nonce(IdTokenOptions::default())),
+        "missing-exp-id-token-code" => (
+            DEFAULT_ISSUER,
+            with_nonce(IdTokenOptions {
+                include_exp: false,
+                ..IdTokenOptions::default()
+            }),
+        ),
+        "missing-sub-id-token-code" => (
+            DEFAULT_ISSUER,
+            with_nonce(IdTokenOptions {
+                include_sub: false,
+                ..IdTokenOptions::default()
+            }),
+        ),
+        // Intentionally omit the `nonce` claim even though the flow expected
+        // one: exercises the fail-closed "missing nonce" rejection.
+        "id-token-missing-nonce-code" => (DEFAULT_ISSUER, IdTokenOptions::default()),
+        // Echo a `nonce` that does not match the flow's nonce: exercises the
+        // fail-closed "nonce mismatch" rejection.
+        "id-token-wrong-nonce-code" => (
+            DEFAULT_ISSUER,
+            IdTokenOptions {
+                extra_claims: vec![("nonce".to_owned(), json!("unexpected-nonce-value"))],
+                ..IdTokenOptions::default()
+            },
+        ),
+        "azure-id-token-code" => (TENANT_ISSUER, with_nonce(IdTokenOptions::azure())),
+        "azure-wrong-issuer-id-token-code" => (
+            TENANT_ISSUER,
+            with_nonce(IdTokenOptions {
+                issuer: Some(WRONG_TENANT_ISSUER.to_owned()),
+                ..IdTokenOptions::azure()
+            }),
+        ),
+        "multi-audience-missing-azp-code" => (
+            DEFAULT_ISSUER,
+            with_nonce(IdTokenOptions {
+                audience_claim: Some(json!(["client_123456", "secondary-client"])),
+                ..IdTokenOptions::default()
+            }),
+        ),
+        "multi-audience-wrong-azp-code" => (
+            DEFAULT_ISSUER,
+            with_nonce(IdTokenOptions {
+                audience_claim: Some(json!(["client_123456", "secondary-client"])),
+                extra_claims: vec![("azp".to_owned(), json!("other-client"))],
+                ..IdTokenOptions::default()
+            }),
+        ),
+        "multi-audience-valid-azp-code" => (
+            DEFAULT_ISSUER,
+            with_nonce(IdTokenOptions {
+                audience_claim: Some(json!(["client_123456", "secondary-client"])),
+                extra_claims: vec![("azp".to_owned(), json!("client_123456"))],
+                ..IdTokenOptions::default()
+            }),
+        ),
+        _ => return None,
+    };
+
+    sign_id_token_with_jwk(jwk, AUDIENCE, issuer, options).ok()
 }
 
 #[derive(Debug, Clone)]
@@ -338,7 +297,6 @@ pub(crate) struct IdTokenOptions {
     pub(crate) email_verified: Option<bool>,
     pub(crate) name: Option<String>,
     pub(crate) picture: Option<String>,
-    pub(crate) key_id: String,
     pub(crate) audience_claim: Option<serde_json::Value>,
     pub(crate) extra_claims: Vec<(String, serde_json::Value)>,
 }
@@ -354,7 +312,6 @@ impl Default for IdTokenOptions {
             email_verified: Some(true),
             name: None,
             picture: None,
-            key_id: "sso-test-key".to_owned(),
             audience_claim: None,
             extra_claims: Vec::new(),
         }
@@ -372,7 +329,6 @@ impl IdTokenOptions {
             email: Some("token.user@contoso.com".to_owned()),
             email_verified: Some(true),
             name: Some("Token User".to_owned()),
-            key_id: "azure-test-key".to_owned(),
             extra_claims: vec![
                 ("oid".to_owned(), json!("azure-token-oid-456")),
                 ("tid".to_owned(), json!("tenant-123")),
@@ -386,18 +342,15 @@ impl IdTokenOptions {
     }
 }
 
-pub(crate) fn signed_oidc_id_token_with_options(
+/// Signs an ID token with the provided key, deriving the JWS `kid` from the
+/// key itself so every token validates against the mock's published JWKS.
+fn sign_id_token_with_jwk(
+    jwk: &Jwk,
     audience: &str,
     issuer: &str,
     options: IdTokenOptions,
-) -> Result<(String, Jwk), Box<dyn std::error::Error>> {
-    let kid = options.key_id.clone();
-    let mut jwk = Jwk::generate_rsa_key(2048)?;
-    jwk.set_key_id(&kid);
-    jwk.set_algorithm("RS256");
-    jwk.set_key_use("sig");
-
-    let signer = Rs256.signer_from_jwk(&jwk)?;
+) -> Result<String, Box<dyn std::error::Error>> {
+    let signer = Rs256.signer_from_jwk(jwk)?;
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let mut payload = JwtPayload::new();
     payload.set_claim(
@@ -433,11 +386,6 @@ pub(crate) fn signed_oidc_id_token_with_options(
 
     let mut header = JwsHeader::new();
     header.set_algorithm("RS256");
-    header.set_key_id(&kid);
-    let token = jwt::encode_with_signer(&payload, &header, &signer)?;
-    let mut public_jwk = jwk.to_public_key()?;
-    public_jwk.set_key_id(kid);
-    public_jwk.set_algorithm("RS256");
-    public_jwk.set_key_use("sig");
-    Ok((token, public_jwk))
+    header.set_key_id(jwk.key_id().unwrap_or(DEFAULT_KEY_ID));
+    Ok(jwt::encode_with_signer(&payload, &header, &signer)?)
 }

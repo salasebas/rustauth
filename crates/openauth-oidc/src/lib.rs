@@ -8,8 +8,6 @@ pub mod discovery;
 pub mod flow;
 pub mod options;
 
-mod utils;
-
 pub use discovery::{
     compute_discovery_url, discover_oidc_config, discover_oidc_config_with_origin_validator,
     ensure_runtime_oidc_config_with_origin_validator, needs_runtime_discovery,

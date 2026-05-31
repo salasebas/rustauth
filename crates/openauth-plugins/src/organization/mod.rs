@@ -66,6 +66,7 @@ pub fn organization_with_options(options: OrganizationOptions) -> AuthPlugin {
             SessionAdditionalField::new(DbFieldType::String)
                 .optional()
                 .generated()
+                .db_name("active_organization_id")
                 .default_value(DbValue::Null),
         );
         if options.teams.enabled {
@@ -74,6 +75,7 @@ pub fn organization_with_options(options: OrganizationOptions) -> AuthPlugin {
                 SessionAdditionalField::new(DbFieldType::String)
                     .optional()
                     .generated()
+                    .db_name("active_team_id")
                     .default_value(DbValue::Null),
             );
         }

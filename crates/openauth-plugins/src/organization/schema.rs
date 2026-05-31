@@ -115,11 +115,6 @@ pub fn schema_contributions(options: &OrganizationOptions) -> Vec<PluginSchemaCo
                 ],
             ),
         ),
-        PluginSchemaContribution::field(
-            "session",
-            "activeOrganizationId",
-            DbField::new("active_organization_id", DbFieldType::String).optional(),
-        ),
     ];
     if options.teams.enabled {
         contributions.extend(team_schema_contributions(options));
@@ -192,11 +187,6 @@ fn team_schema_contributions(options: &OrganizationOptions) -> Vec<PluginSchemaC
                     ),
                 ],
             ),
-        ),
-        PluginSchemaContribution::field(
-            "session",
-            "activeTeamId",
-            DbField::new("active_team_id", DbFieldType::String).optional(),
         ),
     ]
 }
