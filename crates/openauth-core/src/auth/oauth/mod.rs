@@ -12,7 +12,10 @@ pub use state::{
     generate_oauth_state, oauth_state_identifier, parse_oauth_state, GeneratedOAuthState,
     OAuthStateData, OAuthStateInput, OAuthStateLink,
 };
-pub use tokens::{decrypt_oauth_token, set_token_util};
+pub use tokens::{
+    decrypt_oauth_token, decrypt_optional_oauth_token, encrypt_oauth_tokens_for_storage,
+    set_token_util, StoredOAuthTokens,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OAuthBaseUrlOverride(pub String);

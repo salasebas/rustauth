@@ -347,3 +347,241 @@ impl SocialOAuthProvider for TokenProvider {
         })
     }
 }
+
+#[tokio::test]
+async fn refresh_token_with_encryption_persists_encrypted_tokens_and_returns_plaintext(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(encrypted_account_record(
+            now,
+            Some("old-access-token"),
+            Some("stored-refresh-token"),
+            Some("stored-id-token"),
+            Some(now - Duration::minutes(1)),
+        )?)
+        .await?;
+    let router = encrypting_token_router(adapter.clone())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/refresh-token",
+            r#"{"providerId":"github","accountId":"github_ada"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    // Responses are decrypted exactly once.
+    assert_eq!(body["accessToken"], "new-access-token");
+    assert_eq!(body["refreshToken"], "new-refresh-token");
+    assert_eq!(body["idToken"], "new-id-token");
+
+    // Every persisted token (including id_token) is ciphertext that decrypts
+    // back to the plaintext in a single step.
+    let account = record_by_string(&adapter, "account", "id", "account_2")
+        .await?
+        .ok_or("missing account")?;
+    let stored_access = string_field(&account, "access_token")?;
+    let stored_refresh = string_field(&account, "refresh_token")?;
+    let stored_id = string_field(&account, "id_token")?;
+    assert_ne!(stored_access, "new-access-token");
+    assert_ne!(stored_refresh, "new-refresh-token");
+    assert_ne!(stored_id, "new-id-token");
+    assert_eq!(decrypt_token(stored_access)?, "new-access-token");
+    assert_eq!(decrypt_token(stored_refresh)?, "new-refresh-token");
+    assert_eq!(decrypt_token(stored_id)?, "new-id-token");
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_access_token_with_encryption_decrypts_stored_tokens_for_response(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(encrypted_account_record(
+            now,
+            Some("stored-access-token"),
+            Some("stored-refresh-token"),
+            Some("stored-id-token"),
+            Some(now + Duration::hours(1)),
+        )?)
+        .await?;
+    let router = encrypting_token_router(adapter)?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/get-access-token",
+            r#"{"providerId":"github"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["accessToken"], "stored-access-token");
+    assert_eq!(body["idToken"], "stored-id-token");
+    Ok(())
+}
+
+#[tokio::test]
+async fn account_info_with_encryption_uses_decrypted_access_token(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    adapter
+        .insert_account(encrypted_account_record(
+            now,
+            Some("stored-access-token"),
+            Some("stored-refresh-token"),
+            Some("stored-id-token"),
+            Some(now + Duration::hours(1)),
+        )?)
+        .await?;
+    let router = encrypting_token_router(adapter)?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/account-info?accountId=github_ada",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    // The provider only returns user info when handed the decrypted access
+    // token, so a 200 proves the read path decrypts stored tokens.
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["user"]["id"], "github_ada");
+    assert_eq!(body["data"]["provider"], "github");
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_access_token_tolerates_legacy_plaintext_tokens_when_encryption_enabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    // Tokens stored before encryption was enabled are plaintext.
+    adapter
+        .insert_account(oauth_account_record(
+            now,
+            Some("stored-access-token"),
+            Some("stored-refresh-token"),
+            Some(now + Duration::hours(1)),
+        ))
+        .await?;
+    let router = encrypting_token_router(adapter)?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/get-access-token",
+            r#"{"providerId":"github"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["accessToken"], "stored-access-token");
+    assert_eq!(body["idToken"], "stored-id-token");
+    Ok(())
+}
+
+fn encrypting_token_router(adapter: Arc<RouteAdapter>) -> Result<AuthRouter, OpenAuthError> {
+    router_with_options(
+        adapter,
+        OpenAuthOptions {
+            account: openauth_core::options::AccountOptions {
+                encrypt_oauth_tokens: true,
+                ..openauth_core::options::AccountOptions::default()
+            },
+            social_providers: vec![Arc::new(TokenProvider)],
+            ..OpenAuthOptions::default()
+        },
+    )
+}
+
+fn encryption_context() -> Result<openauth_core::context::AuthContext, OpenAuthError> {
+    create_auth_context(OpenAuthOptions {
+        secret: Some(secret().to_owned()),
+        account: openauth_core::options::AccountOptions {
+            encrypt_oauth_tokens: true,
+            ..openauth_core::options::AccountOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    })
+}
+
+fn encrypt_token(value: &str) -> Result<String, OpenAuthError> {
+    let context = encryption_context()?;
+    openauth_core::auth::oauth::set_token_util(Some(value), &context)?
+        .ok_or_else(|| OpenAuthError::Adapter("missing encrypted token".to_owned()))
+}
+
+fn decrypt_token(value: &str) -> Result<String, OpenAuthError> {
+    let context = encryption_context()?;
+    openauth_core::auth::oauth::decrypt_oauth_token(value, &context)
+}
+
+fn encrypted_account_record(
+    now: OffsetDateTime,
+    access_token: Option<&str>,
+    refresh_token: Option<&str>,
+    id_token: Option<&str>,
+    access_token_expires_at: Option<OffsetDateTime>,
+) -> Result<DbRecord, OpenAuthError> {
+    let mut record = linked_account_record(
+        "account_2",
+        "github",
+        "github_ada",
+        "user_1",
+        Some("read:user,user:email"),
+        now,
+    );
+    for (field, value) in [
+        ("access_token", access_token),
+        ("refresh_token", refresh_token),
+        ("id_token", id_token),
+    ] {
+        let stored = match value {
+            Some(value) => DbValue::String(encrypt_token(value)?),
+            None => DbValue::Null,
+        };
+        record.insert(field.to_owned(), stored);
+    }
+    record.insert(
+        "access_token_expires_at".to_owned(),
+        access_token_expires_at
+            .map(DbValue::Timestamp)
+            .unwrap_or(DbValue::Null),
+    );
+    Ok(record)
+}

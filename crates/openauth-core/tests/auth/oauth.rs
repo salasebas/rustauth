@@ -53,6 +53,55 @@ fn oauth_token_utils_encrypt_decrypt_and_tolerate_legacy_plain_tokens(
 }
 
 #[tokio::test]
+async fn handle_oauth_user_info_encrypts_all_stored_tokens_exactly_once(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = MemoryAdapter::new();
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        base_url: Some("https://app.example.com".to_owned()),
+        account: AccountOptions {
+            encrypt_oauth_tokens: true,
+            ..AccountOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    })?;
+
+    let result = handle_oauth_user_info(
+        &context,
+        &adapter,
+        HandleOAuthUserInfoInput {
+            user_info: oauth_user("github_ada", "ada@example.com", true),
+            account: oauth_account("github", "github_ada", Some("access-1")),
+            ..HandleOAuthUserInfoInput::default()
+        },
+    )
+    .await?;
+    assert!(result.error.is_none());
+
+    let accounts = adapter.records("account").await;
+    let account = accounts.first().ok_or("missing account")?;
+    let stored = |field: &str| match account.get(field) {
+        Some(DbValue::String(value)) => Ok(value.clone()),
+        _ => Err(format!("missing stored field `{field}`")),
+    };
+    let stored_access = stored("access_token")?;
+    let stored_refresh = stored("refresh_token")?;
+    let stored_id = stored("id_token")?;
+
+    // No token field (including id_token) is persisted in plaintext.
+    assert_ne!(stored_access, "access-1");
+    assert_ne!(stored_refresh, "refresh");
+    assert_ne!(stored_id, "id-token");
+
+    // A single decrypt step recovers the originals: id_token follows the same
+    // policy as access/refresh, and access/refresh are not double-encrypted.
+    assert_eq!(decrypt_oauth_token(&stored_access, &context)?, "access-1");
+    assert_eq!(decrypt_oauth_token(&stored_refresh, &context)?, "refresh");
+    assert_eq!(decrypt_oauth_token(&stored_id, &context)?, "id-token");
+    Ok(())
+}
+
+#[tokio::test]
 async fn oauth_state_cookie_strategy_round_trips_without_database(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let context = test_context(AccountOptions::default())?;

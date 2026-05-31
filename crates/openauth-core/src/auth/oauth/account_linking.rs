@@ -15,7 +15,7 @@ use crate::user::{
 };
 
 use super::errors::OAuthUserInfoError;
-use super::tokens::set_token_util;
+use super::tokens::{encrypt_oauth_tokens_for_storage, set_token_util};
 
 #[cfg(feature = "jose")]
 const ACCOUNT_COOKIE_SALT: &str = "better-auth-account";
@@ -377,14 +377,20 @@ fn account_input(
     account: &OAuthAccountInput,
     user_id: &str,
 ) -> Result<CreateOAuthAccountInput, OpenAuthError> {
+    let tokens = encrypt_oauth_tokens_for_storage(
+        account.access_token.as_deref(),
+        account.refresh_token.as_deref(),
+        account.id_token.as_deref(),
+        context,
+    )?;
     Ok(CreateOAuthAccountInput {
         id: None,
         provider_id: account.provider_id.clone(),
         account_id: account.account_id.clone(),
         user_id: user_id.to_owned(),
-        access_token: set_token_util(account.access_token.as_deref(), context)?,
-        refresh_token: set_token_util(account.refresh_token.as_deref(), context)?,
-        id_token: account.id_token.clone(),
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        id_token: tokens.id_token,
         access_token_expires_at: account.access_token_expires_at,
         refresh_token_expires_at: account.refresh_token_expires_at,
         scope: account.scope.clone(),
@@ -403,7 +409,7 @@ fn account_update_input(
         input.refresh_token = Some(set_token_util(account.refresh_token.as_deref(), context)?);
     }
     if account.id_token.is_some() {
-        input.id_token = Some(account.id_token.clone());
+        input.id_token = Some(set_token_util(account.id_token.as_deref(), context)?);
     }
     if account.access_token_expires_at.is_some() {
         input.access_token_expires_at = Some(account.access_token_expires_at);

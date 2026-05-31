@@ -61,7 +61,7 @@ pub(super) async fn sign_in_with_id_token(
         adapter,
         HandleOAuthUserInfoInput {
             user_info: normalize_user_info(&user_info)?,
-            account: oauth_account(provider.id(), &user_info, &tokens, context)?,
+            account: oauth_account(provider.id(), &user_info, &tokens),
             disable_sign_up: provider.provider_options().disable_sign_up,
             override_user_info: provider.provider_options().override_user_info_on_sign_in,
             is_trusted_provider: false,
@@ -165,7 +165,7 @@ pub(super) async fn callback_get(
         adapter,
         HandleOAuthUserInfoInput {
             user_info: normalize_user_info(&user_info)?,
-            account: oauth_account(provider.id(), &user_info, &tokens, context)?,
+            account: oauth_account(provider.id(), &user_info, &tokens),
             callback_url: Some(state_data.callback_url.clone()),
             disable_sign_up: (provider.provider_options().disable_implicit_sign_up
                 && !state_data.request_sign_up)
@@ -378,19 +378,19 @@ async fn link_oauth_account(
             return Err(LinkOAuthAccountError::AccountLinkedToDifferentUser);
         }
         if options.update_existing_account_tokens {
+            let stored = crate::auth::oauth::encrypt_oauth_tokens_for_storage(
+                tokens.access_token.as_deref(),
+                tokens.refresh_token.as_deref(),
+                tokens.id_token.as_deref(),
+                context,
+            )?;
             users
                 .update_account(
                     &existing_account.id,
                     UpdateAccountInput {
-                        access_token: Some(crate::auth::oauth::set_token_util(
-                            tokens.access_token.as_deref(),
-                            context,
-                        )?),
-                        refresh_token: Some(crate::auth::oauth::set_token_util(
-                            tokens.refresh_token.as_deref(),
-                            context,
-                        )?),
-                        id_token: Some(tokens.id_token.clone()),
+                        access_token: Some(stored.access_token),
+                        refresh_token: Some(stored.refresh_token),
+                        id_token: Some(stored.id_token),
                         access_token_expires_at: Some(tokens.access_token_expires_at),
                         refresh_token_expires_at: Some(tokens.refresh_token_expires_at),
                         scope: Some((!tokens.scopes.is_empty()).then(|| tokens.scopes.join(","))),
@@ -400,21 +400,21 @@ async fn link_oauth_account(
         }
         return Ok(());
     }
+    let stored = crate::auth::oauth::encrypt_oauth_tokens_for_storage(
+        tokens.access_token.as_deref(),
+        tokens.refresh_token.as_deref(),
+        tokens.id_token.as_deref(),
+        context,
+    )?;
     users
         .link_account(CreateOAuthAccountInput {
             id: None,
             provider_id: provider.id().to_owned(),
             account_id: normalized.id.clone(),
             user_id: link.user_id.clone(),
-            access_token: crate::auth::oauth::set_token_util(
-                tokens.access_token.as_deref(),
-                context,
-            )?,
-            refresh_token: crate::auth::oauth::set_token_util(
-                tokens.refresh_token.as_deref(),
-                context,
-            )?,
-            id_token: tokens.id_token.clone(),
+            access_token: stored.access_token,
+            refresh_token: stored.refresh_token,
+            id_token: stored.id_token,
             access_token_expires_at: tokens.access_token_expires_at,
             refresh_token_expires_at: tokens.refresh_token_expires_at,
             scope: (!tokens.scopes.is_empty()).then(|| tokens.scopes.join(",")),
@@ -510,21 +510,20 @@ fn oauth_account(
     provider_id: &str,
     info: &OAuth2UserInfo,
     tokens: &OAuth2Tokens,
-    context: &crate::context::AuthContext,
-) -> Result<OAuthAccountInput, OpenAuthError> {
-    Ok(OAuthAccountInput {
+) -> OAuthAccountInput {
+    // Carry raw provider tokens through to the storage boundary; encryption
+    // happens exactly once when `handle_oauth_user_info` builds the
+    // create/update input, so social sign-in no longer double-encrypts.
+    OAuthAccountInput {
         provider_id: provider_id.to_owned(),
         account_id: info.id.clone(),
-        access_token: crate::auth::oauth::set_token_util(tokens.access_token.as_deref(), context)?,
-        refresh_token: crate::auth::oauth::set_token_util(
-            tokens.refresh_token.as_deref(),
-            context,
-        )?,
+        access_token: tokens.access_token.clone(),
+        refresh_token: tokens.refresh_token.clone(),
         id_token: tokens.id_token.clone(),
         access_token_expires_at: tokens.access_token_expires_at,
         refresh_token_expires_at: tokens.refresh_token_expires_at,
         scope: (!tokens.scopes.is_empty()).then(|| tokens.scopes.join(",")),
-    })
+    }
 }
 
 fn tokens_from_id_token(id_token: &IdTokenBody) -> OAuth2Tokens {
