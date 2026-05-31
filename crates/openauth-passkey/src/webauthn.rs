@@ -226,23 +226,45 @@ enum StoredAuthenticationState {
 }
 
 fn webauthn(config: &WebAuthnConfig) -> Result<Webauthn, OpenAuthError> {
-    let primary_origin = config
+    let origins = config
         .origins
-        .first()
+        .iter()
+        .map(|origin| Url::parse(origin).map_err(|error| OpenAuthError::Api(error.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let (primary, rest) = origins
+        .split_first()
         .ok_or_else(|| OpenAuthError::InvalidConfig("passkey origin is required".to_owned()))?;
-    let primary =
-        Url::parse(primary_origin).map_err(|error| OpenAuthError::Api(error.to_string()))?;
-    let mut builder = WebauthnBuilder::new(&config.rp_id, &primary)
+    let mut builder = WebauthnBuilder::new(&config.rp_id, primary)
         .map_err(|error| OpenAuthError::Api(error.to_string()))?
         .rp_name(&config.rp_name)
-        .allow_any_port(true);
-    for origin in config.origins.iter().skip(1) {
-        let origin = Url::parse(origin).map_err(|error| OpenAuthError::Api(error.to_string()))?;
-        builder = builder.append_allowed_origin(&origin);
+        .allow_any_port(origins_allow_any_port(&origins));
+    for origin in rest {
+        builder = builder.append_allowed_origin(origin);
     }
     builder
         .build()
         .map_err(|error| OpenAuthError::Api(error.to_string()))
+}
+
+/// `WebauthnBuilder::allow_any_port` skips the port check for *every* configured
+/// origin, and ports are part of the browser origin boundary. Enabling it
+/// unconditionally would let a production origin such as `https://auth.example.com`
+/// also accept `https://auth.example.com:8443`, so it is restricted to local
+/// development.
+///
+/// Returns `true` only when every origin is a loopback/localhost host, so a
+/// single non-loopback origin forces exact-port matching for the whole set.
+fn origins_allow_any_port(origins: &[Url]) -> bool {
+    !origins.is_empty() && origins.iter().all(is_loopback_origin)
+}
+
+fn is_loopback_origin(origin: &Url) -> bool {
+    match origin.host() {
+        Some(url::Host::Domain(host)) => host == "localhost" || host.ends_with(".localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
 }
 
 fn option_value(options: CreationChallengeResponse) -> Result<Value, OpenAuthError> {
@@ -428,6 +450,74 @@ mod tests {
     use super::*;
     use serde_cbor_2::Value as CborValue;
     use webauthn_rs::prelude::{AttestationMetadata, Credential};
+
+    fn parse_origins(origins: &[&str]) -> Result<Vec<Url>, url::ParseError> {
+        origins.iter().map(|origin| Url::parse(origin)).collect()
+    }
+
+    #[test]
+    fn production_origins_keep_exact_port_matching() -> Result<(), url::ParseError> {
+        // A configured https://example.com must not be treated as valid for
+        // https://example.com:8443, so any-port matching stays disabled.
+        assert!(!origins_allow_any_port(&parse_origins(&[
+            "https://example.com"
+        ])?));
+        assert!(!origins_allow_any_port(&parse_origins(&[
+            "https://auth.example.com:443"
+        ])?));
+        Ok(())
+    }
+
+    #[test]
+    fn loopback_origins_allow_any_port_for_local_dev() -> Result<(), url::ParseError> {
+        // Local development servers run on arbitrary ports, so loopback hosts
+        // keep any-port matching.
+        for origin in [
+            "http://localhost",
+            "http://localhost:3000",
+            "http://app.localhost:9000",
+            "http://127.0.0.1:5173",
+            "http://[::1]:8080",
+        ] {
+            assert!(
+                origins_allow_any_port(&parse_origins(&[origin])?),
+                "{origin} should allow any port"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn mixed_origins_preserve_exact_port_checks() -> Result<(), url::ParseError> {
+        // A single non-loopback origin forces exact-port matching for the
+        // whole set, since allow_any_port is global to the verifier.
+        assert!(!origins_allow_any_port(&parse_origins(&[
+            "http://localhost:3000",
+            "https://example.com",
+        ])?));
+        assert!(origins_allow_any_port(&parse_origins(&[
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+        ])?));
+        Ok(())
+    }
+
+    #[test]
+    fn webauthn_builds_for_production_and_loopback_configs() -> Result<(), OpenAuthError> {
+        let production = WebAuthnConfig {
+            rp_id: "example.com".to_owned(),
+            rp_name: "Example".to_owned(),
+            origins: vec!["https://auth.example.com".to_owned()],
+        };
+        let loopback = WebAuthnConfig {
+            rp_id: "localhost".to_owned(),
+            rp_name: "Example".to_owned(),
+            origins: vec!["http://localhost:3000".to_owned()],
+        };
+        webauthn(&production)?;
+        webauthn(&loopback)?;
+        Ok(())
+    }
 
     #[test]
     fn aaguid_from_attestation_metadata_extracts_packed_and_tpm_values() {
