@@ -67,6 +67,7 @@ mod reset_password;
 mod revoke_other_sessions;
 mod revoke_session;
 mod revoke_sessions;
+mod session_ip_metadata;
 mod set_password;
 mod sign_in_email;
 mod sign_out;
@@ -94,6 +95,26 @@ fn router_with_options(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
+            ..options
+        },
+        adapter.clone(),
+    )?;
+    AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
+}
+
+/// Build a router preserving the caller's `advanced` options, only forcing the
+/// CSRF/origin checks off so tests can exercise `advanced.ip_address`.
+fn router_with_advanced(
+    adapter: Arc<RouteAdapter>,
+    options: OpenAuthOptions,
+    mut advanced: AdvancedOptions,
+) -> Result<AuthRouter, OpenAuthError> {
+    advanced.disable_csrf_check = true;
+    advanced.disable_origin_check = true;
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some(secret().to_owned()),
+            advanced,
             ..options
         },
         adapter.clone(),
