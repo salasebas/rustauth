@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use http::{Method, StatusCode};
+use openauth_core::api::output::session_response_cookies;
 use openauth_core::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
     OpenApiOperation,
 };
-use openauth_core::cookies::{set_session_cookie, SessionCookieOptions};
 use openauth_core::user::DbUserStore;
-use openauth_core::verification::DbVerificationStore;
+use openauth_core::verification::VerificationStore;
 use serde_json::json;
 
 use crate::challenge::{create_challenge, find_challenge, ChallengeKind, ChallengeValue};
@@ -73,6 +73,7 @@ pub(super) fn generate_authenticate_options_endpoint(
                 )?;
                 let token = create_challenge(
                     adapter.as_ref(),
+                    context,
                     ChallengeValue {
                         kind: ChallengeKind::Authentication,
                         state: start.state,
@@ -137,7 +138,8 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                         )
                     }
                 };
-                let Some(challenge) = find_challenge(adapter.as_ref(), &token).await? else {
+                let Some(challenge) = find_challenge(adapter.as_ref(), context, &token).await?
+                else {
                     return error_response(
                         StatusCode::BAD_REQUEST,
                         "CHALLENGE_NOT_FOUND",
@@ -224,15 +226,10 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                 };
                 let session =
                     create_session_for_user(adapter.as_ref(), context, &request, &user).await?;
-                DbVerificationStore::new(adapter.as_ref())
+                VerificationStore::new(adapter.as_ref(), context)
                     .delete_verification(&token)
                     .await?;
-                let cookies = set_session_cookie(
-                    &context.auth_cookies,
-                    &context.secret,
-                    &session.token,
-                    SessionCookieOptions::default(),
-                )?;
+                let cookies = session_response_cookies(context, &session, &user, false)?;
                 json_response(
                     StatusCode::OK,
                     &json!({ "session": session, "user": user }),

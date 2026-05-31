@@ -5,7 +5,7 @@ use openauth_core::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
     OpenApiOperation,
 };
-use openauth_core::verification::DbVerificationStore;
+use openauth_core::verification::VerificationStore;
 
 use crate::challenge::{create_challenge, find_challenge, ChallengeKind, ChallengeValue};
 use crate::cookies::{challenge_cookie, challenge_token};
@@ -142,6 +142,7 @@ pub(super) fn generate_register_options_endpoint(
                 )?;
                 let token = create_challenge(
                     adapter.as_ref(),
+                    context,
                     ChallengeValue {
                         kind: ChallengeKind::Registration,
                         state: start.state,
@@ -192,7 +193,8 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                         )
                     }
                 };
-                let Some(challenge) = find_challenge(adapter.as_ref(), &token).await? else {
+                let Some(challenge) = find_challenge(adapter.as_ref(), context, &token).await?
+                else {
                     return error_response(
                         StatusCode::BAD_REQUEST,
                         "CHALLENGE_NOT_FOUND",
@@ -307,7 +309,7 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                         return Err(error);
                     }
                 };
-                DbVerificationStore::new(adapter.as_ref())
+                VerificationStore::new(adapter.as_ref(), context)
                     .delete_verification(&token)
                     .await?;
                 json_response(StatusCode::OK, &passkey, Vec::new())

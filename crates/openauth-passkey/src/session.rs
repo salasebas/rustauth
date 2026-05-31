@@ -5,7 +5,7 @@ use openauth_core::context::AuthContext;
 use openauth_core::cookies::Cookie;
 use openauth_core::db::{DbAdapter, DbRecord, DbValue, Session, User};
 use openauth_core::error::OpenAuthError;
-use openauth_core::session::{CreateSessionInput, DbSessionStore};
+use openauth_core::session::{CreateSessionInput, SessionStore};
 use time::{Duration, OffsetDateTime};
 
 use crate::cookies::request_cookie_header;
@@ -107,7 +107,9 @@ pub async fn create_session_for_user(
         input = input.user_agent(user_agent);
     }
     input = input.additional_fields(additional_session_create_values(context));
-    DbSessionStore::new(adapter).create_session(input).await
+    SessionStore::new(adapter, context)
+        .create_session(input)
+        .await
 }
 
 pub fn session_is_fresh(context: &AuthContext, session: &Session) -> bool {

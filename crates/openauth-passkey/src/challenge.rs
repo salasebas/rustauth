@@ -1,7 +1,8 @@
+use openauth_core::context::AuthContext;
 use openauth_core::crypto::random::generate_random_string;
 use openauth_core::db::DbAdapter;
 use openauth_core::error::OpenAuthError;
-use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
+use openauth_core::verification::{CreateVerificationInput, VerificationStore};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
@@ -26,12 +27,13 @@ pub struct ChallengeValue {
 
 pub async fn create_challenge(
     adapter: &dyn DbAdapter,
+    context: &AuthContext,
     value: ChallengeValue,
 ) -> Result<String, OpenAuthError> {
     let token = generate_random_string(32);
     let expires_at =
         OffsetDateTime::now_utc() + Duration::seconds(CHALLENGE_MAX_AGE_SECONDS as i64);
-    DbVerificationStore::new(adapter)
+    VerificationStore::new(adapter, context)
         .create_verification(CreateVerificationInput::new(
             token.clone(),
             serde_json::to_string(&value).map_err(|error| OpenAuthError::Api(error.to_string()))?,
@@ -43,9 +45,10 @@ pub async fn create_challenge(
 
 pub async fn find_challenge(
     adapter: &dyn DbAdapter,
+    context: &AuthContext,
     token: &str,
 ) -> Result<Option<ChallengeValue>, OpenAuthError> {
-    DbVerificationStore::new(adapter)
+    VerificationStore::new(adapter, context)
         .find_verification(token)
         .await?
         .map(|verification| {
