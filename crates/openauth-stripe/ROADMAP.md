@@ -12,9 +12,9 @@ Este archivo guarda el análisis de paridad, tests pendientes y producción. Act
 |------|---------------------|-----------------------------|
 | **`groupId`** | Solo en **tipos TS** (`types.ts`); **no** en schema, rutas ni tests | Documentación/API futura o extensión de tipos; **no** hay implementación ni promesa de versión en el código |
 | **`group` en plan** | Solo tipo; list no lo expone | Nosotros lo exponemos en GET list (extensión documentada) |
-| **Idempotencia `event.id`** | **No implementada** | Riesgo general de webhooks Stripe (reintentos); no es deuda de paridad con BA 1.6.9 |
+| **Idempotencia `event.id`** | **No implementada** | Implementada en OpenAuth (OPE-40): tabla `stripeWebhookEvent` por `event.id`; ver [UPSTREAM.md](./UPSTREAM.md) |
 
-**No implementar** `groupId` ni idempotencia salvo requisito propio explícito.
+**No implementar** `groupId` salvo requisito propio explícito. Idempotencia `event.id` ya implementada (OPE-40).
 
 ---
 
@@ -61,7 +61,8 @@ Este archivo guarda el análisis de paridad, tests pendientes y producción. Act
 |--------|-----|------|
 | [x] | — | `whsec_`, errores HTTP rutas principales, cancel already-canceled, checkout reference |
 | [x] | — | Logging hooks/webhooks, `UPSTREAM.md`, tests modulares (159) |
-| [-] | — | `groupId`, idempotencia webhook, alias deprecado `SUBSCRIPTION_NOT_SCHEDULED_FOR_CANCELLATION` |
+| [-] | — | `groupId`, alias deprecado `SUBSCRIPTION_NOT_SCHEDULED_FOR_CANCELLATION` |
+| [x] | — | Idempotencia webhook por `event.id` (OPE-40): tabla `stripeWebhookEvent`, skip de duplicados, rollback en fallo de `on_event` |
 
 ---
 
