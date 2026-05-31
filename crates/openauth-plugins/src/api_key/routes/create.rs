@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 use super::{
     body, current_identity, endpoint, error, future_expiration, json, metadata_is_object,
-    valid_prefix, SharedConfigurations,
+    request_is_external, valid_prefix, SharedConfigurations,
 };
 use crate::api_key::cleanup;
 use crate::api_key::errors;
@@ -48,6 +48,7 @@ pub fn create_endpoint(
                 let input: CreateApiKeyRequest = body(&request)?;
                 let options = configurations.resolve(input.config_id.as_deref())?;
                 let identity = current_identity(context, &request).await?;
+                let is_external = request_is_external();
                 let reference_id = match options.reference {
                     ApiKeyReference::Organization => {
                         let Some(organization_id) = input.organization_id.as_deref() else {
@@ -56,15 +57,26 @@ pub fn create_endpoint(
                                 errors::ORGANIZATION_ID_REQUIRED,
                             );
                         };
-                        let user_id = identity
-                            .as_ref()
-                            .map(|identity| identity.user.id.as_str())
-                            .or(input.user_id.as_deref())
-                            .ok_or_else(|| {
-                                OpenAuthError::Api(
-                                    errors::message(errors::UNAUTHORIZED_SESSION).to_owned(),
-                                )
-                            })?;
+                        let user_id =
+                            match identity.as_ref().map(|identity| identity.user.id.as_str()) {
+                                Some(user_id) => user_id,
+                                // Only trusted server-side callers may name the actor explicitly.
+                                None if !is_external => match input.user_id.as_deref() {
+                                    Some(user_id) => user_id,
+                                    None => {
+                                        return error(
+                                            StatusCode::UNAUTHORIZED,
+                                            errors::UNAUTHORIZED_SESSION,
+                                        )
+                                    }
+                                },
+                                None => {
+                                    return error(
+                                        StatusCode::UNAUTHORIZED,
+                                        errors::UNAUTHORIZED_SESSION,
+                                    )
+                                }
+                            };
                         if let Err(error) = ensure_organization_permission(
                             context,
                             user_id,
@@ -90,26 +102,32 @@ pub fn create_endpoint(
                                 );
                             }
                             identity.user.id.clone()
-                        } else if let Some(user_id) = input.user_id.clone() {
-                            user_id
+                        } else if !is_external {
+                            // Trusted server-side caller may target an explicit user id.
+                            match input.user_id.clone() {
+                                Some(user_id) => user_id,
+                                None => {
+                                    return error(
+                                        StatusCode::UNAUTHORIZED,
+                                        errors::UNAUTHORIZED_SESSION,
+                                    )
+                                }
+                            }
                         } else {
                             return error(StatusCode::UNAUTHORIZED, errors::UNAUTHORIZED_SESSION);
                         }
                     }
                 };
 
-                if input.remaining.is_some()
+                let uses_server_only_props = input.remaining.is_some()
                     || input.refill_amount.is_some()
                     || input.refill_interval.is_some()
                     || input.rate_limit_time_window.is_some()
                     || input.rate_limit_max.is_some()
                     || input.rate_limit_enabled.is_some()
-                    || input.permissions.is_some()
-                {
-                    let has_cookie = request.headers().contains_key(http::header::COOKIE);
-                    if has_cookie {
-                        return error(StatusCode::BAD_REQUEST, errors::SERVER_ONLY_PROPERTY);
-                    }
+                    || input.permissions.is_some();
+                if is_external && uses_server_only_props {
+                    return error(StatusCode::BAD_REQUEST, errors::SERVER_ONLY_PROPERTY);
                 }
 
                 if let Err(code) = validate_input(&input, &options) {

@@ -99,6 +99,22 @@ pub async fn request_json(
     request_json_with_headers(router, method, path, body, cookie, &headers).await
 }
 
+/// Drive a request through the trusted server-side entry point
+/// ([`AuthRouter::handle_async_server`]) instead of the internet-facing router,
+/// so server-only inputs (explicit `userId`, rate limit / refill / permissions
+/// overrides) are honored as they would be for trusted backend callers.
+pub async fn server_request_json(
+    router: &AuthRouter,
+    method: Method,
+    path: &str,
+    body: Value,
+    cookie: Option<&str>,
+    header_pair: Option<(&str, &str)>,
+) -> Result<TestResponse, Box<dyn std::error::Error>> {
+    let headers = header_pair.into_iter().collect::<Vec<_>>();
+    dispatch_json(router, method, path, body, cookie, &headers, true).await
+}
+
 pub async fn request_json_with_headers(
     router: &AuthRouter,
     method: Method,
@@ -106,6 +122,18 @@ pub async fn request_json_with_headers(
     body: Value,
     cookie: Option<&str>,
     headers: &[(&str, &str)],
+) -> Result<TestResponse, Box<dyn std::error::Error>> {
+    dispatch_json(router, method, path, body, cookie, headers, false).await
+}
+
+async fn dispatch_json(
+    router: &AuthRouter,
+    method: Method,
+    path: &str,
+    body: Value,
+    cookie: Option<&str>,
+    headers: &[(&str, &str)],
+    server_side: bool,
 ) -> Result<TestResponse, Box<dyn std::error::Error>> {
     let payload = if matches!(body, Value::Null) {
         Vec::new()
@@ -126,7 +154,12 @@ pub async fn request_json_with_headers(
     for (name, value) in headers {
         builder = builder.header(*name, *value);
     }
-    let response = router.handle_async(builder.body(payload)?).await?;
+    let request = builder.body(payload)?;
+    let response = if server_side {
+        router.handle_async_server(request).await?
+    } else {
+        router.handle_async(request).await?
+    };
     let status = response.status();
     let set_cookie = response
         .headers()

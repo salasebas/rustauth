@@ -12,7 +12,9 @@ use openauth_plugins::api_key::{
 };
 use serde_json::json;
 
-use super::helpers::{request_json, sign_up, CountingBackgroundRunner, DelayedUpdateAdapter};
+use super::helpers::{
+    request_json, server_request_json, sign_up, CountingBackgroundRunner, DelayedUpdateAdapter,
+};
 
 #[tokio::test]
 async fn verification_decrements_remaining_and_blocks_exhausted_key(
@@ -21,7 +23,7 @@ async fn verification_decrements_remaining_and_blocks_exhausted_key(
     let router = super::helpers::test_router(adapter, api_key())?;
     let user = sign_up(&router, "Dee", "dee-api@example.com").await?;
 
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -70,7 +72,7 @@ async fn concurrent_verification_consumes_remaining_only_once(
     let router = super::helpers::test_router_with_adapter(adapter, vec![api_key()])?;
     let user = sign_up(&router, "Race", "race-api@example.com").await?;
 
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -125,7 +127,7 @@ async fn verification_enforces_rate_limit_window() -> Result<(), Box<dyn std::er
     let adapter = Arc::new(MemoryAdapter::new());
     let router = super::helpers::test_router(adapter, api_key())?;
     let user = sign_up(&router, "Eon", "eon-api@example.com").await?;
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -179,7 +181,7 @@ async fn concurrent_verification_enforces_rate_limit_max_once(
     ));
     let router = super::helpers::test_router_with_adapter(adapter, vec![api_key()])?;
     let user = sign_up(&router, "Rate Race", "rate-race-api@example.com").await?;
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -236,7 +238,7 @@ async fn verification_refills_remaining_after_interval() -> Result<(), Box<dyn s
     let adapter = Arc::new(MemoryAdapter::new());
     let router = super::helpers::test_router(adapter, api_key())?;
     let user = sign_up(&router, "Fin", "fin-api@example.com").await?;
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -338,7 +340,7 @@ async fn verification_enforces_permissions() -> Result<(), Box<dyn std::error::E
     let adapter = Arc::new(MemoryAdapter::new());
     let router = super::helpers::test_router(adapter, api_key())?;
     let user = sign_up(&router, "Han", "han-api@example.com").await?;
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",

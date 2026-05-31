@@ -1,11 +1,12 @@
 use openauth_core::db::{
-    Create, DbValue, Delete, DeleteMany, FindOne, Update, Where, WhereOperator,
+    Create, DbValue, Delete, DeleteMany, FindMany, FindOne, Update, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use time::OffsetDateTime;
 
 use super::ApiKeyStore;
 use crate::api_key::models::{record_from_db, ApiKeyRecord, API_KEY_FIELDS};
+use crate::api_key::options::ApiKeyStorageMode;
 use crate::api_key::API_KEY_MODEL;
 
 impl ApiKeyStore<'_> {
@@ -13,6 +14,18 @@ impl ApiKeyStore<'_> {
         let Some(adapter) = &self.adapter else {
             return Ok(0);
         };
+        // In secondary-storage fallback mode a database-only delete would leave
+        // the hash/id/ref cache entries behind, so the expired key would keep
+        // resolving from the cache. Evict each expired key from the cache first
+        // to keep cleanup consistent with the plugin's own delete path.
+        if matches!(self.options.storage, ApiKeyStorageMode::SecondaryStorage)
+            && self.options.fallback_to_database
+            && self.secondary_storage().is_some()
+        {
+            for api_key in self.find_expired(now).await? {
+                self.delete_secondary(&api_key).await?;
+            }
+        }
         adapter
             .delete_many(
                 DeleteMany::new(API_KEY_MODEL)
@@ -25,6 +38,31 @@ impl ApiKeyStore<'_> {
                     ),
             )
             .await
+    }
+
+    pub(super) async fn find_expired(
+        &self,
+        now: OffsetDateTime,
+    ) -> Result<Vec<ApiKeyRecord>, OpenAuthError> {
+        let Some(adapter) = &self.adapter else {
+            return Ok(Vec::new());
+        };
+        adapter
+            .find_many(
+                FindMany::new(API_KEY_MODEL)
+                    .where_clause(
+                        Where::new("expires_at", DbValue::Timestamp(now))
+                            .operator(WhereOperator::Lt),
+                    )
+                    .where_clause(
+                        Where::new("expires_at", DbValue::Null).operator(WhereOperator::Ne),
+                    )
+                    .select(API_KEY_FIELDS),
+            )
+            .await?
+            .into_iter()
+            .map(record_from_db)
+            .collect()
     }
 
     pub(super) async fn create_database(

@@ -1,7 +1,9 @@
 use http::StatusCode;
 use serde_json::Value;
 
-use crate::context::request_state::{run_with_request_state, set_current_request_path};
+use crate::context::request_state::{
+    run_with_request_state, set_current_request_path, set_request_external,
+};
 use crate::context::AuthContext;
 use crate::error::OpenAuthError;
 use crate::plugin::{PluginBeforeHookAction, PluginRequestAction};
@@ -161,13 +163,28 @@ impl AuthRouter {
     }
 
     pub async fn handle_async(&self, request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
-        run_with_request_state(self.handle_async_scoped(request)).await
+        run_with_request_state(self.handle_async_scoped(request, true)).await
+    }
+
+    /// Handle a request from trusted server-side code.
+    ///
+    /// Runs the same pipeline as [`handle_async`](Self::handle_async) but marks
+    /// the request as non-internet-facing, allowing endpoints to honor
+    /// server-only inputs (such as an explicit user id) that must never be
+    /// trusted from internet clients.
+    pub async fn handle_async_server(
+        &self,
+        request: ApiRequest,
+    ) -> Result<ApiResponse, OpenAuthError> {
+        run_with_request_state(self.handle_async_scoped(request, false)).await
     }
 
     async fn handle_async_scoped(
         &self,
         mut request: ApiRequest,
+        external: bool,
     ) -> Result<ApiResponse, OpenAuthError> {
+        set_request_external(external)?;
         let normalized_path =
             normalize_pathname(&request.uri().to_string(), &self.context.base_path);
         if self

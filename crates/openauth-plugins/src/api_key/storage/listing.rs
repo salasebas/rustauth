@@ -44,11 +44,17 @@ impl ApiKeyStore<'_> {
         match self.options.storage {
             ApiKeyStorageMode::Database => self.list_database(reference_id, list_options).await,
             ApiKeyStorageMode::SecondaryStorage if self.options.fallback_to_database => {
-                if let Some(storage) = self.secondary_storage() {
-                    let cached =
-                        list_from_secondary_storage(&*storage, reference_id, &list_options).await?;
-                    if cached.total > 0 {
-                        return Ok(cached);
+                // When revalidation is enabled the database is the source of
+                // truth: skip the cache-first shortcut so revoked or
+                // out-of-band-edited keys are not served from a stale cache.
+                if !self.options.revalidate_secondary_against_database {
+                    if let Some(storage) = self.secondary_storage() {
+                        let cached =
+                            list_from_secondary_storage(&*storage, reference_id, &list_options)
+                                .await?;
+                        if cached.total > 0 {
+                            return Ok(cached);
+                        }
                     }
                 }
                 let result = self

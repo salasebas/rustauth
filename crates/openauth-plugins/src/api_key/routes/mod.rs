@@ -229,6 +229,13 @@ pub(crate) fn metadata_is_object(metadata: &Option<Value>) -> bool {
     matches!(metadata, None | Some(Value::Object(_)))
 }
 
+/// Returns true when the request originates from the internet-facing HTTP
+/// router. Server-only inputs (explicit `userId`, rate limit / refill /
+/// permissions overrides) must never be trusted for such requests.
+pub(crate) fn request_is_external() -> bool {
+    openauth_core::context::request_state::is_external_request()
+}
+
 pub(crate) fn future_expiration(seconds: Option<i64>) -> Option<OffsetDateTime> {
     seconds.map(|seconds| OffsetDateTime::now_utc() + Duration::seconds(seconds))
 }

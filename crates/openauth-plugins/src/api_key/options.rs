@@ -123,6 +123,14 @@ pub struct ApiKeyConfiguration {
     pub custom_api_key_validator: Option<ApiKeyValidator>,
     pub storage: ApiKeyStorageMode,
     pub fallback_to_database: bool,
+    /// When `true` (and [`Self::fallback_to_database`] is enabled), reads that
+    /// hit the secondary-storage cache are reconciled against the database
+    /// before being returned: a missing row is treated as revoked and a newer
+    /// `updated_at` refreshes the cache. This trades a per-read database lookup
+    /// for immediate revocation of out-of-band database edits and keys without
+    /// a TTL. Defaults to `false` to preserve the cache-first behavior that
+    /// matches upstream Better Auth.
+    pub revalidate_secondary_against_database: bool,
     #[serde(skip)]
     pub custom_storage: Option<Arc<dyn SecondaryStorage>>,
     pub defer_updates: bool,
@@ -153,6 +161,7 @@ impl Default for ApiKeyConfiguration {
             custom_api_key_validator: None,
             storage: ApiKeyStorageMode::Database,
             fallback_to_database: false,
+            revalidate_secondary_against_database: false,
             custom_storage: None,
             defer_updates: false,
             reference: ApiKeyReference::User,
@@ -206,6 +215,10 @@ impl fmt::Debug for ApiKeyConfiguration {
             )
             .field("storage", &self.storage)
             .field("fallback_to_database", &self.fallback_to_database)
+            .field(
+                "revalidate_secondary_against_database",
+                &self.revalidate_secondary_against_database,
+            )
             .field(
                 "custom_storage",
                 &self.custom_storage.as_ref().map(|_| "<custom-storage>"),

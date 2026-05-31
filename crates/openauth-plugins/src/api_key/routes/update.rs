@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 
 use super::{
     body, config_id_matches, current_identity, endpoint, error, future_expiration, json,
-    metadata_is_object, SharedConfigurations,
+    metadata_is_object, request_is_external, SharedConfigurations,
 };
 use crate::api_key::errors;
 use crate::api_key::models::ApiKeyRecord;
@@ -88,6 +88,7 @@ pub fn update_endpoint(
                 let input: UpdateApiKeyRequest = body(&request)?;
                 let options = configurations.resolve(input.config_id.as_deref())?;
                 let identity = current_identity(context, &request).await?;
+                let is_external = request_is_external();
                 let actor_user_id = match &identity {
                     Some(identity) => {
                         if input
@@ -99,11 +100,15 @@ pub fn update_endpoint(
                         }
                         identity.user.id.clone()
                     }
-                    None => {
+                    // Only trusted server-side callers may name the actor explicitly.
+                    None if !is_external => {
                         let Some(user_id) = input.user_id.clone() else {
                             return error(StatusCode::UNAUTHORIZED, errors::UNAUTHORIZED_SESSION);
                         };
                         user_id
+                    }
+                    None => {
+                        return error(StatusCode::UNAUTHORIZED, errors::UNAUTHORIZED_SESSION);
                     }
                 };
                 let store = ApiKeyStore::new(context, &options);
@@ -137,8 +142,7 @@ pub fn update_endpoint(
                         }
                     }
                 }
-                let has_cookie = request.headers().contains_key(http::header::COOKIE);
-                if has_cookie && has_server_only_update(&input) {
+                if is_external && has_server_only_update(&input) {
                     return error(StatusCode::BAD_REQUEST, errors::SERVER_ONLY_PROPERTY);
                 }
                 if no_values_to_update(&input, &options) {

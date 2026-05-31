@@ -62,6 +62,9 @@ impl<'a> ApiKeyStore<'a> {
                         secondary::get_secondary(&*storage, &keys::storage_key_by_hash(hashed_key))
                             .await?
                     {
+                        if self.options.revalidate_secondary_against_database {
+                            return self.revalidate_cache_hit(api_key, "key", hashed_key).await;
+                        }
                         return Ok(Some(api_key));
                     }
                 }
@@ -88,6 +91,9 @@ impl<'a> ApiKeyStore<'a> {
                     if let Some(api_key) =
                         secondary::get_secondary(&*storage, &keys::storage_key_by_id(id)).await?
                     {
+                        if self.options.revalidate_secondary_against_database {
+                            return self.revalidate_cache_hit(api_key, "id", id).await;
+                        }
                         return Ok(Some(api_key));
                     }
                 }
@@ -182,6 +188,34 @@ impl<'a> ApiKeyStore<'a> {
             .data("metadata", DbValue::Json(metadata.clone()));
         if adapter.update(update).await.is_ok() {
             api_key.metadata = Some(metadata);
+        }
+    }
+
+    /// Reconcile a secondary-storage cache hit against the database.
+    ///
+    /// Only used when `revalidate_secondary_against_database` is enabled. A row
+    /// that is absent from the database is treated as revoked (the stale cache
+    /// entry is purged and `None` is returned); a database record with a newer
+    /// `updated_at` refreshes the cache and supersedes the cached copy.
+    async fn revalidate_cache_hit(
+        &self,
+        cached: ApiKeyRecord,
+        field: &str,
+        value: &str,
+    ) -> Result<Option<ApiKeyRecord>, OpenAuthError> {
+        match self.get_database(field, value).await? {
+            None => {
+                self.delete_secondary(&cached).await?;
+                Ok(None)
+            }
+            Some(fresh) => {
+                if fresh.updated_at > cached.updated_at {
+                    self.set_secondary(&fresh).await?;
+                    Ok(Some(fresh))
+                } else {
+                    Ok(Some(cached))
+                }
+            }
         }
     }
 

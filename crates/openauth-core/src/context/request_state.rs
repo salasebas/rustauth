@@ -100,6 +100,7 @@ static CURRENT_SESSION_USER: OnceLock<RequestState<Option<Value>>> = OnceLock::n
 static CURRENT_SESSION: OnceLock<RequestState<Option<CurrentSession>>> = OnceLock::new();
 static CURRENT_NEW_SESSION: OnceLock<RequestState<Option<NewSession>>> = OnceLock::new();
 static CURRENT_REQUEST_PATH: OnceLock<RequestState<Option<String>>> = OnceLock::new();
+static REQUEST_IS_EXTERNAL: OnceLock<RequestState<bool>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewSession {
@@ -163,6 +164,26 @@ pub fn set_current_request_path(path: impl Into<String>) -> Result<(), OpenAuthE
 /// Read the normalized endpoint path for this request, when available.
 pub fn current_request_path() -> Result<Option<String>, OpenAuthError> {
     current_request_path_state().get()
+}
+
+fn request_is_external_state() -> &'static RequestState<bool> {
+    REQUEST_IS_EXTERNAL.get_or_init(|| define_request_state(|| false))
+}
+
+/// Mark whether the current request originated from the internet-facing HTTP
+/// router. Trusted server-side invocations leave this `false`.
+pub fn set_request_external(external: bool) -> Result<(), OpenAuthError> {
+    request_is_external_state().set(external)
+}
+
+/// Returns true only when the current request is known to originate from the
+/// internet-facing HTTP router. Absent request state is treated as a trusted
+/// server-side call (`false`).
+pub fn is_external_request() -> bool {
+    if !has_request_state() {
+        return false;
+    }
+    request_is_external_state().get().unwrap_or(false)
 }
 
 /// Run a future inside a fresh request state scope.

@@ -3,14 +3,15 @@ use std::sync::Arc;
 use http::{Method, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_plugins::api_key::{
-    api_key, api_key_with_options, ApiKeyConfiguration, ApiKeyExpirationOptions, ApiKeyOptions,
-    StartingCharactersConfig, API_KEY_MODEL, EXPIRES_IN_IS_TOO_LARGE, EXPIRES_IN_IS_TOO_SMALL,
-    INVALID_PREFIX_LENGTH, NAME_REQUIRED, NO_VALUES_TO_UPDATE, REFILL_INTERVAL_AND_AMOUNT_REQUIRED,
-    SERVER_ONLY_PROPERTY,
+    api_key, api_key_with_configurations, api_key_with_options, ApiKeyConfiguration,
+    ApiKeyExpirationOptions, ApiKeyOptions, ApiKeyReference, StartingCharactersConfig,
+    API_KEY_MODEL, EXPIRES_IN_IS_TOO_LARGE, EXPIRES_IN_IS_TOO_SMALL, INVALID_PREFIX_LENGTH,
+    NAME_REQUIRED, NO_VALUES_TO_UPDATE, REFILL_INTERVAL_AND_AMOUNT_REQUIRED, SERVER_ONLY_PROPERTY,
+    UNAUTHORIZED_SESSION,
 };
 use serde_json::{json, Value};
 
-use super::helpers::{request_json, sign_up, test_router};
+use super::helpers::{request_json, server_request_json, sign_up, test_router};
 
 #[tokio::test]
 async fn create_verify_get_list_update_and_delete_user_api_key(
@@ -244,7 +245,7 @@ async fn create_with_refill_keeps_omitted_remaining_null() -> Result<(), Box<dyn
     let router = test_router(adapter, api_key())?;
     let user = sign_up(&router, "Rem", "rem-api@example.com").await?;
 
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -449,7 +450,7 @@ async fn update_refill_interval_without_amount_returns_upstream_error(
     .await?;
     let key_id = created.body["id"].as_str().ok_or("missing api key id")?;
 
-    let updated = request_json(
+    let updated = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/update",
@@ -524,7 +525,7 @@ async fn server_update_allows_explicit_null_expiration_and_permissions(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(adapter, api_key())?;
     let user = sign_up(&router, "Nil", "nil-api@example.com").await?;
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -543,7 +544,7 @@ async fn server_update_allows_explicit_null_expiration_and_permissions(
     assert_eq!(created.body["permissions"]["post"][0], "read");
     let key_id = created.body["id"].as_str().ok_or("missing api key id")?;
 
-    let updated = request_json(
+    let updated = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/update",
@@ -560,5 +561,150 @@ async fn server_update_allows_explicit_null_expiration_and_permissions(
     assert_eq!(updated.status, StatusCode::OK);
     assert!(updated.body["expiresAt"].is_null());
     assert!(updated.body["permissions"].is_null());
+    Ok(())
+}
+
+#[tokio::test]
+async fn external_create_rejects_body_user_id_without_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(adapter, api_key())?;
+    let victim = sign_up(&router, "Vic", "vic-api@example.com").await?;
+
+    // An internet client may not name an arbitrary user via the request body.
+    let forged = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"forged","userId": victim.user_id}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(forged.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(forged.body["code"], UNAUTHORIZED_SESSION);
+    Ok(())
+}
+
+#[tokio::test]
+async fn external_create_with_user_id_and_server_only_props_is_rejected(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(adapter, api_key())?;
+    let victim = sign_up(&router, "Sol", "sol-api@example.com").await?;
+
+    // The previously vulnerable shape (no cookie + body userId + server-only
+    // props) must now be rejected instead of silently provisioning a key.
+    let forged = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"forged","userId": victim.user_id, "remaining": 5}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(forged.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(forged.body["code"], UNAUTHORIZED_SESSION);
+
+    // A session request that includes server-only props is still rejected with
+    // the precise server-only error.
+    let server_only = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"forged","remaining": 5}),
+        Some(&victim.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(server_only.status, StatusCode::BAD_REQUEST);
+    assert_eq!(server_only.body["code"], SERVER_ONLY_PROPERTY);
+    Ok(())
+}
+
+#[tokio::test]
+async fn external_update_rejects_body_user_id_without_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(adapter, api_key())?;
+    let owner = sign_up(&router, "Ona", "ona-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"victim-key"}),
+        Some(&owner.cookie),
+        None,
+    )
+    .await?;
+    let key_id = created.body["id"].as_str().ok_or("missing api key id")?;
+
+    let forged = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/update",
+        json!({"keyId": key_id, "name":"hijacked", "userId": owner.user_id}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(forged.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(forged.body["code"], UNAUTHORIZED_SESSION);
+    Ok(())
+}
+
+#[tokio::test]
+async fn server_side_create_trusts_body_user_id_and_server_props(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(adapter, api_key())?;
+    let user = sign_up(&router, "Srv", "srv-api@example.com").await?;
+
+    // The trusted server-side entry point still provisions for an explicit user.
+    let created = server_request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"provisioned","userId": user.user_id, "remaining": 3}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(created.status, StatusCode::OK);
+    assert_eq!(created.body["remaining"], 3);
+    Ok(())
+}
+
+#[tokio::test]
+async fn external_org_create_rejects_body_user_id_before_permission_check(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let api_key_plugin = api_key_with_configurations(vec![ApiKeyConfiguration {
+        config_id: Some("org".to_owned()),
+        reference: ApiKeyReference::Organization,
+        ..ApiKeyConfiguration::default()
+    }])?;
+    let router = test_router(adapter, api_key_plugin)?;
+    let victim = sign_up(&router, "Org", "org-api@example.com").await?;
+
+    // An internet client must not be able to name a member id to act as them;
+    // the request is rejected before any organization permission lookup runs.
+    let forged = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({
+            "configId":"org",
+            "organizationId":"org_123",
+            "userId": victim.user_id,
+            "name":"forged-org-key"
+        }),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(forged.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(forged.body["code"], UNAUTHORIZED_SESSION);
     Ok(())
 }

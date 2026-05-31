@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
 use http::{Method, StatusCode};
-use openauth_core::db::{DbAdapter, DbValue, Delete, MemoryAdapter, Where};
+use openauth_core::db::{DbAdapter, DbValue, Delete, MemoryAdapter, Update, Where};
 use openauth_plugins::api_key::{
     api_key_with_options, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions,
-    ApiKeyStorageMode, API_KEY_MODEL,
+    ApiKeyStorageMode, API_KEY_MODEL, INVALID_API_KEY,
 };
 use serde_json::json;
+use time::{Duration, OffsetDateTime};
 
 use super::helpers::{
-    request_json, sign_up, test_router, test_router_with_adapter, DelayedUpdateAdapter,
-    TestSecondaryStorage,
+    request_json, server_request_json, sign_up, test_router, test_router_with_adapter,
+    DelayedUpdateAdapter, TestSecondaryStorage,
 };
 
 #[tokio::test]
@@ -284,7 +285,7 @@ async fn fallback_secondary_storage_keeps_usage_updates_consistent_under_concurr
         })],
     )?;
     let user = sign_up(&router, "Sec Race", "sec-race-api@example.com").await?;
-    let created = request_json(
+    let created = server_request_json(
         &router,
         Method::POST,
         "/api/auth/api-key/create",
@@ -330,6 +331,271 @@ async fn fallback_secondary_storage_keeps_usage_updates_consistent_under_concurr
     assert_eq!(
         usage_exceeded, 1,
         "second request should observe exhausted usage"
+    );
+    Ok(())
+}
+
+fn revalidating_router(
+    adapter: Arc<MemoryAdapter>,
+    storage: Arc<TestSecondaryStorage>,
+) -> Result<openauth_core::api::AuthRouter, Box<dyn std::error::Error>> {
+    test_router(
+        adapter,
+        api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                storage: ApiKeyStorageMode::SecondaryStorage,
+                fallback_to_database: true,
+                revalidate_secondary_against_database: true,
+                custom_storage: Some(storage),
+                ..ApiKeyConfiguration::default()
+            },
+        }),
+    )
+}
+
+#[tokio::test]
+async fn revalidation_list_reflects_out_of_band_database_delete(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = revalidating_router(adapter.clone(), storage)?;
+    let user = sign_up(&router, "Rev", "rev-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"cached"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(created.status, StatusCode::OK);
+    let key_id = created.body["id"].as_str().ok_or("missing api key id")?;
+
+    let populated = request_json(
+        &router,
+        Method::GET,
+        "/api/auth/api-key/list",
+        serde_json::Value::Null,
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(populated.body["total"], 1);
+
+    adapter
+        .delete(
+            Delete::new(API_KEY_MODEL)
+                .where_clause(Where::new("id", DbValue::String(key_id.to_owned()))),
+        )
+        .await?;
+
+    // With revalidation enabled the database is the source of truth, so the
+    // out-of-band delete is reflected immediately instead of being masked by
+    // the stale cache.
+    let listed = request_json(
+        &router,
+        Method::GET,
+        "/api/auth/api-key/list",
+        serde_json::Value::Null,
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["total"], 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn revalidation_revoked_database_key_fails_verify_and_purges_cache(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = revalidating_router(adapter.clone(), storage.clone())?;
+    let user = sign_up(&router, "Rev Verify", "rev-verify-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"revocable"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    let key = created.body["key"].as_str().ok_or("missing api key")?;
+    let key_id = created.body["id"].as_str().ok_or("missing api key id")?;
+
+    let first = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/verify",
+        json!({"key": key}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(first.body["valid"], true);
+
+    adapter
+        .delete(
+            Delete::new(API_KEY_MODEL)
+                .where_clause(Where::new("id", DbValue::String(key_id.to_owned()))),
+        )
+        .await?;
+
+    let second = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/verify",
+        json!({"key": key}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(second.body["valid"], false);
+    assert_eq!(second.body["error"]["code"], INVALID_API_KEY);
+    assert!(
+        storage
+            .deleted_keys()
+            .iter()
+            .any(|deleted| deleted == &format!("api-key:by-id:{key_id}")),
+        "the stale cache entry should be purged when the database row is gone"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn revalidation_refreshes_cache_when_database_record_is_newer(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = revalidating_router(adapter.clone(), storage)?;
+    let user = sign_up(&router, "Rev Fresh", "rev-fresh-api@example.com").await?;
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"original"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    let key = created.body["key"].as_str().ok_or("missing api key")?;
+    let key_id = created.body["id"].as_str().ok_or("missing api key id")?;
+
+    // Simulate an out-of-band database edit with a newer updated_at.
+    adapter
+        .update(
+            Update::new(API_KEY_MODEL)
+                .where_clause(Where::new("id", DbValue::String(key_id.to_owned())))
+                .data("name", DbValue::String("renamed".to_owned()))
+                .data(
+                    "updated_at",
+                    DbValue::Timestamp(OffsetDateTime::now_utc() + Duration::days(1)),
+                ),
+        )
+        .await?;
+
+    let verified = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/verify",
+        json!({"key": key}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(verified.body["valid"], true);
+    assert_eq!(
+        verified.body["key"]["name"], "renamed",
+        "the newer database record should supersede the cached copy"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_expired_purges_secondary_entries() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = test_router(
+        adapter.clone(),
+        api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                storage: ApiKeyStorageMode::SecondaryStorage,
+                fallback_to_database: true,
+                defer_updates: true,
+                custom_storage: Some(storage.clone()),
+                ..ApiKeyConfiguration::default()
+            },
+        }),
+    )?;
+    let user = sign_up(&router, "Exp", "exp-api@example.com").await?;
+    let expiring = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name":"expiring"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    let expiring_key = expiring.body["key"].as_str().ok_or("missing api key")?;
+    let expiring_id = expiring.body["id"].as_str().ok_or("missing api key id")?;
+    let expiring_hash = default_key_hasher(expiring_key);
+
+    // Drive the key's expiry into the past directly in the database, leaving the
+    // secondary cache entry behind (the scenario delete_expired must clean up).
+    adapter
+        .update(
+            Update::new(API_KEY_MODEL)
+                .where_clause(Where::new("id", DbValue::String(expiring_id.to_owned())))
+                .data(
+                    "expires_at",
+                    DbValue::Timestamp(OffsetDateTime::now_utc() - Duration::days(1)),
+                ),
+        )
+        .await?;
+
+    // The dedicated endpoint bypasses the cleanup throttle and runs delete_expired.
+    let cleaned = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/delete-all-expired-api-keys",
+        serde_json::Value::Null,
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(cleaned.status, StatusCode::OK);
+    assert_eq!(cleaned.body["success"], true);
+
+    let remaining_ids = adapter
+        .records(API_KEY_MODEL)
+        .await
+        .into_iter()
+        .filter_map(|record| match record.get("id") {
+            Some(DbValue::String(id)) => Some(id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !remaining_ids.iter().any(|id| id == expiring_id),
+        "delete_expired should remove the expired row from the database; remaining={remaining_ids:?}"
+    );
+
+    let deleted = storage.deleted_keys();
+    assert!(
+        deleted
+            .iter()
+            .any(|key| key == &format!("api-key:by-id:{expiring_id}")),
+        "delete_expired should evict the expired key's by-id cache entry"
+    );
+    assert!(
+        deleted
+            .iter()
+            .any(|key| key == &format!("api-key:{expiring_hash}")),
+        "delete_expired should evict the expired key's hash cache entry"
     );
     Ok(())
 }
