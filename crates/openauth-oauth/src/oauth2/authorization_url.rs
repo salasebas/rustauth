@@ -4,6 +4,7 @@ use serde_json::json;
 use url::Url;
 
 use super::error::OAuthError;
+use super::request::is_protected_oauth_param;
 use super::tokens::{get_primary_client_id, ProviderOptions};
 use super::utils::generate_code_challenge;
 
@@ -108,6 +109,10 @@ impl AuthorizationUrlRequest {
         self
     }
 
+    /// Adds a non-sensitive extension query parameter. Security-critical keys
+    /// (`state`, `redirect_uri`, `response_type`, `client_id`, and PKCE
+    /// challenge fields) are ignored so they cannot override validated flow
+    /// invariants.
     pub fn additional_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.additional_params.insert(key.into(), value.into());
         self
@@ -173,6 +178,9 @@ pub fn create_authorization_url(input: AuthorizationUrlRequest) -> Result<Url, O
         );
     }
     for (key, value) in input.additional_params {
+        if is_protected_oauth_param(&key) {
+            continue;
+        }
         set_query_pair(&mut url, &key, &value);
     }
     Ok(url)

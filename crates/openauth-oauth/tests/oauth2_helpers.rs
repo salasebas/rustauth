@@ -350,6 +350,117 @@ fn authorization_code_additional_params_do_not_overwrite_standard_fields() {
 }
 
 #[test]
+fn create_authorization_url_additional_params_cannot_override_security_critical_params() {
+    let url = create_authorization_url(AuthorizationUrlRequest {
+        id: "generic".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            ..ProviderOptions::default()
+        },
+        authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        state: "real-state".to_owned(),
+        code_verifier: Some("verifier".to_owned()),
+        scopes: vec!["openid".to_owned()],
+        additional_params: BTreeMap::from([
+            ("state".to_owned(), "attacker-state".to_owned()),
+            (
+                "redirect_uri".to_owned(),
+                "https://attacker.example.com/callback".to_owned(),
+            ),
+            ("response_type".to_owned(), "token".to_owned()),
+            ("client_id".to_owned(), "attacker-client".to_owned()),
+            ("code_challenge".to_owned(), "attacker-challenge".to_owned()),
+            ("code_challenge_method".to_owned(), "plain".to_owned()),
+            ("resource".to_owned(), "calendar".to_owned()),
+        ]),
+        ..AuthorizationUrlRequest::default()
+    })
+    .expect("authorization url should build");
+
+    let values = |key: &str| {
+        url.query_pairs()
+            .filter(|(param, _)| param == key)
+            .map(|(_, value)| value.into_owned())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(values("state"), vec!["real-state"]);
+    assert_eq!(
+        values("redirect_uri"),
+        vec!["https://app.example.com/callback"]
+    );
+    assert_eq!(values("response_type"), vec!["code"]);
+    assert_eq!(values("client_id"), vec!["client-id"]);
+    assert_eq!(values("code_challenge_method"), vec!["S256"]);
+    assert_eq!(
+        values("code_challenge"),
+        vec!["iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ"]
+    );
+    // Non-sensitive extension keys are still applied.
+    assert_eq!(values("resource"), vec!["calendar"]);
+}
+
+#[test]
+fn authorization_code_override_params_cannot_replace_security_critical_fields() {
+    let request = create_authorization_code_request(AuthorizationCodeRequest {
+        code: "real-code".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            client_secret: Some("client-secret".to_owned()),
+            client_key: Some("client-key".to_owned()),
+            ..ProviderOptions::default()
+        },
+        code_verifier: Some("real-verifier".to_owned()),
+        // `override_params` is the escape hatch; protected keys must be ignored,
+        // while `additional_params` must not inject protected keys either.
+        additional_params: BTreeMap::from([(
+            "client_assertion".to_owned(),
+            "injected-assertion".to_owned(),
+        )]),
+        override_params: BTreeMap::from([
+            ("grant_type".to_owned(), "client_credentials".to_owned()),
+            ("code".to_owned(), "attacker-code".to_owned()),
+            (
+                "redirect_uri".to_owned(),
+                "https://attacker.example.com/callback".to_owned(),
+            ),
+            ("code_verifier".to_owned(), "attacker-verifier".to_owned()),
+            ("client_id".to_owned(), "attacker-client".to_owned()),
+            ("client_secret".to_owned(), "attacker-secret".to_owned()),
+            ("client_key".to_owned(), "attacker-key".to_owned()),
+            (
+                "client_assertion".to_owned(),
+                "attacker-assertion".to_owned(),
+            ),
+            (
+                "client_assertion_type".to_owned(),
+                "urn:attacker".to_owned(),
+            ),
+            ("audience".to_owned(), "api".to_owned()),
+        ]),
+        ..AuthorizationCodeRequest::default()
+    })
+    .expect("authorization code request should build");
+
+    assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
+    assert_eq!(request.form_value("code"), Some("real-code"));
+    assert_eq!(
+        request.form_value("redirect_uri"),
+        Some("https://app.example.com/callback")
+    );
+    assert_eq!(request.form_value("code_verifier"), Some("real-verifier"));
+    assert_eq!(request.form_value("client_id"), Some("client-id"));
+    assert_eq!(request.form_value("client_secret"), Some("client-secret"));
+    assert_eq!(request.form_value("client_key"), Some("client-key"));
+    assert_eq!(request.form_value("client_assertion"), None);
+    assert_eq!(request.form_value("client_assertion_type"), None);
+    // Non-sensitive override still applies.
+    assert_eq!(request.form_value("audience"), Some("api"));
+}
+
+#[test]
 fn client_credentials_requires_client_id_and_secret() {
     let missing_client_id =
         create_client_credentials_token_request(ClientCredentialsTokenRequest {

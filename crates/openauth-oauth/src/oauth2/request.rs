@@ -8,6 +8,34 @@ use super::error::OAuthError;
 use super::http::{default_http_client, OAuthHttpClient};
 use super::tokens::{get_primary_client_id, ProviderOptions};
 
+/// OAuth request parameters that carry validated security invariants of a flow
+/// (CSRF `state`, PKCE binding, redirect URI, grant type, and client
+/// credential/authentication fields). Generic `additional_params` /
+/// `override_params` maps must never set or replace these, so a provider
+/// extension or caller-controlled value cannot blank, downgrade, or hijack an
+/// already-validated request.
+pub(crate) const PROTECTED_OAUTH_PARAMS: &[&str] = &[
+    "state",
+    "response_type",
+    "redirect_uri",
+    "code",
+    "code_verifier",
+    "code_challenge",
+    "code_challenge_method",
+    "grant_type",
+    "client_id",
+    "client_secret",
+    "client_key",
+    "client_assertion",
+    "client_assertion_type",
+];
+
+/// Returns `true` when `key` is a security-critical OAuth parameter that the
+/// generic extension maps are not allowed to set or override.
+pub(crate) fn is_protected_oauth_param(key: &str) -> bool {
+    PROTECTED_OAUTH_PARAMS.contains(&key)
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ClientAuthentication {
     #[default]
