@@ -149,6 +149,60 @@ fn real_webauthn_backend_rejects_invalid_authentication_payload() {
     assert!(result.is_err());
 }
 
+/// Authentication must advertise the same user-verification policy it later
+/// enforces. The ceremony is now generated with `preferred`, matching the
+/// advertised option for both the discoverable and credential flows (OPE-48).
+#[test]
+fn real_webauthn_backend_authentication_advertised_policy_matches_verified_state(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let backend = RealPasskeyWebAuthnBackend;
+    let config = WebAuthnConfig {
+        rp_id: "localhost".to_owned(),
+        rp_name: "OpenAuth".to_owned(),
+        origins: vec!["http://localhost:3000".to_owned()],
+    };
+
+    let discoverable = backend.start_authentication(config.clone(), Vec::new(), None)?;
+    assert_eq!(
+        discoverable.options["userVerification"].as_str(),
+        Some("preferred")
+    );
+    assert_eq!(
+        discoverable.state["Discoverable"]["policy"].as_str(),
+        Some("preferred")
+    );
+
+    let credential = json!({
+        "cred": {
+            "cred_id": "AQID",
+            "cred": { "type_": "ES256", "key": { "EC_EC2": {
+                "curve": "SECP256R1",
+                "x": vec![1u8; 32],
+                "y": vec![2u8; 32]
+            } } },
+            "counter": 0,
+            "transports": null,
+            "user_verified": false,
+            "backup_eligible": false,
+            "backup_state": false,
+            "registration_policy": "preferred",
+            "extensions": { "cred_protect": "NotRequested", "hmac_create_secret": "NotRequested" },
+            "attestation": { "data": "None", "metadata": "None" },
+            "attestation_format": "none"
+        }
+    });
+    let credential_flow = backend.start_authentication(config, vec![credential], None)?;
+    assert_eq!(
+        credential_flow.options["userVerification"].as_str(),
+        Some("preferred")
+    );
+    assert_eq!(
+        credential_flow.state["Passkey"]["policy"].as_str(),
+        Some("preferred")
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn verify_authentication_creates_session_and_returns_user(
 ) -> Result<(), Box<dyn std::error::Error>> {

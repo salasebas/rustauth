@@ -3,16 +3,23 @@ use openauth_core::error::OpenAuthError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
     AttestationMetadata, COSEAlgorithm, COSEKey, COSEKeyType, CreationChallengeResponse,
-    Credential, DiscoverableAuthentication, DiscoverableKey, ECDSACurve, EDDSACurve,
-    PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
-    RequestChallengeResponse, Webauthn, WebauthnBuilder,
+    Credential, ECDSACurve, EDDSACurve, Passkey, PublicKeyCredential, RegisterPublicKeyCredential,
+    RequestChallengeResponse,
 };
+use webauthn_rs_core::proto::{
+    AttestationConveyancePreference, AuthenticationState, RegistrationState,
+    RequestAuthenticationExtensions, RequestRegistrationExtensions, UserVerificationPolicy,
+};
+use webauthn_rs_core::WebauthnCore;
 
-use crate::options::{PasskeyRegistrationUser, RegistrationWebAuthnOptions};
+use crate::options::{
+    PasskeyRegistrationUser, RegistrationWebAuthnOptions, UserVerificationRequirement,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebAuthnConfig {
@@ -104,7 +111,7 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
         exclude_credentials: Vec<Value>,
         request_options: RegistrationWebAuthnOptions,
     ) -> Result<PasskeyRegistrationStart, OpenAuthError> {
-        let webauthn = webauthn(&config)?;
+        let core = core(&config)?;
         let exclude = exclude_credentials
             .into_iter()
             .map(|value| {
@@ -114,8 +121,22 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
             .map_err(|error| OpenAuthError::Api(error.to_string()))?;
         let user_id = Uuid::new_v4();
         let display_name = user.display_name.as_deref().unwrap_or(&user.name);
-        let (options, state) = webauthn
-            .start_passkey_registration(user_id, &user.name, display_name, Some(exclude))
+        let policy =
+            user_verification_policy(request_options.authenticator_selection.user_verification);
+        let builder = core
+            .new_challenge_register_builder(user_id.as_bytes(), &user.name, display_name)
+            .map_err(|error| OpenAuthError::Api(error.to_string()))?
+            .attestation(AttestationConveyancePreference::None)
+            .credential_algorithms(COSEAlgorithm::secure_algs())
+            .require_resident_key(false)
+            .authenticator_attachment(None)
+            .user_verification_policy(policy)
+            .reject_synchronised_authenticators(false)
+            .exclude_credentials(Some(exclude))
+            .hints(None)
+            .extensions(Some(RequestRegistrationExtensions::default()));
+        let (options, state) = core
+            .generate_challenge_register(builder)
             .map_err(|error| OpenAuthError::Api(error.to_string()))?;
         let mut options = option_value(options)?;
         apply_registration_request_options(&mut options, &request_options);
@@ -131,14 +152,14 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
         response: Value,
         state: Value,
     ) -> Result<VerifiedPasskeyCredential, OpenAuthError> {
-        let webauthn = webauthn(&config)?;
+        let core = core(&config)?;
         let response = serde_json::from_value::<RegisterPublicKeyCredential>(response)
             .map_err(|error| OpenAuthError::Api(error.to_string()))?;
-        let state = serde_json::from_value::<PasskeyRegistration>(state).map_err(json_error)?;
-        let passkey = webauthn
-            .finish_passkey_registration(&response, &state)
+        let state = serde_json::from_value::<RegistrationState>(state).map_err(json_error)?;
+        let credential = core
+            .register_credential(&response, &state, None)
             .map_err(|error| OpenAuthError::Api(error.to_string()))?;
-        credential_output(passkey)
+        credential_output(Passkey::from(credential))
     }
 
     fn start_authentication(
@@ -147,10 +168,22 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
         credentials: Vec<Value>,
         extensions: Option<Value>,
     ) -> Result<PasskeyAuthenticationStart, OpenAuthError> {
-        let webauthn = webauthn(&config)?;
+        let core = core(&config)?;
         if credentials.is_empty() {
-            let (options, state) = webauthn
-                .start_discoverable_authentication()
+            let builder = core
+                .new_challenge_authenticate_builder(
+                    Vec::new(),
+                    Some(UserVerificationPolicy::Preferred),
+                )
+                .map_err(|error| OpenAuthError::Api(error.to_string()))?
+                .extensions(Some(RequestAuthenticationExtensions {
+                    appid: None,
+                    uvm: Some(true),
+                    hmac_get_secret: None,
+                }))
+                .allow_backup_eligible_upgrade(false);
+            let (options, state) = core
+                .generate_challenge_authenticate(builder)
                 .map_err(|error| OpenAuthError::Api(error.to_string()))?;
             let mut options = auth_option_value(options)?;
             apply_authentication_request_options(&mut options, extensions);
@@ -160,12 +193,16 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
                     .map_err(json_error)?,
             });
         }
-        let passkeys = credentials
+        let creds = credentials
             .into_iter()
-            .map(credential_value_to_passkey)
+            .map(|value| credential_value_to_passkey(value).map(Credential::from))
             .collect::<Result<Vec<_>, _>>()?;
-        let (options, state) = webauthn
-            .start_passkey_authentication(&passkeys)
+        let builder = core
+            .new_challenge_authenticate_builder(creds, Some(UserVerificationPolicy::Preferred))
+            .map_err(|error| OpenAuthError::Api(error.to_string()))?
+            .allow_backup_eligible_upgrade(true);
+        let (options, state) = core
+            .generate_challenge_authenticate(builder)
             .map_err(|error| OpenAuthError::Api(error.to_string()))?;
         let mut options = auth_option_value(options)?;
         apply_authentication_request_options(&mut options, extensions);
@@ -183,25 +220,24 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
         state: Value,
         credential: Option<Value>,
     ) -> Result<VerifiedAuthentication, OpenAuthError> {
-        let webauthn = webauthn(&config)?;
+        let core = core(&config)?;
         let response = serde_json::from_value::<PublicKeyCredential>(response)
             .map_err(|error| OpenAuthError::Api(error.to_string()))?;
         let state =
             serde_json::from_value::<StoredAuthenticationState>(state).map_err(json_error)?;
         let credential = credential.map(credential_value_to_passkey).transpose()?;
         let result = match state {
-            StoredAuthenticationState::Passkey(state) => webauthn
-                .finish_passkey_authentication(&response, &state)
+            StoredAuthenticationState::Passkey(state) => core
+                .authenticate_credential(&response, &state)
                 .map_err(|error| OpenAuthError::Api(error.to_string()))?,
-            StoredAuthenticationState::Discoverable(state) => {
-                let Some(credential) = credential.as_ref() else {
+            StoredAuthenticationState::Discoverable(mut state) => {
+                let Some(passkey) = credential.as_ref() else {
                     return Err(OpenAuthError::Api(
                         "passkey credential is required".to_owned(),
                     ));
                 };
-                let discoverable = DiscoverableKey::from(credential);
-                webauthn
-                    .finish_discoverable_authentication(&response, state, &[discoverable])
+                state.set_allowed_credentials(vec![Credential::from(passkey.clone())]);
+                core.authenticate_credential(&response, &state)
                     .map_err(|error| OpenAuthError::Api(error.to_string()))?
             }
         };
@@ -221,29 +257,48 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum StoredAuthenticationState {
-    Passkey(PasskeyAuthentication),
-    Discoverable(DiscoverableAuthentication),
+    Passkey(AuthenticationState),
+    Discoverable(AuthenticationState),
 }
 
-fn webauthn(config: &WebAuthnConfig) -> Result<Webauthn, OpenAuthError> {
-    let origins = config
-        .origins
-        .iter()
-        .map(|origin| Url::parse(origin).map_err(|error| OpenAuthError::Api(error.to_string())))
-        .collect::<Result<Vec<_>, _>>()?;
-    let (primary, rest) = origins
-        .split_first()
-        .ok_or_else(|| OpenAuthError::InvalidConfig("passkey origin is required".to_owned()))?;
-    let mut builder = WebauthnBuilder::new(&config.rp_id, primary)
-        .map_err(|error| OpenAuthError::Api(error.to_string()))?
-        .rp_name(&config.rp_name)
-        .allow_any_port(origins_allow_any_port(&origins));
-    for origin in rest {
-        builder = builder.append_allowed_origin(origin);
+fn core(config: &WebAuthnConfig) -> Result<WebauthnCore, OpenAuthError> {
+    if config.origins.is_empty() {
+        return Err(OpenAuthError::InvalidConfig(
+            "passkey origin is required".to_owned(),
+        ));
     }
-    builder
-        .build()
-        .map_err(|error| OpenAuthError::Api(error.to_string()))
+    let mut origins = Vec::with_capacity(config.origins.len());
+    for origin in &config.origins {
+        let url = Url::parse(origin).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+        // Preserve the `WebauthnBuilder::new` security check: rp_id must be an
+        // effective domain of every configured origin.
+        let valid = url.domain().is_some_and(|domain| {
+            domain == config.rp_id || domain.ends_with(&format!(".{}", config.rp_id))
+        });
+        if !valid {
+            return Err(OpenAuthError::Api(format!(
+                "passkey rp_id `{}` is not an effective domain of origin `{origin}`",
+                config.rp_id
+            )));
+        }
+        origins.push(url);
+    }
+    Ok(WebauthnCore::new_unsafe_experts_only(
+        &config.rp_name,
+        &config.rp_id,
+        origins.clone(),
+        Duration::from_secs(300),
+        Some(false),
+        Some(origins_allow_any_port(&origins)),
+    ))
+}
+
+fn user_verification_policy(value: UserVerificationRequirement) -> UserVerificationPolicy {
+    match value {
+        UserVerificationRequirement::Discouraged => UserVerificationPolicy::Discouraged_DO_NOT_USE,
+        UserVerificationRequirement::Preferred => UserVerificationPolicy::Preferred,
+        UserVerificationRequirement::Required => UserVerificationPolicy::Required,
+    }
 }
 
 /// `WebauthnBuilder::allow_any_port` skips the port check for *every* configured
@@ -290,21 +345,16 @@ fn apply_registration_request_options(
 }
 
 fn apply_authentication_request_options(options: &mut Value, extensions: Option<Value>) {
-    options["userVerification"] = Value::String("preferred".to_owned());
     if let Some(extensions) = extensions {
         options["extensions"] = extensions;
     }
 }
 
-fn credential_value_to_passkey(
-    value: Value,
-) -> Result<webauthn_rs::prelude::Passkey, OpenAuthError> {
-    serde_json::from_value::<webauthn_rs::prelude::Passkey>(value).map_err(json_error)
+fn credential_value_to_passkey(value: Value) -> Result<Passkey, OpenAuthError> {
+    serde_json::from_value::<Passkey>(value).map_err(json_error)
 }
 
-fn credential_output(
-    passkey: webauthn_rs::prelude::Passkey,
-) -> Result<VerifiedPasskeyCredential, OpenAuthError> {
+fn credential_output(passkey: Passkey) -> Result<VerifiedPasskeyCredential, OpenAuthError> {
     let credential = Credential::from(passkey.clone());
     let aaguid = aaguid_from_attestation_metadata(&credential.attestation.metadata);
     let credential_id = serde_json::to_value(&credential.cred_id)
@@ -514,8 +564,8 @@ mod tests {
             rp_name: "Example".to_owned(),
             origins: vec!["http://localhost:3000".to_owned()],
         };
-        webauthn(&production)?;
-        webauthn(&loopback)?;
+        core(&production)?;
+        core(&loopback)?;
         Ok(())
     }
 

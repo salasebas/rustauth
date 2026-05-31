@@ -26,6 +26,7 @@ time.workspace = true
 url.workspace = true
 uuid.workspace = true
 webauthn-rs.workspace = true
+webauthn-rs-core.workspace = true
 
 [dev-dependencies]
 openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
