@@ -9,6 +9,10 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed the async router consuming route rate limits after plugin middlewares,
+  which let CAPTCHA rejections (missing/invalid responses or provider errors)
+  bypass route throttling and force repeated outbound provider calls; the route
+  rate limit is now consumed before plugin middlewares run.
 - Fixed session cookie cache authentication so cached session data is only
   returned after the backing session token still exists and is unexpired.
 - Fixed Axum request base URL inference so request-derived `Host` values are

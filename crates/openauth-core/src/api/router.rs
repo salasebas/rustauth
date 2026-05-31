@@ -225,6 +225,12 @@ impl AuthRouter {
         if async_endpoint.is_none() && sync_endpoint.is_none() {
             return api_error(StatusCode::NOT_FOUND, ApiErrorCode::NotFound);
         }
+        // Consume the route rate limit before plugin middlewares so that security
+        // middlewares (such as CAPTCHA) returning a rejection cannot bypass route
+        // throttling or force repeated outbound provider calls.
+        if let Some(rejection) = consume_rate_limit(&self.context, &request).await? {
+            return rate_limit_response(rejection);
+        }
         if let Some(response) = run_matching_middlewares(&self.context, &request, &path)? {
             return Ok(response);
         }
@@ -232,9 +238,6 @@ impl AuthRouter {
             run_matching_async_middlewares(&self.context, &request, &path).await?
         {
             return Ok(response);
-        }
-        if let Some(rejection) = consume_rate_limit(&self.context, &request).await? {
-            return rate_limit_response(rejection);
         }
         if let Some((endpoint, params)) = async_endpoint {
             if endpoint.options.server_only {

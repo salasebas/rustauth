@@ -7,7 +7,10 @@ use http::{Method, Request, StatusCode};
 use openauth_core::api::{create_auth_endpoint, response, AuthEndpointOptions, AuthRouter};
 use openauth_core::context::create_auth_context;
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, IpAddressOptions, OpenAuthOptions};
+use openauth_core::options::{
+    AdvancedOptions, IpAddressOptions, OpenAuthOptions, RateLimitOptions, RateLimitPathRule,
+    RateLimitRule,
+};
 use openauth_plugins::captcha::{captcha, CaptchaConfigError, CaptchaOptions, CaptchaProvider};
 
 #[test]
@@ -76,6 +79,21 @@ async fn captcha_returns_400_when_response_header_is_missing(
     let response = router.handle_async(request("/sign-in/email", &[])?).await?;
 
     assert_error(response.status(), response.body(), "MISSING_RESPONSE");
+    Ok(())
+}
+
+#[tokio::test]
+async fn captcha_rejection_consumes_route_rate_limit() -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret"))?;
+    let router = router_with_rate_limit(plugin, "/sign-in/email")?;
+
+    // First rejected CAPTCHA attempt must still consume the route's rate-limit bucket.
+    let first = router.handle_async(request("/sign-in/email", &[])?).await?;
+    assert_error(first.status(), first.body(), "MISSING_RESPONSE");
+
+    // A second attempt from the same IP/path is throttled instead of bypassing limits.
+    let second = router.handle_async(request("/sign-in/email", &[])?).await?;
+    assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
     Ok(())
 }
 
@@ -316,6 +334,38 @@ fn router_with_advanced(
             disable_csrf_check: true,
             disable_origin_check: true,
             ..advanced
+        },
+        ..OpenAuthOptions::default()
+    })?;
+    let endpoint = create_auth_endpoint(
+        path,
+        Method::POST,
+        AuthEndpointOptions::new(),
+        |_context, _request| Box::pin(async { response(StatusCode::OK, b"OK".to_vec()) }),
+    );
+
+    AuthRouter::with_async_endpoints(context, Vec::new(), vec![endpoint])
+}
+
+fn router_with_rate_limit(
+    plugin: openauth_core::plugin::AuthPlugin,
+    path: &str,
+) -> Result<AuthRouter, OpenAuthError> {
+    let context = create_auth_context(OpenAuthOptions {
+        plugins: vec![plugin],
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        rate_limit: RateLimitOptions {
+            enabled: Some(true),
+            custom_rules: vec![RateLimitPathRule {
+                path: path.to_owned(),
+                rule: Some(RateLimitRule { window: 60, max: 1 }),
+            }],
+            ..RateLimitOptions::default()
+        },
+        advanced: AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
         },
         ..OpenAuthOptions::default()
     })?;
