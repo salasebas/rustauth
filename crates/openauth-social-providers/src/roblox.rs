@@ -187,7 +187,7 @@ impl RobloxProvider {
             return Ok(None);
         };
 
-        let response = match reqwest::Client::new()
+        let response = match crate::http::shared_client()
             .get(ROBLOX_USER_INFO_ENDPOINT)
             .header("authorization", format!("Bearer {access_token}"))
             .send()

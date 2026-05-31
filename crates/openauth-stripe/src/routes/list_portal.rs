@@ -206,11 +206,14 @@ pub fn subscription_success(options: StripeOptions) -> openauth_core::api::Async
                     let _ = current_session;
                     return redirect_response(&callback);
                 };
+                // List without an active-only filter so a `trialing` subscription
+                // created during checkout can still be reconciled when the webhook
+                // is delayed or missed; the find below selects active or trialing.
                 let Ok(stripe_subscriptions) = options
                     .stripe_client
                     .list_subscriptions(json!({
                         "customer": customer_id,
-                        "status": "active"
+                        "status": "all"
                     }))
                     .await
                 else {

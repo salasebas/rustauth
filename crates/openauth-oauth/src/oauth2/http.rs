@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::error::{oauth_error_description, OAuthError};
 use super::request::OAuthFormRequest;
-use super::ssrf::ssrf_guarded_client_builder;
+use super::ssrf::{ssrf_guarded_client_builder, url_host_is_blocked_ip};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_USER_AGENT: &str = concat!("openauth-oauth/", env!("CARGO_PKG_VERSION"));
@@ -26,6 +26,10 @@ const SENSITIVE_OAUTH_FIELDS: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct OAuthHttpClient {
     client: Client,
+    /// When `false`, requests whose URL host is a literal private/internal IP
+    /// are rejected at the request boundary, closing the SSRF gap that the
+    /// custom DNS resolver cannot see (reqwest does not resolve literal IPs).
+    allow_private_ips: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,8 +54,18 @@ impl Default for OAuthHttpClientConfig {
 }
 
 impl OAuthHttpClient {
+    /// Wraps a caller-supplied `reqwest::Client`.
+    ///
+    /// Injected clients are treated as explicitly permissive (no
+    /// request-boundary IP guard) because the caller owns the client's SSRF
+    /// policy; this keeps custom clients usable for tests and intentionally
+    /// internal deployments. Use [`OAuthHttpClient::from_config`] to obtain a
+    /// guarded client.
     pub fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            allow_private_ips: true,
+        }
     }
 
     /// Returns the underlying `reqwest::Client`.
@@ -82,10 +96,27 @@ impl OAuthHttpClient {
         if let Some(user_agent) = config.user_agent {
             builder = builder.user_agent(user_agent);
         }
-        builder.build().map(Self::new).map_err(Into::into)
+        builder
+            .build()
+            .map(|client| Self {
+                client,
+                allow_private_ips: config.allow_private_ips,
+            })
+            .map_err(Into::into)
+    }
+
+    /// Rejects request URLs whose host is a literal blocked IP unless this
+    /// client is explicitly permissive. `reqwest` connects to literal-IP URLs
+    /// without consulting the SSRF DNS guard, so this closes that gap.
+    fn ensure_request_url_allowed(&self, url: &str) -> Result<(), OAuthError> {
+        if !self.allow_private_ips && url_host_is_blocked_ip(url) {
+            return Err(OAuthError::BlockedRequestUrl);
+        }
+        Ok(())
     }
 
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>, OAuthError> {
+        self.ensure_request_url_allowed(url)?;
         let response = self
             .client
             .get(url)
@@ -100,6 +131,7 @@ impl OAuthHttpClient {
         token_endpoint: &str,
         request: OAuthFormRequest,
     ) -> Result<Value, OAuthError> {
+        self.ensure_request_url_allowed(token_endpoint)?;
         let mut builder = self.client.post(token_endpoint);
         for (key, value) in &request.headers {
             builder = builder.header(key, value);

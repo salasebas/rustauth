@@ -156,7 +156,7 @@ impl KickProvider {
         let Some(access_token) = tokens.access_token.as_deref() else {
             return Ok(None);
         };
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .get(KICK_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()

@@ -4,11 +4,13 @@ use std::collections::BTreeMap;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use josekit::jwk::JwkSet;
 use openauth_oauth::oauth2::{
     create_authorization_url, get_primary_client_id, refresh_access_token,
-    validate_authorization_code, validate_token, AuthorizationCodeRequest, AuthorizationUrlRequest,
-    ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthProviderContract,
-    ProviderOptions, RefreshAccessTokenRequest, TokenValidationOptions,
+    validate_authorization_code, validate_token, verify_jws_with_jwks, AuthorizationCodeRequest,
+    AuthorizationUrlRequest, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo,
+    OAuthError, OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest,
+    TokenValidationOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -160,33 +162,51 @@ impl FacebookProvider {
         .await
     }
 
+    /// Verifies a Facebook limited-login ID token against the JWKS endpoint.
+    ///
+    /// Opaque (non-JWT) tokens such as Graph API access tokens are rejected:
+    /// they carry no signature, audience, issuer, or nonce that can be
+    /// confirmed locally, so treating them as verified ID tokens would be
+    /// misleading. Access tokens are still usable for profile lookups through
+    /// the userinfo flow, not through this verifier.
     pub async fn verify_id_token(&self, token: &str, nonce: Option<&str>) -> bool {
-        if self.options.oauth.disable_id_token_sign_in {
+        if self.options.oauth.disable_id_token_sign_in || !is_jwt(token) {
             return false;
         }
 
-        if !is_jwt(token) {
-            return true;
-        }
-
-        let result = validate_token(
+        match validate_token(
             token,
             &self.options.limited_login_jwks_endpoint,
-            TokenValidationOptions {
-                audience: client_id_audiences(&self.options.oauth.client_id),
-                issuer: vec![FACEBOOK_LIMITED_LOGIN_ISSUER.to_owned()],
-                ..TokenValidationOptions::default().require_standard_claims()
-            },
+            self.id_token_validation_options(),
         )
-        .await;
+        .await
+        {
+            Ok(result) => nonce_matches(&result.payload, nonce),
+            Err(_) => false,
+        }
+    }
 
-        let Ok(result) = result else {
+    pub fn verify_id_token_with_jwk_set(
+        &self,
+        token: &str,
+        nonce: Option<&str>,
+        jwk_set: &JwkSet,
+    ) -> bool {
+        if self.options.oauth.disable_id_token_sign_in || !is_jwt(token) {
             return false;
-        };
+        }
 
-        match nonce {
-            Some(nonce) => result.payload.get("nonce").and_then(Value::as_str) == Some(nonce),
-            None => true,
+        match verify_jws_with_jwks(token, jwk_set, &self.id_token_validation_options()) {
+            Ok(result) => nonce_matches(&result.payload, nonce),
+            Err(_) => false,
+        }
+    }
+
+    fn id_token_validation_options(&self) -> TokenValidationOptions {
+        TokenValidationOptions {
+            audience: client_id_audiences(&self.options.oauth.client_id),
+            issuer: vec![FACEBOOK_LIMITED_LOGIN_ISSUER.to_owned()],
+            ..TokenValidationOptions::default().require_standard_claims()
         }
     }
 
@@ -279,7 +299,7 @@ impl FacebookProvider {
         &self,
         access_token: &str,
     ) -> Result<Option<FacebookProfile>, OAuthError> {
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .get(self.user_info_url()?)
             .bearer_auth(access_token)
             .send()
@@ -343,6 +363,13 @@ fn client_id_audiences(client_id: &Option<ClientId>) -> Vec<String> {
 
 fn is_jwt(token: &str) -> bool {
     token.split('.').count() == 3
+}
+
+fn nonce_matches(payload: &Value, nonce: Option<&str>) -> bool {
+    match nonce {
+        Some(nonce) => payload.get("nonce").and_then(Value::as_str) == Some(nonce),
+        None => true,
+    }
 }
 
 fn decode_jwt_payload(token: &str) -> Result<Value, OAuthError> {

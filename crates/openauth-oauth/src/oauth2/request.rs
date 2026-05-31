@@ -2,11 +2,39 @@ use std::collections::BTreeMap;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use url::form_urlencoded::Serializer;
+use url::form_urlencoded::{byte_serialize, Serializer};
 
 use super::error::OAuthError;
 use super::http::{default_http_client, OAuthHttpClient};
 use super::tokens::{get_primary_client_id, ProviderOptions};
+
+/// OAuth request parameters that carry validated security invariants of a flow
+/// (CSRF `state`, PKCE binding, redirect URI, grant type, and client
+/// credential/authentication fields). Generic `additional_params` /
+/// `override_params` maps must never set or replace these, so a provider
+/// extension or caller-controlled value cannot blank, downgrade, or hijack an
+/// already-validated request.
+pub(crate) const PROTECTED_OAUTH_PARAMS: &[&str] = &[
+    "state",
+    "response_type",
+    "redirect_uri",
+    "code",
+    "code_verifier",
+    "code_challenge",
+    "code_challenge_method",
+    "grant_type",
+    "client_id",
+    "client_secret",
+    "client_key",
+    "client_assertion",
+    "client_assertion_type",
+];
+
+/// Returns `true` when `key` is a security-critical OAuth parameter that the
+/// generic extension maps are not allowed to set or override.
+pub(crate) fn is_protected_oauth_param(key: &str) -> bool {
+    PROTECTED_OAUTH_PARAMS.contains(&key)
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ClientAuthentication {
@@ -105,7 +133,15 @@ pub fn apply_client_authentication(
             } else {
                 client_secret.unwrap_or("")
             };
-            let credentials = STANDARD.encode(format!("{client_id}:{client_secret}"));
+            // RFC 6749 §2.3.1: the client id and secret are each encoded with the
+            // `application/x-www-form-urlencoded` algorithm before being joined with
+            // `:` and Base64-encoded, so reserved characters (`:`, `+`, `=`, spaces,
+            // non-ASCII bytes, ...) cannot corrupt the decoded Basic credentials.
+            let credentials = STANDARD.encode(format!(
+                "{}:{}",
+                form_encode_credential(client_id),
+                form_encode_credential(client_secret)
+            ));
             request.set_header("authorization", format!("Basic {credentials}"));
         }
         ClientAuthentication::Post => {
@@ -128,6 +164,13 @@ fn non_empty_secret(options: &ProviderOptions) -> Option<&str> {
         .client_secret
         .as_deref()
         .filter(|secret| !secret.is_empty())
+}
+
+/// Encodes a Basic-auth credential component with `application/x-www-form-urlencoded`
+/// rules per RFC 6749 §2.3.1. Unreserved ASCII (including `-`, `_`, `.`, `*`) is left
+/// unchanged, preserving the wire format for simple credentials.
+fn form_encode_credential(value: &str) -> String {
+    byte_serialize(value.as_bytes()).collect()
 }
 
 pub async fn post_form(

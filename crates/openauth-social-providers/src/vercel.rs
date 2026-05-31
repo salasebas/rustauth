@@ -115,7 +115,7 @@ impl VercelProvider {
         Self {
             options: options.into(),
             userinfo_endpoint: VERCEL_USERINFO_ENDPOINT.to_owned(),
-            http_client: reqwest::Client::new(),
+            http_client: crate::http::shared_client(),
         }
     }
 
@@ -296,7 +296,7 @@ mod tests {
         let provider = VercelProvider {
             options: VercelOptions::default(),
             userinfo_endpoint: server.url(),
-            http_client: reqwest::Client::new(),
+            http_client: crate::http::shared_client(),
         };
 
         let result = provider

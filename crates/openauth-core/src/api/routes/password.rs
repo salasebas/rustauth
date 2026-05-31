@@ -15,6 +15,7 @@ use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
     OpenApiOperation,
 };
+use crate::auth::trusted_origins::OriginMatchSettings;
 use crate::db::DbAdapter;
 use crate::error::OpenAuthError;
 use http::{Method, StatusCode};
@@ -293,6 +294,19 @@ pub(super) fn reset_password_callback_endpoint(adapter: Arc<dyn DbAdapter>) -> A
                 let Some(callback_url) = callback_url else {
                     return redirect_with_query("/error", "error", "INVALID_TOKEN");
                 };
+                // Prevent open redirects: only follow trusted origins or safe relative
+                // paths. Fall back to /error instead of leaking a token or 302'ing to an
+                // attacker-controlled target.
+                let settings = Some(OriginMatchSettings {
+                    allow_relative_paths: true,
+                });
+                if !context.is_trusted_origin_for_request(
+                    &callback_url,
+                    settings,
+                    Some(&request),
+                )? {
+                    return redirect_with_query("/error", "error", "INVALID_TOKEN");
+                }
                 if token.is_empty() {
                     return redirect_with_query(&callback_url, "error", "INVALID_TOKEN");
                 }

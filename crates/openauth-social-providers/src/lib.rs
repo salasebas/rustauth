@@ -14,6 +14,7 @@ pub mod figma;
 pub mod github;
 pub mod gitlab;
 pub mod google;
+pub mod http;
 pub mod huggingface;
 pub mod kakao;
 pub mod kick;

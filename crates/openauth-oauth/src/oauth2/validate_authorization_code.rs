@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use super::error::OAuthError;
 use super::http::{default_http_client, OAuthHttpClient};
 use super::request::{
-    apply_client_authentication, post_form_with_client, ClientAuthentication, OAuthFormRequest,
+    apply_client_authentication, is_protected_oauth_param, post_form_with_client,
+    ClientAuthentication, OAuthFormRequest,
 };
 use super::tokens::{get_oauth2_tokens, OAuth2Tokens, ProviderOptions};
 
@@ -75,11 +76,18 @@ impl AuthorizationCodeRequest {
         self
     }
 
+    /// Adds a non-sensitive extension form field if not already set.
+    /// Security-critical keys (`state`, `redirect_uri`, PKCE, `grant_type`,
+    /// `code`, and client credential fields) are ignored.
     pub fn additional_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.additional_params.insert(key.into(), value.into());
         self
     }
 
+    /// Overrides a non-sensitive form field. Security-critical keys (`state`,
+    /// `redirect_uri`, PKCE, `grant_type`, `code`, and client credential
+    /// fields) are ignored so validated flow invariants and client credentials
+    /// cannot be replaced after authentication is applied.
     pub fn override_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.override_params.insert(key.into(), value.into());
         self
@@ -129,11 +137,15 @@ pub fn create_authorization_code_request(
     }
     apply_client_authentication(&mut request, &input.options, input.authentication, false)?;
     for (key, value) in input.additional_params {
-        if !request.has_body(&key) {
-            request.push_body(key, value);
+        if is_protected_oauth_param(&key) || request.has_body(&key) {
+            continue;
         }
+        request.push_body(key, value);
     }
     for (key, value) in input.override_params {
+        if is_protected_oauth_param(&key) {
+            continue;
+        }
         request.set_body(key, value);
     }
     Ok(request)

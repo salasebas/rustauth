@@ -11,7 +11,6 @@ pub(crate) fn hook_error(context: &PluginDatabaseHookContext<'_>, message: &str,
     context.logger.error(message, &[detail]);
 }
 
-#[allow(dead_code)]
 pub(crate) fn hook_warn(context: &PluginDatabaseHookContext<'_>, message: &str, detail: &str) {
     context.logger.warn(message, &[detail]);
 }

@@ -106,7 +106,7 @@ impl TiktokProvider {
     pub fn new(options: ProviderOptions) -> Self {
         Self {
             options,
-            http_client: reqwest::Client::new(),
+            http_client: crate::http::shared_client(),
         }
     }
 

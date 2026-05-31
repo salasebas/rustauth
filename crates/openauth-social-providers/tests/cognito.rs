@@ -7,14 +7,15 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use josekit::jwk::Jwk;
+use josekit::jwk::{Jwk, JwkSet};
 use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
-use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract};
+use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract};
 use openauth_social_providers::cognito::{
     cognito, cognito_issuer, cognito_jwks_uri, CognitoAuthorizationUrlInput, CognitoOptions,
 };
+use openauth_social_providers::http::ProviderHttpClient;
 use serde_json::json;
 use time::OffsetDateTime;
 use url::Url;
@@ -205,14 +206,38 @@ fn cognito_public_metadata_helpers_match_upstream_urls() {
     );
 }
 
+#[tokio::test]
+async fn cognito_userinfo_rejects_private_literal_ip_domain_by_default() {
+    // A domain that resolves to a private literal IP derives a userinfo URL
+    // (`https://10.0.0.5/oauth2/userinfo`) the default client must refuse.
+    let provider = cognito(CognitoOptions::new(
+        "client-id",
+        "10.0.0.5",
+        "us-east-1",
+        "pool-id",
+    ))
+    .expect("provider should build");
+
+    // No id_token, so the access-token userinfo HTTP path is exercised.
+    let result = provider
+        .get_user_info(&OAuth2Tokens {
+            access_token: Some("access-token".to_owned()),
+            ..OAuth2Tokens::default()
+        })
+        .await;
+
+    assert!(matches!(result, Err(OAuthError::InvalidConfiguration(_))));
+}
+
 fn unsigned_jwt(claims: serde_json::Value) -> String {
     let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#);
     let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
     format!("{header}.{payload}.")
 }
 
-#[tokio::test]
-async fn cognito_verify_id_token_accepts_complete_signed_token() {
+#[test]
+fn cognito_verify_id_token_accepts_complete_signed_token() -> Result<(), Box<dyn std::error::Error>>
+{
     let provider = test_provider();
     let now = OffsetDateTime::now_utc().unix_timestamp();
     let (token, jwk) = signed_token(json!({
@@ -223,16 +248,15 @@ async fn cognito_verify_id_token_accepts_complete_signed_token() {
         "iat": now,
         "exp": now + 3600
     }));
-    let server = JsonServer::spawn(json!({ "keys": [jwk] }));
+    let jwks = jwks_with_key(jwk)?;
 
-    assert!(provider
-        .verify_id_token_with_jwks_url(&token, Some("nonce-1"), &server.url())
-        .await
-        .expect("verification should run"));
+    assert!(provider.verify_id_token_with_jwk_set(&token, Some("nonce-1"), &jwks)?);
+    Ok(())
 }
 
-#[tokio::test]
-async fn cognito_verify_id_token_rejects_tokens_missing_standard_claims() {
+#[test]
+fn cognito_verify_id_token_rejects_tokens_missing_standard_claims(
+) -> Result<(), Box<dyn std::error::Error>> {
     let provider = test_provider();
     let now = OffsetDateTime::now_utc().unix_timestamp();
     let base = json!({
@@ -251,16 +275,15 @@ async fn cognito_verify_id_token_rejects_tokens_missing_standard_claims() {
             .expect("claims object")
             .remove(missing);
         let (token, jwk) = signed_token(claims);
-        let server = JsonServer::spawn(json!({ "keys": [jwk] }));
+        let jwks = jwks_with_key(jwk)?;
+        let verified = provider.verify_id_token_with_jwk_set(&token, None, &jwks);
 
-        let verified = provider
-            .verify_id_token_with_jwks_url(&token, None, &server.url())
-            .await;
         assert!(
             !matches!(verified, Ok(true)),
             "token missing `{missing}` must be rejected"
         );
     }
+    Ok(())
 }
 
 fn test_provider() -> openauth_social_providers::cognito::CognitoProvider {
@@ -271,6 +294,7 @@ fn test_provider() -> openauth_social_providers::cognito::CognitoProvider {
         "pool-id",
     ))
     .expect("provider should build")
+    .with_http_client(ProviderHttpClient::permissive())
 }
 
 fn signed_token(claims: serde_json::Value) -> (String, Jwk) {
@@ -299,33 +323,8 @@ fn signed_token(claims: serde_json::Value) -> (String, Jwk) {
     (token, public_jwk)
 }
 
-struct JsonServer {
-    url: String,
-}
-
-impl JsonServer {
-    fn spawn(body: serde_json::Value) -> Self {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("server should bind");
-        let addr = listener.local_addr().expect("server address");
-        std::thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let mut buffer = [0; 1024];
-                let _ = std::io::Read::read(&mut stream, &mut buffer);
-                let body = body.to_string();
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
-                    body.len(),
-                    body
-                );
-                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
-            }
-        });
-        Self {
-            url: format!("http://{addr}/jwks"),
-        }
-    }
-
-    fn url(&self) -> String {
-        self.url.clone()
-    }
+fn jwks_with_key(jwk: Jwk) -> Result<JwkSet, Box<dyn std::error::Error>> {
+    Ok(JwkSet::from_bytes(
+        json!({ "keys": [jwk] }).to_string().as_bytes(),
+    )?)
 }

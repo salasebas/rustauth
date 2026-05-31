@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
+use crate::http::ProviderHttpClient;
+
 pub const GITLAB_ID: &str = "gitlab";
 pub const GITLAB_NAME: &str = "Gitlab";
 pub const GITLAB_DEFAULT_ISSUER: &str = "https://gitlab.com";
@@ -95,12 +97,13 @@ pub struct GitlabUserInfo {
     pub data: GitlabProfile,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct GitlabProvider {
     options: GitlabOptions,
     authorization_endpoint: String,
     token_endpoint: String,
     userinfo_endpoint: String,
+    http_client: ProviderHttpClient,
 }
 
 pub fn gitlab(options: GitlabOptions) -> GitlabProvider {
@@ -132,7 +135,15 @@ impl GitlabProvider {
             authorization_endpoint: endpoints.authorization,
             token_endpoint: endpoints.token,
             userinfo_endpoint: endpoints.userinfo,
+            http_client: ProviderHttpClient::shared(),
         }
+    }
+
+    /// Overrides the HTTP client used for userinfo requests. Use
+    /// [`ProviderHttpClient::permissive`] in tests to reach local fixtures.
+    pub fn with_http_client(mut self, http_client: ProviderHttpClient) -> Self {
+        self.http_client = http_client;
+        self
     }
 
     pub fn authorization_endpoint(&self) -> &str {
@@ -248,8 +259,9 @@ impl GitlabProvider {
             return Ok(None);
         };
 
-        let response = match reqwest::Client::new()
-            .get(&self.userinfo_endpoint)
+        let response = match self
+            .http_client
+            .get(&self.userinfo_endpoint)?
             .header("authorization", format!("Bearer {access_token}"))
             .send()
             .await

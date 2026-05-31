@@ -152,7 +152,13 @@ async fn reset_password_token_callback_redirects_with_token_or_error(
     let adapter = Arc::new(RouteAdapter::default());
     let now = OffsetDateTime::now_utc();
     adapter.insert_user(user(now)).await;
-    let router = router(adapter.clone())?;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("https://app.example.com/api/auth".to_owned()),
+            ..OpenAuthOptions::default()
+        },
+    )?;
 
     router
         .handle_async(json_request(
@@ -206,5 +212,90 @@ async fn reset_password_token_callback_redirects_with_token_or_error(
             .and_then(|h| h.to_str().ok()),
         Some("/reset?error=INVALID_TOKEN")
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn reset_password_token_callback_rejects_untrusted_callback_urls(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("https://app.example.com/api/auth".to_owned()),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/request-password-reset",
+            r#"{"email":"ada@example.com"}"#,
+            None,
+        )?)
+        .await?;
+    let identifier = adapter
+        .records("verification")
+        .await
+        .into_iter()
+        .find_map(|record| string_field(&record, "identifier").ok().map(str::to_owned))
+        .ok_or("missing verification")?;
+    let token = identifier
+        .strip_prefix("reset-password:")
+        .ok_or("bad identifier")?
+        .to_owned();
+
+    let location = |response: &http::Response<Vec<u8>>| {
+        response
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let callback = |segment: &str, callback_url: &str| {
+        json_request(
+            Method::GET,
+            &format!("/api/auth/reset-password/{segment}?callbackURL={callback_url}"),
+            "",
+            None,
+        )
+    };
+
+    // Both the valid-token and invalid-token branches must reject unsafe targets and
+    // fall back to /error without leaking the token.
+    for segment in [token.as_str(), "missing"] {
+        for unsafe_url in [
+            "https://evil.example/phish",
+            "//evil.example",
+            "/\\evil.example",
+            "%2F%2Fevil.example",
+        ] {
+            let response = router.handle_async(callback(segment, unsafe_url)?).await?;
+            assert_eq!(response.status(), StatusCode::FOUND);
+            assert_eq!(
+                location(&response).as_deref(),
+                Some("/error?error=INVALID_TOKEN"),
+                "callback {unsafe_url} for token {segment} must fall back to /error"
+            );
+        }
+    }
+
+    // Safe relative paths and trusted absolute origins still work with a valid token.
+    let relative = router.handle_async(callback(&token, "/reset")?).await?;
+    assert_eq!(
+        location(&relative).as_deref(),
+        Some(format!("/reset?token={token}").as_str())
+    );
+    let trusted = router
+        .handle_async(callback(&token, "https://app.example.com/reset")?)
+        .await?;
+    assert_eq!(
+        location(&trusted).as_deref(),
+        Some(format!("https://app.example.com/reset?token={token}").as_str())
+    );
+
     Ok(())
 }

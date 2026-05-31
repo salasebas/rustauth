@@ -171,7 +171,7 @@ impl DropboxProvider {
 
     pub async fn get_user_info(&self, token: &OAuth2Tokens) -> Option<DropboxUserInfo> {
         let access_token = token.access_token.as_deref()?;
-        let profile = reqwest::Client::new()
+        let profile = crate::http::shared_client()
             .post(USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()

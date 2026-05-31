@@ -181,7 +181,7 @@ impl SlackProvider {
         let Some(access_token) = token.access_token.as_deref() else {
             return Ok(None);
         };
-        let response = match reqwest::Client::new()
+        let response = match crate::http::shared_client()
             .get(SLACK_USER_INFO_ENDPOINT)
             .bearer_auth(access_token)
             .send()

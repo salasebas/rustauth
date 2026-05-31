@@ -55,6 +55,13 @@ auth.run_migrations().await?;
 - `saml` and `saml-signed`: re-export experimental SAML helpers.
 - `scim`: re-export server-side SCIM provisioning.
 - `stripe`: re-export server-side Stripe billing integration.
+- `telemetry`: re-export the telemetry surface from
+  [`openauth-telemetry`](../openauth-telemetry/README.md) (`create_telemetry`,
+  `get_telemetry_auth_config`, `TelemetryContext`, `TelemetryEvent`,
+  `TelemetryPublisher`, `TelemetryTestHooks`, `CustomTrackFn`). Initialized
+  publishers also need the async builder wiring this feature enables
+  (`OpenAuthBuilder::build_async`, `open_auth_*_async`); see the linked crate
+  docs for sink setup and enablement precedence.
 - `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`: SQLx adapters.
 - `tokio-postgres` and `deadpool-postgres`: Postgres adapters.
 

@@ -72,6 +72,50 @@ impl StripeTransport for FailingCheckoutSessionTransport {
     }
 }
 
+struct TrialingSubscriptionTransport;
+
+impl StripeTransport for TrialingSubscriptionTransport {
+    fn send<'a>(&'a self, request: StripeRequest) -> StripeTransportFuture<'a> {
+        let body = match request.path.as_str() {
+            path if path.starts_with("/v1/checkout/sessions/") => json!({
+                "id": "cs_trial_123",
+                "object": "checkout.session",
+                "metadata": {
+                    "userId": "user_1",
+                    "subscriptionId": "sub_incomplete",
+                    "referenceId": "user_1"
+                }
+            }),
+            "/v1/subscriptions" => json!({
+                "object": "list",
+                "data": [{
+                    "id": "stripe_sub_trialing",
+                    "object": "subscription",
+                    "status": "trialing",
+                    "cancel_at_period_end": false,
+                    "trial_start": 1_700_000_000,
+                    "trial_end": 1_701_209_600,
+                    "items": {
+                        "data": [{
+                            "id": "si_base",
+                            "price": {
+                                "id": "price_pro",
+                                "object": "price",
+                                "recurring": { "interval": "month", "usage_type": "licensed" }
+                            },
+                            "quantity": 3,
+                            "current_period_start": 1_700_000_000,
+                            "current_period_end": 1_702_592_000
+                        }]
+                    }
+                }]
+            }),
+            _ => json!({ "id": "ok" }),
+        };
+        Box::pin(async move { Ok(StripeResponse { status: 200, body }) })
+    }
+}
+
 impl StripeTransport for CaptureTransport {
     fn send<'a>(&'a self, request: StripeRequest) -> StripeTransportFuture<'a> {
         let response = match request.path.as_str() {
@@ -531,6 +575,80 @@ async fn subscription_success_resolves_dynamic_plans() -> Result<(), Box<dyn std
     assert_eq!(
         subscription.get("plan"),
         Some(&DbValue::String("dynamic-pro".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscription_success_reconciles_trialing_checkout_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = StripeOptions::new(
+        StripeClient::with_transport(
+            "sk_test",
+            Arc::new(TrialingSubscriptionTransport) as Arc<dyn StripeTransport>,
+        ),
+        "whsec_test",
+    )
+    .subscription(SubscriptionOptions::enabled(vec![
+        StripePlan::new("pro").price_id("price_pro")
+    ]));
+    let plugin = stripe(options);
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/subscription/success")
+        .ok_or("success endpoint")?;
+    let (context, adapter, cookie_header) = authenticated_context().await?;
+    create_subscription_record(
+        &adapter,
+        "sub_incomplete",
+        "user_1",
+        "incomplete",
+        Some("cus_123"),
+    )
+    .await?;
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("http://localhost:3000/api/auth/subscription/success?callbackURL=/done&checkoutSessionId=cs_trial_123")
+        .header("cookie", cookie_header)
+        .body(Vec::new())?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let records = adapter.records("subscription").await;
+    let subscription = records
+        .iter()
+        .find(|record| record.get("id") == Some(&DbValue::String("sub_incomplete".to_owned())))
+        .ok_or("subscription")?;
+    assert_eq!(
+        subscription.get("status"),
+        Some(&DbValue::String("trialing".to_owned()))
+    );
+    assert_eq!(
+        subscription.get("stripe_subscription_id"),
+        Some(&DbValue::String("stripe_sub_trialing".to_owned()))
+    );
+    assert_eq!(
+        subscription.get("plan"),
+        Some(&DbValue::String("pro".to_owned()))
+    );
+    assert_eq!(subscription.get("seats"), Some(&DbValue::Number(3)));
+    assert_eq!(
+        subscription.get("billing_interval"),
+        Some(&DbValue::String("month".to_owned()))
+    );
+    assert_eq!(
+        subscription.get("trial_start"),
+        Some(&DbValue::Timestamp(OffsetDateTime::from_unix_timestamp(
+            1_700_000_000
+        )?))
+    );
+    assert_eq!(
+        subscription.get("trial_end"),
+        Some(&DbValue::Timestamp(OffsetDateTime::from_unix_timestamp(
+            1_701_209_600
+        )?))
     );
     Ok(())
 }

@@ -30,7 +30,8 @@ pub use authorization_url::{create_authorization_url, AuthorizationUrlRequest};
 pub use claims::TokenValidationOptions;
 pub use client_credentials_token::{
     client_credentials_token, client_credentials_token_request,
-    create_client_credentials_token_request, ClientCredentialsGrant, ClientCredentialsTokenRequest,
+    client_credentials_token_with_client, create_client_credentials_token_request,
+    ClientCredentialsGrant, ClientCredentialsTokenRequest,
 };
 pub use error::OAuthError;
 pub use http::{OAuthHttpClient, OAuthHttpClientConfig};
@@ -40,7 +41,7 @@ pub use provider::{
 };
 pub use refresh_access_token::{
     create_refresh_access_token_request, refresh_access_token, refresh_access_token_request,
-    RefreshAccessTokenRequest,
+    refresh_access_token_with_client, RefreshAccessTokenRequest,
 };
 pub use request::{ClientAuthentication, OAuthFormRequest};
 pub use ssrf::{
@@ -64,6 +65,7 @@ pub use validate_authorization_code::{
 pub use verify::{
     clear_jwks_cache, get_jwks, get_jwks_with_client, verify_access_token,
     verify_access_token_with_client, verify_jws_access_token,
-    verify_jws_access_token_with_cache_config, OAuthJwksCacheConfig, VerifyAccessTokenOptions,
-    VerifyAccessTokenRemote,
+    verify_jws_access_token_with_cache_config, verify_jws_access_token_with_client,
+    verify_jws_access_token_with_client_and_cache_config, OAuthJwksCacheConfig,
+    VerifyAccessTokenOptions, VerifyAccessTokenRemote,
 };

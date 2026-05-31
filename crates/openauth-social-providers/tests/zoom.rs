@@ -12,6 +12,7 @@ use std::thread;
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
+use openauth_social_providers::http::ProviderHttpClient;
 use openauth_social_providers::zoom::{
     zoom, ZoomAuthorizationCodeRequest, ZoomAuthorizationUrlRequest, ZoomOptions, ZoomProfile,
     ZoomProvider, ZOOM_AUTHORIZATION_ENDPOINT, ZOOM_ID, ZOOM_NAME, ZOOM_TOKEN_ENDPOINT,
@@ -168,7 +169,8 @@ async fn zoom_userinfo_fetches_profile_with_bearer_token() -> Result<(), OAuthEr
             "verified": 1
         }),
     );
-    let provider = ZoomProvider::new_with_user_info_endpoint(zoom_options(), server.url());
+    let provider = ZoomProvider::new_with_user_info_endpoint(zoom_options(), server.url())
+        .with_http_client(ProviderHttpClient::permissive());
 
     let info = provider
         .get_user_info(&tokens("access-1"))
@@ -186,9 +188,41 @@ async fn zoom_userinfo_fetches_profile_with_bearer_token() -> Result<(), OAuthEr
 #[tokio::test]
 async fn zoom_userinfo_returns_none_for_http_errors() -> Result<(), OAuthError> {
     let server = JsonServer::spawn(500, json!({ "error": "server_error" }));
-    let provider = ZoomProvider::new_with_user_info_endpoint(zoom_options(), server.url());
+    let provider = ZoomProvider::new_with_user_info_endpoint(zoom_options(), server.url())
+        .with_http_client(ProviderHttpClient::permissive());
 
     assert!(provider.get_user_info(&tokens("access-1")).await?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn zoom_userinfo_rejects_private_literal_ip_endpoint_by_default() -> Result<(), OAuthError> {
+    let server = JsonServer::spawn(
+        200,
+        json!({
+            "id": "zoom-user",
+            "display_name": "Ada Lovelace",
+            "email": "ada@example.com",
+            "pic_url": "https://cdn.example.com/ada.png",
+            "verified": 1
+        }),
+    );
+
+    // `server.url()` is a loopback literal IP, refused by the default client.
+    let guarded = ZoomProvider::new_with_user_info_endpoint(zoom_options(), server.url());
+    assert!(matches!(
+        guarded.get_user_info(&tokens("access-1")).await,
+        Err(OAuthError::InvalidConfiguration(_))
+    ));
+
+    // An explicitly permissive client may still reach the loopback fixture.
+    let permissive = ZoomProvider::new_with_user_info_endpoint(zoom_options(), server.url())
+        .with_http_client(ProviderHttpClient::permissive());
+    let info = permissive
+        .get_user_info(&tokens("access-1"))
+        .await?
+        .expect("permissive client should reach loopback fixture");
+    assert_eq!(info.user.id, "zoom-user");
     Ok(())
 }
 

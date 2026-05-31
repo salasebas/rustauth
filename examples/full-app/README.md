@@ -55,6 +55,36 @@ VALKEY_URL=valkey://127.0.0.1:6380 \
 cargo run -p openauth-example-full-app
 ```
 
+Hybrid rate limiting (in-memory limiter with a Redis or Valkey secondary
+store) via `redis-rs`:
+
+```bash
+OPENAUTH_EXAMPLE_RATE_LIMIT=hybrid-redis \
+REDIS_URL=redis://127.0.0.1:6379 \
+cargo run -p openauth-example-full-app
+```
+
+```bash
+OPENAUTH_EXAMPLE_RATE_LIMIT=hybrid-valkey \
+VALKEY_URL=valkey://127.0.0.1:6380 \
+cargo run -p openauth-example-full-app
+```
+
+`fred`-backed Redis or Valkey rate limiting (uses the `fred` client instead of
+`redis-rs`):
+
+```bash
+OPENAUTH_EXAMPLE_RATE_LIMIT=fred-redis \
+REDIS_URL=redis://127.0.0.1:6379 \
+cargo run -p openauth-example-full-app
+```
+
+```bash
+OPENAUTH_EXAMPLE_RATE_LIMIT=fred-valkey \
+VALKEY_URL=valkey://127.0.0.1:6380 \
+cargo run -p openauth-example-full-app
+```
+
 Database-backed rate limiting:
 
 ```bash
@@ -74,13 +104,27 @@ cargo run -p openauth-example-full-app
 | `OPENAUTH_EXAMPLE_DB` | `sqlite` |
 | `DATABASE_URL` | backend-specific local URL |
 | `OPENAUTH_EXAMPLE_RATE_LIMIT` | `memory` |
+| `OPENAUTH_EXAMPLE_RATE_LIMIT_ENABLED` | `true` |
+| `OPENAUTH_EXAMPLE_RATE_LIMIT_WINDOW` | `60` (seconds) |
+| `OPENAUTH_EXAMPLE_RATE_LIMIT_MAX` | `120` (requests per window) |
 | `REDIS_URL` | `redis://127.0.0.1:6379` |
 | `VALKEY_URL` | `valkey://127.0.0.1:6380` |
 | `OPENAUTH_EXAMPLE_DEV_CONTROLS` | enabled only for loopback hosts |
 
 Supported `OPENAUTH_EXAMPLE_DB` values are `memory`, `sqlite`, `postgres`, and
 `mysql`. Supported `OPENAUTH_EXAMPLE_RATE_LIMIT` values are `memory`,
-`database`, `redis`, and `valkey`.
+`database`, `redis`, `valkey`, `hybrid-redis`, `hybrid-valkey`, `fred-redis`,
+and `fred-valkey`. The `redis`/`valkey`/`hybrid-*` backends use the `redis-rs`
+client and the `fred-*` backends use the `fred` client; `hybrid-*` pairs an
+in-memory limiter with the secondary store. The `*-redis` variants read
+`REDIS_URL` and the `*-valkey` variants read `VALKEY_URL`, while `database`
+requires a SQL `OPENAUTH_EXAMPLE_DB` (`sqlite`, `postgres`, or `mysql`).
+
+Rate limiting is tuned with `OPENAUTH_EXAMPLE_RATE_LIMIT_ENABLED` (default
+`true`), `OPENAUTH_EXAMPLE_RATE_LIMIT_WINDOW` (window in seconds, default `60`),
+and `OPENAUTH_EXAMPLE_RATE_LIMIT_MAX` (max requests per window, default `120`).
+These apply to every backend, including the per-request override headers on the
+dynamic auth profiles.
 
 MongoDB and MSSQL are intentionally not wired into this example yet because the
 workspace does not currently expose OpenAuth adapters for them.

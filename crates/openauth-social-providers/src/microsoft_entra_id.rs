@@ -434,7 +434,7 @@ impl MicrosoftEntraIdProvider {
         let size = self.options.profile_photo_size.as_u16();
         let base_url = base_url.trim_end_matches('/');
         let url = format!("{base_url}/{size}x{size}/$value");
-        let response = reqwest::Client::new()
+        let response = crate::http::shared_client()
             .get(url)
             .header("authorization", format!("Bearer {access_token}"))
             .send()

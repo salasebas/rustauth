@@ -18,18 +18,19 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{
-    clear_jwks_cache, client_credentials_token, create_authorization_code_request,
+    clear_jwks_cache, client_credentials_token_with_client, create_authorization_code_request,
     create_authorization_url, create_client_credentials_token_request,
     create_refresh_access_token_request, generate_code_challenge, get_oauth2_tokens,
-    get_primary_client_id, refresh_access_token, validate_token, verify_access_token,
-    verify_access_token_with_client, verify_jws_access_token,
-    verify_jws_access_token_with_cache_config, AuthorizationCodeRequest, AuthorizationEndpoint,
-    AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
+    get_primary_client_id, refresh_access_token_with_client, validate_token_with_client,
+    verify_access_token_with_client, verify_jws_access_token_with_client,
+    verify_jws_access_token_with_client_and_cache_config, AuthorizationCodeRequest,
+    AuthorizationEndpoint, AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
     ClientCredentialsTokenRequest, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo,
-    OAuthError, OAuthHttpClient, OAuthHttpClientConfig, OAuthJwksCacheConfig, ProviderOptions,
-    RedirectUri, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
+    OAuthError, OAuthFormRequest, OAuthHttpClient, OAuthHttpClientConfig, OAuthJwksCacheConfig,
+    ProviderOptions, RedirectUri, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
     SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
-    TokenEndpoint, TokenValidationOptions, VerifyAccessTokenOptions, VerifyAccessTokenRemote,
+    TokenEndpoint, TokenValidationOptions, TokenValidationResult, VerifyAccessTokenOptions,
+    VerifyAccessTokenRemote,
 };
 use serde_json::json;
 use std::time::Duration;
@@ -269,6 +270,62 @@ fn request_builders_support_post_and_basic_authentication() {
 }
 
 #[test]
+fn basic_authentication_form_encodes_reserved_and_non_ascii_credentials() {
+    use base64::Engine as _;
+
+    let decode_basic = |request: &openauth_oauth::oauth2::OAuthFormRequest| {
+        let encoded = request
+            .header("authorization")
+            .and_then(|header| header.strip_prefix("Basic "))
+            .expect("basic authorization header should be set")
+            .to_owned();
+        String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .expect("credentials should be valid base64"),
+        )
+        .expect("decoded credentials should be utf-8")
+    };
+
+    let reserved = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        refresh_token: "refresh-token".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("a:b c".to_owned())),
+            client_secret: Some("é+&=%".to_owned()),
+            ..ProviderOptions::default()
+        },
+        authentication: ClientAuthentication::Basic,
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect("basic auth request should build");
+
+    // Each component is form-encoded independently (RFC 6749 §2.3.1), so reserved and
+    // non-ASCII bytes survive Base64 and the only literal `:` is the separator a server
+    // splits on before decoding each half.
+    let decoded = decode_basic(&reserved);
+    assert_eq!(decoded, "a%3Ab+c:%C3%A9%2B%26%3D%25");
+    let (id, secret) = decoded
+        .split_once(':')
+        .expect("exactly one separator colon should remain");
+    assert_eq!(form_urldecode(id), "a:b c");
+    assert_eq!(form_urldecode(secret), "é+&=%");
+
+    // Compatibility: simple unreserved ASCII credentials are unchanged on the wire.
+    let simple = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        refresh_token: "refresh-token".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            client_secret: Some("client-secret".to_owned()),
+            ..ProviderOptions::default()
+        },
+        authentication: ClientAuthentication::Basic,
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect("basic auth request should build");
+    assert_eq!(decode_basic(&simple), "client-id:client-secret");
+}
+
+#[test]
 fn authorization_code_additional_params_do_not_overwrite_standard_fields() {
     let request = create_authorization_code_request(AuthorizationCodeRequest {
         code: "code-123".to_owned(),
@@ -289,6 +346,117 @@ fn authorization_code_additional_params_do_not_overwrite_standard_fields() {
 
     assert_eq!(request.form_value("code"), Some("code-123"));
     assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
+    assert_eq!(request.form_value("audience"), Some("api"));
+}
+
+#[test]
+fn create_authorization_url_additional_params_cannot_override_security_critical_params() {
+    let url = create_authorization_url(AuthorizationUrlRequest {
+        id: "generic".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            ..ProviderOptions::default()
+        },
+        authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        state: "real-state".to_owned(),
+        code_verifier: Some("verifier".to_owned()),
+        scopes: vec!["openid".to_owned()],
+        additional_params: BTreeMap::from([
+            ("state".to_owned(), "attacker-state".to_owned()),
+            (
+                "redirect_uri".to_owned(),
+                "https://attacker.example.com/callback".to_owned(),
+            ),
+            ("response_type".to_owned(), "token".to_owned()),
+            ("client_id".to_owned(), "attacker-client".to_owned()),
+            ("code_challenge".to_owned(), "attacker-challenge".to_owned()),
+            ("code_challenge_method".to_owned(), "plain".to_owned()),
+            ("resource".to_owned(), "calendar".to_owned()),
+        ]),
+        ..AuthorizationUrlRequest::default()
+    })
+    .expect("authorization url should build");
+
+    let values = |key: &str| {
+        url.query_pairs()
+            .filter(|(param, _)| param == key)
+            .map(|(_, value)| value.into_owned())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(values("state"), vec!["real-state"]);
+    assert_eq!(
+        values("redirect_uri"),
+        vec!["https://app.example.com/callback"]
+    );
+    assert_eq!(values("response_type"), vec!["code"]);
+    assert_eq!(values("client_id"), vec!["client-id"]);
+    assert_eq!(values("code_challenge_method"), vec!["S256"]);
+    assert_eq!(
+        values("code_challenge"),
+        vec!["iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ"]
+    );
+    // Non-sensitive extension keys are still applied.
+    assert_eq!(values("resource"), vec!["calendar"]);
+}
+
+#[test]
+fn authorization_code_override_params_cannot_replace_security_critical_fields() {
+    let request = create_authorization_code_request(AuthorizationCodeRequest {
+        code: "real-code".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            client_secret: Some("client-secret".to_owned()),
+            client_key: Some("client-key".to_owned()),
+            ..ProviderOptions::default()
+        },
+        code_verifier: Some("real-verifier".to_owned()),
+        // `override_params` is the escape hatch; protected keys must be ignored,
+        // while `additional_params` must not inject protected keys either.
+        additional_params: BTreeMap::from([(
+            "client_assertion".to_owned(),
+            "injected-assertion".to_owned(),
+        )]),
+        override_params: BTreeMap::from([
+            ("grant_type".to_owned(), "client_credentials".to_owned()),
+            ("code".to_owned(), "attacker-code".to_owned()),
+            (
+                "redirect_uri".to_owned(),
+                "https://attacker.example.com/callback".to_owned(),
+            ),
+            ("code_verifier".to_owned(), "attacker-verifier".to_owned()),
+            ("client_id".to_owned(), "attacker-client".to_owned()),
+            ("client_secret".to_owned(), "attacker-secret".to_owned()),
+            ("client_key".to_owned(), "attacker-key".to_owned()),
+            (
+                "client_assertion".to_owned(),
+                "attacker-assertion".to_owned(),
+            ),
+            (
+                "client_assertion_type".to_owned(),
+                "urn:attacker".to_owned(),
+            ),
+            ("audience".to_owned(), "api".to_owned()),
+        ]),
+        ..AuthorizationCodeRequest::default()
+    })
+    .expect("authorization code request should build");
+
+    assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
+    assert_eq!(request.form_value("code"), Some("real-code"));
+    assert_eq!(
+        request.form_value("redirect_uri"),
+        Some("https://app.example.com/callback")
+    );
+    assert_eq!(request.form_value("code_verifier"), Some("real-verifier"));
+    assert_eq!(request.form_value("client_id"), Some("client-id"));
+    assert_eq!(request.form_value("client_secret"), Some("client-secret"));
+    assert_eq!(request.form_value("client_key"), Some("client-key"));
+    assert_eq!(request.form_value("client_assertion"), None);
+    assert_eq!(request.form_value("client_assertion_type"), None);
+    // Non-sensitive override still applies.
     assert_eq!(request.form_value("audience"), Some("api"));
 }
 
@@ -1263,7 +1431,7 @@ async fn verify_access_token_accepts_injected_http_client_for_introspection() {
         "iss": "https://issuer.example.com",
         "scope": "read"
     }));
-    let client = OAuthHttpClient::default_client().expect("client should build");
+    let client = permissive_client();
 
     let payload = verify_access_token_with_client(
         "opaque-token",
@@ -1299,12 +1467,132 @@ async fn verify_jws_access_token_maps_azp_to_client_id() {
     assert_eq!(payload["client_id"], "authorized-party");
 }
 
+#[tokio::test]
+async fn default_client_blocks_get_and_post_to_literal_private_ip_urls() {
+    let client = OAuthHttpClient::default_client().expect("default client should build");
+    for url in [
+        "http://127.0.0.1/jwks",
+        "http://169.254.169.254/latest/meta-data/",
+        "https://10.0.0.5:8443/token",
+        "http://[::1]/introspect",
+    ] {
+        let get_error = client
+            .get_bytes(url)
+            .await
+            .expect_err("default client should block GET to a literal private IP");
+        assert!(
+            matches!(get_error, OAuthError::BlockedRequestUrl),
+            "GET {url} produced unexpected error: {get_error}"
+        );
+
+        let post_error = client
+            .post_form(url, OAuthFormRequest::new())
+            .await
+            .expect_err("default client should block POST to a literal private IP");
+        assert!(
+            matches!(post_error, OAuthError::BlockedRequestUrl),
+            "POST {url} produced unexpected error: {post_error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn permissive_client_reaches_local_get_and_post_servers() {
+    let client = permissive_client();
+
+    let get_server = JsonServer::spawn(json!({ "keys": [] }));
+    let bytes = client
+        .get_bytes(&get_server.url())
+        .await
+        .expect("permissive client should reach a local GET server");
+    assert!(!bytes.is_empty());
+
+    let post_server = JsonServer::spawn(json!({ "ok": true }));
+    let value = client
+        .post_form(&post_server.url(), OAuthFormRequest::new())
+        .await
+        .expect("permissive client should reach a local POST server");
+    assert_eq!(value["ok"], true);
+}
+
+fn form_urldecode(value: &str) -> String {
+    url::form_urlencoded::parse(format!("x={value}").as_bytes())
+        .next()
+        .map(|(_, decoded)| decoded.into_owned())
+        .unwrap_or_default()
+}
+
 fn provider_options() -> ProviderOptions {
     ProviderOptions {
         client_id: Some(ClientId::Single("client-id".to_owned())),
         client_secret: Some("client-secret".to_owned()),
         ..ProviderOptions::default()
     }
+}
+
+/// An explicitly permissive client that reaches loopback test servers; the
+/// default guarded client blocks literal private IP URLs (SSRF hardening).
+fn permissive_client() -> OAuthHttpClient {
+    OAuthHttpClient::from_config(OAuthHttpClientConfig {
+        allow_private_ips: true,
+        ..OAuthHttpClientConfig::default()
+    })
+    .expect("permissive client should build")
+}
+
+// The default OAuth client now blocks literal private/loopback IP request URLs.
+// These thin wrappers route the existing network tests through an explicitly
+// permissive client so they can keep exercising loopback test servers, while
+// the default-client SSRF behavior is covered by dedicated tests below.
+async fn refresh_access_token(
+    input: ClientTokenRequest<RefreshAccessTokenRequest>,
+) -> Result<OAuth2Tokens, OAuthError> {
+    refresh_access_token_with_client(input, &permissive_client()).await
+}
+
+async fn client_credentials_token(
+    input: ClientCredentialsGrant,
+) -> Result<OAuth2Tokens, OAuthError> {
+    client_credentials_token_with_client(input, &permissive_client()).await
+}
+
+async fn validate_token(
+    token: &str,
+    jwks_endpoint: &str,
+    options: TokenValidationOptions,
+) -> Result<TokenValidationResult, OAuthError> {
+    validate_token_with_client(token, jwks_endpoint, options, &permissive_client()).await
+}
+
+async fn verify_access_token(
+    token: &str,
+    options: VerifyAccessTokenOptions,
+) -> Result<serde_json::Value, OAuthError> {
+    verify_access_token_with_client(token, options, &permissive_client()).await
+}
+
+async fn verify_jws_access_token(
+    token: &str,
+    jwks_url: &str,
+    verify_options: TokenValidationOptions,
+) -> Result<TokenValidationResult, OAuthError> {
+    verify_jws_access_token_with_client(token, jwks_url, verify_options, &permissive_client()).await
+}
+
+async fn verify_jws_access_token_with_cache_config(
+    token: &str,
+    jwks_url: &str,
+    verify_options: TokenValidationOptions,
+    cache_config: OAuthJwksCacheConfig,
+) -> Result<TokenValidationResult, OAuthError> {
+    verify_jws_access_token_with_client_and_cache_config(
+        token,
+        jwks_url,
+        verify_options,
+        &permissive_client(),
+        cache_config,
+    )
+    .await
 }
 
 fn remote_verify_options(introspect_url: String, scopes: Vec<String>) -> VerifyAccessTokenOptions {

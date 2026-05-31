@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use super::error::OAuthError;
+use super::http::{default_http_client, OAuthHttpClient};
 use super::request::{
-    apply_client_authentication, post_form, ClientAuthentication, OAuthFormRequest,
+    apply_client_authentication, post_form_with_client, ClientAuthentication, OAuthFormRequest,
 };
 use super::tokens::{get_oauth2_tokens, OAuth2Tokens, ProviderOptions};
 use super::validate_authorization_code::ClientTokenRequest;
@@ -95,7 +96,14 @@ pub fn refresh_access_token_request(
 pub async fn refresh_access_token(
     input: ClientTokenRequest<RefreshAccessTokenRequest>,
 ) -> Result<OAuth2Tokens, OAuthError> {
+    refresh_access_token_with_client(input, &default_http_client()?).await
+}
+
+pub async fn refresh_access_token_with_client(
+    input: ClientTokenRequest<RefreshAccessTokenRequest>,
+    client: &OAuthHttpClient,
+) -> Result<OAuth2Tokens, OAuthError> {
     let request = refresh_access_token_request(input.request)?;
-    let data = post_form(&input.token_endpoint, request).await?;
+    let data = post_form_with_client(&input.token_endpoint, request, client).await?;
     get_oauth2_tokens(data)
 }

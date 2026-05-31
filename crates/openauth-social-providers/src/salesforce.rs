@@ -14,6 +14,8 @@ use openauth_oauth::oauth2::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::http::ProviderHttpClient;
+
 pub const SALESFORCE_ID: &str = "salesforce";
 pub const SALESFORCE_NAME: &str = "Salesforce";
 pub const SALESFORCE_PRODUCTION_AUTHORIZATION_ENDPOINT: &str =
@@ -164,7 +166,7 @@ pub struct SalesforceProvider {
     authorization_endpoint: String,
     token_endpoint: String,
     userinfo_endpoint: String,
-    http_client: reqwest::Client,
+    http_client: ProviderHttpClient,
 }
 
 pub fn salesforce(options: impl Into<SalesforceOptions>) -> SalesforceProvider {
@@ -181,8 +183,15 @@ impl SalesforceProvider {
             authorization_endpoint: endpoints.authorization,
             token_endpoint: endpoints.token,
             userinfo_endpoint: endpoints.userinfo,
-            http_client: reqwest::Client::new(),
+            http_client: ProviderHttpClient::shared(),
         }
+    }
+
+    /// Overrides the HTTP client used for userinfo requests. Use
+    /// [`ProviderHttpClient::permissive`] in tests to reach local fixtures.
+    pub fn with_http_client(mut self, http_client: ProviderHttpClient) -> Self {
+        self.http_client = http_client;
+        self
     }
 
     pub fn options(&self) -> &SalesforceOptions {
@@ -319,7 +328,7 @@ impl SalesforceProvider {
 
         let response = match self
             .http_client
-            .get(&self.userinfo_endpoint)
+            .get(&self.userinfo_endpoint)?
             .bearer_auth(access_token)
             .send()
             .await
@@ -439,7 +448,7 @@ mod tests {
             authorization_endpoint: "http://127.0.0.1/unused".to_owned(),
             token_endpoint: "http://127.0.0.1/unused".to_owned(),
             userinfo_endpoint: server.url(),
-            http_client: reqwest::Client::new(),
+            http_client: ProviderHttpClient::permissive(),
         };
 
         let result = provider

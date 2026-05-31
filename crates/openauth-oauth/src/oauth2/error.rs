@@ -8,6 +8,8 @@ pub enum OAuthError {
     InvalidUrl(#[from] url::ParseError),
     #[error("OAuth HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("refusing to connect: request URL resolves to a private or internal IP address")]
+    BlockedRequestUrl,
     #[error("OAuth HTTP request failed with status {status}: {body}")]
     HttpStatus { status: u16, body: String },
     #[error("OAuth error response `{error}`{description}")]

@@ -62,8 +62,10 @@ fn provider_authorization_code_request_uses_basic_auth_and_extra_params() -> Res
 }
 
 #[test]
-fn provider_token_url_params_override_default_token_request_values() -> Result<(), OAuthError> {
+fn provider_token_url_params_cannot_override_protected_token_request_values(
+) -> Result<(), OAuthError> {
     let mut config = example_config();
+    // Security-critical keys must be ignored even through the override map...
     config.token_url_params.insert(
         "redirect_uri".to_owned(),
         "https://override.example.com/callback".to_owned(),
@@ -71,6 +73,10 @@ fn provider_token_url_params_override_default_token_request_values() -> Result<(
     config
         .token_url_params
         .insert("grant_type".to_owned(), "custom_grant".to_owned());
+    // ...while non-sensitive extension keys still apply.
+    config
+        .token_url_params
+        .insert("audience".to_owned(), "api".to_owned());
     let provider = provider(config);
     let request = provider.authorization_code_request(SocialAuthorizationCodeRequest {
         code: "code-1".to_owned(),
@@ -79,11 +85,12 @@ fn provider_token_url_params_override_default_token_request_values() -> Result<(
         device_id: None,
     })?;
 
-    assert_eq!(request.form_value("grant_type"), Some("custom_grant"));
+    assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
     assert_eq!(
         request.form_value("redirect_uri"),
-        Some("https://override.example.com/callback")
+        Some("https://app.example.com/oauth2/callback/example")
     );
+    assert_eq!(request.form_value("audience"), Some("api"));
     Ok(())
 }
 

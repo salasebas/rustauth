@@ -2878,4 +2878,40 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         Ok(())
     }
+
+    /// Locks the README to the accepted configuration surface so the docs stay
+    /// aligned with [`RateLimitBackend`] parsing and the tuning env vars.
+    #[test]
+    fn readme_documents_rate_limit_surface() {
+        const README: &str = include_str!("../README.md");
+        for backend in [
+            "memory",
+            "database",
+            "redis",
+            "valkey",
+            "hybrid-redis",
+            "hybrid-valkey",
+            "fred-redis",
+            "fred-valkey",
+        ] {
+            assert!(
+                matches!(
+                    backend.parse::<RateLimitBackend>(),
+                    Ok(parsed) if parsed.as_str() == backend
+                ),
+                "`{backend}` must round-trip through RateLimitBackend"
+            );
+            assert!(
+                README.contains(backend),
+                "README must document rate-limit backend `{backend}`"
+            );
+        }
+        for var in [
+            "OPENAUTH_EXAMPLE_RATE_LIMIT_ENABLED",
+            "OPENAUTH_EXAMPLE_RATE_LIMIT_WINDOW",
+            "OPENAUTH_EXAMPLE_RATE_LIMIT_MAX",
+        ] {
+            assert!(README.contains(var), "README must document `{var}`");
+        }
+    }
 }

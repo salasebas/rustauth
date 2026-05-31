@@ -98,7 +98,7 @@ pub async fn verify_jws_access_token_with_cache_config(
     .await
 }
 
-pub(crate) async fn verify_jws_access_token_with_client(
+pub async fn verify_jws_access_token_with_client(
     token: &str,
     jwks_url: &str,
     verify_options: TokenValidationOptions,
@@ -114,7 +114,7 @@ pub(crate) async fn verify_jws_access_token_with_client(
     .await
 }
 
-pub(crate) async fn verify_jws_access_token_with_client_and_cache_config(
+pub async fn verify_jws_access_token_with_client_and_cache_config(
     token: &str,
     jwks_url: &str,
     verify_options: TokenValidationOptions,
