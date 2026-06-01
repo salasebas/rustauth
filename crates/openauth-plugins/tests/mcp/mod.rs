@@ -459,7 +459,7 @@ async fn mcp_token_exchanges_authorization_code_and_refresh_token(
         .handle_async(form_request(
             Method::POST,
             "/api/auth/mcp/token",
-            &format!("grant_type=refresh_token&client_id=client_1&refresh_token={refresh_token}"),
+            &format!("grant_type=refresh_token&client_id=client_1&client_secret=secret_1&refresh_token={refresh_token}"),
         )?)
         .await?;
     assert_eq!(refreshed.status(), StatusCode::OK);
