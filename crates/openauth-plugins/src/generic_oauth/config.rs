@@ -1,6 +1,6 @@
 use openauth_oauth::oauth2::{
-    ClientAuthentication, ClientId, OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions,
-    SocialIdTokenRequest,
+    ClientAuthentication, ClientId, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthHttpClient,
+    ProviderOptions, SocialIdTokenRequest,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -120,6 +120,9 @@ pub struct GenericOAuthConfig {
     pub refresh_access_token: Option<GenericOAuthRefreshAccessToken>,
     pub verify_id_token: Option<GenericOAuthVerifyIdToken>,
     pub revoke_token: Option<GenericOAuthRevokeToken>,
+    /// Optional outbound HTTP client for discovery, token, and userinfo requests.
+    /// When unset, the SSRF-guarded default client is used.
+    pub http_client: Option<OAuthHttpClient>,
 }
 
 impl std::fmt::Debug for GenericOAuthConfig {
@@ -167,6 +170,7 @@ impl std::fmt::Debug for GenericOAuthConfig {
             .field("refresh_access_token", &self.refresh_access_token.is_some())
             .field("verify_id_token", &self.verify_id_token.is_some())
             .field("revoke_token", &self.revoke_token.is_some())
+            .field("http_client", &self.http_client.is_some())
             .finish()
     }
 }
@@ -284,6 +288,7 @@ impl Default for GenericOAuthConfig {
             refresh_access_token: None,
             verify_id_token: None,
             revoke_token: None,
+            http_client: None,
         }
     }
 }

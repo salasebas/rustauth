@@ -4,10 +4,13 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use openauth_oauth::oauth2::{
     create_authorization_url, get_primary_client_id, refresh_access_token,
-    validate_authorization_code, validate_token, AuthorizationCodeRequest, AuthorizationUrlRequest,
-    ClientAuthentication, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError,
-    OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest, TokenValidationOptions,
+    validate_authorization_code, validate_token_with_client, AuthorizationCodeRequest,
+    AuthorizationUrlRequest, ClientAuthentication, ClientTokenRequest, OAuth2Tokens,
+    OAuth2UserInfo, OAuthError, OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest,
+    TokenValidationOptions,
 };
+
+use crate::http::ValidationHttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -86,19 +89,29 @@ pub struct AppleUserInfo {
 }
 
 /// Apple OAuth provider.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct AppleProvider {
     options: AppleOptions,
+    validation_http_client: ValidationHttpClient,
 }
 
 /// Create an Apple OAuth provider from typed options.
 pub fn apple(options: AppleOptions) -> AppleProvider {
-    AppleProvider { options }
+    AppleProvider {
+        options,
+        validation_http_client: ValidationHttpClient::shared(),
+    }
 }
 
 impl AppleProvider {
     pub fn options(&self) -> &AppleOptions {
         &self.options
+    }
+
+    /// Overrides the HTTP client used for JWKS and ID-token validation.
+    pub fn with_validation_http_client(mut self, client: ValidationHttpClient) -> Self {
+        self.validation_http_client = client;
+        self
     }
 
     pub fn create_authorization_url<I, S>(
@@ -192,7 +205,7 @@ impl AppleProvider {
         }
 
         let audience = self.audience()?;
-        let verified = match validate_token(
+        let verified = match validate_token_with_client(
             token,
             jwks_url,
             TokenValidationOptions {
@@ -200,6 +213,7 @@ impl AppleProvider {
                 issuer: vec![APPLE_ISSUER.to_owned()],
                 ..TokenValidationOptions::default().require_standard_claims()
             },
+            self.validation_http_client.inner(),
         )
         .await
         {

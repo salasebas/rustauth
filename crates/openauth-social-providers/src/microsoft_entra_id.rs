@@ -7,10 +7,13 @@ use base64::Engine;
 use openauth_oauth::oauth2::{
     authorization_code_request, create_authorization_url, get_primary_client_id,
     refresh_access_token, refresh_access_token_request, validate_authorization_code,
-    validate_token, AuthorizationCodeRequest, AuthorizationUrlRequest, ClientAuthentication,
-    ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthFormRequest,
-    OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest, TokenValidationOptions,
+    validate_token_with_client, AuthorizationCodeRequest, AuthorizationUrlRequest,
+    ClientAuthentication, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError,
+    OAuthFormRequest, OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest,
+    TokenValidationOptions,
 };
+
+use crate::http::ValidationHttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -140,7 +143,7 @@ pub struct MicrosoftEntraIdUserInfo {
     pub data: MicrosoftEntraIdProfile,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct MicrosoftEntraIdProvider {
     options: MicrosoftEntraIdOptions,
     tenant: String,
@@ -148,6 +151,7 @@ pub struct MicrosoftEntraIdProvider {
     authorization_endpoint: String,
     token_endpoint: String,
     jwks_endpoint: String,
+    validation_http_client: ValidationHttpClient,
 }
 
 pub fn microsoft_entra_id(options: MicrosoftEntraIdOptions) -> MicrosoftEntraIdProvider {
@@ -191,11 +195,18 @@ impl MicrosoftEntraIdProvider {
             authorization_endpoint,
             token_endpoint,
             jwks_endpoint,
+            validation_http_client: ValidationHttpClient::shared(),
         }
     }
 
     pub fn options(&self) -> &MicrosoftEntraIdOptions {
         &self.options
+    }
+
+    /// Overrides the HTTP client used for JWKS and ID-token validation.
+    pub fn with_validation_http_client(mut self, client: ValidationHttpClient) -> Self {
+        self.validation_http_client = client;
+        self
     }
 
     pub fn authorization_endpoint(&self) -> &str {
@@ -331,7 +342,7 @@ impl MicrosoftEntraIdProvider {
             return Ok(false);
         }
 
-        let result = match validate_token(
+        let result = match validate_token_with_client(
             token,
             jwks_url,
             TokenValidationOptions {
@@ -339,6 +350,7 @@ impl MicrosoftEntraIdProvider {
                 issuer: self.expected_issuers(),
                 ..TokenValidationOptions::default().require_standard_claims()
             },
+            self.validation_http_client.inner(),
         )
         .await
         {

@@ -11,6 +11,7 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
+use openauth_social_providers::http::ValidationHttpClient;
 use openauth_social_providers::microsoft_entra_id::{
     microsoft_entra_id, MicrosoftEntraIdAuthorizationCodeRequest,
     MicrosoftEntraIdAuthorizationUrlRequest, MicrosoftEntraIdOptions, MicrosoftEntraIdProfile,
@@ -270,7 +271,8 @@ async fn verify_id_token_accepts_multiple_audiences_and_common_tenant_without_is
             ..ProviderOptions::default()
         },
         ..MicrosoftEntraIdOptions::default()
-    });
+    })
+    .with_validation_http_client(ValidationHttpClient::permissive());
 
     assert!(provider
         .verify_id_token_with_jwks_url(token, Some("nonce-123"), &server.url())
@@ -311,7 +313,8 @@ async fn verify_id_token_respects_disable_sign_in_and_specific_tenant_issuer() {
             ..ProviderOptions::default()
         },
         ..MicrosoftEntraIdOptions::default()
-    });
+    })
+    .with_validation_http_client(ValidationHttpClient::permissive());
 
     assert!(provider
         .verify_id_token_with_jwks_url(valid_token, None, &server.url())
@@ -368,7 +371,8 @@ async fn verify_id_token_rejects_tokens_missing_standard_claims() {
             ..ProviderOptions::default()
         },
         ..MicrosoftEntraIdOptions::default()
-    });
+    })
+    .with_validation_http_client(ValidationHttpClient::permissive());
 
     for (token, missing) in tokens.iter().zip(missing_claims) {
         assert!(

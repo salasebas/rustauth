@@ -12,8 +12,9 @@ pub(super) use openauth_core::plugin::AuthPlugin;
 pub(super) use openauth_core::session::{CreateSessionInput, DbSessionStore};
 pub(super) use openauth_core::user::{CreateOAuthAccountInput, CreateUserInput, DbUserStore};
 pub(super) use openauth_oauth::oauth2::{
-    ClientAuthentication, OAuth2Tokens, OAuth2UserInfo, OAuthError, SocialAuthorizationCodeRequest,
-    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider,
+    ClientAuthentication, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthHttpClient,
+    OAuthHttpClientConfig, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
+    SocialIdTokenRequest, SocialOAuthProvider,
 };
 pub(super) use openauth_plugins::generic_oauth::{
     auth0, generic_oauth, gumroad, hubspot, keycloak, line, microsoft_entra_id, okta, patreon,
@@ -30,6 +31,19 @@ pub(super) use std::sync::atomic::{AtomicUsize, Ordering};
 pub(super) use std::sync::{Arc, Mutex};
 pub(super) use std::thread;
 pub(super) use time::{Duration, OffsetDateTime};
+
+pub(super) fn permissive_oauth_http_client() -> OAuthHttpClient {
+    OAuthHttpClient::from_config(OAuthHttpClientConfig {
+        allow_private_ips: true,
+        ..OAuthHttpClientConfig::default()
+    })
+    .unwrap_or_else(|_| OAuthHttpClient::new(reqwest::Client::new()))
+}
+
+pub(super) fn loopback_http_config(mut config: GenericOAuthConfig) -> GenericOAuthConfig {
+    config.http_client = Some(permissive_oauth_http_client());
+    config
+}
 
 pub(super) fn example_config() -> GenericOAuthConfig {
     let mut config = GenericOAuthConfig::new(

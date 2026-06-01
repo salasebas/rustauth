@@ -4,10 +4,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use openauth_oauth::oauth2::{
-    create_authorization_url, refresh_access_token, validate_authorization_code,
-    AuthorizationCodeRequest, AuthorizationUrlRequest, ClientId, ClientTokenRequest, OAuth2Tokens,
-    OAuth2UserInfo, OAuthError, OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest,
+    create_authorization_url, refresh_access_token_with_client,
+    validate_authorization_code_with_client, AuthorizationCodeRequest, AuthorizationUrlRequest,
+    ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthProviderContract,
+    ProviderOptions, RefreshAccessTokenRequest,
 };
+
+use crate::http::ValidationHttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -102,6 +105,7 @@ pub struct AtlassianProvider {
     token_endpoint: String,
     user_info_endpoint: String,
     http_client: reqwest::Client,
+    token_http_client: ValidationHttpClient,
 }
 
 pub fn atlassian(options: AtlassianOptions) -> AtlassianProvider {
@@ -116,6 +120,7 @@ impl AtlassianProvider {
             token_endpoint: ATLASSIAN_TOKEN_ENDPOINT.to_owned(),
             user_info_endpoint: ATLASSIAN_USER_INFO_ENDPOINT.to_owned(),
             http_client: crate::http::shared_client(),
+            token_http_client: ValidationHttpClient::shared(),
         }
     }
 
@@ -130,7 +135,8 @@ impl AtlassianProvider {
             authorization_endpoint: ATLASSIAN_AUTHORIZATION_ENDPOINT,
             token_endpoint: token_endpoint.into(),
             user_info_endpoint: user_info_endpoint.into(),
-            http_client: crate::http::shared_client(),
+            http_client: reqwest::Client::new(),
+            token_http_client: ValidationHttpClient::permissive(),
         }
     }
 
@@ -177,16 +183,19 @@ impl AtlassianProvider {
         redirect_uri: impl Into<String>,
         code_verifier: Option<String>,
     ) -> Result<OAuth2Tokens, OAuthError> {
-        validate_authorization_code(ClientTokenRequest {
-            token_endpoint: self.token_endpoint.to_owned(),
-            request: AuthorizationCodeRequest {
-                code: code.into(),
-                redirect_uri: redirect_uri.into(),
-                options: self.options.oauth.clone(),
-                code_verifier,
-                ..AuthorizationCodeRequest::default()
+        validate_authorization_code_with_client(
+            ClientTokenRequest {
+                token_endpoint: self.token_endpoint.to_owned(),
+                request: AuthorizationCodeRequest {
+                    code: code.into(),
+                    redirect_uri: redirect_uri.into(),
+                    options: self.options.oauth.clone(),
+                    code_verifier,
+                    ..AuthorizationCodeRequest::default()
+                },
             },
-        })
+            self.token_http_client.inner(),
+        )
         .await
     }
 
@@ -194,14 +203,17 @@ impl AtlassianProvider {
         &self,
         refresh_token_value: impl Into<String>,
     ) -> Result<OAuth2Tokens, OAuthError> {
-        refresh_access_token(ClientTokenRequest {
-            token_endpoint: self.token_endpoint.to_owned(),
-            request: RefreshAccessTokenRequest {
-                refresh_token: refresh_token_value.into(),
-                options: self.options.oauth.clone(),
-                ..RefreshAccessTokenRequest::default()
+        refresh_access_token_with_client(
+            ClientTokenRequest {
+                token_endpoint: self.token_endpoint.to_owned(),
+                request: RefreshAccessTokenRequest {
+                    refresh_token: refresh_token_value.into(),
+                    options: self.options.oauth.clone(),
+                    ..RefreshAccessTokenRequest::default()
+                },
             },
-        })
+            self.token_http_client.inner(),
+        )
         .await
     }
 

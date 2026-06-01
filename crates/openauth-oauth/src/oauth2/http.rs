@@ -116,13 +116,20 @@ impl OAuthHttpClient {
     }
 
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>, OAuthError> {
+        self.get_bytes_with_headers(url, &[]).await
+    }
+
+    pub async fn get_bytes_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<Vec<u8>, OAuthError> {
         self.ensure_request_url_allowed(url)?;
-        let response = self
-            .client
-            .get(url)
-            .header("accept", "application/json")
-            .send()
-            .await?;
+        let mut builder = self.client.get(url).header("accept", "application/json");
+        for (key, value) in headers {
+            builder = builder.header(*key, *value);
+        }
+        let response = builder.send().await?;
         response_bytes(response).await
     }
 

@@ -10,6 +10,7 @@ use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
 use openauth_social_providers::apple::{apple, AppleName, AppleNonConformUser, AppleOptions};
+use openauth_social_providers::http::ValidationHttpClient;
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 
@@ -192,7 +193,8 @@ async fn apple_provider_verifies_id_token_with_local_jwks_and_nonce() {
     let server = JsonServer::spawn(json!({ "keys": [jwk] }));
     let provider = apple(options_with_client_id(ClientId::Single(
         "apple-web".to_owned(),
-    )));
+    )))
+    .with_validation_http_client(ValidationHttpClient::permissive());
 
     assert!(provider
         .verify_id_token_with_jwks_url(&token, Some("nonce-123"), &server.url())
@@ -216,7 +218,8 @@ async fn apple_provider_rejects_id_tokens_missing_standard_claims() {
     });
     let provider = apple(options_with_client_id(ClientId::Single(
         "apple-web".to_owned(),
-    )));
+    )))
+    .with_validation_http_client(ValidationHttpClient::permissive());
 
     // `iat` is required here because Apple enforces an ID-token max age.
     for missing in ["sub", "iss", "aud", "exp", "iat"] {

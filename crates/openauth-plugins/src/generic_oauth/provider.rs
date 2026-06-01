@@ -1,14 +1,15 @@
 use openauth_oauth::oauth2::{
-    authorization_code_request, create_authorization_url, refresh_access_token,
-    refresh_access_token_request, validate_authorization_code, AuthorizationCodeRequest,
-    AuthorizationUrlRequest, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError,
-    OAuthFormRequest, ProviderOptions, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
-    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
+    authorization_code_request, create_authorization_url, refresh_access_token_request,
+    refresh_access_token_with_client, validate_authorization_code_with_client,
+    AuthorizationCodeRequest, AuthorizationUrlRequest, ClientTokenRequest, OAuth2Tokens,
+    OAuth2UserInfo, OAuthError, OAuthFormRequest, OAuthHttpClient, ProviderOptions,
+    RefreshAccessTokenRequest, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
+    SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
 };
 use url::Url;
 
 use super::config::{GenericOAuthConfig, GenericOAuthTokenRequest};
-use super::discovery::DiscoveryCache;
+use super::discovery::{resolve_http_client, DiscoveryCache};
 use super::user_info;
 
 /// Social provider implementation used by the generic OAuth plugin.
@@ -21,13 +22,16 @@ use super::user_info;
 pub struct GenericOAuthProvider {
     config: GenericOAuthConfig,
     discovery_cache: Option<DiscoveryCache>,
+    http_client: OAuthHttpClient,
 }
 
 impl GenericOAuthProvider {
     pub fn new(config: GenericOAuthConfig) -> Self {
+        let http_client = resolve_http_client(&config);
         Self {
             config,
             discovery_cache: None,
+            http_client,
         }
     }
 
@@ -35,9 +39,11 @@ impl GenericOAuthProvider {
         config: GenericOAuthConfig,
         discovery_cache: DiscoveryCache,
     ) -> Self {
+        let http_client = resolve_http_client(&config);
         Self {
             config,
             discovery_cache: Some(discovery_cache),
+            http_client,
         }
     }
 
@@ -92,7 +98,7 @@ impl GenericOAuthProvider {
             ));
         };
         let discovery = discovery_cache
-            .fetch(&self.config)
+            .fetch(&self.config, &self.http_client)
             .await
             .map_err(|error| OAuthError::InvalidResponse(error.to_string()))?
             .ok_or_else(|| {
@@ -167,10 +173,13 @@ impl SocialOAuthProvider for GenericOAuthProvider {
                 .await;
             }
             let token_endpoint = self.token_endpoint().await?;
-            validate_authorization_code(ClientTokenRequest {
-                token_endpoint,
-                request: self.authorization_code_input(input)?,
-            })
+            validate_authorization_code_with_client(
+                ClientTokenRequest {
+                    token_endpoint,
+                    request: self.authorization_code_input(input)?,
+                },
+                &self.http_client,
+            )
             .await
         })
     }
@@ -184,7 +193,12 @@ impl SocialOAuthProvider for GenericOAuthProvider {
             let user = if let Some(get_user_info) = &self.config.get_user_info {
                 get_user_info(tokens).await?
             } else {
-                user_info::get_user_info(&tokens, self.config.user_info_url.as_deref()).await?
+                user_info::get_user_info(
+                    &tokens,
+                    self.config.user_info_url.as_deref(),
+                    &self.http_client,
+                )
+                .await?
             };
             if let Some(map_profile) = &self.config.map_profile_to_user {
                 if let Some(user) = user {
@@ -214,16 +228,19 @@ impl SocialOAuthProvider for GenericOAuthProvider {
                 return refresh_access_token(refresh_token_value).await;
             }
             let token_endpoint = self.token_endpoint().await?;
-            refresh_access_token(ClientTokenRequest {
-                token_endpoint,
-                request: RefreshAccessTokenRequest {
-                    refresh_token: refresh_token_value,
-                    options: self.config.provider_options(),
-                    authentication: self.config.authentication,
-                    extra_params: self.config.token_url_params.clone(),
-                    ..RefreshAccessTokenRequest::default()
+            refresh_access_token_with_client(
+                ClientTokenRequest {
+                    token_endpoint,
+                    request: RefreshAccessTokenRequest {
+                        refresh_token: refresh_token_value,
+                        options: self.config.provider_options(),
+                        authentication: self.config.authentication,
+                        extra_params: self.config.token_url_params.clone(),
+                        ..RefreshAccessTokenRequest::default()
+                    },
                 },
-            })
+                &self.http_client,
+            )
             .await
         })
     }

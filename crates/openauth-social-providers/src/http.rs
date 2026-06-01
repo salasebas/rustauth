@@ -9,7 +9,9 @@
 
 use std::sync::OnceLock;
 
-use openauth_oauth::oauth2::{url_host_is_blocked_ip, OAuthError, OAuthHttpClient};
+use openauth_oauth::oauth2::{
+    url_host_is_blocked_ip, OAuthError, OAuthHttpClient, OAuthHttpClientConfig,
+};
 use reqwest::{Client, RequestBuilder};
 
 /// Returns a clone of the shared SSRF-guarded [`reqwest::Client`] (connection
@@ -87,5 +89,47 @@ impl ProviderHttpClient {
             ));
         }
         Ok(self.client.get(url))
+    }
+}
+
+/// HTTP client for JWKS and ID-token validation requests.
+///
+/// Production code uses [`ValidationHttpClient::shared`], which applies the same
+/// SSRF policy as [`openauth_oauth`]. Tests use [`ValidationHttpClient::permissive`]
+/// to reach loopback fixtures.
+#[derive(Debug, Clone)]
+pub struct ValidationHttpClient(OAuthHttpClient);
+
+impl ValidationHttpClient {
+    pub fn shared() -> Self {
+        static CLIENT: OnceLock<ValidationHttpClient> = OnceLock::new();
+        CLIENT
+            .get_or_init(|| {
+                Self(
+                    OAuthHttpClient::default_client()
+                        .unwrap_or_else(|_| OAuthHttpClient::new(reqwest::Client::new())),
+                )
+            })
+            .clone()
+    }
+
+    pub fn permissive() -> Self {
+        Self(
+            OAuthHttpClient::from_config(OAuthHttpClientConfig {
+                allow_private_ips: true,
+                ..OAuthHttpClientConfig::default()
+            })
+            .unwrap_or_else(|_| OAuthHttpClient::new(reqwest::Client::new())),
+        )
+    }
+
+    pub fn inner(&self) -> &OAuthHttpClient {
+        &self.0
+    }
+}
+
+impl Default for ValidationHttpClient {
+    fn default() -> Self {
+        Self::shared()
     }
 }

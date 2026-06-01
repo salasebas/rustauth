@@ -67,12 +67,12 @@ async fn generic_oauth_registered_provider_refreshes_with_discovery_token_endpoi
         "https://idp.example.com/oauth/userinfo",
     );
     let plugin = generic_oauth(GenericOAuthOptions {
-        config: vec![GenericOAuthConfig::discovery(
+        config: vec![loopback_http_config(GenericOAuthConfig::discovery(
             "discovery",
             "client-1",
             Some("secret-1"),
             discovery_url,
-        )],
+        ))],
     });
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {

@@ -1,4 +1,4 @@
-use openauth_oauth::oauth2::OAuthError;
+use openauth_oauth::oauth2::{OAuthError, OAuthHttpClient};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -13,6 +13,13 @@ pub struct DiscoveryDocument {
     pub userinfo_endpoint: Option<String>,
 }
 
+pub(super) fn resolve_http_client(config: &GenericOAuthConfig) -> OAuthHttpClient {
+    config.http_client.clone().unwrap_or_else(|| {
+        OAuthHttpClient::default_client()
+            .unwrap_or_else(|_| OAuthHttpClient::new(reqwest::Client::new()))
+    })
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DiscoveryCache {
     documents: Arc<Mutex<BTreeMap<String, DiscoveryDocument>>>,
@@ -22,6 +29,7 @@ impl DiscoveryCache {
     pub async fn fetch(
         &self,
         config: &GenericOAuthConfig,
+        http_client: &OAuthHttpClient,
     ) -> Result<Option<DiscoveryDocument>, OAuthError> {
         let Some(url) = config.discovery_url.as_deref() else {
             return Ok(None);
@@ -29,7 +37,7 @@ impl DiscoveryCache {
         if let Some(document) = self.get(&config.provider_id)? {
             return Ok(Some(document));
         }
-        let document = fetch_url(config, url).await?;
+        let document = fetch_url(config, url, http_client).await?;
         self.insert(config.provider_id.clone(), document.clone())?;
         Ok(Some(document))
     }
@@ -53,19 +61,18 @@ impl DiscoveryCache {
 async fn fetch_url(
     config: &GenericOAuthConfig,
     url: &str,
+    http_client: &OAuthHttpClient,
 ) -> Result<DiscoveryDocument, OAuthError> {
-    let client = reqwest::Client::new();
-    let mut request = client.get(url);
-    for (key, value) in &config.discovery_headers {
-        request = request.header(key, value);
-    }
-    let document = request
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<DiscoveryDocument>()
+    let header_pairs = config
+        .discovery_headers
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect::<Vec<_>>();
+    let bytes = http_client
+        .get_bytes_with_headers(url, &header_pairs)
         .await?;
-    Ok(document)
+    serde_json::from_slice::<DiscoveryDocument>(&bytes)
+        .map_err(|error| OAuthError::InvalidResponse(error.to_string()))
 }
 
 pub fn headers(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {

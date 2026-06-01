@@ -542,7 +542,7 @@ async fn oauth2_callback_applies_dynamic_token_url_params() {
         Arc::clone(&body),
         r#"{"access_token":"access-token","token_type":"Bearer"}"#,
     );
-    let mut config = example_config();
+    let mut config = loopback_http_config(example_config());
     config.token_url = Some(token_url);
     config
         .token_url_params
@@ -597,7 +597,7 @@ async fn oauth2_callback_uses_http_token_userinfo_and_authorization_headers() {
         Arc::clone(&userinfo_request),
         r#"{"sub":"http-user","email":"ada@example.com","email_verified":true,"name":"Ada HTTP","picture":"https://img.example.com/http.png"}"#,
     );
-    let mut config = example_config();
+    let mut config = loopback_http_config(example_config());
     config.token_url = Some(token_url);
     config.user_info_url = Some(user_info_url);
     config
@@ -658,8 +658,12 @@ async fn oauth2_callback_rejects_missing_state() {
 async fn sign_in_oauth2_caches_discovery_by_provider() {
     let hits = Arc::new(AtomicUsize::new(0));
     let discovery_url = discovery_server(Arc::clone(&hits));
-    let mut config =
-        GenericOAuthConfig::discovery("discovery", "client-1", Some("secret-1"), discovery_url);
+    let mut config = loopback_http_config(GenericOAuthConfig::discovery(
+        "discovery",
+        "client-1",
+        Some("secret-1"),
+        discovery_url,
+    ));
     config.scopes = vec!["openid".to_owned()];
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
     let plugin = generic_oauth(GenericOAuthOptions {

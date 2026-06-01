@@ -31,7 +31,10 @@ pub(super) async fn resolved_config(
         .find(provider_id)
         .cloned()
         .ok_or_else(|| api_error_value(super::errors::PROVIDER_CONFIG_NOT_FOUND))?;
-    if let Some(discovery) = discovery_cache.fetch(&config).await? {
+    if let Some(discovery) = discovery_cache
+        .fetch(&config, &super::discovery::resolve_http_client(&config))
+        .await?
+    {
         config.authorization_url = config
             .authorization_url
             .or(discovery.authorization_endpoint);

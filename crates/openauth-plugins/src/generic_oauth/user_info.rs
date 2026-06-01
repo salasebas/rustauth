@@ -1,9 +1,10 @@
-use openauth_oauth::oauth2::{OAuth2Tokens, OAuth2UserInfo, OAuthError};
+use openauth_oauth::oauth2::{OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthHttpClient};
 use serde_json::Value;
 
 pub async fn get_user_info(
     tokens: &OAuth2Tokens,
     user_info_url: Option<&str>,
+    http_client: &OAuthHttpClient,
 ) -> Result<Option<OAuth2UserInfo>, OAuthError> {
     if let Some(id_token) = tokens.id_token.as_deref() {
         if let Some(user) =
@@ -18,14 +19,11 @@ pub async fn get_user_info(
     let Some(access_token) = tokens.access_token.as_deref() else {
         return Ok(None);
     };
-    let profile = reqwest::Client::new()
-        .get(url)
-        .bearer_auth(access_token)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
+    let bytes = http_client
+        .get_bytes_with_headers(url, &[("authorization", &format!("Bearer {access_token}"))])
         .await?;
+    let profile = serde_json::from_slice::<Value>(&bytes)
+        .map_err(|error| OAuthError::InvalidResponse(error.to_string()))?;
     Ok(user_info_from_claims(&profile))
 }
 
