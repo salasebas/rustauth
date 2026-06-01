@@ -873,6 +873,45 @@ async fn callback_link_social_redirects_when_provider_is_untrusted_and_unverifie
     Ok(())
 }
 
+#[tokio::test]
+async fn callback_oauth_post_allows_cross_site_form_post_navigation(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Build the router with origin/CSRF checks enabled (the shared helper
+    // disables them) so we exercise the real `form_post` navigation path.
+    let adapter = Arc::new(RouteAdapter::default());
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some(secret().to_owned()),
+            base_url: Some("http://localhost:3000/api/auth".to_owned()),
+            social_providers: vec![Arc::new(FakeProvider::new("apple"))],
+            ..OpenAuthOptions::default()
+        },
+        adapter.clone(),
+    )?;
+    let router =
+        AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))?;
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/callback/apple")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header("sec-fetch-site", "cross-site")
+        .header("sec-fetch-mode", "navigate")
+        .body(b"code=auth-code&state=state-value".to_vec())?;
+    let response = router.handle_async(request).await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .ok_or("missing location")?
+        .to_str()?;
+    assert!(location.starts_with("http://localhost:3000/api/auth/callback/apple?"));
+    assert!(location.contains("code=auth-code"));
+    assert!(location.contains("state=state-value"));
+    Ok(())
+}
+
 fn query_value(url: &str, key: &str) -> Option<String> {
     let query = url.split_once('?')?.1;
     query.split('&').find_map(|pair| {
