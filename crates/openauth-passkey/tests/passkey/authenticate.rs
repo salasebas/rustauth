@@ -10,8 +10,9 @@ use serde_json::{json, Value};
 
 use crate::support::{
     cookie_header_from_response, empty_request, join_cookies, json_request,
-    json_request_with_origin, seed_passkey, seed_user_two, seeded_router, set_cookie_values,
-    sign_in_cookie, signed_passkey_challenge_cookie, single_verification_expires_at,
+    json_request_with_origin, passkey_challenge_cookie_name, seed_passkey, seed_user_two,
+    seeded_router, set_cookie_values, sign_in_cookie, signed_passkey_challenge_cookie,
+    single_verification_expires_at,
 };
 
 #[tokio::test]
@@ -440,14 +441,14 @@ async fn verify_authentication_rejects_missing_response_id_with_json_error(
 async fn verify_authentication_rejects_invalid_signed_challenge_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (_adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
-    let invalid_cookie = "better-auth-passkey=invalid.signature";
+    let invalid_cookie = format!("{}=invalid.signature", passkey_challenge_cookie_name()?);
 
     let response = router
         .handle_async(json_request(
             Method::POST,
             "/api/auth/passkey/verify-authentication",
             r#"{"response":{"id":"credential-id"}}"#,
-            Some(invalid_cookie),
+            Some(invalid_cookie.as_str()),
         )?)
         .await?;
 

@@ -15,9 +15,9 @@ use serde_json::{json, Value};
 
 use crate::support::{
     cookie_header_from_response, empty_request, expired_registration_challenge_cookie,
-    join_cookies, json_request, json_request_with_origin, router_with_adapter, seed_user,
-    seeded_router, session_cookie_for_created_at, set_cookie_values, sign_in_cookie,
-    single_verification_expires_at, RaceDuplicateAdapter,
+    join_cookies, json_request, json_request_with_origin, passkey_challenge_cookie_name,
+    router_with_adapter, seed_user, seeded_router, session_cookie_for_created_at,
+    set_cookie_values, sign_in_cookie, single_verification_expires_at, RaceDuplicateAdapter,
 };
 
 #[tokio::test]
@@ -72,9 +72,10 @@ async fn generate_register_options_uses_resolve_user_without_session(
     assert_eq!(body["challenge"], "registration-challenge");
     assert_eq!(body["user"]["name"], "preauth@example.com");
     assert_eq!(body["user"]["displayName"], "Pre-auth User");
+    let challenge_name = passkey_challenge_cookie_name()?;
     assert!(set_cookie_values(&response)
         .iter()
-        .any(|cookie| cookie.contains("better-auth-passkey")));
+        .any(|cookie| cookie.contains(&challenge_name)));
     let users = backend
         .registration_users
         .lock()
@@ -638,8 +639,8 @@ async fn verify_registration_rejects_invalid_signed_challenge_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (_adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
     let session_cookie = sign_in_cookie(&router).await?;
-    let invalid_cookie = "better-auth-passkey=invalid.signature";
-    let cookie = join_cookies(&[session_cookie.as_str(), invalid_cookie]);
+    let invalid_cookie = format!("{}=invalid.signature", passkey_challenge_cookie_name()?);
+    let cookie = join_cookies(&[session_cookie.as_str(), invalid_cookie.as_str()]);
 
     let response = router
         .handle_async(json_request(

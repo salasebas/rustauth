@@ -5,6 +5,29 @@ use crate::options::{CookieAttributesOverride, OpenAuthOptions};
 use super::types::{AuthCookie, AuthCookies, CookieOptions, SECURE_COOKIE_PREFIX};
 
 pub fn get_cookies(options: &OpenAuthOptions) -> Result<AuthCookies, OpenAuthError> {
+    let session_max_age = options.session.expires_in.unwrap_or(60 * 60 * 24 * 7);
+    let cache_max_age = options.session.cookie_cache.max_age.unwrap_or(60 * 5);
+
+    Ok(AuthCookies {
+        session_token: create_auth_cookie(options, "session_token", Some(session_max_age))?,
+        session_data: create_auth_cookie(options, "session_data", Some(cache_max_age))?,
+        account_data: create_auth_cookie(options, "account_data", Some(cache_max_age))?,
+        dont_remember_token: create_auth_cookie(options, "dont_remember", None)?,
+    })
+}
+
+/// Build a single auth cookie definition using the same name prefixing and
+/// attribute merge policy as [`get_cookies`].
+///
+/// Plugins should route their own security-sensitive cookies (for example the
+/// passkey challenge cookie) through this helper so they inherit the configured
+/// `cookie_prefix`, secure-name prefix, cross-subdomain `domain`, and
+/// `default_cookie_attributes` instead of using a raw, unnamespaced cookie name.
+pub fn create_auth_cookie(
+    options: &OpenAuthOptions,
+    name: &str,
+    max_age: Option<u64>,
+) -> Result<AuthCookie, OpenAuthError> {
     let secure = resolve_secure(options);
     let secure_prefix = if secure { SECURE_COOKIE_PREFIX } else { "" };
     let prefix = options
@@ -13,16 +36,14 @@ pub fn get_cookies(options: &OpenAuthOptions) -> Result<AuthCookies, OpenAuthErr
         .as_deref()
         .unwrap_or("open-auth");
     let domain = resolve_domain(options)?;
-    let session_max_age = options.session.expires_in.unwrap_or(60 * 60 * 24 * 7);
-    let cache_max_age = options.session.cookie_cache.max_age.unwrap_or(60 * 5);
 
-    let create = |name: &str, max_age: Option<u64>| AuthCookie {
+    Ok(AuthCookie {
         name: format!("{secure_prefix}{prefix}.{name}"),
         attributes: merge_cookie_attributes(
             CookieOptions {
                 max_age,
                 expires: None,
-                domain: domain.clone(),
+                domain,
                 path: Some("/".to_owned()),
                 secure: Some(secure),
                 http_only: Some(true),
@@ -31,13 +52,6 @@ pub fn get_cookies(options: &OpenAuthOptions) -> Result<AuthCookies, OpenAuthErr
             },
             &options.advanced.default_cookie_attributes,
         ),
-    };
-
-    Ok(AuthCookies {
-        session_token: create("session_token", Some(session_max_age)),
-        session_data: create("session_data", Some(cache_max_age)),
-        account_data: create("account_data", Some(cache_max_age)),
-        dont_remember_token: create("dont_remember", None),
     })
 }
 

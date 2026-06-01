@@ -6,6 +6,12 @@ All notable changes to `openauth-passkey` are documented in this file.
 
 ### Fixed
 
+- Fixed the WebAuthn challenge cookie to route through the core auth-cookie
+  configuration (`AuthContext::create_auth_cookie`) so it inherits the
+  `cookie_prefix` namespace, secure-name prefix, cross-subdomain `domain`, and
+  `default_cookie_attributes` instead of using a raw, unnamespaced cookie name.
+  The `PasskeyAdvancedOptions::webauthn_challenge_cookie` value is preserved as
+  the cookie name segment.
 - Fixed WebAuthn verification to honor the configured `user_verification` policy
   end-to-end instead of always verifying with `UserVerificationPolicy::Required`
   while advertising preferred/discouraged settings.

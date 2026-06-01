@@ -1,5 +1,7 @@
 #[path = "passkey/authenticate.rs"]
 mod authenticate;
+#[path = "passkey/cookie_config.rs"]
+mod cookie_config;
 #[path = "passkey/management.rs"]
 mod management;
 #[path = "passkey/openapi.rs"]

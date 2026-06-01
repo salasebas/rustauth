@@ -8,7 +8,7 @@ mod plugins;
 mod secrets;
 
 use crate::auth::trusted_origins::{matches_origin_pattern, OriginMatchSettings};
-use crate::cookies::AuthCookies;
+use crate::cookies::{AuthCookie, AuthCookies};
 use crate::db::{DbAdapter, DbSchema};
 use crate::env::logger::Logger;
 use crate::error::OpenAuthError;
@@ -152,6 +152,18 @@ pub struct RateLimitContext {
 impl AuthContext {
     pub fn adapter(&self) -> Option<Arc<dyn DbAdapter>> {
         self.adapter.clone()
+    }
+
+    /// Build a plugin auth cookie definition that inherits the core cookie
+    /// naming and attribute policy (`cookie_prefix`, secure-name prefix,
+    /// cross-subdomain `domain`, and `default_cookie_attributes`), exactly as
+    /// the core session cookies produced by `get_cookies`.
+    pub fn create_auth_cookie(
+        &self,
+        name: &str,
+        max_age: Option<u64>,
+    ) -> Result<AuthCookie, OpenAuthError> {
+        crate::cookies::create_auth_cookie(&self.options, name, max_age)
     }
 
     pub fn secondary_storage(&self) -> Option<Arc<dyn SecondaryStorage>> {

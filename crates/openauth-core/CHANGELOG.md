@@ -6,6 +6,10 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Added
 
+- Added `cookies::create_auth_cookie` and `AuthContext::create_auth_cookie`,
+  exposing the shared cookie naming and attribute policy used by `get_cookies`
+  so plugins can build their own cookies with the same `cookie_prefix`,
+  secure-name prefix, cross-subdomain `domain`, and `default_cookie_attributes`.
 - Added `RateLimitOptions::missing_ip_policy` (`MissingIpPolicy`) to control
   behavior when rate limiting is enabled but no client IP can be resolved.
 

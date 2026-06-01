@@ -54,6 +54,34 @@ pub async fn seeded_router(
     Ok((adapter, router, backend))
 }
 
+/// Build a seeded router with caller-supplied `AdvancedOptions` so tests can
+/// exercise cookie naming/attribute policy (prefix, cross-subdomain, defaults).
+pub async fn seeded_router_with_advanced(
+    options: PasskeyOptions,
+    advanced: AdvancedOptions,
+) -> Result<(Arc<MemoryAdapter>, AuthRouter, Arc<FakeWebAuthnBackend>), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user(adapter.as_ref()).await?;
+    let backend = Arc::new(FakeWebAuthnBackend::default());
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000".to_owned()),
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            advanced,
+            plugins: vec![passkey(options.backend(backend.clone()))],
+            ..OpenAuthOptions::default()
+        },
+        adapter.clone(),
+    )?;
+    let router = AuthRouter::with_async_endpoints(
+        context,
+        Vec::new(),
+        core_auth_async_endpoints(adapter.clone()),
+    )?;
+    Ok((adapter, router, backend))
+}
+
 /// In-memory `SecondaryStorage` test double that records keys for assertions.
 #[derive(Default)]
 pub struct InMemorySecondaryStorage {
@@ -328,9 +356,26 @@ pub fn join_cookies(values: &[&str]) -> String {
         .join("; ")
 }
 
+/// Cookie name the passkey plugin derives for the default test configuration
+/// (http base URL, default `cookie_prefix`), routed through the core
+/// auth-cookie policy.
+pub fn passkey_challenge_cookie_name() -> Result<String, Box<dyn std::error::Error>> {
+    Ok(openauth_core::cookies::create_auth_cookie(
+        &OpenAuthOptions {
+            base_url: Some("http://localhost:3000".to_owned()),
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            ..OpenAuthOptions::default()
+        },
+        "better-auth-passkey",
+        None,
+    )?
+    .name)
+}
+
 pub fn signed_passkey_challenge_cookie(token: &str) -> Result<String, Box<dyn std::error::Error>> {
     Ok(format!(
-        "better-auth-passkey={}",
+        "{}={}",
+        passkey_challenge_cookie_name()?,
         sign_cookie_value(token, "secret-a-at-least-32-chars-long!!")?
     ))
 }
