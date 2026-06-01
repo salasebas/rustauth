@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use super::error::OAuthError;
 use super::http::{default_http_client, OAuthHttpClient};
 use super::request::{
-    apply_client_authentication, post_form_with_client, ClientAuthentication, OAuthFormRequest,
+    apply_client_authentication, is_protected_oauth_param, post_form_with_client,
+    ClientAuthentication, OAuthFormRequest,
 };
 use super::tokens::{get_oauth2_tokens, OAuth2Tokens, ProviderOptions};
 use super::validate_authorization_code::ClientTokenRequest;
@@ -50,6 +51,13 @@ impl RefreshAccessTokenRequest {
         self
     }
 
+    /// Adds a non-sensitive extension form field such as `scope`.
+    ///
+    /// This is an extension-only API: security-critical keys (`grant_type`,
+    /// `refresh_token`, and client credential/authentication fields) and any
+    /// field already set by the builder are ignored when the request is built,
+    /// so a provider extension or caller-controlled value cannot replace
+    /// validated flow invariants or authenticated client credentials.
     pub fn extra_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.extra_params.insert(key.into(), value.into());
         self
@@ -68,12 +76,18 @@ pub fn create_refresh_access_token_request(
     let mut request = OAuthFormRequest::new();
     request.set_body("grant_type", "refresh_token");
     request.set_body("refresh_token", input.refresh_token);
+    if let Some(client_key) = &input.options.client_key {
+        request.set_body("client_key", client_key);
+    }
     apply_client_authentication(&mut request, &input.options, input.authentication, false)?;
     for resource in input.resource {
         request.push_body("resource", resource);
     }
     for (key, value) in input.extra_params {
-        request.set_body(key, value);
+        if is_protected_oauth_param(&key) || request.has_body(&key) {
+            continue;
+        }
+        request.push_body(key, value);
     }
     Ok(request)
 }

@@ -9,11 +9,11 @@ use super::http::{default_http_client, OAuthHttpClient};
 use super::tokens::{get_primary_client_id, ProviderOptions};
 
 /// OAuth request parameters that carry validated security invariants of a flow
-/// (CSRF `state`, PKCE binding, redirect URI, grant type, and client
-/// credential/authentication fields). Generic `additional_params` /
-/// `override_params` maps must never set or replace these, so a provider
-/// extension or caller-controlled value cannot blank, downgrade, or hijack an
-/// already-validated request.
+/// (CSRF `state`, PKCE binding, redirect URI, grant type, refresh token, and
+/// client credential/authentication fields). Generic `additional_params`,
+/// `override_params`, and `extra_params` maps must never set or replace these,
+/// so a provider extension or caller-controlled value cannot blank, downgrade,
+/// or hijack an already-validated and authenticated request.
 pub(crate) const PROTECTED_OAUTH_PARAMS: &[&str] = &[
     "state",
     "response_type",
@@ -23,6 +23,7 @@ pub(crate) const PROTECTED_OAUTH_PARAMS: &[&str] = &[
     "code_challenge",
     "code_challenge_method",
     "grant_type",
+    "refresh_token",
     "client_id",
     "client_secret",
     "client_key",

@@ -461,6 +461,46 @@ fn authorization_code_override_params_cannot_replace_security_critical_fields() 
 }
 
 #[test]
+fn refresh_extra_params_cannot_replace_security_critical_fields() {
+    let request = create_refresh_access_token_request(RefreshAccessTokenRequest {
+        refresh_token: "real-refresh-token".to_owned(),
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            client_secret: Some("client-secret".to_owned()),
+            client_key: Some("client-key".to_owned()),
+            ..ProviderOptions::default()
+        },
+        authentication: ClientAuthentication::Post,
+        extra_params: BTreeMap::from([
+            ("grant_type".to_owned(), "client_credentials".to_owned()),
+            (
+                "refresh_token".to_owned(),
+                "attacker-refresh-token".to_owned(),
+            ),
+            ("client_id".to_owned(), "attacker-client".to_owned()),
+            ("client_secret".to_owned(), "attacker-secret".to_owned()),
+            ("client_key".to_owned(), "attacker-key".to_owned()),
+            ("scope".to_owned(), "openid email".to_owned()),
+        ]),
+        ..RefreshAccessTokenRequest::default()
+    })
+    .expect("refresh request should build");
+
+    assert_eq!(request.form_value("grant_type"), Some("refresh_token"));
+    assert_eq!(
+        request.form_value("refresh_token"),
+        Some("real-refresh-token")
+    );
+    assert_eq!(request.form_value("client_id"), Some("client-id"));
+    assert_eq!(request.form_value("client_secret"), Some("client-secret"));
+    // `client_key` is set natively from options (parity with the auth-code
+    // builder) and cannot be replaced through extra_params.
+    assert_eq!(request.form_value("client_key"), Some("client-key"));
+    // Non-sensitive extension field is still applied.
+    assert_eq!(request.form_value("scope"), Some("openid email"));
+}
+
+#[test]
 fn client_credentials_requires_client_id_and_secret() {
     let missing_client_id =
         create_client_credentials_token_request(ClientCredentialsTokenRequest {
