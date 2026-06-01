@@ -238,15 +238,25 @@ pub(super) async fn load_group_resource(
         return Ok(None);
     };
     let team = team_from_record(record)?;
-    group_resource_from_team(adapter, base_url, provider_id, &team).await
+    group_resource_from_team(adapter, base_url, provider_id, organization_id, &team).await
 }
 
 pub(super) async fn group_resource_from_team(
     adapter: &dyn DbAdapter,
     base_url: &str,
     provider_id: &str,
+    organization_id: &str,
     team: &ScimTeamRecord,
 ) -> Result<Option<ScimGroupResource>, OpenAuthError> {
+    // SCIM may only manage teams that carry a `scimGroupProfile` marker within
+    // the organization. Native organization teams have no such marker and must
+    // stay outside the SCIM boundary, so they cannot be enumerated, read, or
+    // mutated through SCIM group routes. Markers are shared across providers in
+    // the same organization, so ownership is enforced at the org level (not per
+    // provider) to preserve cross-provider visibility of SCIM-managed groups.
+    if !team_is_scim_managed(adapter, organization_id, &team.id).await? {
+        return Ok(None);
+    }
     let profile = scim_group_profile(adapter, provider_id, &team.id).await?;
     let members = group_members(adapter, base_url, &team.id).await?;
     Ok(Some(group_resource(
@@ -258,6 +268,25 @@ pub(super) async fn group_resource_from_team(
         team.updated_at.unwrap_or(team.created_at),
         members,
     )))
+}
+
+pub(super) async fn team_is_scim_managed(
+    adapter: &dyn DbAdapter,
+    organization_id: &str,
+    team_id: &str,
+) -> Result<bool, OpenAuthError> {
+    Ok(adapter
+        .find_one(
+            FindOne::new("scimGroupProfile")
+                .where_clause(Where::new(
+                    "organizationId",
+                    DbValue::String(organization_id.to_owned()),
+                ))
+                .where_clause(Where::new("teamId", DbValue::String(team_id.to_owned())))
+                .select(["id"]),
+        )
+        .await?
+        .is_some())
 }
 
 pub(super) async fn replace_group(
@@ -603,7 +632,7 @@ pub(super) async fn load_group_resources(
     let mut resources = Vec::with_capacity(teams.len());
     for team in teams {
         if let Some(resource) =
-            group_resource_from_team(adapter, base_url, provider_id, &team).await?
+            group_resource_from_team(adapter, base_url, provider_id, organization_id, &team).await?
         {
             resources.push(resource);
         }
