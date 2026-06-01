@@ -9,6 +9,14 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed the OIDC SSO callback so it validates the ID token before trusting a
+  UserInfo response. Providers with a `userInfoEndpoint` configured previously
+  skipped ID token validation, allowing login and implicit account linking from
+  a successful UserInfo fetch even when the token response omitted the ID token
+  or returned an expired/malformed token or one with a missing/mismatched
+  `nonce`. The callback now requires a valid ID token (enforcing issuer,
+  audience, expiration, subject, `nonce`, and `azp`) and reconciles the UserInfo
+  `sub` with the ID token subject (OIDC Core 5.3.2).
 - Fixed OAuth HTTP and social-provider networking so outbound requests block
   literal private/loopback IPs by default, social userinfo calls use the
   guarded client, and ID token verification rejects opaque tokens and tokens

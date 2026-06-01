@@ -36,7 +36,8 @@ async fn oidc_callback_maps_google_userinfo_fixture_claims(
     )
     .await?;
 
-    run_provider_fixture_callback(&router, "google-workspace", "auth-code").await?;
+    run_provider_fixture_callback(&router, "google-workspace", "google-userinfo-id-token-code")
+        .await?;
 
     assert!(adapter.records("account").await.iter().any(|record| {
         record.get("provider_id") == Some(&DbValue::String("google-workspace".to_owned()))
@@ -96,7 +97,7 @@ async fn oidc_callback_maps_azure_userinfo_fixture_with_custom_claims(
     )
     .await?;
 
-    run_provider_fixture_callback(&router, "azure-entra", "auth-code").await?;
+    run_provider_fixture_callback(&router, "azure-entra", "azure-userinfo-id-token-code").await?;
 
     assert!(adapter.records("account").await.iter().any(|record| {
         record.get("provider_id") == Some(&DbValue::String("azure-entra".to_owned()))
@@ -150,7 +151,7 @@ async fn oidc_callback_maps_okta_userinfo_fixture_groups() -> Result<(), Box<dyn
     )
     .await?;
 
-    run_provider_fixture_callback(&router, "okta-default", "auth-code").await?;
+    run_provider_fixture_callback(&router, "okta-default", "okta-userinfo-id-token-code").await?;
 
     assert!(adapter.records("account").await.iter().any(|record| {
         record.get("provider_id") == Some(&DbValue::String("okta-default".to_owned()))
@@ -262,7 +263,7 @@ async fn oidc_callback_rejects_google_unverified_email_fixture_for_implicit_link
     run_provider_fixture_callback_error(
         &router,
         "google-unverified",
-        "auth-code",
+        "google-unverified-userinfo-id-token-code",
         "oauth_sign_in_failed",
     )
     .await?;
@@ -295,7 +296,7 @@ async fn oidc_callback_rejects_azure_fixture_missing_mapped_email(
     run_provider_fixture_callback_error(
         &router,
         "azure-missing-email",
-        "auth-code",
+        "azure-userinfo-id-token-code",
         "unable_to_get_user_info",
     )
     .await?;
@@ -328,7 +329,7 @@ async fn oidc_callback_rejects_okta_fixture_missing_subject(
     run_provider_fixture_callback_error(
         &router,
         "okta-missing-sub",
-        "auth-code",
+        "okta-userinfo-id-token-code",
         "unable_to_get_user_info",
     )
     .await?;
@@ -448,7 +449,8 @@ async fn oidc_callback_provider_fixture_flow_persists_with_sqlite_adapter(
     )
     .await?;
 
-    run_provider_fixture_callback(&router, "google-sqlite", "auth-code").await?;
+    run_provider_fixture_callback(&router, "google-sqlite", "google-userinfo-id-token-code")
+        .await?;
 
     let user_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email = ? AND email_verified = ?")

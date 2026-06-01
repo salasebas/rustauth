@@ -90,12 +90,12 @@ async fn oidc_callback_exchanges_code_creates_session_and_redirects(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -139,12 +139,12 @@ async fn oidc_callback_rejects_replayed_cookie_state() -> Result<(), Box<dyn std
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let first = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -162,7 +162,7 @@ async fn oidc_callback_rejects_replayed_cookie_state() -> Result<(), Box<dyn std
     let replay = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)

@@ -41,11 +41,11 @@ async fn oidc_callback_uses_client_secret_basic_token_auth(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -101,11 +101,11 @@ async fn oidc_callback_uses_client_secret_post_token_auth() -> Result<(), Box<dy
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -142,11 +142,11 @@ async fn oidc_callback_defaults_missing_token_auth_to_client_secret_basic(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/default-okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/default-okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -178,11 +178,13 @@ async fn oidc_callback_uses_discovered_client_secret_basic_token_auth(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/default-okta?state={state}&code=auth-code"),
+            &format!(
+                "/sso/callback/default-okta?state={state}&code=self-issued-id-token-code.{nonce}"
+            ),
             "",
             None,
         )?)

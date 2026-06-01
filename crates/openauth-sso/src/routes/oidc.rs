@@ -150,8 +150,29 @@ async fn callback(
         Ok(tokens) => tokens,
         Err(_) => return redirect_with_error(&error_url, "invalid_code"),
     };
+    // Validate the OIDC authentication response before trusting any profile
+    // source. OpenAuth always sends a `nonce` on the authorization request, so
+    // the IdP MUST return a valid, nonce-bound ID token; validating it here
+    // enforces issuer, audience, expiration, subject, nonce, and `azp`
+    // regardless of whether a UserInfo endpoint is configured, instead of
+    // completing the login from a UserInfo fetch alone.
+    let id_token_payload = match validate_oidc_id_token(
+        &tokens,
+        &config,
+        &provider.issuer,
+        state_data
+            .additional_data
+            .get("oidcNonce")
+            .and_then(Value::as_str),
+        allow_private_ips,
+    )
+    .await
+    {
+        Ok(Some(payload)) => payload,
+        _ => return redirect_with_error(&error_url, "invalid_id_token"),
+    };
     let raw_user_info = if let Some(user_info_endpoint) = config.user_info_endpoint.as_deref() {
-        match fetch_oidc_user_info(
+        let (user_info, user_info_subject) = match fetch_oidc_user_info(
             user_info_endpoint,
             &tokens,
             config.mapping.as_ref(),
@@ -161,27 +182,20 @@ async fn callback(
         {
             Ok(user_info) => user_info,
             Err(_) => return redirect_with_error(&error_url, "unable_to_get_user_info"),
+        };
+        // OIDC Core 5.3.2: when the UserInfo response carries a `sub`, it MUST
+        // match the validated ID token subject before its claims are trusted.
+        if let (Some(id_token_subject), Some(user_info_subject)) = (
+            json_string(&id_token_payload, "sub"),
+            user_info_subject.as_deref(),
+        ) {
+            if id_token_subject != user_info_subject {
+                return redirect_with_error(&error_url, "invalid_id_token");
+            }
         }
+        user_info
     } else {
-        let id_token_payload = match validate_oidc_id_token(
-            &tokens,
-            &config,
-            &provider.issuer,
-            state_data
-                .additional_data
-                .get("oidcNonce")
-                .and_then(Value::as_str),
-            allow_private_ips,
-        )
-        .await
-        {
-            Ok(payload) => payload,
-            Err(_) => return redirect_with_error(&error_url, "invalid_id_token"),
-        };
-        let Some(payload) = id_token_payload.as_ref() else {
-            return redirect_with_error(&error_url, "unable_to_get_user_info");
-        };
-        match oauth_user_info_from_json(payload, config.mapping.as_ref()) {
+        match oauth_user_info_from_json(&id_token_payload, config.mapping.as_ref()) {
             Ok(user_info) => user_info,
             Err(_) => return redirect_with_error(&error_url, "unable_to_get_user_info"),
         }
@@ -446,7 +460,7 @@ async fn fetch_oidc_user_info(
     tokens: &OAuth2Tokens,
     mapping: Option<&OidcMapping>,
     allow_private_ips: bool,
-) -> Result<OAuthUserInfo, openauth_core::error::OpenAuthError> {
+) -> Result<(OAuthUserInfo, Option<String>), openauth_core::error::OpenAuthError> {
     let access_token = tokens.access_token.as_deref().ok_or_else(|| {
         openauth_core::error::OpenAuthError::Api("missing access token".to_owned())
     })?;
@@ -464,7 +478,10 @@ async fn fetch_oidc_user_info(
         .await
         .map_err(|error| openauth_core::error::OpenAuthError::OAuth(error.to_string()))?;
 
-    oauth_user_info_from_json(&value, mapping)
+    // The raw `sub` claim is reconciled against the validated ID token subject
+    // by the caller (OIDC Core 5.3.2), independently of any custom `id` mapping.
+    let subject = json_string(&value, "sub");
+    Ok((oauth_user_info_from_json(&value, mapping)?, subject))
 }
 
 fn oauth_user_info_from_json(

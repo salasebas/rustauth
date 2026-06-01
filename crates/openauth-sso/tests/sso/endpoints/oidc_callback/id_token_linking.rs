@@ -74,12 +74,12 @@ async fn oidc_callback_discovers_jwks_and_uses_userinfo_when_id_token_is_present
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code"),
+            &format!("/sso/callback/okta?state={state}&code=self-issued-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -207,12 +207,12 @@ async fn oidc_callback_rejects_userinfo_without_stable_subject(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -246,12 +246,12 @@ async fn oidc_callback_redirects_new_user_to_new_user_callback_url(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -283,12 +283,12 @@ async fn oidc_callback_does_not_implicitly_link_on_idp_email_verified_only(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -322,12 +322,12 @@ async fn oidc_callback_does_not_mark_new_user_email_verified_from_idp_claim_by_d
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -369,12 +369,12 @@ async fn oidc_callback_implicitly_links_when_trust_email_verified_is_enabled(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -641,4 +641,101 @@ async fn oidc_callback_rejects_id_token_with_mismatched_nonce(
     assert!(adapter.records("account").await.is_empty());
 
     Ok(())
+}
+
+// OPE-72: a provider with a UserInfo endpoint configured must still validate
+// the ID token before trusting any profile claims. Each scenario drives the
+// UserInfo path (`register_oidc_provider_with_endpoints` registers
+// `userInfoEndpoint` + `jwksEndpoint`) but returns an unusable ID token, so the
+// callback must fail closed with `invalid_id_token` and link no account.
+async fn assert_userinfo_callback_rejects_invalid_id_token(
+    code: impl FnOnce(&str) -> String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let oidc = MockOidcServer::start().await?;
+    let (adapter, router) = router_with_options(SsoOptions::default())?;
+    let cookie = seed_session(&adapter).await?;
+    register_oidc_provider_with_endpoints(&router, &cookie, &oidc.base_url).await?;
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sign-in/sso",
+            r#"{"providerId":"okta","callbackURL":"/dashboard","errorCallbackURL":"/login-error"}"#,
+            None,
+        )?)
+        .await?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/sso/callback/okta?state={state}&code={}", code(&nonce)),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback.headers().get(header::LOCATION),
+        Some(&http::HeaderValue::from_static(
+            "/login-error?error=invalid_id_token"
+        ))
+    );
+    // Only the seeded session user remains; no account is linked.
+    assert_eq!(adapter.records("user").await.len(), 1);
+    assert!(adapter.records("account").await.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn oidc_userinfo_callback_rejects_id_token_without_nonce_claim(
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_userinfo_callback_rejects_invalid_id_token(|_| "id-token-missing-nonce-code".to_owned())
+        .await
+}
+
+#[tokio::test]
+async fn oidc_userinfo_callback_rejects_id_token_with_mismatched_nonce(
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_userinfo_callback_rejects_invalid_id_token(|_| "id-token-wrong-nonce-code".to_owned())
+        .await
+}
+
+#[tokio::test]
+async fn oidc_userinfo_callback_rejects_id_token_without_expiration(
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_userinfo_callback_rejects_invalid_id_token(|nonce| {
+        format!("missing-exp-id-token-code.{nonce}")
+    })
+    .await
+}
+
+#[tokio::test]
+async fn oidc_userinfo_callback_rejects_id_token_without_subject(
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_userinfo_callback_rejects_invalid_id_token(|nonce| {
+        format!("missing-sub-id-token-code.{nonce}")
+    })
+    .await
+}
+
+#[tokio::test]
+async fn oidc_userinfo_callback_rejects_id_token_with_wrong_issuer(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // `azure-id-token-code` mints a token whose issuer is the Entra tenant, but
+    // the registered provider issuer is `https://idp.example.com`.
+    assert_userinfo_callback_rejects_invalid_id_token(|nonce| {
+        format!("azure-id-token-code.{nonce}")
+    })
+    .await
+}
+
+#[tokio::test]
+async fn oidc_userinfo_callback_rejects_token_response_without_id_token(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // `auth-code` yields a token response with no `id_token`; the callback must
+    // reject it instead of completing the login from a UserInfo fetch alone.
+    assert_userinfo_callback_rejects_invalid_id_token(|_| "auth-code".to_owned()).await
 }

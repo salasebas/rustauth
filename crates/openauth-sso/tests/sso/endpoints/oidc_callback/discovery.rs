@@ -59,12 +59,12 @@ async fn oidc_callback_uses_default_sso_provider_from_state(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback?state={state}&code=auth-code"),
+            &format!("/sso/callback?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -97,12 +97,12 @@ async fn oidc_callback_path_uses_default_sso_provider_by_provider_id(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/default-okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/default-okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -138,12 +138,14 @@ async fn oidc_callback_discovers_default_sso_oidc_endpoints_at_runtime(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/default-okta?state={state}&code=auth-code"),
+            &format!(
+                "/sso/callback/default-okta?state={state}&code=self-issued-id-token-code.{nonce}"
+            ),
             "",
             None,
         )?)
@@ -265,12 +267,14 @@ async fn oidc_callback_discovers_stored_oidc_provider_endpoints_at_runtime(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/runtime-okta?state={state}&code=auth-code"),
+            &format!(
+                "/sso/callback/runtime-okta?state={state}&code=self-issued-id-token-code.{nonce}"
+            ),
             "",
             None,
         )?)
@@ -336,7 +340,7 @@ async fn oidc_callback_discovers_missing_jwks_even_when_userinfo_endpoint_exists
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
     let mut callback_config = config;
     callback_config.jwks_endpoint = None;
     adapter
@@ -356,7 +360,7 @@ async fn oidc_callback_discovers_missing_jwks_even_when_userinfo_endpoint_exists
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/missing-jwks-okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/missing-jwks-okta?state={state}&code=self-issued-id-token-code.{nonce}"),
             "",
             None,
         )?)

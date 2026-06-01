@@ -45,12 +45,12 @@ async fn oidc_callback_assigns_user_to_provider_organization(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -95,12 +95,12 @@ async fn oidc_callback_calls_provision_user_for_new_user() -> Result<(), Box<dyn
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -143,12 +143,12 @@ async fn oidc_callback_skips_provision_user_for_existing_user_by_default(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -193,12 +193,12 @@ async fn oidc_callback_calls_provision_user_for_existing_user_when_enabled(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)

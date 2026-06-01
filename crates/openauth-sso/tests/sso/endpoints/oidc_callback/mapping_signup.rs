@@ -46,12 +46,12 @@ async fn oidc_callback_applies_custom_userinfo_mapping() -> Result<(), Box<dyn s
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -133,12 +133,12 @@ async fn oidc_callback_exposes_mapped_extra_fields_to_provision_user(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -197,11 +197,11 @@ async fn oidc_callback_normalizes_mixed_case_email_to_single_user(
                 None,
             )?)
             .await?;
-        let state = authorization_state(sign_in)?;
+        let (state, nonce) = authorization_state_and_nonce(sign_in)?;
         let callback = router
             .handle_async(json_request(
                 Method::GET,
-                &format!("/sso/callback/okta?state={state}&code=auth-code"),
+                &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
                 "",
                 None,
             )?)
@@ -243,12 +243,12 @@ async fn oidc_callback_rejects_new_user_when_implicit_sign_up_is_disabled(
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)
@@ -284,12 +284,12 @@ async fn oidc_callback_allows_explicit_request_sign_up_when_implicit_sign_up_is_
             None,
         )?)
         .await?;
-    let state = authorization_state(sign_in)?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
 
     let callback = router
         .handle_async(json_request(
             Method::GET,
-            &format!("/sso/callback/okta?state={state}&code=auth-code"),
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
             "",
             None,
         )?)

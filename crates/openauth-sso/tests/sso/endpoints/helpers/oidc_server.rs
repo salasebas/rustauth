@@ -58,13 +58,23 @@ impl MockOidcServer {
                             Some((selector, nonce)) => (selector, Some(nonce)),
                             None => (code.as_str(), None),
                         };
+                        // Some providers (runtime discovery, self-hosted IdPs)
+                        // register the mock's own origin as their issuer, so
+                        // expose it to the minter to produce matching tokens.
+                        let self_issuer = format!(
+                            "http://{}",
+                            stream
+                                .local_addr()
+                                .map(|addr| addr.to_string())
+                                .unwrap_or_default()
+                        );
                         if selector == "id-token-code" {
                             (
                                 "200 OK",
                                 r#"{"access_token":"access-token","token_type":"Bearer","scope":"openid email profile","id_token":"invalid-id-token"}"#.to_owned(),
                             )
                         } else if let Some(id_token) =
-                            mint_dynamic_id_token(&default_jwk, selector, nonce)
+                            mint_dynamic_id_token(&default_jwk, &self_issuer, selector, nonce)
                         {
                             (
                                 "200 OK",
@@ -205,12 +215,19 @@ fn form_field(request: &str, key: &str) -> Option<String> {
 /// Returns `None` for codes that do not drive the ID-token path (for example
 /// the userinfo-path `auth-code`), so the caller falls back to an
 /// access-token-only token response.
-fn mint_dynamic_id_token(jwk: &Jwk, selector: &str, nonce: Option<&str>) -> Option<String> {
+fn mint_dynamic_id_token(
+    jwk: &Jwk,
+    self_issuer: &str,
+    selector: &str,
+    nonce: Option<&str>,
+) -> Option<String> {
     const DEFAULT_ISSUER: &str = "https://idp.example.com";
     const TENANT_ISSUER: &str =
         "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0";
     const WRONG_TENANT_ISSUER: &str =
         "https://login.microsoftonline.com/22222222-2222-2222-2222-222222222222/v2.0";
+    const GOOGLE_ISSUER: &str = "https://accounts.google.com";
+    const OKTA_ISSUER: &str = "https://dev-123456.okta.com/oauth2/default";
     const AUDIENCE: &str = "client_123456";
 
     let with_nonce = |mut options: IdTokenOptions| -> IdTokenOptions {
@@ -222,8 +239,29 @@ fn mint_dynamic_id_token(jwk: &Jwk, selector: &str, nonce: Option<&str>) -> Opti
         options
     };
 
+    let userinfo_subject = |subject: &str| -> IdTokenOptions {
+        with_nonce(IdTokenOptions {
+            subject: subject.to_owned(),
+            ..IdTokenOptions::default()
+        })
+    };
+
     let (issuer, options) = match selector {
         "valid-id-token-code" => (DEFAULT_ISSUER, with_nonce(IdTokenOptions::default())),
+        // A provider that registered the mock's own origin as its issuer (for
+        // example runtime discovery). Mints a nonce-bound token whose `iss`
+        // matches that origin so the UserInfo path can be validated.
+        "self-issued-id-token-code" => (self_issuer, with_nonce(IdTokenOptions::default())),
+        // UserInfo-path fixtures: each mints a valid, nonce-bound ID token
+        // whose `iss` matches the registered provider issuer and whose `sub`
+        // matches the corresponding UserInfo fixture subject, so the callback's
+        // subject reconciliation succeeds.
+        "google-userinfo-id-token-code" => (GOOGLE_ISSUER, userinfo_subject("google-sub-123")),
+        "google-unverified-userinfo-id-token-code" => {
+            (GOOGLE_ISSUER, userinfo_subject("google-unverified-sub"))
+        }
+        "okta-userinfo-id-token-code" => (OKTA_ISSUER, userinfo_subject("okta-sub-789")),
+        "azure-userinfo-id-token-code" => (TENANT_ISSUER, userinfo_subject("azure-sub-456")),
         "missing-exp-id-token-code" => (
             DEFAULT_ISSUER,
             with_nonce(IdTokenOptions {
