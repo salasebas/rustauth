@@ -41,7 +41,8 @@ impl FredSecondaryStorage {
 
     pub async fn list_keys(&self) -> Result<Vec<String>, OpenAuthError> {
         validate_secondary_storage_options(&self.options)?;
-        let pattern = secondary_storage_scan_pattern(&self.options.key_prefix);
+        let secondary_prefix = self.secondary_prefix();
+        let pattern = secondary_storage_scan_pattern(&secondary_prefix);
         let mut cursor = "0".to_owned();
         let mut keys = Vec::new();
 
@@ -52,7 +53,7 @@ impl FredSecondaryStorage {
                 .await
                 .map_err(|error| fred_error("secondary scan", error))?;
             for key in page {
-                if let Some(unprefixed) = key.strip_prefix(&self.options.key_prefix) {
+                if let Some(unprefixed) = key.strip_prefix(secondary_prefix.as_str()) {
                     keys.push(unprefixed.to_owned());
                 }
             }
@@ -82,9 +83,13 @@ impl FredSecondaryStorage {
         Ok(())
     }
 
+    fn secondary_prefix(&self) -> String {
+        format!("{}secondary:", self.options.key_prefix)
+    }
+
     fn prefixed_key(&self, key: &str) -> Result<String, OpenAuthError> {
         validate_key_prefix(&self.options.key_prefix)?;
-        Ok(format!("{}{key}", self.options.key_prefix))
+        Ok(format!("{}secondary:{key}", self.options.key_prefix))
     }
 }
 
@@ -186,6 +191,28 @@ mod tests {
         assert_eq!(
             secondary_storage_scan_pattern("openauth:test:"),
             "openauth:test:*"
+        );
+    }
+
+    #[test]
+    fn secondary_storage_matches_redis_secondary_namespace_layout() {
+        let storage = FredSecondaryStorage::new(
+            Client::default(),
+            FredSecondaryStorageOptions {
+                key_prefix: "test:".to_owned(),
+                scan_count: 100,
+            },
+        );
+
+        // Must match openauth-redis `RedisSecondaryStorage::key`: `{prefix}secondary:{key}`.
+        assert_eq!(
+            storage.prefixed_key("session:token").ok(),
+            Some("test:secondary:session:token".to_owned())
+        );
+        assert_eq!(storage.secondary_prefix(), "test:secondary:");
+        assert_eq!(
+            secondary_storage_scan_pattern(&storage.secondary_prefix()),
+            "test:secondary:*"
         );
     }
 

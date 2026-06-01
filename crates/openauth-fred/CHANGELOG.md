@@ -2,10 +2,16 @@
 
 All notable changes to `openauth-fred` are documented in this file.
 
-## Unreleased
+## [Unreleased]
 
 ### Fixed
 
+- Aligned secondary storage with `openauth-redis` by storing keys under the
+  explicit `secondary:` namespace (`{key_prefix}secondary:{key}`) instead of
+  `{key_prefix}{key}`. Logical keys are now portable between
+  `FredSecondaryStorage` and `RedisSecondaryStorage` on a shared instance and
+  prefix. This changes the physical Redis key layout: existing Fred records
+  written under the old layout are not read by this version.
 - Fixed `FredSecondaryStorage` so `get`, `set`, and `delete` reject an empty
   `key_prefix` instead of operating at the Redis/Valkey root namespace,
   matching the validation already enforced by `list_keys` and `clear`.
