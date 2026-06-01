@@ -6,6 +6,11 @@ All notable changes to `openauth-plugins` are documented in this file.
 
 ### Fixed
 
+- Fixed the CAPTCHA plugin matching configured endpoints against the full
+  request URI, so a query string or fragment carrying a protected path could
+  arm CAPTCHA on an unrelated route (for example
+  `/get-session?next=/sign-in/email`); matching now normalizes to the routed
+  pathname and compares endpoints on path-segment boundaries.
 - Fixed `organization.create` so unauthenticated requests cannot supply a
   `userId` to create organizations on behalf of another user.
 - Fixed the API key `api-key:by-ref:*` listing index losing concurrent writes in

@@ -71,6 +71,51 @@ async fn captcha_custom_endpoint_matches_containing_request_path(
 }
 
 #[tokio::test]
+async fn captcha_ignores_protected_path_in_query_string() -> Result<(), Box<dyn std::error::Error>>
+{
+    // Default endpoints include `/sign-up/email`. A callback/return URL that merely
+    // mentions a protected path in the query string must not arm CAPTCHA on an
+    // otherwise unprotected route such as `/get-session`.
+    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret"))?;
+    let router = router(plugin, "/get-session")?;
+
+    let response = router
+        .handle_async(request("/get-session?next=/sign-up/email", &[])?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn captcha_prefix_does_not_match_partial_segment() -> Result<(), Box<dyn std::error::Error>> {
+    // `/sign-up` must match on path-segment boundaries only, so `/sign-up-email`
+    // is not protected unless configured explicitly.
+    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
+    let router = router(plugin, "/sign-up-email")?;
+
+    let response = router.handle_async(request("/sign-up-email", &[])?).await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn captcha_prefix_does_not_match_nested_path() -> Result<(), Box<dyn std::error::Error>> {
+    // The configured endpoint is a prefix anchor, not a substring: a path that
+    // contains it deeper down (`/foo/sign-up/email`) must not be protected.
+    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
+    let router = router(plugin, "/foo/sign-up/email")?;
+
+    let response = router
+        .handle_async(request("/foo/sign-up/email", &[])?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
 async fn captcha_returns_400_when_response_header_is_missing(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret"))?;

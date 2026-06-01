@@ -38,6 +38,11 @@ Versioning while the API is still pre-1.0.
   which let CAPTCHA rejections (missing/invalid responses or provider errors)
   bypass route throttling and force repeated outbound provider calls; the route
   rate limit is now consumed before plugin middlewares run.
+- Fixed the CAPTCHA plugin matching protected endpoints against the full
+  request URI, which let a query string or fragment carrying a protected path
+  (such as `/get-session?next=/sign-in/email`) arm CAPTCHA on unrelated routes;
+  matching now normalizes to the routed pathname and compares configured
+  endpoints on path-segment boundaries.
 - Fixed session cookie cache authentication so cached session data is only
   returned after the backing session token still exists and is unexpired.
 - Fixed Axum request base URL inference so request-derived `Host` values are

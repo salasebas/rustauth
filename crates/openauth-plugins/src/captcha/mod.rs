@@ -13,6 +13,7 @@ pub use options::{CaptchaOptions, CaptchaProvider, DEFAULT_ENDPOINTS};
 use std::sync::Arc;
 
 use openauth_core::plugin::{AuthPlugin, PluginErrorCode};
+use openauth_core::utils::url::normalize_pathname;
 use response::error_response;
 use verify_handlers::{verify_captcha, VerifyCaptchaInput};
 
@@ -45,10 +46,11 @@ pub fn captcha(options: CaptchaOptions) -> Result<AuthPlugin, CaptchaConfigError
     plugin = plugin.with_async_middleware("*", move |context, request| {
         let options = Arc::clone(&options);
         Box::pin(async move {
+            let path = normalize_pathname(&request.uri().to_string(), &context.base_path);
             if !options
                 .endpoints
                 .iter()
-                .any(|endpoint| request.uri().to_string().contains(endpoint))
+                .any(|endpoint| endpoint_matches_path(endpoint, &path))
             {
                 return Ok(None);
             }
@@ -78,4 +80,22 @@ pub fn captcha(options: CaptchaOptions) -> Result<AuthPlugin, CaptchaConfigError
     });
 
     Ok(plugin)
+}
+
+/// Returns whether a configured CAPTCHA `endpoint` protects the routed `path`.
+///
+/// Matching is performed against the already normalized request pathname only,
+/// so query strings and fragments cannot smuggle a protected path into an
+/// otherwise unprotected route. An endpoint matches when it equals the path
+/// exactly or is a path-segment prefix of it: `/sign-up` protects
+/// `/sign-up/email` but not `/sign-up-email` or `/foo/sign-up/email`.
+fn endpoint_matches_path(endpoint: &str, path: &str) -> bool {
+    let endpoint = endpoint.trim_end_matches('/');
+    if endpoint.is_empty() {
+        return false;
+    }
+    path == endpoint
+        || path
+            .strip_prefix(endpoint)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
