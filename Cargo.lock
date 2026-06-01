@@ -2627,6 +2627,7 @@ dependencies = [
  "http",
  "openauth",
  "openauth-core",
+ "openauth-redis",
  "tokio",
 ]
 
