@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::task::Poll;
 
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::SecondaryStorage;
 use time::OffsetDateTime;
+use tokio::sync::Mutex as AsyncMutex;
 
 use super::keys::{storage_key_by_hash, storage_key_by_id, storage_key_by_reference};
 use super::listing::{list_from_secondary_storage, ListOptions, ListResult};
@@ -13,6 +16,33 @@ use crate::api_key::models::ApiKeyRecord;
 
 const STORAGE_CONCURRENCY: usize = 10;
 type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, OpenAuthError>> + Send + 'a>>;
+
+/// Returns the in-process lock guarding read/modify/write mutations of a single
+/// `api-key:by-ref:*` listing index entry.
+///
+/// The generic [`SecondaryStorage`] contract only exposes get/set/delete, so it
+/// cannot make the "read the id vector, edit it, write it back" sequence atomic
+/// on its own. Without serialization, concurrent creates/deletes for the same
+/// reference can read the same starting vector and overwrite each other, leaving
+/// live keys absent from `/api-key/list`. Locks are keyed by the concrete
+/// storage key and dropped once idle. This protects a single process only;
+/// cross-process deployments still require a secondary-storage backend with
+/// atomic collection semantics.
+fn ref_index_lock(ref_key: &str) -> Arc<AsyncMutex<()>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Weak<AsyncMutex<()>>>>> = OnceLock::new();
+    let mut registry = REGISTRY
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(lock) = registry.get(ref_key).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(AsyncMutex::new(()));
+    registry.insert(ref_key.to_owned(), Arc::downgrade(&lock));
+    // Drop entries whose locks are no longer held to keep the registry bounded.
+    registry.retain(|_, weak| weak.strong_count() > 0);
+    lock
+}
 
 impl ApiKeyStore<'_> {
     pub(super) async fn list_secondary(
@@ -52,20 +82,24 @@ impl ApiKeyStore<'_> {
         let ref_key = storage_key_by_reference(&api_key.reference_id);
         if self.options.fallback_to_database {
             storage.delete(&ref_key).await?;
-        } else if let Some(raw) = storage.get(&ref_key).await? {
-            let mut ids = serde_json::from_str::<Vec<String>>(&raw).unwrap_or_default();
-            ids.retain(|id| id != &api_key.id);
-            if ids.is_empty() {
-                storage.delete(&ref_key).await?;
-            } else {
-                storage
-                    .set(
-                        &ref_key,
-                        serde_json::to_string(&ids)
-                            .map_err(|error| OpenAuthError::Adapter(error.to_string()))?,
-                        None,
-                    )
-                    .await?;
+        } else {
+            let ref_lock = ref_index_lock(&ref_key);
+            let _guard = ref_lock.lock().await;
+            if let Some(raw) = storage.get(&ref_key).await? {
+                let mut ids = serde_json::from_str::<Vec<String>>(&raw).unwrap_or_default();
+                ids.retain(|id| id != &api_key.id);
+                if ids.is_empty() {
+                    storage.delete(&ref_key).await?;
+                } else {
+                    storage
+                        .set(
+                            &ref_key,
+                            serde_json::to_string(&ids)
+                                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?,
+                            None,
+                        )
+                        .await?;
+                }
             }
         }
         Ok(())
@@ -172,6 +206,8 @@ async fn set_secondary(
         storage.delete(&ref_key).await?;
         return Ok(());
     }
+    let ref_lock = ref_index_lock(&ref_key);
+    let _guard = ref_lock.lock().await;
     let mut ids = match storage.get(&ref_key).await? {
         Some(raw) => serde_json::from_str::<Vec<String>>(&raw).unwrap_or_default(),
         None => Vec::new(),

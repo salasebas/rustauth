@@ -180,7 +180,6 @@ async fn dispatch_json(
     })
 }
 
-#[derive(Default)]
 pub struct TestSecondaryStorage {
     values: Mutex<BTreeMap<String, String>>,
     deleted: Mutex<Vec<String>>,
@@ -188,6 +187,25 @@ pub struct TestSecondaryStorage {
     delay_millis: AtomicU64,
     active_gets: AtomicUsize,
     max_active_gets: AtomicUsize,
+    ref_gate_threshold: AtomicUsize,
+    ref_gate_count: AtomicUsize,
+    ref_gate: tokio::sync::Semaphore,
+}
+
+impl Default for TestSecondaryStorage {
+    fn default() -> Self {
+        Self {
+            values: Mutex::new(BTreeMap::new()),
+            deleted: Mutex::new(Vec::new()),
+            ttl: Mutex::new(BTreeMap::new()),
+            delay_millis: AtomicU64::new(0),
+            active_gets: AtomicUsize::new(0),
+            max_active_gets: AtomicUsize::new(0),
+            ref_gate_threshold: AtomicUsize::new(0),
+            ref_gate_count: AtomicUsize::new(0),
+            ref_gate: tokio::sync::Semaphore::new(0),
+        }
+    }
 }
 
 impl TestSecondaryStorage {
@@ -196,6 +214,18 @@ impl TestSecondaryStorage {
             delay_millis: AtomicU64::new(delay_millis),
             ..Self::default()
         }
+    }
+
+    /// Builds storage that releases concurrent `api-key:by-ref:*` reads only
+    /// once `threshold` of them are in flight at the same time (with a timeout
+    /// fallback so a correctly serialized caller never deadlocks). This forces
+    /// the lost-update race when index mutations are not serialized.
+    pub fn with_ref_index_gate(threshold: usize) -> Self {
+        let storage = Self::default();
+        storage
+            .ref_gate_threshold
+            .store(threshold, Ordering::SeqCst);
+        storage
     }
 
     pub fn deleted_keys(&self) -> Vec<String> {
@@ -228,6 +258,28 @@ impl TestSecondaryStorage {
         }
         self.active_gets.fetch_sub(1, Ordering::SeqCst);
     }
+
+    /// Holds a read of an `api-key:by-ref:*` key until `ref_gate_threshold`
+    /// concurrent reads of such keys have arrived, then releases them together.
+    /// A timeout fallback keeps a serialized caller (one read at a time) from
+    /// blocking forever, so the same gate works whether or not the store under
+    /// test serializes index mutations.
+    async fn gate_ref_get(&self, key: &str) {
+        let threshold = self.ref_gate_threshold.load(Ordering::SeqCst);
+        if threshold == 0 || !key.starts_with("api-key:by-ref:") {
+            return;
+        }
+        let arrived = self.ref_gate_count.fetch_add(1, Ordering::SeqCst) + 1;
+        if arrived >= threshold {
+            self.ref_gate.add_permits(threshold);
+        } else {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                self.ref_gate.acquire(),
+            )
+            .await;
+        }
+    }
 }
 
 impl SecondaryStorage for TestSecondaryStorage {
@@ -243,12 +295,16 @@ impl SecondaryStorage for TestSecondaryStorage {
     > {
         Box::pin(async move {
             self.maybe_delay_get().await;
-            Ok(self
+            let value = self
                 .values
                 .lock()
                 .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
                 .get(key)
-                .cloned())
+                .cloned();
+            // Release the snapshot only once enough concurrent readers have taken
+            // theirs, so every gated reader observes the same pre-write value.
+            self.gate_ref_get(key).await;
+            Ok(value)
         })
     }
 

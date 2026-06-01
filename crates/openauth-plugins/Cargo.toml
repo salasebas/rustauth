@@ -35,13 +35,13 @@ sha3.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tokio.workspace = true
 url.workspace = true
 
 [dev-dependencies]
 openauth-redis.workspace = true
 openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
 sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
-tokio.workspace = true
 
 [lints]
 workspace = true

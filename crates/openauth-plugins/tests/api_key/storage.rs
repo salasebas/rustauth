@@ -599,3 +599,86 @@ async fn delete_expired_purges_secondary_entries() -> Result<(), Box<dyn std::er
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn secondary_storage_concurrent_creates_keep_both_ids_in_ref_index(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    // The gate releases the two concurrent `api-key:by-ref:*` reads together,
+    // which reproduces the lost update when the index read/modify/write is not
+    // serialized: both creates would read the same starting vector and the
+    // second write would drop the first id from `/api-key/list`.
+    let storage = Arc::new(TestSecondaryStorage::with_ref_index_gate(2));
+    let router = test_router(
+        adapter,
+        api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                storage: ApiKeyStorageMode::SecondaryStorage,
+                custom_storage: Some(storage.clone()),
+                ..ApiKeyConfiguration::default()
+            },
+        }),
+    )?;
+    let user = sign_up(&router, "Conc", "conc-api@example.com").await?;
+
+    let (first, second) = tokio::join!(
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/create",
+            json!({"name": "first"}),
+            Some(&user.cookie),
+            None,
+        ),
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/create",
+            json!({"name": "second"}),
+            Some(&user.cookie),
+            None,
+        ),
+    );
+    let first = first?;
+    let second = second?;
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(second.status, StatusCode::OK);
+    let first_id = first.body["id"]
+        .as_str()
+        .ok_or("missing first id")?
+        .to_owned();
+    let second_id = second.body["id"]
+        .as_str()
+        .ok_or("missing second id")?
+        .to_owned();
+
+    let listed = request_json(
+        &router,
+        Method::GET,
+        "/api/auth/api-key/list",
+        serde_json::Value::Null,
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(
+        listed.body["total"], 2,
+        "both concurrently-created keys must remain in the listing index"
+    );
+    let listed_ids = listed.body["apiKeys"]
+        .as_array()
+        .ok_or("missing apiKeys array")?
+        .iter()
+        .filter_map(|api_key| api_key["id"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert!(
+        listed_ids.contains(&first_id),
+        "first concurrently-created key id missing from list: {listed_ids:?}"
+    );
+    assert!(
+        listed_ids.contains(&second_id),
+        "second concurrently-created key id missing from list: {listed_ids:?}"
+    );
+    Ok(())
+}
