@@ -9,6 +9,7 @@
 //! ```
 
 use std::env;
+use std::net::SocketAddr;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -75,7 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Note: `stripe trigger` via listen may return 400 if the CLI re-encodes the body; use Checkout or the signed self-test on startup."
     );
 
-    let serve = axum::serve(listener, app);
+    // Serve with ConnectInfo so OpenAuth rate limiting sees the real peer IP.
+    // Behind a reverse proxy, configure trusted forwarding headers explicitly instead.
+    let serve = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    );
     let server = tokio::spawn(async move { serve.await.map_err(|error| error.to_string()) });
     tokio::time::sleep(Duration::from_millis(200)).await;
     smoke_webhook_self_test(&webhook_url, &webhook_secret).await?;
