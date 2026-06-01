@@ -22,6 +22,11 @@ All notable changes to `openauth-scim` are documented in this file.
 
 ### Fixed
 
+- Require an organization-scoped `scimGroupProfile` marker for a team before
+  exposing or mutating it through SCIM group routes, so native organization
+  teams are no longer listed, readable, or mutable via `GET/PUT/PATCH/DELETE
+  /Groups` and the equivalent bulk operations. Cross-provider visibility of
+  SCIM-managed groups within the same organization is preserved.
 - Reject provisioning when `userName` or resolved `emails` are not valid email
   addresses, including PATCH `userName` updates.
 - Reject PUT and bulk PUT when `externalId` / `userName` would duplicate another

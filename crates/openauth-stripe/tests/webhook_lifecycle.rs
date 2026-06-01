@@ -590,6 +590,78 @@ async fn subscription_updated_webhook_falls_back_to_active_customer_subscription
 }
 
 #[tokio::test]
+async fn subscription_updated_webhook_skips_ambiguous_customer_subscriptions(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // OPE-81: when a customer has more than one unlinked local subscription and
+    // the event carries no trusted mapping (matching id, stripe_subscription_id,
+    // or metadata), the fallback must not overwrite an arbitrary active row.
+    let plugin = stripe(
+        StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
+            SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
+        ),
+    );
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/stripe/webhook")
+        .ok_or("webhook endpoint")?;
+    let adapter = MemoryAdapter::new();
+    for (id, status) in [("sub_active", "active"), ("sub_trialing", "trialing")] {
+        adapter
+            .create(
+                Create::new("subscription")
+                    .data("id", DbValue::String(id.to_owned()))
+                    .data("plan", DbValue::String("starter".to_owned()))
+                    .data("reference_id", DbValue::String("user_1".to_owned()))
+                    .data("stripe_customer_id", DbValue::String("cus_123".to_owned()))
+                    .data("stripe_subscription_id", DbValue::Null)
+                    .data("status", DbValue::String(status.to_owned()))
+                    .force_allow_id(),
+            )
+            .await?;
+    }
+    let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            ..OpenAuthOptions::default()
+        },
+        adapter_arc,
+    )?;
+    let payload = br#"{"id":"evt_ambiguous","type":"customer.subscription.updated","data":{"object":{"id":"stripe_sub_dashboard","customer":"cus_123","status":"active","metadata":{},"cancel_at_period_end":false,"items":{"data":[{"id":"si_dashboard","price":{"id":"price_pro","recurring":{"interval":"month","usage_type":"licensed"}},"quantity":3,"current_period_start":1700000000,"current_period_end":1702592000}]}}}}"#;
+
+    let response = (endpoint.handler)(&context, signed_webhook_request(payload)?).await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    // No unrelated row may be linked to the dashboard subscription.
+    assert!(adapter
+        .find_one(FindOne::new("subscription").where_clause(Where::new(
+            "stripe_subscription_id",
+            DbValue::String("stripe_sub_dashboard".to_owned()),
+        )))
+        .await?
+        .is_none());
+    for id in ["sub_active", "sub_trialing"] {
+        let subscription = adapter
+            .find_one(
+                FindOne::new("subscription")
+                    .where_clause(Where::new("id", DbValue::String(id.to_owned()))),
+            )
+            .await?
+            .ok_or("subscription")?;
+        assert_eq!(
+            subscription.get("stripe_subscription_id"),
+            Some(&DbValue::Null)
+        );
+        assert_eq!(
+            subscription.get("plan"),
+            Some(&DbValue::String("starter".to_owned()))
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn subscription_updated_webhook_resolves_dynamic_plans(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin = stripe(

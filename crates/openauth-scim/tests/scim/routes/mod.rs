@@ -29,6 +29,7 @@ mod concurrency;
 mod deprovision;
 mod groups;
 mod groups_auth;
+mod groups_native_team_boundary;
 mod groups_scope;
 mod isolation;
 mod management;

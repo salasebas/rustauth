@@ -142,27 +142,40 @@ pub(super) async fn on_subscription_updated(
     };
     let subscription_record = match subscription_record {
         Some(subscription_record) => Some(subscription_record),
-        None => {
-            let customer_id = customer_id_from_stripe_subscription(&subscription);
-            if let Some(customer_id) = customer_id {
+        None => match customer_id_from_stripe_subscription(&subscription) {
+            Some(customer_id) => {
                 let subscriptions = adapter
                     .find_many(FindMany::new("subscription").where_clause(Where::new(
                         "stripe_customer_id",
                         DbValue::String(customer_id),
                     )))
                     .await?;
-                if subscriptions.len() > 1 {
-                    subscriptions.into_iter().find(|record| {
-                        record_string(record, "status")
-                            .is_some_and(crate::utils::is_active_or_trialing)
-                    })
-                } else {
-                    subscriptions.into_iter().next()
+                // Only adopt the event into a local row that is not yet linked to
+                // any Stripe subscription, and only when exactly one such row
+                // exists. Selecting by local active/trialing status alone could
+                // overwrite an unrelated subscription for the same customer.
+                let mut unlinked = subscriptions.into_iter().filter(|record| {
+                    match record_string(record, "stripe_subscription_id") {
+                        Some(value) => value.is_empty(),
+                        None => true,
+                    }
+                });
+                match (unlinked.next(), unlinked.next()) {
+                    (Some(candidate), None) => Some(candidate),
+                    _ => {
+                        logging::webhook_warn(
+                            context,
+                            &format!(
+                                "Stripe webhook warning: customer.subscription.updated for {} did not map to a unique unlinked local subscription; skipping to avoid overwriting an unrelated record",
+                                subscription.id
+                            ),
+                        );
+                        None
+                    }
                 }
-            } else {
-                None
             }
-        }
+            None => None,
+        },
     };
     let Some(subscription_record) = subscription_record else {
         return Ok(());

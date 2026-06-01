@@ -71,7 +71,7 @@ impl FredSecondaryStorage {
             .await?
             .into_iter()
             .map(|key| self.prefixed_key(&key))
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         if keys.is_empty() {
             return Ok(());
         }
@@ -82,8 +82,9 @@ impl FredSecondaryStorage {
         Ok(())
     }
 
-    fn prefixed_key(&self, key: &str) -> String {
-        format!("{}{key}", self.options.key_prefix)
+    fn prefixed_key(&self, key: &str) -> Result<String, OpenAuthError> {
+        validate_key_prefix(&self.options.key_prefix)?;
+        Ok(format!("{}{key}", self.options.key_prefix))
     }
 }
 
@@ -91,7 +92,7 @@ impl SecondaryStorage for FredSecondaryStorage {
     fn get<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
         Box::pin(async move {
             self.client
-                .get::<Option<String>, _>(self.prefixed_key(key))
+                .get::<Option<String>, _>(self.prefixed_key(key)?)
                 .await
                 .map_err(|error| fred_error("secondary get", error))
         })
@@ -115,7 +116,7 @@ impl SecondaryStorage for FredSecondaryStorage {
                 })
                 .transpose()?;
             self.client
-                .set::<(), _, _>(self.prefixed_key(key), value, expire, None, false)
+                .set::<(), _, _>(self.prefixed_key(key)?, value, expire, None, false)
                 .await
                 .map_err(|error| fred_error("secondary set", error))
         })
@@ -124,7 +125,7 @@ impl SecondaryStorage for FredSecondaryStorage {
     fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
         Box::pin(async move {
             self.client
-                .del::<u64, _>(self.prefixed_key(key))
+                .del::<u64, _>(self.prefixed_key(key)?)
                 .await
                 .map_err(|error| fred_error("secondary delete", error))?;
             Ok(())
@@ -147,14 +148,19 @@ fn secondary_storage_scan_pattern(prefix: &str) -> String {
     pattern
 }
 
-fn validate_secondary_storage_options(
-    options: &FredSecondaryStorageOptions,
-) -> Result<(), OpenAuthError> {
-    if options.key_prefix.is_empty() {
+fn validate_key_prefix(prefix: &str) -> Result<(), OpenAuthError> {
+    if prefix.is_empty() {
         return Err(OpenAuthError::InvalidConfig(
             "secondary storage key prefix must not be empty".to_owned(),
         ));
     }
+    Ok(())
+}
+
+fn validate_secondary_storage_options(
+    options: &FredSecondaryStorageOptions,
+) -> Result<(), OpenAuthError> {
+    validate_key_prefix(&options.key_prefix)?;
     if options.scan_count == 0 {
         return Err(OpenAuthError::InvalidConfig(
             "secondary storage scan count must be greater than zero".to_owned(),
@@ -248,6 +254,43 @@ mod tests {
             storage.clear().await,
             Err(OpenAuthError::InvalidConfig(message))
                 if message == "secondary storage scan count must be greater than zero"
+        ));
+    }
+
+    fn empty_prefix_storage() -> FredSecondaryStorage {
+        FredSecondaryStorage::new(
+            Client::default(),
+            FredSecondaryStorageOptions {
+                key_prefix: String::new(),
+                scan_count: 100,
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn get_rejects_empty_prefix_before_calling_redis() {
+        assert!(matches!(
+            empty_prefix_storage().get("session").await,
+            Err(OpenAuthError::InvalidConfig(message))
+                if message == "secondary storage key prefix must not be empty"
+        ));
+    }
+
+    #[tokio::test]
+    async fn set_rejects_empty_prefix_before_calling_redis() {
+        assert!(matches!(
+            empty_prefix_storage().set("session", "value".to_owned(), None).await,
+            Err(OpenAuthError::InvalidConfig(message))
+                if message == "secondary storage key prefix must not be empty"
+        ));
+    }
+
+    #[tokio::test]
+    async fn delete_rejects_empty_prefix_before_calling_redis() {
+        assert!(matches!(
+            empty_prefix_storage().delete("session").await,
+            Err(OpenAuthError::InvalidConfig(message))
+                if message == "secondary storage key prefix must not be empty"
         ));
     }
 }

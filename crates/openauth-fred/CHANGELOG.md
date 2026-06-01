@@ -2,6 +2,14 @@
 
 All notable changes to `openauth-fred` are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Fixed `FredSecondaryStorage` so `get`, `set`, and `delete` reject an empty
+  `key_prefix` instead of operating at the Redis/Valkey root namespace,
+  matching the validation already enforced by `list_keys` and `clear`.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added
