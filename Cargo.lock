@@ -2627,6 +2627,7 @@ dependencies = [
  "http",
  "openauth",
  "openauth-core",
+ "openauth-redis",
  "tokio",
 ]
 
@@ -3471,13 +3472,18 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "itoa",
+ "native-tls",
  "num-bigint",
  "percent-encoding",
  "pin-project-lite",
+ "rustls",
+ "rustls-native-certs",
  "ryu",
  "sha1_smol",
  "socket2 0.6.3",
  "tokio",
+ "tokio-native-tls",
+ "tokio-rustls",
  "tokio-util",
  "url",
 ]

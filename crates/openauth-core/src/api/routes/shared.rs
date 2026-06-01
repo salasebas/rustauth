@@ -32,6 +32,24 @@ pub(super) fn record_new_session(session: &Session, user: &User) -> Result<(), O
     Ok(())
 }
 
+/// Resolve whether the current request carries a non-remembered (browser
+/// session) marker. Mirrors how `SessionAuth::get_session` derives the
+/// `dont_remember` flag from the signed marker cookie, so sensitive flows can
+/// preserve `rememberMe: false` behavior when reissuing session cookies.
+pub(super) fn request_dont_remember(
+    context: &AuthContext,
+    request: &ApiRequest,
+) -> Result<bool, OpenAuthError> {
+    let cookie_header = request_cookie_header(request).unwrap_or_default();
+    let Some(value) = crate::cookies::parse_cookies(&cookie_header)
+        .get(&context.auth_cookies.dont_remember_token.name)
+        .cloned()
+    else {
+        return Ok(false);
+    };
+    Ok(crate::cookies::verify_cookie_value(&value, &context.secret)?.is_some())
+}
+
 pub(super) fn auth_flow_error_response(error: AuthFlowError) -> Result<ApiResponse, OpenAuthError> {
     let status = match error.code() {
         AuthFlowErrorCode::InvalidEmailOrPassword => StatusCode::UNAUTHORIZED,

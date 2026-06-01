@@ -315,4 +315,20 @@ mod tests {
 
         assert_eq!(key, "test:secondary:session:token");
     }
+
+    #[cfg(any(feature = "rustls", feature = "native-tls"))]
+    #[test]
+    fn tls_urls_open_as_tls_connections() -> Result<(), redis::RedisError> {
+        for url in ["rediss://localhost:6379", "valkeys://localhost:6380"] {
+            let client = redis::Client::open(normalize_redis_url(url).as_ref())?;
+            assert!(
+                matches!(
+                    client.get_connection_info().addr,
+                    redis::ConnectionAddr::TcpTls { .. }
+                ),
+                "{url} should open as a TLS connection"
+            );
+        }
+        Ok(())
+    }
 }

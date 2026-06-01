@@ -394,7 +394,11 @@ fn default_special_rule(path: &str) -> Option<RateLimitRule> {
 /// configuration. Shared by rate limiting and request metadata so the two
 /// never disagree about the same request. Returns `None` when no trusted IP
 /// can be resolved instead of trusting raw forwarding headers.
-pub(crate) fn resolve_client_ip(context: &AuthContext, request: &Request<Body>) -> Option<String> {
+///
+/// Exposed so plugin crates that create sessions outside the core auth flows
+/// (e.g. passkey login) persist the same validated client IP rather than
+/// trusting raw forwarding headers.
+pub fn resolve_client_ip(context: &AuthContext, request: &Request<Body>) -> Option<String> {
     if context.options.advanced.ip_address.disable_ip_tracking {
         return None;
     }

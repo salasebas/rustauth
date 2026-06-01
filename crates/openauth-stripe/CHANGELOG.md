@@ -15,6 +15,12 @@ All notable changes to `openauth-stripe` are documented in this file.
 
 ### Fixed
 
+- Fixed `customer.subscription.updated` handling so the customer-id fallback no
+  longer overwrites an unrelated local subscription (OPE-81). When the event
+  has no trusted mapping (matching `id`, `stripe_subscription_id`, or plugin
+  metadata), the handler now adopts a local row only when exactly one row for
+  that customer is still unlinked; otherwise it logs a warning and skips instead
+  of selecting an arbitrary active/trialing row.
 - Fixed checkout success fallback to reconcile trialing subscriptions that were
   not activated by the primary webhook delivery path.
 - Fixed organization seat synchronization to clamp Stripe subscription

@@ -20,5 +20,10 @@ redis = { version = "0.32", default-features = false, features = ["tokio-comp", 
 thiserror.workspace = true
 tokio.workspace = true
 
+[features]
+default = []
+native-tls = ["redis/tokio-native-tls-comp"]
+rustls = ["redis/tokio-rustls-comp"]
+
 [lints]
 workspace = true

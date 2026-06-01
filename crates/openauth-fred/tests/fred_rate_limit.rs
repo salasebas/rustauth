@@ -10,6 +10,7 @@ use openauth_core::options::{
     PasswordResetEmail, RateLimitConsumeInput, RateLimitRule, RateLimitStore, SecondaryStorage,
 };
 use openauth_fred::{FredRateLimitStore, FredSecondaryStorage, FredSecondaryStorageOptions};
+use openauth_redis::RedisSecondaryStorage;
 
 const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1:6379";
 const DEFAULT_VALKEY_URL: &str = "valkey://127.0.0.1:6380";
@@ -572,6 +573,29 @@ async fn fred_secondary_storage_supports_strings_ttl_delete_list_and_clear(
 
         storage.clear().await?;
         assert_eq!(storage.list_keys().await?, Vec::<String>::new());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn fred_and_redis_secondary_storage_share_physical_key_layout(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let fred = FredSecondaryStorage::connect(&target.url).await?;
+        let redis = RedisSecondaryStorage::connect(&target.url).await?;
+        let key = format!("cross-adapter:{}:{}", target.name, now_ms());
+
+        // Written through redis-rs, read back through fred at the same logical key.
+        redis.set(&key, "redis-value".to_owned(), None).await?;
+        assert_eq!(fred.get(&key).await?, Some("redis-value".to_owned()));
+
+        // Written through fred, read back through redis-rs.
+        fred.set(&key, "fred-value".to_owned(), None).await?;
+        assert_eq!(redis.get(&key).await?, Some("fred-value".to_owned()));
+
+        // Deletion is observed across both adapters.
+        redis.delete(&key).await?;
+        assert_eq!(fred.get(&key).await?, None);
     }
     Ok(())
 }

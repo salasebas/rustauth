@@ -6,12 +6,18 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Added
 
+- Added `db::ensure_executable_migration_plan`, a shared preflight that rejects
+  migration plans containing non-executable warnings so every SQL adapter
+  refuses warning/error plans identically before mutating the database.
 - Added `cookies::create_auth_cookie` and `AuthContext::create_auth_cookie`,
   exposing the shared cookie naming and attribute policy used by `get_cookies`
   so plugins can build their own cookies with the same `cookie_prefix`,
   secure-name prefix, cross-subdomain `domain`, and `default_cookie_attributes`.
 - Added `RateLimitOptions::missing_ip_policy` (`MissingIpPolicy`) to control
   behavior when rate limiting is enabled but no client IP can be resolved.
+- Exposed `rate_limit::resolve_client_ip` so plugin crates that create sessions
+  outside the core auth flows (e.g. passkey login) persist the same validated
+  client IP instead of trusting raw forwarding headers.
 
 ### Fixed
 
@@ -22,6 +28,20 @@ All notable changes to `openauth-core` are documented in this file.
   cookies from shadowing the victim's secure session, and `delete_session_cookie`
   now also expires the unprefixed fallback so a planted shadow cannot keep
   forcing anonymous responses.
+- Fixed `rememberMe: false` (browser-session) sessions becoming persistent
+  after sensitive flows. `/change-password` with `revokeOtherSessions: true`
+  and `/change-email` immediate updates previously reissued the session cookie
+  with `Max-Age` (dropping the non-remembered marker), and the change-password
+  replacement session was minted with the full session lifetime. These flows
+  now resolve the current non-remembered state from the signed `dont_remember`
+  marker and preserve it: the reissued cookie stays a browser-session cookie
+  and the replacement session expires on the 1-day non-remembered window.
+- Fixed social OAuth `form_post` callbacks (e.g. Apple's
+  `response_mode=form_post`) being blocked by origin/CSRF checks. The POST
+  `/callback/:id` endpoint now bypasses the cross-site navigation block so it
+  can reflect the provider form into the GET callback, where the signed OAuth
+  `state` is still validated. Other social sign-in/link POST endpoints remain
+  protected.
 - Fixed sign-out so `SessionStore::delete_session` failures propagate to
   callers instead of always returning success while cookies are cleared.
 - Fixed OAuth token encryption so `encrypt_oauth_tokens` encrypts access,

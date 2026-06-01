@@ -63,7 +63,15 @@ pub fn run(context: &AppContext, args: InitArgs) -> Result<(), AppError> {
     if framework == "axum" {
         println!();
         println!("Axum integration snippet:");
+        println!("use std::net::SocketAddr;");
+        println!();
         println!("let app = openauth_axum::router(auth)?;");
+        println!("let listener = tokio::net::TcpListener::bind(\"127.0.0.1:3000\").await?;");
+        println!("// Serve with ConnectInfo so OpenAuth rate limiting sees the real client IP.");
+        println!(
+            "axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;"
+        );
+        println!("// Behind a proxy, configure trusted forwarding headers explicitly instead.");
     }
     Ok(())
 }

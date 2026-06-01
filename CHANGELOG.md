@@ -9,6 +9,22 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed `rememberMe: false` sessions becoming persistent after sensitive
+  account flows. `/change-password` with `revokeOtherSessions: true` and
+  `/change-email` immediate email updates now preserve the non-remembered
+  browser-session cookie (no `Max-Age`, `dont_remember` marker retained) and
+  mint the change-password replacement session on the 1-day non-remembered
+  window instead of the full session lifetime.
+- Fixed `openauth-redis` documenting `rediss://`/`valkeys://` TLS URLs without
+  compiling a redis-rs TLS backend, which made `connect()` fail with an
+  `InvalidClientConfig` error. TLS is now opt-in through the new `rustls` and
+  `native-tls` crate features, and the README documents how to enable them.
+- Fixed social OAuth `form_post` callbacks (such as Apple's
+  `response_mode=form_post`) being rejected with
+  `CROSS_SITE_NAVIGATION_LOGIN_BLOCKED`. Only the POST `/callback/:id` endpoint
+  now bypasses the cross-site navigation block so the provider form is reflected
+  into the GET callback, where the signed OAuth `state` is still validated;
+  other social sign-in/link POST endpoints stay protected.
 - Fixed the OIDC SSO callback so it validates the ID token before trusting a
   UserInfo response. Providers with a `userInfoEndpoint` configured previously
   skipped ID token validation, allowing login and implicit account linking from

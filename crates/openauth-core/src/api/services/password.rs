@@ -12,11 +12,17 @@ use crate::session::{CreateSessionInput, SessionStore};
 use crate::user::{CreateCredentialAccountInput, DbUserStore};
 use crate::verification::{CreateVerificationInput, VerificationStore};
 
+/// Lifetime of a replacement session minted for a non-remembered
+/// (`rememberMe: false`) user, matching the `dont_remember_session_expires_in`
+/// used when establishing such sessions during sign-in.
+const DONT_REMEMBER_SESSION_EXPIRES_IN: i64 = 60 * 60 * 24;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::api) struct ChangePasswordInput {
     pub(in crate::api) current_password: String,
     pub(in crate::api) new_password: String,
     pub(in crate::api) revoke_other_sessions: bool,
+    pub(in crate::api) dont_remember: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,12 +97,18 @@ pub(in crate::api) async fn change_password(
 
     let sessions = SessionStore::new(adapter, context);
     sessions.delete_user_sessions(&user.id).await?;
+    // Preserve the current remember policy: a `rememberMe: false` session must
+    // not be extended to the full session lifetime when minting a replacement.
+    let expires_in = if input.dont_remember {
+        DONT_REMEMBER_SESSION_EXPIRES_IN
+    } else {
+        context.session_config.expires_in as i64
+    };
     Ok(Some(
         sessions
             .create_session(CreateSessionInput::new(
                 &user.id,
-                OffsetDateTime::now_utc()
-                    + Duration::seconds(context.session_config.expires_in as i64),
+                OffsetDateTime::now_utc() + Duration::seconds(expires_in),
             ))
             .await?,
     ))

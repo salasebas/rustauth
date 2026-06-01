@@ -6,6 +6,12 @@ All notable changes to `openauth-plugins` are documented in this file.
 
 ### Fixed
 
+- Fixed the MCP token endpoint `refresh_token` grant skipping client
+  authentication, so a leaked refresh token for a confidential client could
+  mint new tokens without the configured secret; the grant now loads the client,
+  rejects disabled clients, and requires a matching `client_secret` (via Basic or
+  POST) for confidential clients while still allowing public clients to refresh
+  without one.
 - Fixed the CAPTCHA plugin matching configured endpoints against the full
   request URI, so a query string or fragment carrying a protected path could
   arm CAPTCHA on an unrelated route (for example

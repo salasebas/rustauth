@@ -2,6 +2,15 @@
 
 All notable changes to `openauth-cli` are documented in this file.
 
+## Unreleased
+
+### Changed
+
+- Updated the generated Axum integration snippet from `init` to serve with
+  `into_make_service_with_connect_info::<SocketAddr>()` so OpenAuth rate
+  limiting sees real client IPs, with a note to configure trusted forwarding
+  headers explicitly behind a proxy.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added

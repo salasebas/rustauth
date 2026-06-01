@@ -158,6 +158,26 @@ fn signed_session_cookie(token: &str) -> Result<String, OpenAuthError> {
     Ok(cookie_header(&cookies))
 }
 
+/// Build a cookie header for a non-remembered (`rememberMe: false`) session,
+/// including the signed `dont_remember` marker cookie that drives browser
+/// session behavior.
+fn signed_dont_remember_session_cookie(token: &str) -> Result<String, OpenAuthError> {
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some(secret().to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let cookies = openauth_core::cookies::set_session_cookie(
+        &context.auth_cookies,
+        &context.secret,
+        token,
+        openauth_core::cookies::SessionCookieOptions {
+            dont_remember: true,
+            ..openauth_core::cookies::SessionCookieOptions::default()
+        },
+    )?;
+    Ok(cookie_header(&cookies))
+}
+
 fn cookie_header(cookies: &[Cookie]) -> String {
     cookies
         .iter()

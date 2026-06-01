@@ -19,6 +19,10 @@ All notable changes to `openauth-passkey` are documented in this file.
   storage-aware stores so deployments using `secondary_storage` (e.g. Redis)
   with `store_session_in_database(false)` can complete passwordless sign-in and
   challenge verification.
+- Fixed passkey login so the created session's IP metadata is resolved through
+  the core `advanced.ip_address` resolver (header allow-listing,
+  `RequestClientIp`, validation) instead of trusting the raw `X-Forwarded-For`
+  header a client can prepend during `/passkey/verify-authentication`.
 
 ## [0.0.6] - 2026-05-24
 

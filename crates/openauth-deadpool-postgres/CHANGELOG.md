@@ -6,6 +6,11 @@ All notable changes to `openauth-deadpool-postgres` are documented in this file.
 
 ### Fixed
 
+- Reject schema migrations whose plan carries non-executable warnings before any
+  statement runs, matching the SQLx Postgres preflight. Because the pooled
+  adapter reuses the `openauth-tokio-postgres` schema path, `create_schema` and
+  `run_migrations` no longer mutate the schema when the planner reports warnings
+  such as column type drift.
 - Fixed rate-limit persistence so negative stored counts are rejected instead
   of wrapping to huge values when decoded as `u64`.
 - Roll back in-flight transactions when `transaction()` or rate-limit `consume()`

@@ -16,7 +16,9 @@ client.
 - `RedisRateLimitStore`: distributed atomic rate limiting through Lua.
 - `RedisSecondaryStorage`: secondary storage for sessions, verification state,
   SSO state, and plugin data that opt into secondary storage.
-- `redis://`, `rediss://`, `valkey://`, and `valkeys://` URL support.
+- `redis://`, `rediss://`, `valkey://`, and `valkeys://` URL support. TLS
+  schemes (`rediss://`, `valkeys://`) require enabling a TLS feature; see
+  [TLS](#tls).
 
 ## Quick Start
 
@@ -58,6 +60,22 @@ let auth = OpenAuth::builder()
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+## TLS
+
+TLS connections are opt-in. `rediss://` and `valkeys://` URLs only work when a
+redis-rs TLS backend is compiled in through one of these crate features:
+
+```toml
+# rustls backend (pure Rust)
+openauth-redis = { version = "0.0.6", features = ["rustls"] }
+
+# or native-tls backend (system TLS)
+openauth-redis = { version = "0.0.6", features = ["native-tls"] }
+```
+
+Without a TLS feature, opening a `rediss://` or `valkeys://` URL fails with an
+`InvalidClientConfig` error because the TLS backend is not enabled.
 
 ## Status
 

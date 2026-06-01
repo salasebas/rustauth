@@ -11,14 +11,7 @@ pub use openauth_core::db::{
 };
 
 pub(crate) fn ensure_executable(plan: &SchemaMigrationPlan) -> Result<(), OpenAuthError> {
-    if !plan.has_warnings() {
-        return Ok(());
-    }
-
-    Err(OpenAuthError::Adapter(format!(
-        "migration contains {} non-executable migration warnings; inspect plan_migrations or compile_migrations before applying",
-        plan.warnings.len()
-    )))
+    openauth_core::db::ensure_executable_migration_plan(plan)
 }
 
 pub(crate) async fn write_schema_file(
