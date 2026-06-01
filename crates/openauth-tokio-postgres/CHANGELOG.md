@@ -6,6 +6,10 @@ All notable changes to `openauth-tokio-postgres` are documented in this file.
 
 ### Fixed
 
+- Reject schema migrations whose plan carries non-executable warnings before any
+  statement runs, matching the SQLx Postgres preflight. `create_schema` and
+  `run_migrations` now fail closed on planner warnings (such as column type
+  drift) instead of silently applying the additive parts of the plan.
 - Fixed rate-limit persistence so negative stored counts are rejected instead
   of wrapping to huge values when decoded as `u64`.
 - Roll back in-flight transactions when `transaction()` or rate-limit `consume()`

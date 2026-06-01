@@ -1,9 +1,10 @@
 use openauth_core::db::sql::{
     consume_sql_rate_limit_record, count_statement, create_statement, delete_one_statement,
-    execute_schema_migration_plan, find_many_statement, internal_base_selection, joined_rows,
-    plan_schema_migration, rate_limit_consume_statements, resolve_native_joins, update_one_plan,
-    DeleteOneStrategy, SqlAdapterRunner, SqlColumnSnapshot, SqlDialect, SqlExecutor,
-    SqlRateLimitNames, SqlRowReader, SqlSchemaSnapshot, SqlStatement, SqlUpdateOnePlan,
+    ensure_executable_migration_plan, execute_schema_migration_plan, find_many_statement,
+    internal_base_selection, joined_rows, plan_schema_migration, rate_limit_consume_statements,
+    resolve_native_joins, update_one_plan, DeleteOneStrategy, SqlAdapterRunner, SqlColumnSnapshot,
+    SqlDialect, SqlExecutor, SqlRateLimitNames, SqlRowReader, SqlSchemaSnapshot, SqlStatement,
+    SqlUpdateOnePlan,
 };
 use openauth_core::db::{
     auth_schema, AdapterFuture, AuthSchemaOptions, Connector, Create, DbField, DbFieldType,
@@ -318,6 +319,28 @@ fn plan_schema_migration_reports_missing_columns_indexes_and_type_warnings(
             expected: "TEXT".to_owned(),
             actual: "integer".to_owned(),
         }));
+    Ok(())
+}
+
+#[test]
+fn ensure_executable_migration_plan_rejects_warning_plans_and_accepts_clean_plans(
+) -> Result<(), OpenAuthError> {
+    let schema = auth_schema(AuthSchemaOptions::default());
+    let warning_snapshot = SqlSchemaSnapshot::default()
+        .with_table("users")
+        .with_column("users", SqlColumnSnapshot::new("id", "text"))
+        .with_column("users", SqlColumnSnapshot::new("email", "integer"));
+    let warning_plan = plan_schema_migration(SqlDialect::Postgres, &schema, &warning_snapshot)?;
+    assert!(warning_plan.has_warnings());
+    assert!(matches!(
+        ensure_executable_migration_plan(&warning_plan),
+        Err(OpenAuthError::Adapter(message)) if message.contains("non-executable migration warnings")
+    ));
+
+    let clean_plan =
+        plan_schema_migration(SqlDialect::Postgres, &schema, &SqlSchemaSnapshot::default())?;
+    assert!(!clean_plan.has_warnings());
+    assert!(ensure_executable_migration_plan(&clean_plan).is_ok());
     Ok(())
 }
 

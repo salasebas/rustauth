@@ -33,8 +33,8 @@ pub use schema::{
 };
 pub use sql::{
     consume_sql_rate_limit_record, count_statement, create_statement, delete_many_statement,
-    delete_one_statement, execute_schema_migration_plan, find_many_statement,
-    find_many_with_joins_statement, find_one_statement, plan_schema_migration,
+    delete_one_statement, ensure_executable_migration_plan, execute_schema_migration_plan,
+    find_many_statement, find_many_with_joins_statement, find_one_statement, plan_schema_migration,
     rate_limit_consume_statements, rate_limit_count_from_i64, rate_limit_count_to_i64,
     update_many_statement, update_one_plan, ColumnToAdd, DeleteOneStrategy, IndexToCreate,
     MigrationStatement, MigrationStatementKind, SchemaMigrationPlan, SchemaMigrationWarning,

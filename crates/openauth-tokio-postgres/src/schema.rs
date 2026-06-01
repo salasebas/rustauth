@@ -1,6 +1,7 @@
 use openauth_core::db::{
-    execute_schema_migration_plan, plan_schema_migration, AdapterFuture, DbSchema, ForeignKey,
-    OnDelete, SqlColumnSnapshot, SqlDialect, SqlExecutor, SqlSchemaSnapshot, SqlStatement,
+    ensure_executable_migration_plan, execute_schema_migration_plan, plan_schema_migration,
+    AdapterFuture, DbSchema, ForeignKey, OnDelete, SqlColumnSnapshot, SqlDialect, SqlExecutor,
+    SqlSchemaSnapshot, SqlStatement,
 };
 use openauth_core::error::OpenAuthError;
 use tokio_postgres::{Client, Row};
@@ -18,6 +19,7 @@ pub async fn plan_migrations(
 
 pub async fn create_schema(client: &Client, schema: &DbSchema) -> Result<(), OpenAuthError> {
     let plan = plan_migrations(client, schema).await?;
+    ensure_executable_migration_plan(&plan)?;
     execute_statements(client, &plan).await
 }
 
@@ -26,6 +28,7 @@ pub async fn execute_migration_plan(
     schema: &DbSchema,
 ) -> Result<(), OpenAuthError> {
     let plan = plan_migrations(client, schema).await?;
+    ensure_executable_migration_plan(&plan)?;
     execute_statements(client, &plan).await
 }
 

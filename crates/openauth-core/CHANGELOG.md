@@ -6,6 +6,9 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Added
 
+- Added `db::ensure_executable_migration_plan`, a shared preflight that rejects
+  migration plans containing non-executable warnings so every SQL adapter
+  refuses warning/error plans identically before mutating the database.
 - Added `cookies::create_auth_cookie` and `AuthContext::create_auth_cookie`,
   exposing the shared cookie naming and attribute policy used by `get_cookies`
   so plugins can build their own cookies with the same `cookie_prefix`,

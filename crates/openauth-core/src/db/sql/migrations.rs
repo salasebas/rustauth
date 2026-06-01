@@ -19,6 +19,22 @@ where
     Ok(())
 }
 
+/// Rejects migration plans that carry non-executable warnings before any
+/// schema mutation runs.
+///
+/// Shared preflight so every SQL adapter refuses warning/error plans
+/// identically instead of silently mutating the database.
+pub fn ensure_executable_migration_plan(plan: &SchemaMigrationPlan) -> Result<(), OpenAuthError> {
+    if !plan.has_warnings() {
+        return Ok(());
+    }
+
+    Err(OpenAuthError::Adapter(format!(
+        "migration contains {} non-executable migration warnings; inspect plan_migrations or compile_migrations before applying",
+        plan.warnings.len()
+    )))
+}
+
 /// Additive schema changes planned for a live database.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaMigrationPlan {

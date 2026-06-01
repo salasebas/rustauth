@@ -600,7 +600,7 @@ async fn deadpool_postgres_adapter_uses_current_schema_for_migration_detection(
 }
 
 #[tokio::test]
-async fn deadpool_postgres_adapter_reports_type_mismatch_and_repairs_missing_index(
+async fn deadpool_postgres_adapter_run_migrations_rejects_type_warnings_without_applying_statements(
 ) -> Result<(), OpenAuthError> {
     let prefix = unique_prefix();
     let schema = auth_schema(AuthSchemaOptions {
@@ -636,13 +636,52 @@ async fn deadpool_postgres_adapter_reports_type_mismatch_and_repairs_missing_ind
         .iter()
         .any(|index| index.field_logical_name == "nickname"));
 
-    adapter.run_migrations(&schema).await?;
-    assert!(!adapter
+    let result = adapter.run_migrations(&schema).await;
+    assert!(
+        matches!(result, Err(OpenAuthError::Adapter(message)) if message.contains("non-executable migration warnings"))
+    );
+    // The whole plan is rejected, so the additive index is never created.
+    assert!(adapter
         .plan_migrations(&schema)
         .await?
         .indexes_to_be_created
         .iter()
         .any(|index| index.field_logical_name == "nickname"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn deadpool_postgres_adapter_create_schema_rejects_type_warnings_without_applying_statements(
+) -> Result<(), OpenAuthError> {
+    let prefix = unique_prefix();
+    let schema = auth_schema(AuthSchemaOptions {
+        rate_limit_storage: RateLimitStorage::Database,
+        ..prefixed_options(&prefix)
+    });
+    let raw = raw_client().await?;
+    raw.batch_execute(&format!(
+        "CREATE TABLE {prefix}_users (id TEXT PRIMARY KEY, email INTEGER)"
+    ))
+    .await
+    .map_err(openauth_tokio_postgres::driver::postgres_error)?;
+    let adapter =
+        DeadpoolPostgresAdapter::connect_with_schema(&database_url(), schema.clone()).await?;
+
+    let result = adapter.create_schema(&schema, None).await;
+    assert!(
+        matches!(result, Err(OpenAuthError::Adapter(message)) if message.contains("non-executable migration warnings"))
+    );
+    // No additive statements run, so dependent tables stay uncreated.
+    let sessions_table_count = raw
+        .query_one(
+            "SELECT COUNT(*) FROM information_schema.tables \
+             WHERE table_schema = current_schema() AND table_name = $1",
+            &[&format!("{prefix}_sessions")],
+        )
+        .await
+        .map_err(openauth_tokio_postgres::driver::postgres_error)?
+        .get::<_, i64>(0);
+    assert_eq!(sessions_table_count, 0);
     Ok(())
 }
 
