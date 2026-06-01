@@ -67,6 +67,7 @@ pub(super) fn change_password_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuth
                 else {
                     return unauthorized();
                 };
+                let dont_remember = super::shared::request_dont_remember(context, &request)?;
                 let body: ChangePasswordBody = parse_request_body(&request)?;
                 let mut token = None;
                 if let Some(new_session) = match password_service::change_password(
@@ -77,6 +78,7 @@ pub(super) fn change_password_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuth
                         current_password: body.current_password,
                         new_password: body.new_password,
                         revoke_other_sessions: body.revoke_other_sessions.unwrap_or(false),
+                        dont_remember,
                     },
                 )
                 .await
@@ -89,7 +91,7 @@ pub(super) fn change_password_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuth
                         context,
                         &new_session,
                         &user,
-                        false,
+                        dont_remember,
                     )?;
                     token = Some(new_session.token);
                 }

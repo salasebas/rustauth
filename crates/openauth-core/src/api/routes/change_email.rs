@@ -69,6 +69,7 @@ pub(super) fn change_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                 else {
                     return super::shared::unauthorized();
                 };
+                let dont_remember = super::shared::request_dont_remember(context, &request)?;
                 let body: ChangeEmailBody = parse_request_body(&request)?;
                 let result = match user_service::change_email(
                     adapter.as_ref(),
@@ -87,7 +88,8 @@ pub(super) fn change_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                 };
                 match result {
                     ChangeEmailResult::Updated(updated) => {
-                        let cookies = auth_session_cookies(context, &session, &updated, false)?;
+                        let cookies =
+                            auth_session_cookies(context, &session, &updated, dont_remember)?;
                         json_response(
                             StatusCode::OK,
                             &ChangeEmailResponse {

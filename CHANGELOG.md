@@ -9,6 +9,12 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed `rememberMe: false` sessions becoming persistent after sensitive
+  account flows. `/change-password` with `revokeOtherSessions: true` and
+  `/change-email` immediate email updates now preserve the non-remembered
+  browser-session cookie (no `Max-Age`, `dont_remember` marker retained) and
+  mint the change-password replacement session on the 1-day non-remembered
+  window instead of the full session lifetime.
 - Fixed the OIDC SSO callback so it validates the ID token before trusting a
   UserInfo response. Providers with a `userInfoEndpoint` configured previously
   skipped ID token validation, allowing login and implicit account linking from
