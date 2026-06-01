@@ -15,6 +15,7 @@ use openauth_social_providers::http::ValidationHttpClient;
 use openauth_social_providers::microsoft_entra_id::{
     microsoft_entra_id, MicrosoftEntraIdAuthorizationCodeRequest,
     MicrosoftEntraIdAuthorizationUrlRequest, MicrosoftEntraIdOptions, MicrosoftEntraIdProfile,
+    MicrosoftEntraIdProvider,
 };
 use serde_json::json;
 use time::OffsetDateTime;
@@ -251,11 +252,11 @@ fn get_user_info_decodes_id_token_and_returns_none_without_id_token() {
 }
 
 #[tokio::test]
-async fn verify_id_token_accepts_multiple_audiences_and_common_tenant_without_issuer() {
+async fn verify_id_token_accepts_common_tenant_guid_issuer_and_multiple_audiences() {
     let (tokens, jwk) = signed_tokens(vec![json!({
         "sub": "ms-user",
         "aud": "native-client",
-        "iss": "https://login.microsoftonline.com/common/v2.0",
+        "iss": "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0",
         "nonce": "nonce-123",
         "iat": OffsetDateTime::now_utc().unix_timestamp(),
         "exp": OffsetDateTime::now_utc().unix_timestamp() + 3600
@@ -280,6 +281,129 @@ async fn verify_id_token_accepts_multiple_audiences_and_common_tenant_without_is
         .expect("verification should run"));
     assert!(!provider
         .verify_id_token_with_jwks_url(token, Some("wrong-nonce"), &server.url())
+        .await
+        .expect("verification should run"));
+}
+
+#[tokio::test]
+async fn verify_id_token_rejects_common_tenant_foreign_issuers() {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let (tokens, jwk) = signed_tokens(vec![
+        json!({
+            "sub": "ms-user",
+            "aud": "web-client",
+            "iss": "https://attacker.example/v2.0",
+            "iat": now,
+            "exp": now + 3600
+        }),
+        json!({
+            "sub": "ms-user",
+            "aud": "web-client",
+            "iss": "https://login.microsoftonline.com/common/v2.0",
+            "iat": now,
+            "exp": now + 3600
+        }),
+    ]);
+    let server = JsonServer::spawn(json!({ "keys": [jwk] }), tokens.len());
+    let provider = microsoft_entra_id(MicrosoftEntraIdOptions {
+        oauth: ProviderOptions {
+            client_id: Some(ClientId::from("web-client")),
+            ..ProviderOptions::default()
+        },
+        ..MicrosoftEntraIdOptions::default()
+    })
+    .with_validation_http_client(ValidationHttpClient::permissive());
+
+    for token in &tokens {
+        assert!(!provider
+            .verify_id_token_with_jwks_url(token, None, &server.url())
+            .await
+            .expect("verification should run"));
+    }
+}
+
+#[tokio::test]
+async fn verify_id_token_binds_organizations_and_consumers_tenant_issuers() {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let (tokens, jwk) = signed_tokens(vec![
+        json!({
+            "sub": "ms-user",
+            "aud": "web-client",
+            "iss": "https://login.microsoftonline.com/22222222-2222-2222-2222-222222222222/v2.0",
+            "iat": now,
+            "exp": now + 3600
+        }),
+        json!({
+            "sub": "ms-user",
+            "aud": "web-client",
+            "iss": "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0",
+            "iat": now,
+            "exp": now + 3600
+        }),
+    ]);
+    let org_token = &tokens[0];
+    let consumer_token = &tokens[1];
+    let server = JsonServer::spawn(json!({ "keys": [jwk] }), 4);
+
+    let organizations = tenant_provider("organizations");
+    assert!(organizations
+        .verify_id_token_with_jwks_url(org_token, None, &server.url())
+        .await
+        .expect("verification should run"));
+    assert!(!organizations
+        .verify_id_token_with_jwks_url(consumer_token, None, &server.url())
+        .await
+        .expect("verification should run"));
+
+    let consumers = tenant_provider("consumers");
+    assert!(consumers
+        .verify_id_token_with_jwks_url(consumer_token, None, &server.url())
+        .await
+        .expect("verification should run"));
+    assert!(!consumers
+        .verify_id_token_with_jwks_url(org_token, None, &server.url())
+        .await
+        .expect("verification should run"));
+}
+
+#[tokio::test]
+async fn verify_id_token_builds_accepted_issuer_from_custom_authority() {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let (tokens, jwk) = signed_tokens(vec![
+        json!({
+            "sub": "ms-user",
+            "aud": "web-client",
+            "iss": "https://tenant.ciamlogin.com/33333333-3333-3333-3333-333333333333/v2.0",
+            "iat": now,
+            "exp": now + 3600
+        }),
+        json!({
+            "sub": "ms-user",
+            "aud": "web-client",
+            "iss": "https://login.microsoftonline.com/33333333-3333-3333-3333-333333333333/v2.0",
+            "iat": now,
+            "exp": now + 3600
+        }),
+    ]);
+    let custom_authority_token = &tokens[0];
+    let public_cloud_token = &tokens[1];
+    let server = JsonServer::spawn(json!({ "keys": [jwk] }), 2);
+    let provider = microsoft_entra_id(MicrosoftEntraIdOptions {
+        authority: Some("https://tenant.ciamlogin.com/".to_owned()),
+        oauth: ProviderOptions {
+            client_id: Some(ClientId::from("web-client")),
+            ..ProviderOptions::default()
+        },
+        ..MicrosoftEntraIdOptions::default()
+    })
+    .with_validation_http_client(ValidationHttpClient::permissive());
+
+    assert!(provider
+        .verify_id_token_with_jwks_url(custom_authority_token, None, &server.url())
+        .await
+        .expect("verification should run"));
+    assert!(!provider
+        .verify_id_token_with_jwks_url(public_cloud_token, None, &server.url())
         .await
         .expect("verification should run"));
 }
@@ -383,6 +507,18 @@ async fn verify_id_token_rejects_tokens_missing_standard_claims() {
             "token missing `{missing}` must be rejected"
         );
     }
+}
+
+fn tenant_provider(tenant: &str) -> MicrosoftEntraIdProvider {
+    microsoft_entra_id(MicrosoftEntraIdOptions {
+        tenant_id: Some(tenant.to_owned()),
+        oauth: ProviderOptions {
+            client_id: Some(ClientId::from("web-client")),
+            ..ProviderOptions::default()
+        },
+        ..MicrosoftEntraIdOptions::default()
+    })
+    .with_validation_http_client(ValidationHttpClient::permissive())
 }
 
 fn options_with_client_id(client_id: &str) -> MicrosoftEntraIdOptions {

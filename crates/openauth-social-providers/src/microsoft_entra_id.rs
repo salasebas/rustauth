@@ -24,6 +24,8 @@ pub const MICROSOFT_ENTRA_ID_DEFAULT_TENANT: &str = "common";
 pub const MICROSOFT_ENTRA_ID_DEFAULT_AUTHORITY: &str = "https://login.microsoftonline.com";
 pub const MICROSOFT_ENTRA_ID_GRAPH_PHOTO_BASE_URL: &str =
     "https://graph.microsoft.com/v1.0/me/photos";
+/// Microsoft consumer (MSA) tenant used by personal Microsoft accounts.
+const MICROSOFT_CONSUMER_TENANT_ID: &str = "9188040d-6c67-4c5b-b112-36a304b66dad";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MicrosoftEntraIdPhotoSize {
@@ -342,12 +344,15 @@ impl MicrosoftEntraIdProvider {
             return Ok(false);
         }
 
+        let expected_issuers = self.expected_issuers();
+        let validate_multitenant_issuer = expected_issuers.is_empty();
+
         let result = match validate_token_with_client(
             token,
             jwks_url,
             TokenValidationOptions {
                 audience: audiences,
-                issuer: self.expected_issuers(),
+                issuer: expected_issuers,
                 ..TokenValidationOptions::default().require_standard_claims()
             },
             self.validation_http_client.inner(),
@@ -357,6 +362,13 @@ impl MicrosoftEntraIdProvider {
             Ok(result) => result,
             Err(_) => return Ok(false),
         };
+
+        if validate_multitenant_issuer {
+            let issuer = result.payload.get("iss").and_then(Value::as_str);
+            if !issuer.is_some_and(|issuer| self.accepts_multitenant_issuer(issuer)) {
+                return Ok(false);
+            }
+        }
 
         if let Some(expected_nonce) = nonce {
             let actual_nonce = result.payload.get("nonce").and_then(Value::as_str);
@@ -442,6 +454,32 @@ impl MicrosoftEntraIdProvider {
         vec![format!("{}/{}/v2.0", self.authority, self.tenant)]
     }
 
+    /// Binds a multi-tenant (`common`/`organizations`/`consumers`) issuer to the
+    /// configured authority and tenant semantics, since these modes cannot be
+    /// expressed as a static issuer list.
+    fn accepts_multitenant_issuer(&self, issuer: &str) -> bool {
+        let Some(tenant_id) = self.issuer_tenant_id(issuer) else {
+            return false;
+        };
+        if !is_tenant_guid(tenant_id) {
+            return false;
+        }
+        match self.tenant.as_str() {
+            "consumers" => tenant_id.eq_ignore_ascii_case(MICROSOFT_CONSUMER_TENANT_ID),
+            "organizations" => !tenant_id.eq_ignore_ascii_case(MICROSOFT_CONSUMER_TENANT_ID),
+            _ => true,
+        }
+    }
+
+    /// Extracts the tenant segment from an `{authority}/{tenant}/v2.0` issuer
+    /// built from the configured authority.
+    fn issuer_tenant_id<'a>(&self, issuer: &'a str) -> Option<&'a str> {
+        let tenant = issuer
+            .strip_prefix(&format!("{}/", self.authority))?
+            .strip_suffix("/v2.0")?;
+        (!tenant.is_empty() && !tenant.contains('/')).then_some(tenant)
+    }
+
     async fn fetch_profile_photo(&self, access_token: &str, base_url: &str) -> Option<String> {
         let size = self.options.profile_photo_size.as_u16();
         let base_url = base_url.trim_end_matches('/');
@@ -493,6 +531,20 @@ fn normalize_authority(authority: Option<&str>) -> String {
     } else {
         authority.to_owned()
     }
+}
+
+/// Returns `true` when `value` is a canonical 8-4-4-4-12 GUID, the shape of a
+/// Microsoft tenant identifier in a v2.0 issuer.
+fn is_tenant_guid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
 }
 
 fn decode_jwt_payload<T>(token: &str) -> Result<T, OAuthError>
