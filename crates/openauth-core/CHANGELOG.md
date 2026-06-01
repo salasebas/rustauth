@@ -15,6 +15,12 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Fixed
 
+- Fixed social OAuth `form_post` callbacks (e.g. Apple's
+  `response_mode=form_post`) being blocked by origin/CSRF checks. The POST
+  `/callback/:id` endpoint now bypasses the cross-site navigation block so it
+  can reflect the provider form into the GET callback, where the signed OAuth
+  `state` is still validated. Other social sign-in/link POST endpoints remain
+  protected.
 - Fixed sign-out so `SessionStore::delete_session` failures propagate to
   callers instead of always returning success while cookies are cleared.
 - Fixed OAuth token encryption so `encrypt_oauth_tokens` encrypts access,

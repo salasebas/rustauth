@@ -94,24 +94,28 @@ pub(super) fn callback_oauth_endpoint(
     method: Method,
     adapter: Arc<dyn DbAdapter>,
 ) -> AsyncAuthEndpoint {
-    create_auth_endpoint(
-        "/callback/:id",
-        method,
-        AuthEndpointOptions::new()
-            .operation_id("handleOAuthCallback")
-            .openapi(
-                OpenApiOperation::new("handleOAuthCallback").description("Handle OAuth callback"),
-            ),
-        move |context, request| {
-            let adapter = Arc::clone(&adapter);
-            Box::pin(async move {
-                if request.method() == Method::POST {
-                    return callback_post_redirect(context, &request);
-                }
-                callback_get(context, adapter.as_ref(), request).await
-            })
-        },
-    )
+    let mut options = AuthEndpointOptions::new()
+        .operation_id("handleOAuthCallback")
+        .openapi(OpenApiOperation::new("handleOAuthCallback").description("Handle OAuth callback"));
+    // Providers using OAuth `response_mode=form_post` (e.g. Apple) deliver the
+    // authorization response as a cross-site POST navigation, which the origin
+    // security layer otherwise blocks as `CROSS_SITE_NAVIGATION_LOGIN_BLOCKED`.
+    // Only the POST callback bypasses that check so `callback_post_redirect` can
+    // reflect the form into the GET callback, where the signed OAuth `state` is
+    // still validated. The GET callback and other sign-in/link POST endpoints
+    // remain protected.
+    if method == Method::POST {
+        options = options.bypass_origin_security();
+    }
+    create_auth_endpoint("/callback/:id", method, options, move |context, request| {
+        let adapter = Arc::clone(&adapter);
+        Box::pin(async move {
+            if request.method() == Method::POST {
+                return callback_post_redirect(context, &request);
+            }
+            callback_get(context, adapter.as_ref(), request).await
+        })
+    })
 }
 
 pub(super) fn link_social_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
