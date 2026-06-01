@@ -4,8 +4,8 @@ use std::sync::Mutex;
 
 use openauth_core::db::DbFieldType;
 use openauth_core::options::{
-    EmailPasswordOptions, EmailVerificationOptions, SecondaryStorage, SecondaryStorageFuture,
-    UserAdditionalField, UserOptions, VerificationEmail,
+    EmailPasswordOptions, EmailVerificationOptions, ExistingUserSignUpPayload, SecondaryStorage,
+    SecondaryStorageFuture, UserAdditionalField, UserOptions, VerificationEmail,
 };
 
 #[tokio::test]
@@ -222,6 +222,115 @@ async fn sign_up_email_route_sends_verification_and_returns_synthetic_duplicate_
     let duplicate_body: Value = serde_json::from_slice(duplicate.body())?;
     assert!(duplicate_body["token"].is_null());
     assert_eq!(duplicate_body["user"]["email"], "ada@example.com");
+    assert_eq!(adapter.len("user").await, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_up_email_route_duplicate_returns_synthetic_user_not_persisted_values(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let seen_for_hook = Arc::clone(&seen);
+    let adapter = Arc::new(RouteAdapter::default());
+    let options = OpenAuthOptions {
+        user: UserOptions {
+            additional_fields: BTreeMap::from([(
+                "role".to_owned(),
+                UserAdditionalField::new(DbFieldType::String),
+            )]),
+            ..UserOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    }
+    .email_password(
+        EmailPasswordOptions::new()
+            .require_email_verification(true)
+            .on_existing_user_sign_up(
+                move |payload: ExistingUserSignUpPayload,
+                      _request: Option<&http::Request<Vec<u8>>>| {
+                    seen_for_hook
+                        .lock()
+                        .map_err(|_| OpenAuthError::Api("hook sink poisoned".to_owned()))?
+                        .push((payload.user.name, payload.user.id));
+                    Ok(())
+                },
+            ),
+    );
+    let router = router_with_options(adapter.clone(), options)?;
+
+    let first = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123","image":"https://img/ada.png","role":"admin"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_body: Value = serde_json::from_slice(first.body())?;
+    let persisted_id = first_body["user"]["id"]
+        .as_str()
+        .ok_or("missing id")?
+        .to_owned();
+    assert_eq!(first_body["user"]["role"], "admin");
+
+    let duplicate = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Mallory","email":"ada@example.com","password":"hunter2zzz","image":"https://img/mallory.png","role":"user"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(duplicate.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(duplicate.body())?;
+    assert!(body["token"].is_null());
+    assert_eq!(body["user"]["email"], "ada@example.com");
+    // Synthetic response mirrors the request input, never the persisted account.
+    assert_eq!(body["user"]["name"], "Mallory");
+    assert_eq!(body["user"]["image"], "https://img/mallory.png");
+    assert_eq!(body["user"]["role"], "user");
+    assert_eq!(body["user"]["email_verified"], false);
+    assert_ne!(body["user"]["id"].as_str(), Some(persisted_id.as_str()));
+    assert_eq!(adapter.len("user").await, 1);
+    assert!(adapter.is_empty("session").await);
+
+    // The hook still receives the real persisted user, exactly once.
+    let seen = seen.lock().map_err(|_| "hook sink poisoned")?;
+    assert_eq!(seen.as_slice(), [("Ada".to_owned(), persisted_id)]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_up_email_route_duplicate_errors_when_auto_sign_in_disabled_without_verification(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions::default().email_password(EmailPasswordOptions::new().auto_sign_in(false)),
+    )?;
+
+    let first = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let duplicate = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(duplicate.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(duplicate.body())?;
+    assert_eq!(body["code"], "USER_ALREADY_EXISTS");
     assert_eq!(adapter.len("user").await, 1);
     Ok(())
 }
