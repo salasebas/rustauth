@@ -89,7 +89,23 @@ pub fn stripe_webhook(options: StripeOptions) -> openauth_core::api::AsyncAuthEn
                 }
 
                 let event_id = event.id.clone();
-                crate::hooks::handle_stripe_event(context, &options, &event).await?;
+                if crate::hooks::handle_stripe_event(context, &options, &event)
+                    .await
+                    .is_err()
+                {
+                    // A built-in handler failed (e.g. a transient Stripe API,
+                    // adapter, or deserialization error). Release the claimed
+                    // idempotency row so Stripe retries and manual resends
+                    // re-run the handler instead of short-circuiting on the
+                    // stored event and leaving billing state stale.
+                    if let Some(adapter) = adapter.as_deref() {
+                        forget_webhook_event(adapter, &event_id).await;
+                    }
+                    return error_response(
+                        StatusCode::BAD_REQUEST,
+                        StripeErrorCode::StripeWebhookError,
+                    );
+                }
                 if let Some(on_event) = &options.on_event {
                     if let Err(error) = on_event(event).await {
                         logging::webhook_error(

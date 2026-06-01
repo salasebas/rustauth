@@ -274,7 +274,7 @@ async fn subscription_created_webhook_verifies_realistic_dashboard_secret(
 }
 
 #[tokio::test]
-async fn subscription_webhook_wraps_dynamic_plan_provider_failure(
+async fn subscription_webhook_releases_idempotency_claim_on_handler_failure(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin = stripe(
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
@@ -291,7 +291,7 @@ async fn subscription_webhook_wraps_dynamic_plan_provider_failure(
         .find(|endpoint| endpoint.path == "/stripe/webhook")
         .ok_or("webhook endpoint")?;
     let adapter = MemoryAdapter::new();
-    let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter);
+    let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
@@ -304,10 +304,11 @@ async fn subscription_webhook_wraps_dynamic_plan_provider_failure(
 
     let response = (endpoint.handler)(&context, request).await?;
 
-    // Better Auth logs handler errors and still returns 200 to Stripe.
-    assert_eq!(response.status(), StatusCode::OK);
-    let body: serde_json::Value = serde_json::from_slice(response.body())?;
-    assert_eq!(body["success"], true);
+    // OPE-46: a built-in handler failure must surface as a retryable webhook
+    // error and must not leave the event marked as processed, so Stripe retries
+    // can recover instead of short-circuiting on the stored idempotency row.
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(adapter.len("stripeWebhookEvent").await, 0);
     Ok(())
 }
 

@@ -39,7 +39,7 @@ impl StripeTransport for FailingRetrieveSubscriptionTransport {
 }
 
 #[tokio::test]
-async fn checkout_completed_webhook_returns_ok_when_subscription_retrieve_fails(
+async fn checkout_completed_webhook_releases_claim_when_subscription_retrieve_fails(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(FailingRetrieveSubscriptionTransport {
         requests: Mutex::new(Vec::new()),
@@ -84,7 +84,11 @@ async fn checkout_completed_webhook_returns_ok_when_subscription_retrieve_fails(
 
     let response = (endpoint.handler)(&context, request).await?;
 
-    assert_eq!(response.status(), StatusCode::OK);
+    // OPE-46: the retrieve failure must surface as a retryable webhook error,
+    // must not partially update local state, and must release the idempotency
+    // claim so a Stripe retry can re-run the handler.
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(adapter.len("stripeWebhookEvent").await, 0);
     let subscription = adapter.records("subscription").await;
     assert_eq!(
         subscription[0].get("status"),
