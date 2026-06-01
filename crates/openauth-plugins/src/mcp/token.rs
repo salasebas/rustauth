@@ -86,7 +86,8 @@ pub fn token_endpoint(
                 let grant_type = string_field(&body, "grant_type");
                 let token_result = match grant_type.as_deref() {
                     Some("refresh_token") => {
-                        refresh_token(adapter.as_ref(), &options, client_id, &body).await
+                        refresh_token(adapter.as_ref(), &options, client_id, client_secret, &body)
+                            .await
                     }
                     Some("authorization_code") => {
                         authorization_code(
@@ -137,6 +138,7 @@ async fn refresh_token(
     adapter: &dyn openauth_core::db::DbAdapter,
     options: &ResolvedMcpOptions,
     client_id: Option<String>,
+    client_secret: Option<String>,
     body: &Value,
 ) -> Result<TokenResponse, TokenEndpointError> {
     let Some(refresh_token) = string_field(body, "refresh_token") else {
@@ -156,6 +158,17 @@ async fn refresh_token(
     let token_client_id = required_string(&token, "clientId")?;
     if client_id.as_deref() != Some(token_client_id.as_str()) {
         return Err(TokenEndpointError::invalid_client("invalid client_id"));
+    }
+    let Some(client) = find_client(adapter, &token_client_id).await? else {
+        return Err(TokenEndpointError::invalid_client("invalid client_id"));
+    };
+    if client.disabled {
+        return Err(TokenEndpointError::invalid_client("client is disabled"));
+    }
+    if client.client_type != "public"
+        && !client_secret_matches(client.client_secret.as_deref(), client_secret.as_deref())
+    {
+        return Err(TokenEndpointError::invalid_client("invalid client_secret"));
     }
     let expires_at = optional_timestamp(&token, "refreshTokenExpiresAt")?;
     if expires_at.is_some_and(|expires_at| expires_at <= OffsetDateTime::now_utc()) {
