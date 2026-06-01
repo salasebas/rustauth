@@ -96,7 +96,7 @@ fn zoom_authorization_code_request_uses_post_client_authentication() -> Result<(
     let request = provider.authorization_code_request(ZoomAuthorizationCodeRequest {
         code: "code-1".to_owned(),
         redirect_uri: "https://app.example.com/auth/callback".to_owned(),
-        code_verifier: Some("verifier-1".to_owned()),
+        code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
     })?;
 
     assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
@@ -105,7 +105,10 @@ fn zoom_authorization_code_request_uses_post_client_authentication() -> Result<(
         request.form_value("redirect_uri"),
         Some("https://app.example.com/auth/callback")
     );
-    assert_eq!(request.form_value("code_verifier"), Some("verifier-1"));
+    assert_eq!(
+        request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(request.form_value("client_id"), Some("zoom-client"));
     assert_eq!(request.form_value("client_secret"), Some("zoom-secret"));
     assert_eq!(request.header("authorization"), None);

@@ -112,7 +112,7 @@ fn railway_token_requests_use_basic_auth() -> Result<(), OAuthError> {
     let provider = railway(provider_options());
     let request = provider.authorization_code_request(
         "code-1",
-        Some("verifier-1"),
+        Some("01234567890123456789012345678901234567890123456789"),
         "https://app.example.com/auth/callback/railway",
     )?;
 
@@ -124,7 +124,10 @@ fn railway_token_requests_use_basic_auth() -> Result<(), OAuthError> {
     assert_eq!(request.form_value("client_secret"), None);
     assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
     assert_eq!(request.form_value("code"), Some("code-1"));
-    assert_eq!(request.form_value("code_verifier"), Some("verifier-1"));
+    assert_eq!(
+        request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(
         request.form_value("redirect_uri"),
         Some("https://app.example.com/auth/callback/railway")

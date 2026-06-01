@@ -7,6 +7,7 @@ use super::request::{
     ClientAuthentication, OAuthFormRequest,
 };
 use super::tokens::{get_oauth2_tokens, OAuth2Tokens, ProviderOptions};
+use super::utils::validate_code_verifier;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthorizationCodeRequest {
@@ -163,6 +164,9 @@ fn validate_authorization_code_request(input: &AuthorizationCodeRequest) -> Resu
         .as_deref()
         .unwrap_or(&input.redirect_uri);
     url::Url::parse(redirect_uri)?;
+    if let Some(code_verifier) = &input.code_verifier {
+        validate_code_verifier(code_verifier)?;
+    }
     Ok(())
 }
 

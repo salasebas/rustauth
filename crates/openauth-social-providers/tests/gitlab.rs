@@ -110,7 +110,7 @@ fn gitlab_token_requests_use_existing_oauth_form_behavior() -> Result<(), OAuthE
 
     let code_request = provider.authorization_code_request(
         "code-1",
-        Some("verifier-1"),
+        Some("01234567890123456789012345678901234567890123456789"),
         "https://app.example.com/auth/callback",
     )?;
     assert_eq!(
@@ -122,7 +122,10 @@ fn gitlab_token_requests_use_existing_oauth_form_behavior() -> Result<(), OAuthE
         code_request.form_value("client_secret"),
         Some("gitlab-secret")
     );
-    assert_eq!(code_request.form_value("code_verifier"), Some("verifier-1"));
+    assert_eq!(
+        code_request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
 
     let refresh_request = provider.refresh_access_token_request("refresh-1")?;
     assert_eq!(provider.token_endpoint(), GITLAB_TOKEN_ENDPOINT);

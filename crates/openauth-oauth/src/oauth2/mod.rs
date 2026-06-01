@@ -56,7 +56,7 @@ pub use tokens::{
     ProviderOptions,
 };
 pub use types::{AuthorizationEndpoint, ClientSecret, RedirectUri, TokenEndpoint};
-pub use utils::generate_code_challenge;
+pub use utils::{generate_code_challenge, validate_code_verifier};
 pub use validate_authorization_code::{
     authorization_code_request, create_authorization_code_request, validate_authorization_code,
     validate_authorization_code_with_client, AuthorizationCodeRequest, ClientTokenRequest,

@@ -92,7 +92,7 @@ fn cognito_authorization_url_uses_defaults_and_percent_twenty_scopes() {
         .create_authorization_url(CognitoAuthorizationUrlInput {
             state: "state-123".to_owned(),
             scopes: vec!["aws.cognito.signin.user.admin".to_owned()],
-            code_verifier: Some("verifier-123".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             redirect_uri: "https://app.example.com/callback".to_owned(),
         })
         .expect("authorization URL should build");

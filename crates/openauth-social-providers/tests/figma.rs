@@ -83,7 +83,7 @@ fn figma_token_requests_use_basic_auth() -> Result<(), OAuthError> {
     let provider = figma(provider_options());
     let request = provider.authorization_code_request(
         "code-1",
-        Some("verifier-1"),
+        Some("01234567890123456789012345678901234567890123456789"),
         "https://app.example.com/auth/callback",
     )?;
 

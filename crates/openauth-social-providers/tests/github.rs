@@ -67,14 +67,17 @@ fn github_authorization_code_request_matches_upstream_form_contract() {
     let request = provider
         .create_authorization_code_request(GitHubValidateAuthorizationCodeRequest {
             code: "auth-code".to_owned(),
-            code_verifier: Some("verifier".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             redirect_uri: "https://app.example.com/callback".to_owned(),
         })
         .expect("authorization code request should be created");
 
     assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
     assert_eq!(request.form_value("code"), Some("auth-code"));
-    assert_eq!(request.form_value("code_verifier"), Some("verifier"));
+    assert_eq!(
+        request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(
         request.form_value("redirect_uri"),
         Some("https://app.example.com/callback")

@@ -148,7 +148,7 @@ fn google_runtime_wrapper_exposes_metadata_and_authorization_url(
         SocialAuthorizationUrlRequest {
             state: "state".to_owned(),
             redirect_uri: "https://app.example.com/callback/google".to_owned(),
-            code_verifier: Some("verifier".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             ..SocialAuthorizationUrlRequest::default()
         },
     )?;

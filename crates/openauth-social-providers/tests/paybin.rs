@@ -148,14 +148,17 @@ fn paybin_authorization_code_request_matches_upstream_form_contract() -> Result<
     let provider = paybin(paybin_options());
     let request = provider.authorization_code_request(
         "code-1",
-        Some("verifier-1"),
+        Some("01234567890123456789012345678901234567890123456789"),
         "https://app.example.com/auth/callback/paybin",
     )?;
 
     assert_eq!(provider.token_endpoint(), PAYBIN_TOKEN_ENDPOINT);
     assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
     assert_eq!(request.form_value("code"), Some("code-1"));
-    assert_eq!(request.form_value("code_verifier"), Some("verifier-1"));
+    assert_eq!(
+        request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(
         request.form_value("redirect_uri"),
         Some("https://app.example.com/auth/callback/paybin")

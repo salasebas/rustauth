@@ -92,14 +92,17 @@ fn huggingface_authorization_code_request_matches_upstream_form_contract(
 
     let request = provider.create_authorization_code_request(
         "auth-code",
-        Some("verifier"),
+        Some("01234567890123456789012345678901234567890123456789"),
         "https://app.example.com/auth/callback",
     )?;
 
     assert_eq!(provider.token_endpoint(), HUGGINGFACE_TOKEN_ENDPOINT);
     assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
     assert_eq!(request.form_value("code"), Some("auth-code"));
-    assert_eq!(request.form_value("code_verifier"), Some("verifier"));
+    assert_eq!(
+        request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(
         request.form_value("redirect_uri"),
         Some("https://app.example.com/auth/callback")

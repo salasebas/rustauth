@@ -45,7 +45,7 @@ fn provider_authorization_code_request_uses_basic_auth_and_extra_params() -> Res
     let provider = provider(config);
     let request = provider.authorization_code_request(SocialAuthorizationCodeRequest {
         code: "code-1".to_owned(),
-        code_verifier: Some("verifier-1".to_owned()),
+        code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
         redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
         device_id: None,
     })?;

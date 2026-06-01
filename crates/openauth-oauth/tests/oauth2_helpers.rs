@@ -21,15 +21,16 @@ use openauth_oauth::oauth2::{
     clear_jwks_cache, client_credentials_token_with_client, create_authorization_code_request,
     create_authorization_url, create_client_credentials_token_request,
     create_refresh_access_token_request, generate_code_challenge, get_oauth2_tokens,
-    get_primary_client_id, refresh_access_token_with_client, validate_token_with_client,
-    verify_access_token_with_client, verify_jws_access_token_with_client,
-    verify_jws_access_token_with_client_and_cache_config, AuthorizationCodeRequest,
-    AuthorizationEndpoint, AuthorizationUrlRequest, ClientAuthentication, ClientCredentialsGrant,
-    ClientCredentialsTokenRequest, ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo,
-    OAuthError, OAuthFormRequest, OAuthHttpClient, OAuthHttpClientConfig, OAuthJwksCacheConfig,
-    ProviderOptions, RedirectUri, RefreshAccessTokenRequest, SocialAuthorizationCodeRequest,
-    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
-    TokenEndpoint, TokenValidationOptions, TokenValidationResult, VerifyAccessTokenOptions,
+    get_primary_client_id, refresh_access_token_with_client, validate_code_verifier,
+    validate_token_with_client, verify_access_token_with_client,
+    verify_jws_access_token_with_client, verify_jws_access_token_with_client_and_cache_config,
+    AuthorizationCodeRequest, AuthorizationEndpoint, AuthorizationUrlRequest, ClientAuthentication,
+    ClientCredentialsGrant, ClientCredentialsTokenRequest, ClientId, ClientTokenRequest,
+    OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthFormRequest, OAuthHttpClient,
+    OAuthHttpClientConfig, OAuthJwksCacheConfig, ProviderOptions, RedirectUri,
+    RefreshAccessTokenRequest, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
+    SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture, TokenEndpoint,
+    TokenValidationOptions, TokenValidationResult, VerifyAccessTokenOptions,
     VerifyAccessTokenRemote,
 };
 use serde_json::json;
@@ -52,7 +53,7 @@ fn create_authorization_url_includes_upstream_oauth_parameters() {
         authorization_endpoint: "https://fallback.example.com/auth".to_owned(),
         redirect_uri: "https://app.example.com/callback".to_owned(),
         state: "state-123".to_owned(),
-        code_verifier: Some("verifier-123".to_owned()),
+        code_verifier: Some("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned()),
         scopes: vec!["openid".to_owned(), "email".to_owned()],
         claims: vec!["profile".to_owned()],
         prompt: Some("consent".to_owned()),
@@ -170,7 +171,7 @@ fn create_authorization_url_standard_params_overwrite_endpoint_query_params() {
         .to_owned(),
         redirect_uri: "https://app.example.com/callback".to_owned(),
         state: "state".to_owned(),
-        code_verifier: Some("verifier".to_owned()),
+        code_verifier: Some("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned()),
         scopes: vec!["openid".to_owned(), "email".to_owned()],
         ..AuthorizationUrlRequest::default()
     })
@@ -192,7 +193,7 @@ fn create_authorization_url_standard_params_overwrite_endpoint_query_params() {
     assert_eq!(values("code_challenge_method"), vec!["S256"]);
     assert_eq!(
         values("code_challenge"),
-        vec!["iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ"]
+        vec!["E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"]
     );
     assert_eq!(values("tenant"), vec!["kept"]);
 }
@@ -207,7 +208,7 @@ fn request_builders_support_post_and_basic_authentication() {
             client_secret: Some("client-secret".to_owned()),
             ..ProviderOptions::default()
         },
-        code_verifier: Some("verifier".to_owned()),
+        code_verifier: Some("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned()),
         authentication: ClientAuthentication::Post,
         resource: vec!["resource-a".to_owned(), "resource-b".to_owned()],
         additional_params: BTreeMap::from([("audience".to_owned(), "api".to_owned())]),
@@ -360,7 +361,7 @@ fn create_authorization_url_additional_params_cannot_override_security_critical_
         authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
         redirect_uri: "https://app.example.com/callback".to_owned(),
         state: "real-state".to_owned(),
-        code_verifier: Some("verifier".to_owned()),
+        code_verifier: Some("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned()),
         scopes: vec!["openid".to_owned()],
         additional_params: BTreeMap::from([
             ("state".to_owned(), "attacker-state".to_owned()),
@@ -395,7 +396,7 @@ fn create_authorization_url_additional_params_cannot_override_security_critical_
     assert_eq!(values("code_challenge_method"), vec!["S256"]);
     assert_eq!(
         values("code_challenge"),
-        vec!["iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ"]
+        vec!["E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"]
     );
     // Non-sensitive extension keys are still applied.
     assert_eq!(values("resource"), vec!["calendar"]);
@@ -412,7 +413,7 @@ fn authorization_code_override_params_cannot_replace_security_critical_fields() 
             client_key: Some("client-key".to_owned()),
             ..ProviderOptions::default()
         },
-        code_verifier: Some("real-verifier".to_owned()),
+        code_verifier: Some("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned()),
         // `override_params` is the escape hatch; protected keys must be ignored,
         // while `additional_params` must not inject protected keys either.
         additional_params: BTreeMap::from([(
@@ -450,7 +451,10 @@ fn authorization_code_override_params_cannot_replace_security_critical_fields() 
         request.form_value("redirect_uri"),
         Some("https://app.example.com/callback")
     );
-    assert_eq!(request.form_value("code_verifier"), Some("real-verifier"));
+    assert_eq!(
+        request.form_value("code_verifier"),
+        Some("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+    );
     assert_eq!(request.form_value("client_id"), Some("client-id"));
     assert_eq!(request.form_value("client_secret"), Some("client-secret"));
     assert_eq!(request.form_value("client_key"), Some("client-key"));
@@ -667,9 +671,73 @@ fn token_helpers_parse_raw_scopes_expiry_and_pkce() {
         Some("first")
     );
     assert_eq!(
-        generate_code_challenge("verifier").expect("challenge should build"),
-        "iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ"
+        generate_code_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+            .expect("challenge should build"),
+        "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
     );
+}
+
+#[test]
+fn validate_code_verifier_enforces_rfc7636_length_and_charset() {
+    // Boundary lengths (43, 128), the RFC 7636 example, the full unreserved
+    // set, and the core-generated 128-char path are all accepted.
+    for valid in [
+        "a".repeat(43),
+        "a".repeat(128),
+        "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned(),
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~".to_owned(),
+    ] {
+        assert!(
+            validate_code_verifier(&valid).is_ok(),
+            "`{valid}` should pass"
+        );
+    }
+
+    // Empty, too-short, too-long, reserved-character, whitespace, and non-ASCII
+    // values are rejected with a typed error.
+    for invalid in [
+        String::new(),
+        "a".repeat(42),
+        "a".repeat(129),
+        format!("{}+", "a".repeat(42)),
+        format!("{} ", "a".repeat(42)),
+        format!("{}é", "a".repeat(42)),
+    ] {
+        assert!(
+            matches!(
+                validate_code_verifier(&invalid),
+                Err(OAuthError::InvalidCodeVerifier(_))
+            ),
+            "`{invalid}` should be rejected"
+        );
+    }
+}
+
+#[test]
+fn pkce_flow_builders_reject_invalid_code_verifier_on_both_sides() {
+    let url = create_authorization_url(AuthorizationUrlRequest {
+        options: ProviderOptions {
+            client_id: Some(ClientId::Single("client-id".to_owned())),
+            ..ProviderOptions::default()
+        },
+        authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        state: "state".to_owned(),
+        code_verifier: Some("too-short".to_owned()),
+        ..AuthorizationUrlRequest::default()
+    })
+    .expect_err("authorization URL should reject a non-RFC code_verifier");
+    assert!(matches!(url, OAuthError::InvalidCodeVerifier(_)));
+
+    let token = create_authorization_code_request(AuthorizationCodeRequest {
+        code: "code-123".to_owned(),
+        redirect_uri: "https://app.example.com/callback".to_owned(),
+        options: provider_options(),
+        code_verifier: Some("too-short".to_owned()),
+        ..AuthorizationCodeRequest::default()
+    })
+    .expect_err("token request should reject a non-RFC code_verifier");
+    assert!(matches!(token, OAuthError::InvalidCodeVerifier(_)));
 }
 
 #[tokio::test]

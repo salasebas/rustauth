@@ -311,7 +311,9 @@ mod tests {
             .create_authorization_url(AtlassianAuthorizationUrlRequest {
                 state: "state-123".to_owned(),
                 redirect_uri: "https://app.example.com/callback".to_owned(),
-                code_verifier: Some("verifier-123".to_owned()),
+                code_verifier: Some(
+                    "01234567890123456789012345678901234567890123456789".to_owned(),
+                ),
                 scopes: vec!["custom:scope".to_owned()],
             })
             .expect("authorization url should build");
@@ -353,7 +355,9 @@ mod tests {
             .create_authorization_url(AtlassianAuthorizationUrlRequest {
                 state: "state-123".to_owned(),
                 redirect_uri: "https://app.example.com/callback".to_owned(),
-                code_verifier: Some("verifier-123".to_owned()),
+                code_verifier: Some(
+                    "01234567890123456789012345678901234567890123456789".to_owned(),
+                ),
                 scopes: vec!["request:scope".to_owned()],
             })
             .expect("authorization url should build");
@@ -423,7 +427,7 @@ mod tests {
             .validate_authorization_code(
                 "code-123",
                 "https://app.example.com/callback",
-                Some("verifier-123".to_owned()),
+                Some("01234567890123456789012345678901234567890123456789".to_owned()),
             )
             .await
             .expect("authorization code should validate");
@@ -432,7 +436,7 @@ mod tests {
         let body = code_server.request_body();
         assert!(body.contains("grant_type=authorization_code"));
         assert!(body.contains("code=code-123"));
-        assert!(body.contains("code_verifier=verifier-123"));
+        assert!(body.contains("code_verifier=01234567890123456789012345678901234567890123456789"));
         assert!(body.contains("redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback"));
         assert!(body.contains("client_id=client-id"));
         assert!(body.contains("client_secret=client-secret"));
@@ -554,7 +558,7 @@ mod tests {
         AtlassianAuthorizationUrlRequest {
             state: "state-123".to_owned(),
             redirect_uri: "https://app.example.com/callback".to_owned(),
-            code_verifier: Some("verifier-123".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             scopes: Vec::new(),
         }
     }

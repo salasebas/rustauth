@@ -40,7 +40,7 @@ let request = AuthorizationUrlRequest::try_new(
 )?
 .scope("read:user")
 .scope("user:email")
-.code_verifier("a-long-random-code-verifier");
+.code_verifier("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
 
 let url = create_authorization_url(request)?;
 # let _ = url;

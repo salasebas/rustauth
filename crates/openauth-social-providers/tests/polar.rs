@@ -44,7 +44,7 @@ fn polar_authorization_url_uses_defaults_prompt_pkce_and_redirect_override() {
         .create_authorization_url(PolarAuthorizationUrlRequest {
             state: "state-123".to_owned(),
             scopes: vec!["custom:read".to_owned()],
-            code_verifier: Some("polar-code-verifier".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             redirect_uri: "https://app.example.com/callback".to_owned(),
         })
         .expect("polar authorization URL should build");

@@ -39,7 +39,7 @@ fn authorization_url_includes_default_scope_and_access_type() {
         .create_authorization_url(DropboxAuthorizationUrlRequest {
             state: "state".to_owned(),
             redirect_uri: "https://app.example.com/callback/dropbox".to_owned(),
-            code_verifier: Some("code-verifier".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             scopes: vec!["files.metadata.read".to_owned()],
         })
         .expect("authorization url should build");

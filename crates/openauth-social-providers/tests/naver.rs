@@ -100,7 +100,7 @@ fn token_requests_use_naver_token_endpoint_and_post_auth() {
     let code_request = provider
         .authorization_code_request(
             "code-1",
-            Some("verifier-1"),
+            Some("01234567890123456789012345678901234567890123456789"),
             "https://app.example.com/auth/naver/callback",
         )
         .expect("authorization code request should build");
@@ -112,7 +112,10 @@ fn token_requests_use_naver_token_endpoint_and_post_auth() {
         Some("authorization_code")
     );
     assert_eq!(code_request.form_value("code"), Some("code-1"));
-    assert_eq!(code_request.form_value("code_verifier"), Some("verifier-1"));
+    assert_eq!(
+        code_request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(code_request.form_value("client_id"), Some("naver-client"));
     assert_eq!(
         code_request.form_value("client_secret"),

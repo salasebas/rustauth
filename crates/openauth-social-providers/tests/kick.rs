@@ -67,14 +67,17 @@ fn kick_authorization_code_request_matches_upstream_form_contract() -> Result<()
 
     let request = provider.create_authorization_code_request(
         "code-1",
-        Some("verifier-1".to_owned()),
+        Some("01234567890123456789012345678901234567890123456789".to_owned()),
         "https://app.example.com/auth/callback",
     )?;
 
     assert_eq!(provider.token_endpoint(), KICK_TOKEN_ENDPOINT);
     assert_eq!(request.form_value("grant_type"), Some("authorization_code"));
     assert_eq!(request.form_value("code"), Some("code-1"));
-    assert_eq!(request.form_value("code_verifier"), Some("verifier-1"));
+    assert_eq!(
+        request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(
         request.form_value("redirect_uri"),
         Some("https://app.example.com/auth/callback")

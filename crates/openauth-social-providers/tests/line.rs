@@ -41,7 +41,7 @@ fn authorization_url_uses_line_defaults_redirect_override_login_hint_and_pkce(
     let url = provider.create_authorization_url(LineAuthorizationUrlRequest {
         state: "state-123".to_owned(),
         redirect_uri: "https://app.example.com/callback".to_owned(),
-        code_verifier: Some("code-verifier".to_owned()),
+        code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
         scopes: vec!["groups".to_owned()],
         login_hint: Some("ada@example.com".to_owned()),
     })?;

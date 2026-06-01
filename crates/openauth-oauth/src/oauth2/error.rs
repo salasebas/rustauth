@@ -26,6 +26,8 @@ pub enum OAuthError {
     UnsupportedAlgorithm(String),
     #[error("invalid OAuth configuration: {0}")]
     InvalidConfiguration(String),
+    #[error("invalid PKCE code_verifier: {0}")]
+    InvalidCodeVerifier(String),
     #[error("invalid OAuth response: {0}")]
     InvalidResponse(String),
     #[error("invalid OAuth token response: {0}")]

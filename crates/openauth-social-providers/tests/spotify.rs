@@ -33,7 +33,7 @@ fn spotify_authorization_url_includes_default_configured_request_scopes_and_pkce
             state: "state-token".to_owned(),
             redirect_uri: "https://app.example.com/callback/spotify".to_owned(),
             scopes: vec!["user-top-read".to_owned()],
-            code_verifier: Some("spotify-code-verifier".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
         })
         .expect("spotify authorization URL should build");
 

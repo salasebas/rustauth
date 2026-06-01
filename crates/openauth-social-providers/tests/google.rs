@@ -42,7 +42,7 @@ fn authorization_url_includes_google_defaults_and_options() -> Result<(), Box<dy
     let url = provider.create_authorization_url(GoogleAuthorizationUrlRequest {
         state: "state-123".to_owned(),
         redirect_uri: "https://app.example.com/callback".to_owned(),
-        code_verifier: Some("code-verifier".to_owned()),
+        code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
         scopes: vec!["drive.metadata.readonly".to_owned()],
         login_hint: Some("ada@example.com".to_owned()),
         display: Some(GoogleDisplay::Touch),
@@ -105,7 +105,7 @@ fn authorization_url_can_disable_default_scope() -> Result<(), Box<dyn std::erro
     let url = provider.create_authorization_url(GoogleAuthorizationUrlRequest {
         state: "state".to_owned(),
         redirect_uri: "https://app.example.com/callback".to_owned(),
-        code_verifier: Some("code-verifier".to_owned()),
+        code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
         scopes: vec!["drive.metadata.readonly".to_owned()],
         ..GoogleAuthorizationUrlRequest::default()
     })?;
@@ -202,7 +202,7 @@ fn valid_authorization_request() -> GoogleAuthorizationUrlRequest {
     GoogleAuthorizationUrlRequest {
         state: "state".to_owned(),
         redirect_uri: "https://app.example.com/callback".to_owned(),
-        code_verifier: Some("code-verifier".to_owned()),
+        code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
         ..GoogleAuthorizationUrlRequest::default()
     }
 }

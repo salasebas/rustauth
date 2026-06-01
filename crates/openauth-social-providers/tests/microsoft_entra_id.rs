@@ -77,7 +77,7 @@ fn authorization_url_uses_microsoft_defaults_options_and_pkce() {
         .create_authorization_url(MicrosoftEntraIdAuthorizationUrlRequest {
             state: "state-123".to_owned(),
             redirect_uri: "https://app.example.com/callback".to_owned(),
-            code_verifier: Some("code-verifier".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             scopes: vec!["Mail.Read".to_owned()],
             login_hint: Some("ada@example.com".to_owned()),
         })
@@ -161,13 +161,16 @@ fn authorization_code_and_refresh_requests_match_microsoft_token_contract() {
         .authorization_code_request(MicrosoftEntraIdAuthorizationCodeRequest {
             code: "code-123".to_owned(),
             redirect_uri: "https://app.example.com/callback".to_owned(),
-            code_verifier: Some("verifier".to_owned()),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             device_id: Some("device-1".to_owned()),
         })
         .expect("code request should build");
     assert_eq!(code_request.form_value("client_id"), Some("ms-client"));
     assert_eq!(code_request.form_value("client_secret"), Some("ms-secret"));
-    assert_eq!(code_request.form_value("code_verifier"), Some("verifier"));
+    assert_eq!(
+        code_request.form_value("code_verifier"),
+        Some("01234567890123456789012345678901234567890123456789")
+    );
     assert_eq!(code_request.form_value("device_id"), Some("device-1"));
 
     let refresh_request = provider
