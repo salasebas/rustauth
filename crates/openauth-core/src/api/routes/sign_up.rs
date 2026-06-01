@@ -136,14 +136,13 @@ async fn email_sign_up_response(
     } else {
         None
     };
-    json_response(
-        StatusCode::OK,
-        &AuthTokenUserBody {
-            token,
-            user: user_response_value(adapter, context, &result.user).await?,
-        },
-        cookies,
-    )
+    let user = match &result.synthetic_additional_fields {
+        Some(fields) => {
+            crate::api::output::user_output_value_from_fields(context, &result.user, fields)?
+        }
+        None => user_response_value(adapter, context, &result.user).await?,
+    };
+    json_response(StatusCode::OK, &AuthTokenUserBody { token, user }, cookies)
 }
 
 fn email_password_service_error_response(

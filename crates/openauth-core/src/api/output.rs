@@ -31,6 +31,36 @@ pub async fn session_user_output(
     })
 }
 
+/// Render a user output value from request-supplied additional fields instead
+/// of loading them from storage. Used for synthetic duplicate sign-up
+/// responses so the payload mirrors a real sign-up without leaking persisted
+/// account data.
+pub fn user_output_value_from_fields(
+    context: &AuthContext,
+    user: &User,
+    additional_fields: &DbRecord,
+) -> Result<Value, OpenAuthError> {
+    let mut value = serde_json::to_value(user).map_err(|error| OpenAuthError::Serialization {
+        context: "serializing user output",
+        message: error.to_string(),
+    })?;
+    if context.options.user.additional_fields.is_empty() {
+        return Ok(value);
+    }
+    let Some(object) = value.as_object_mut() else {
+        return Err(OpenAuthError::Serialization {
+            context: "serializing user output",
+            message: "expected JSON object".to_owned(),
+        });
+    };
+    insert_returned_fields(
+        object,
+        &context.options.user.additional_fields,
+        additional_fields,
+    )?;
+    Ok(value)
+}
+
 pub async fn user_output_value(
     adapter: &dyn DbAdapter,
     context: &AuthContext,

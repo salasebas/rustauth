@@ -1,4 +1,5 @@
 use http::header;
+use time::OffsetDateTime;
 
 use crate::api::plugin_pipeline::run_password_validators;
 use crate::api::{request_base_url, ApiRequest};
@@ -37,11 +38,15 @@ pub(in crate::api) struct SignInEmailInput {
     pub(in crate::api) additional_session_fields: DbRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(in crate::api) struct EmailAuthResult {
     pub(in crate::api) user: User,
     pub(in crate::api) session: Option<Session>,
     pub(in crate::api) remember_me: bool,
+    /// Request-derived additional fields to render for a synthetic duplicate
+    /// sign-up response. `None` means the user is persisted and additional
+    /// fields are loaded from storage during output.
+    pub(in crate::api) synthetic_additional_fields: Option<DbRecord>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -102,22 +107,38 @@ pub(in crate::api) async fn sign_up_email(
         .find_user_by_email(&sign_up.email)
         .await?
     {
-        if context.options.email_password.require_email_verification
-            || !context.options.email_password.auto_sign_in
-        {
+        if context.options.email_password.require_email_verification {
+            // Hash the password to reduce timing differences between existing
+            // and non-existing emails.
             let _ = (context.password.hash)(&sign_up.password);
             if let Some(callback) = &context.options.email_password.on_existing_user_sign_up {
                 callback.on_existing_user_sign_up(
                     ExistingUserSignUpPayload {
-                        user: existing_user.clone(),
+                        user: existing_user,
                     },
                     Some(request),
                 )?;
             }
+            // Return a synthetic user built from request input, never the
+            // persisted account, to avoid leaking profile data and account
+            // enumeration.
+            let now = OffsetDateTime::now_utc();
+            let synthetic_user = User {
+                id: crate::crypto::random::generate_random_string(32),
+                name: sign_up.name,
+                email: sign_up.email,
+                email_verified: false,
+                image: sign_up.image,
+                username: sign_up.username,
+                display_username: sign_up.display_username,
+                created_at: now,
+                updated_at: now,
+            };
             return Ok(EmailAuthResult {
-                user: existing_user,
+                user: synthetic_user,
                 session: None,
                 remember_me: input.remember_me,
+                synthetic_additional_fields: Some(sign_up.additional_user_fields),
             });
         }
         return Err(AuthFlowError::new(AuthFlowErrorCode::UserAlreadyExists).into());
@@ -147,6 +168,7 @@ pub(in crate::api) async fn sign_up_email(
             user: result.user,
             session: None,
             remember_me: input.remember_me,
+            synthetic_additional_fields: None,
         });
     }
 
@@ -154,6 +176,7 @@ pub(in crate::api) async fn sign_up_email(
         user: result.user,
         session: Some(result.session),
         remember_me: input.remember_me,
+        synthetic_additional_fields: None,
     })
 }
 
@@ -196,6 +219,7 @@ pub(in crate::api) async fn sign_in_email(
         user: result.user,
         session: Some(result.session),
         remember_me: input.remember_me,
+        synthetic_additional_fields: None,
     })
 }
 
