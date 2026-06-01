@@ -15,6 +15,9 @@ All notable changes to `openauth-core` are documented in this file.
   secure-name prefix, cross-subdomain `domain`, and `default_cookie_attributes`.
 - Added `RateLimitOptions::missing_ip_policy` (`MissingIpPolicy`) to control
   behavior when rate limiting is enabled but no client IP can be resolved.
+- Exposed `rate_limit::resolve_client_ip` so plugin crates that create sessions
+  outside the core auth flows (e.g. passkey login) persist the same validated
+  client IP instead of trusting raw forwarding headers.
 
 ### Fixed
 

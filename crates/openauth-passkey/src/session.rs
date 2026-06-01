@@ -90,12 +90,7 @@ pub async fn create_session_for_user(
     let expires_at =
         OffsetDateTime::now_utc() + Duration::seconds(context.session_config.expires_in as i64);
     let mut input = CreateSessionInput::new(user.id.clone(), expires_at);
-    if let Some(ip_address) = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-    {
+    if let Some(ip_address) = openauth_core::rate_limit::resolve_client_ip(context, request) {
         input = input.ip_address(ip_address);
     }
     if let Some(user_agent) = request

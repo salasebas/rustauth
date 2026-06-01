@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
-use http::{Method, StatusCode};
-use openauth_core::db::{DbAdapter, DbValue, Delete, Where};
+use http::{HeaderValue, Method, StatusCode};
+use openauth_core::db::{DbAdapter, DbValue, Delete, FindMany, Where};
+use openauth_core::options::{AdvancedOptions, IpAddressOptions};
 use openauth_passkey::{
     PasskeyAuthenticationOptions, PasskeyOptions, PasskeyWebAuthnBackend,
     RealPasskeyWebAuthnBackend, WebAuthnConfig,
@@ -11,8 +12,8 @@ use serde_json::{json, Value};
 use crate::support::{
     cookie_header_from_response, empty_request, join_cookies, json_request,
     json_request_with_origin, passkey_challenge_cookie_name, seed_passkey, seed_user_two,
-    seeded_router, set_cookie_values, sign_in_cookie, signed_passkey_challenge_cookie,
-    single_verification_expires_at,
+    seeded_router, seeded_router_with_advanced, set_cookie_values, sign_in_cookie,
+    signed_passkey_challenge_cookie, single_verification_expires_at,
 };
 
 #[tokio::test]
@@ -506,5 +507,64 @@ async fn verify_authentication_rejects_registration_challenge(
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["code"], "CHALLENGE_NOT_FOUND");
+    Ok(())
+}
+
+/// Passkey login must persist the client IP resolved by the configured
+/// `advanced.ip_address` allow-list, not the raw `x-forwarded-for` an attacker
+/// can prepend during `/passkey/verify-authentication` (OPE-79).
+#[tokio::test]
+async fn verify_authentication_session_ip_uses_resolver_not_spoofed_forwarded_for(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router_with_advanced(
+        PasskeyOptions::default(),
+        AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
+        }
+        .ip_address(IpAddressOptions::new().header("x-real-ip")),
+    )
+    .await?;
+    seed_passkey(
+        adapter.as_ref(),
+        "passkey_1",
+        "user_1",
+        "Laptop",
+        "credential-id",
+    )
+    .await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+
+    let mut request = json_request_with_origin(
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&passkey_cookie),
+    )?;
+    request
+        .headers_mut()
+        .insert("x-real-ip", HeaderValue::from_static("198.51.100.4"));
+    request
+        .headers_mut()
+        .insert("x-forwarded-for", HeaderValue::from_static("203.0.113.99"));
+
+    let response = router.handle_async(request).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let sessions = adapter.find_many(FindMany::new("session")).await?;
+    let session = sessions.first().ok_or("session not stored")?;
+    assert_eq!(
+        session.get("ip_address"),
+        Some(&DbValue::String("198.51.100.4".to_owned())),
+        "session IP must come from the configured resolver, not the spoofed x-forwarded-for"
+    );
     Ok(())
 }
