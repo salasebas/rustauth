@@ -2,7 +2,7 @@ use http::{header, HeaderValue, StatusCode};
 use openauth_core::api::{ApiRequest, ApiResponse, PathParams};
 use openauth_core::auth::oauth::OAuthUserInfoError;
 use openauth_core::context::AuthContext;
-use openauth_core::cookies::{get_session_cookie, verify_cookie_value};
+use openauth_core::cookies::{get_session_cookie, verify_cookie_value, SECURE_COOKIE_PREFIX};
 use openauth_core::db::DbAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::session::DbSessionStore;
@@ -129,7 +129,12 @@ pub(super) async fn current_session(
     else {
         return Ok(None);
     };
-    let Some(signed_token) = get_session_cookie(cookie_header, None, None) else {
+    let secure = context
+        .auth_cookies
+        .session_token
+        .name
+        .starts_with(SECURE_COOKIE_PREFIX);
+    let Some(signed_token) = get_session_cookie(cookie_header, None, None, secure) else {
         return Ok(None);
     };
     let Some(token) = verify_cookie_value(&signed_token, &context.secret)? else {

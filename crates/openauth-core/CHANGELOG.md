@@ -21,6 +21,13 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Fixed
 
+- Fixed secure-cookie session resolution so `get_session_cookie` only accepts
+  the `__Secure-` prefixed name (and its legacy alias) when secure cookies are
+  configured, instead of preferring the unprefixed `open-auth.session_token`
+  first. This prevents a sibling app or subdomain that can write parent-domain
+  cookies from shadowing the victim's secure session, and `delete_session_cookie`
+  now also expires the unprefixed fallback so a planted shadow cannot keep
+  forcing anonymous responses.
 - Fixed `rememberMe: false` (browser-session) sessions becoming persistent
   after sensitive flows. `/change-password` with `revokeOtherSessions: true`
   and `/change-email` immediate updates previously reissued the session cookie

@@ -8,7 +8,7 @@ use crate::context::AuthContext;
 use crate::cookies::{
     delete_session_cookie, get_cookie_cache, get_session_cookie, parse_cookies, set_cookie_cache,
     set_session_cookie, verify_cookie_value, Cookie, CookieCachePayload, CookieOptions,
-    SessionCookieOptions,
+    SessionCookieOptions, SECURE_COOKIE_PREFIX,
 };
 use crate::db::{DbAdapter, Session, User};
 use crate::error::OpenAuthError;
@@ -82,11 +82,15 @@ impl<'a> SessionAuth<'a> {
         &self,
         input: GetSessionInput,
     ) -> Result<Option<GetSessionResult>, OpenAuthError> {
-        let signed_token =
-            match get_session_cookie(&input.cookie_header, cookie_prefix(self.context), None) {
-                Some(value) => value,
-                None => return Ok(None),
-            };
+        let signed_token = match get_session_cookie(
+            &input.cookie_header,
+            cookie_prefix(self.context),
+            None,
+            secure_cookies(self.context),
+        ) {
+            Some(value) => value,
+            None => return Ok(None),
+        };
         let Some(token) = verify_cookie_value(&signed_token, &self.context.secret)? else {
             return Ok(Some(unauthenticated(delete_session_cookie(
                 &self.context.auth_cookies,
@@ -194,9 +198,12 @@ impl<'a> SessionAuth<'a> {
         cookie_header: impl AsRef<str>,
     ) -> Result<SignOutResult, OpenAuthError> {
         let cookie_header = cookie_header.as_ref();
-        if let Some(signed_token) =
-            get_session_cookie(cookie_header, cookie_prefix(self.context), None)
-        {
+        if let Some(signed_token) = get_session_cookie(
+            cookie_header,
+            cookie_prefix(self.context),
+            None,
+            secure_cookies(self.context),
+        ) {
             if let Some(token) = verify_cookie_value(&signed_token, &self.context.secret)? {
                 SessionStore::new(self.adapter, self.context)
                     .delete_session(&token)
@@ -247,6 +254,14 @@ impl<'a> SessionAuth<'a> {
 
 fn cookie_prefix(context: &AuthContext) -> Option<&str> {
     context.options.advanced.cookie_prefix.as_deref()
+}
+
+fn secure_cookies(context: &AuthContext) -> bool {
+    context
+        .auth_cookies
+        .session_token
+        .name
+        .starts_with(SECURE_COOKIE_PREFIX)
 }
 
 fn signed_cookie(

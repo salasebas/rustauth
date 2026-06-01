@@ -3,6 +3,7 @@ pub(super) use openauth_core::api::AuthRouter;
 pub(super) use openauth_core::context::{create_auth_context_with_adapter, AuthContext};
 pub(super) use openauth_core::cookies::{
     get_session_cookie, set_session_cookie, verify_cookie_value, Cookie, SessionCookieOptions,
+    SECURE_COOKIE_PREFIX,
 };
 pub(super) use openauth_core::db::{DbAdapter, MemoryAdapter};
 pub(super) use openauth_core::options::{
@@ -323,7 +324,12 @@ pub(super) fn session_token_from_response(
         .get(header::SET_COOKIE)
         .and_then(|value| value.to_str().ok())
         .unwrap();
-    let signed = get_session_cookie(cookie, None, None).unwrap();
+    let secure = context
+        .auth_cookies
+        .session_token
+        .name
+        .starts_with(SECURE_COOKIE_PREFIX);
+    let signed = get_session_cookie(cookie, None, None, secure).unwrap();
     verify_cookie_value(&signed, &context.secret)
         .unwrap()
         .unwrap()

@@ -333,8 +333,13 @@ pub async fn seed_session_for_adapter(
 }
 
 fn signed_session_cookie(token: &str) -> Result<String, Box<dyn std::error::Error>> {
+    // Match the router's HTTPS base_url so the cookie is emitted under the
+    // `__Secure-` prefixed name. In secure mode the server only accepts the
+    // secure name, so signing under the plain context would produce a cookie
+    // the router ignores.
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
+            base_url: Some("https://app.example.com".to_owned()),
             secret: Some(SECRET.to_owned()),
             ..OpenAuthOptions::default()
         },

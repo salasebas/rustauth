@@ -1,5 +1,5 @@
 use openauth_core::cookies::{
-    get_cookies, get_session_cookie, parse_cookies, parse_set_cookie_header,
+    delete_session_cookie, get_cookies, get_session_cookie, parse_cookies, parse_set_cookie_header,
     strip_secure_cookie_prefix, to_cookie_options, CookieConfig, SECURE_COOKIE_PREFIX,
 };
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
@@ -125,8 +125,8 @@ fn strip_secure_cookie_prefix_removes_secure_prefix() {
 
 #[test]
 fn get_session_cookie_reads_default_and_secure_cookie_names() {
-    let plain = get_session_cookie("open-auth.session_token=plain", None, None);
-    let secure = get_session_cookie("__Secure-open-auth.session_token=secure", None, None);
+    let plain = get_session_cookie("open-auth.session_token=plain", None, None, false);
+    let secure = get_session_cookie("__Secure-open-auth.session_token=secure", None, None, true);
 
     assert_eq!(plain.as_deref(), Some("plain"));
     assert_eq!(secure.as_deref(), Some("secure"));
@@ -138,7 +138,73 @@ fn get_session_cookie_supports_custom_prefix_and_name() {
         "custom.auth_token=value",
         Some("custom"),
         Some("auth_token"),
+        false,
     );
 
     assert_eq!(token.as_deref(), Some("value"));
+}
+
+#[test]
+fn get_session_cookie_prefers_secure_name_when_both_present() {
+    let header = "open-auth.session_token=attacker; __Secure-open-auth.session_token=victim";
+
+    let resolved = get_session_cookie(header, None, None, true);
+
+    assert_eq!(resolved.as_deref(), Some("victim"));
+}
+
+#[test]
+fn get_session_cookie_ignores_unprefixed_name_in_secure_mode() {
+    let resolved = get_session_cookie("open-auth.session_token=attacker", None, None, true);
+
+    assert_eq!(resolved, None);
+}
+
+#[test]
+fn get_session_cookie_ignores_secure_name_in_plain_mode() {
+    let resolved = get_session_cookie("__Secure-open-auth.session_token=secure", None, None, false);
+
+    assert_eq!(resolved, None);
+}
+
+#[test]
+fn delete_session_cookie_expires_unprefixed_fallback_in_secure_mode(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cookies = get_cookies(&OpenAuthOptions {
+        base_url: Some("https://example.com".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+
+    let expired = delete_session_cookie(&cookies, "open-auth.session_token=attacker", false);
+
+    let unprefixed = expired
+        .iter()
+        .find(|cookie| cookie.name == "open-auth.session_token")
+        .ok_or("expected unprefixed session cookie to be expired")?;
+    assert_eq!(unprefixed.value, "");
+    assert_eq!(unprefixed.attributes.max_age, Some(0));
+
+    let secure = expired
+        .iter()
+        .find(|cookie| cookie.name == cookies.session_token.name)
+        .ok_or("expected secure session cookie to be expired")?;
+    assert_eq!(secure.attributes.max_age, Some(0));
+    Ok(())
+}
+
+#[test]
+fn delete_session_cookie_skips_unprefixed_fallback_in_plain_mode(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cookies = get_cookies(&OpenAuthOptions::default())?;
+
+    let expired = delete_session_cookie(&cookies, "open-auth.session_token=token", false);
+
+    assert_eq!(
+        expired
+            .iter()
+            .filter(|cookie| cookie.name == "open-auth.session_token")
+            .count(),
+        1
+    );
+    Ok(())
 }
