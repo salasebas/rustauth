@@ -147,6 +147,10 @@ fn subscription_table() -> DbTable {
                 "stripeScheduleId",
                 DbField::new("stripe_schedule_id", DbFieldType::String).optional(),
             ),
+            (
+                "limits",
+                DbField::new("limits", DbFieldType::Json).optional(),
+            ),
         ],
     )
 }

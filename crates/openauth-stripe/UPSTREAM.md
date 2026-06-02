@@ -2,6 +2,8 @@
 
 Reference: Better Auth `packages/stripe` at **1.6.9** (`reference/upstream-src/1.6.9/repository/packages/stripe/`).
 
+**Full parity documentation:** [docs/parity/openauth-stripe/README.md](../../docs/parity/openauth-stripe/README.md) — includes the [150 upstream test catalog](../../docs/parity/openauth-stripe/upstream-test-catalog.md) and [API reference](../../docs/parity/openauth-stripe/api-reference.md).
+
 OpenAuth-stripe is an idiomatic Rust port, not a line-by-line copy. This document records intentional differences and upstream behavior we mirror.
 
 ## Aligned with upstream
@@ -22,6 +24,11 @@ OpenAuth-stripe is an idiomatic Rust port, not a line-by-line copy. This documen
 |------|----------|-----------------|
 | **`groupId` on subscriptions** | Present on the `Subscription` TypeScript type only; **not** in DB schema or routes. | Not implemented (same). Use distinct `referenceId` values for multiple billing contexts. |
 | **`group` on plans** | Type-only for plan configuration. | Optional on `StripePlan`; exposed on **GET** `/subscription/list` when set (small extension; upstream list only adds `limits` and `priceId`). |
+| **`limits` on subscription row** | Webhooks write `plan.limits` when the adapter accepts the field. | Optional schema field; webhooks persist `plan.limits`; **GET list** still merges from plan config when absent on the row. |
+| **`FAILED_TO_FETCH_PLANS`** | Defined in upstream error codes but unused in upstream `src/`. | Used in OpenAuth for plan lookup / transport failures. |
+| **Org delete guard** | Stripe `subscriptions.list` on customer. | Local rows **and** Stripe `list_subscriptions` (same terminal-status filter). |
+| **`GET /subscription/success`** | Stripe list `status: "active"` only. | Lists all statuses; picks active/trialing; validates metadata `referenceId`. | OpenAuth is stricter/more complete. |
+| **Checkout create errors** | Stripe error `code` in response body. | Stripe `code`/`message` when unmapped; plugin codes when mapped (e.g. `resource_missing` → `CUSTOMER_NOT_FOUND`). |
 | **Webhook idempotency by `event.id`** | Not implemented. | **Implemented (beyond upstream).** Durable `stripeWebhookEvent` table keyed by `event.id`: already-processed events are skipped with HTTP 200, the event is claimed before side effects, and a failed `on_event` hook removes the claim so Stripe retries can recover. On SQL adapters the primary key also blocks concurrent duplicate deliveries. |
 | **`SUBSCRIPTION_NOT_SCHEDULED_FOR_CANCELLATION`** | Deprecated alias in `error-codes.ts`; restore uses `SUBSCRIPTION_NOT_PENDING_CHANGE`. | Only `SUBSCRIPTION_NOT_PENDING_CHANGE` is exposed (no deprecated alias). |
 

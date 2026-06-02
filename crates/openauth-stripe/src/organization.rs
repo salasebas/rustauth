@@ -1,4 +1,4 @@
-use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindMany, Update, Where};
+use openauth_core::db::{Count, DbAdapter, DbRecord, DbValue, FindMany, Update, Where};
 use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::{
     PluginDatabaseAfterInput, PluginDatabaseBeforeAction, PluginDatabaseBeforeInput,
@@ -8,7 +8,9 @@ use openauth_core::plugin::{
 use crate::errors::StripeErrorCode;
 use crate::logging;
 use crate::options::StripeOptions;
+use crate::stripe_api::StripeClient;
 use crate::{customers, utils};
+use serde_json::json;
 
 pub(crate) fn sync_customer_name_hook(options: StripeOptions) -> PluginDatabaseHook {
     PluginDatabaseHook::after_async(
@@ -49,17 +51,18 @@ pub(crate) fn subscription_database_hooks(options: StripeOptions) -> Vec<PluginD
         sync_seats_after_member_create_hook(options.clone()),
         sync_seats_after_member_delete_hook(options.clone()),
         sync_seats_after_member_delete_many_hook(options.clone()),
-        sync_seats_after_invitation_accept_hook(options),
-        block_active_delete_hook(),
-        block_active_delete_many_hook(),
+        sync_seats_after_invitation_accept_hook(options.clone()),
+        block_active_delete_hook(options.clone()),
+        block_active_delete_many_hook(options),
     ]
 }
 
-fn block_active_delete_hook() -> PluginDatabaseHook {
+fn block_active_delete_hook(options: StripeOptions) -> PluginDatabaseHook {
     PluginDatabaseHook::before_async(
         "stripe-block-active-organization-delete",
         PluginDatabaseOperation::Delete,
         move |context, input| {
+            let options = options.clone();
             Box::pin(async move {
                 let PluginDatabaseBeforeInput::Delete { query, snapshots } = input else {
                     return Ok(PluginDatabaseBeforeAction::Continue(input));
@@ -69,7 +72,8 @@ fn block_active_delete_hook() -> PluginDatabaseHook {
                         PluginDatabaseBeforeInput::Delete { query, snapshots },
                     ));
                 }
-                if snapshots_have_active_subscription(context.adapter, &snapshots).await? {
+                if snapshots_have_active_subscription(context.adapter, &options, &snapshots).await?
+                {
                     return Ok(active_delete_cancel());
                 }
                 Ok(PluginDatabaseBeforeAction::Continue(
@@ -80,11 +84,12 @@ fn block_active_delete_hook() -> PluginDatabaseHook {
     )
 }
 
-fn block_active_delete_many_hook() -> PluginDatabaseHook {
+fn block_active_delete_many_hook(options: StripeOptions) -> PluginDatabaseHook {
     PluginDatabaseHook::before_async(
         "stripe-block-active-organization-delete-many",
         PluginDatabaseOperation::DeleteMany,
         move |context, input| {
+            let options = options.clone();
             Box::pin(async move {
                 let PluginDatabaseBeforeInput::DeleteMany { query, snapshots } = input else {
                     return Ok(PluginDatabaseBeforeAction::Continue(input));
@@ -94,7 +99,8 @@ fn block_active_delete_many_hook() -> PluginDatabaseHook {
                         PluginDatabaseBeforeInput::DeleteMany { query, snapshots },
                     ));
                 }
-                if snapshots_have_active_subscription(context.adapter, &snapshots).await? {
+                if snapshots_have_active_subscription(context.adapter, &options, &snapshots).await?
+                {
                     return Ok(active_delete_cancel());
                 }
                 Ok(PluginDatabaseBeforeAction::Continue(
@@ -107,13 +113,14 @@ fn block_active_delete_many_hook() -> PluginDatabaseHook {
 
 async fn snapshots_have_active_subscription(
     adapter: &dyn DbAdapter,
+    options: &StripeOptions,
     snapshots: &[DbRecord],
 ) -> Result<bool, OpenAuthError> {
     for organization in snapshots {
-        if let Some(organization_id) = record_string(organization, "id") {
-            if has_active_subscription(adapter, organization_id).await? {
-                return Ok(true);
-            }
+        if organization_has_active_subscription(adapter, &options.stripe_client, organization)
+            .await?
+        {
+            return Ok(true);
         }
     }
     Ok(false)
@@ -127,7 +134,37 @@ fn active_delete_cancel() -> PluginDatabaseBeforeAction {
     ))
 }
 
-async fn has_active_subscription(
+pub(crate) async fn organization_member_count(
+    adapter: &dyn DbAdapter,
+    organization_id: &str,
+) -> Result<i64, OpenAuthError> {
+    let count = adapter
+        .count(Count::new("member").where_clause(Where::new(
+            "organization_id",
+            DbValue::String(organization_id.to_owned()),
+        )))
+        .await?;
+    Ok(count.max(1) as i64)
+}
+
+async fn organization_has_active_subscription(
+    adapter: &dyn DbAdapter,
+    stripe_client: &StripeClient,
+    organization: &DbRecord,
+) -> Result<bool, OpenAuthError> {
+    let Some(reference_id) = record_string(organization, "id") else {
+        return Ok(false);
+    };
+    if has_active_subscription_local(adapter, reference_id).await? {
+        return Ok(true);
+    }
+    let Some(stripe_customer_id) = record_string(organization, "stripe_customer_id") else {
+        return Ok(false);
+    };
+    stripe_customer_has_blocking_subscription(stripe_client, stripe_customer_id).await
+}
+
+async fn has_active_subscription_local(
     adapter: &dyn DbAdapter,
     reference_id: &str,
 ) -> Result<bool, OpenAuthError> {
@@ -146,6 +183,35 @@ async fn has_active_subscription(
             })
             .is_some_and(utils::is_non_terminal_subscription_status)
     }))
+}
+
+fn stripe_status_blocks_organization_delete(status: &str) -> bool {
+    !matches!(status, "canceled" | "incomplete" | "incomplete_expired")
+}
+
+async fn stripe_customer_has_blocking_subscription(
+    stripe_client: &StripeClient,
+    stripe_customer_id: &str,
+) -> Result<bool, OpenAuthError> {
+    let list = stripe_client
+        .list_subscriptions(json!({
+            "customer": stripe_customer_id,
+            "status": "all",
+            "limit": 100
+        }))
+        .await
+        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    Ok(list
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|subscription| {
+            subscription
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+        })
+        .any(stripe_status_blocks_organization_delete))
 }
 
 fn sync_seats_after_member_create_hook(options: StripeOptions) -> PluginDatabaseHook {
@@ -329,13 +395,7 @@ async fn sync_subscription_seats(
     else {
         return Ok(());
     };
-    let member_count = adapter
-        .find_many(FindMany::new("member").where_clause(Where::new(
-            "organization_id",
-            DbValue::String(organization_id.to_owned()),
-        )))
-        .await?
-        .len() as i64;
+    let member_count = organization_member_count(adapter, organization_id).await?;
     let stripe_subscription = options
         .stripe_client
         .retrieve_subscription(stripe_subscription_id)

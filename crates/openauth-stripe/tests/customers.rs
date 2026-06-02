@@ -53,6 +53,7 @@ enum CustomerTransportMode {
     SearchFailsListFindsUserCustomer,
     ExistingCustomerEmailDiffers,
     CreateCustomerFails,
+    CheckoutSessionDeclined,
 }
 
 impl StripeTransport for CustomerTransport {
@@ -193,6 +194,17 @@ impl StripeTransport for CustomerTransport {
                     "email": "new@example.com"
                 }),
             },
+            (CustomerTransportMode::CheckoutSessionDeclined, "/v1/checkout/sessions", "POST") => {
+                StripeResponse {
+                    status: 400,
+                    body: json!({
+                        "error": {
+                            "message": "Your card was declined.",
+                            "code": "card_declined"
+                        }
+                    }),
+                }
+            }
             (_, "/v1/checkout/sessions", _) => StripeResponse {
                 status: 200,
                 body: json!({
@@ -776,6 +788,117 @@ async fn organization_upgrade_maps_customer_create_params_failure_to_plugin_erro
         .requests()?
         .iter()
         .any(|request| request.method == "POST" && request.path == "/v1/customers"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn signup_and_upgrade_call_customers_create_only_once(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transport = Arc::new(CustomerTransport::default());
+    let client_transport: Arc<dyn StripeTransport> = transport.clone();
+    let plugin = stripe(
+        StripeOptions::new(
+            StripeClient::with_transport("sk_test", client_transport),
+            "whsec_test",
+        )
+        .create_customer_on_sign_up(true)
+        .subscription(SubscriptionOptions::enabled(vec![
+            StripePlan::new("pro").price_id("price_pro")
+        ])),
+    );
+    let adapter = MemoryAdapter::new();
+    let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            base_url: Some("http://localhost:3000".to_owned()),
+            plugins: vec![plugin.clone()],
+            ..OpenAuthOptions::default()
+        },
+        adapter_arc,
+    )?;
+    let hooked_adapter = context.adapter().ok_or("context adapter")?;
+    DbUserStore::new(hooked_adapter.as_ref())
+        .create_user(
+            CreateUserInput::new("Ada Lovelace", "ada@example.com")
+                .id("user_1")
+                .email_verified(true),
+        )
+        .await?;
+
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/subscription/upgrade")
+        .ok_or("upgrade endpoint")?;
+    let session = DbSessionStore::new(&adapter)
+        .create_session(
+            CreateSessionInput::new("user_1", OffsetDateTime::now_utc() + Duration::days(7))
+                .token("session_token_1"),
+        )
+        .await?;
+    let cookies = set_session_cookie(
+        &context.auth_cookies,
+        &context.secret,
+        &session.token,
+        SessionCookieOptions {
+            dont_remember: false,
+            overrides: CookieOptions::default(),
+        },
+    )?;
+    let session_cookie = cookies.first().ok_or("session cookie")?;
+    let cookie_header = format!("{}={}", session_cookie.name, session_cookie.value);
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/subscription/upgrade")
+        .header("content-type", "application/json")
+        .header("cookie", cookie_header)
+        .body(br#"{"plan":"pro","successUrl":"/ok","cancelUrl":"/pricing"}"#.to_vec())?;
+    let response = (endpoint.handler)(&context, request).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let create_customer_calls = transport
+        .requests()?
+        .iter()
+        .filter(|request| request.method == "POST" && request.path == "/v1/customers")
+        .count();
+    assert_eq!(create_customer_calls, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscription_upgrade_checkout_error_returns_stripe_code(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transport = Arc::new(CustomerTransport::new(
+        CustomerTransportMode::CheckoutSessionDeclined,
+    ));
+    let client_transport: Arc<dyn StripeTransport> = transport.clone();
+    let plugin = stripe(
+        StripeOptions::new(
+            StripeClient::with_transport("sk_test", client_transport),
+            "whsec_test",
+        )
+        .subscription(SubscriptionOptions::enabled(vec![
+            StripePlan::new("pro").price_id("price_pro")
+        ])),
+    );
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/subscription/upgrade")
+        .ok_or("upgrade endpoint")?;
+    let (context, _adapter, cookie_header) = authenticated_context().await?;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/subscription/upgrade")
+        .header("content-type", "application/json")
+        .header("cookie", cookie_header)
+        .body(br#"{"plan":"pro","successUrl":"/ok","cancelUrl":"/pricing"}"#.to_vec())?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_error_code(&response, "card_declined")?;
     Ok(())
 }
 

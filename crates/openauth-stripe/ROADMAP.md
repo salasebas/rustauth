@@ -44,7 +44,7 @@ Este archivo guarda el análisis de paridad, tests pendientes y producción. Act
 | [x] | A2.1 | `/subscription/success`: incluir `trialing` al listar Stripe |
 | [x] | A2.2 | `/subscription/success`: periodos desde `resolve_plan_item`, no `items[0]` |
 | [x] | A2.3 | `/subscription/success`: verificar metadata `referenceId` vs fila local (metadata server-side) |
-| [x] | A2.4 | Org delete: bloquear subs no terminales (`past_due`, `unpaid`, …) en DB |
+| [x] | A2.4 | Org delete: bloquear subs no terminales en DB **y** Stripe `subscriptions.list` (G6) |
 | [x] | A2.5 | Seat sync: skip si sub Stripe no active/trialing |
 | [x] | A2.6 | Validación init: `seat_price_id` sin org enabled → warn |
 | [x] | A2.7 | Customer search fallback → log warn |
@@ -60,7 +60,8 @@ Este archivo guarda el análisis de paridad, tests pendientes y producción. Act
 | Estado | ID | Item |
 |--------|-----|------|
 | [x] | — | `whsec_`, errores HTTP rutas principales, cancel already-canceled, checkout reference |
-| [x] | — | Logging hooks/webhooks, `UPSTREAM.md`, tests modulares (159) |
+| [x] | — | Logging hooks/webhooks, `UPSTREAM.md`, tests modulares (174) |
+| [x] | — | Gaps paridad G1/G4/G6/G7/G11 + T1 (2026-06-01): limits en webhooks, init `plans_provider`, errores checkout Stripe, `adapter.count` seats, test signup+upgrade |
 | [-] | — | `groupId`, alias deprecado `SUBSCRIPTION_NOT_SCHEDULED_FOR_CANCELLATION` |
 | [x] | — | Idempotencia webhook por `event.id` (OPE-40): tabla `stripeWebhookEvent`, skip de duplicados, rollback en fallo de `on_event` |
 
@@ -111,5 +112,5 @@ Este archivo guarda el análisis de paridad, tests pendientes y producción. Act
 
 ## D. Orden de sprints
 
-1. **Sprint cerrado:** A1 + A2 + B1–B3 tests, 159 tests verdes
-2. **Pendiente release:** quitar beta / criterios 1.0
+1. **Sprint cerrado:** A1 + A2 + B1–B3 tests + gaps G1–G7/G11/T1, **174** tests verdes
+2. **Pendiente release:** quitar beta / criterios 1.0 (no hay gaps runtime 1.6.9 abiertos)

@@ -9,9 +9,9 @@ use crate::models::{StripeEvent, StripeSubscription};
 use crate::options::{StripeOptions, SubscriptionLifecycleInput, SubscriptionUpdateInput};
 
 use super::support::{
-    customer_id_from_stripe_subscription, find_reference_by_stripe_customer_id, optional_string,
-    optional_stripe_id, optional_unix_timestamp, record_is_pending_cancel, record_string,
-    subscription_from_record,
+    apply_plan_limits_to_create, apply_plan_limits_to_update, customer_id_from_stripe_subscription,
+    find_reference_by_stripe_customer_id, optional_string, optional_stripe_id,
+    optional_unix_timestamp, record_is_pending_cancel, record_string, subscription_from_record,
 };
 
 pub(super) async fn on_subscription_deleted(
@@ -242,7 +242,10 @@ pub(super) async fn on_subscription_updated(
             DbValue::String(subscription.id.clone()),
         );
     if let Some(plan) = resolved.plan {
-        update = update.data("plan", DbValue::String(plan.name.to_ascii_lowercase()));
+        update = apply_plan_limits_to_update(
+            update.data("plan", DbValue::String(plan.name.to_ascii_lowercase())),
+            Some(plan),
+        );
     }
     adapter.update(update).await?;
     if is_new_pending_cancel {
@@ -400,7 +403,7 @@ pub(super) async fn on_subscription_created(
     let stripe_subscription_id = subscription.id.clone();
     let stripe_status = subscription.status.clone();
     let created = adapter
-        .create(
+        .create(apply_plan_limits_to_create(
             Create::new("subscription")
                 .data(
                     "id",
@@ -441,7 +444,8 @@ pub(super) async fn on_subscription_created(
                 .data("billing_interval", optional_string(billing_interval))
                 .data("stripe_schedule_id", DbValue::Null)
                 .force_allow_id(),
-        )
+            plan,
+        ))
         .await?;
     if let Some(hook) = &subscription_options.on_subscription_created {
         if let Some(local_subscription) = subscription_from_record(&created) {

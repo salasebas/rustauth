@@ -129,6 +129,83 @@ impl StripeTransport for MissingSeatItemTransport {
     }
 }
 
+#[derive(Default)]
+struct StripeOnlyActiveSubscriptionTransport;
+
+impl StripeTransport for StripeOnlyActiveSubscriptionTransport {
+    fn send<'a>(&'a self, request: StripeRequest) -> StripeTransportFuture<'a> {
+        let body = if request.path == "/v1/subscriptions" && request.method == "GET" {
+            json!({
+                "object": "list",
+                "data": [{
+                    "id": "sub_stripe_only",
+                    "object": "subscription",
+                    "status": "active"
+                }]
+            })
+        } else {
+            json!({ "id": "cus_org_1", "object": "customer" })
+        };
+        Box::pin(async move { Ok(StripeResponse { status: 200, body }) })
+    }
+}
+
+#[tokio::test]
+async fn stripe_active_subscription_blocks_organization_delete_without_local_row(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transport = Arc::new(StripeOnlyActiveSubscriptionTransport::default());
+    let plugin = stripe(
+        StripeOptions::new(
+            StripeClient::with_transport(
+                "sk_test",
+                Arc::clone(&transport) as Arc<dyn StripeTransport>,
+            ),
+            "whsec_test",
+        )
+        .organization(OrganizationStripeOptions::enabled())
+        .subscription(SubscriptionOptions::enabled(vec![
+            StripePlan::new("pro").price_id("price_pro")
+        ])),
+    );
+    let adapter = MemoryAdapter::new();
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            plugins: vec![minimal_organization_plugin(), plugin],
+            ..OpenAuthOptions::default()
+        },
+        Arc::new(adapter),
+    )?;
+    let adapter = context.adapter().ok_or("context adapter")?;
+    adapter
+        .create(
+            Create::new("organization")
+                .data("id", DbValue::String("org_1".to_owned()))
+                .data("name", DbValue::String("Acme".to_owned()))
+                .data(
+                    "stripe_customer_id",
+                    DbValue::String("cus_org_1".to_owned()),
+                )
+                .force_allow_id(),
+        )
+        .await?;
+
+    let result = adapter
+        .delete(
+            Delete::new("organization")
+                .where_clause(Where::new("id", DbValue::String("org_1".to_owned()))),
+        )
+        .await;
+
+    assert_eq!(
+        result,
+        Err(OpenAuthError::Api(
+            "Cannot delete organization with active subscription".to_owned()
+        ))
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn active_subscription_blocks_organization_delete() -> Result<(), Box<dyn std::error::Error>>
 {

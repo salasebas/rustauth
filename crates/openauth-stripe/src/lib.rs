@@ -115,7 +115,29 @@ fn warn_if_seat_pricing_without_organization(
             "seatPriceId is configured on a plan but stripe organization option is not enabled",
             "Seat-based billing requires organization: { enabled: true } in stripe plugin options",
         );
+        return;
     }
+    if subscription.get_plans.is_none() {
+        return;
+    }
+    let context = context.clone();
+    let subscription = subscription.clone();
+    tokio::spawn(async move {
+        let Ok(resolved) = subscription.resolve_plans().await else {
+            return;
+        };
+        if resolved
+            .plans
+            .iter()
+            .any(|plan| plan.seat_price_id.is_some())
+        {
+            logging::init_error(
+                &context,
+                "seatPriceId is configured on a plan but stripe organization option is not enabled",
+                "Seat-based billing requires organization: { enabled: true } in stripe plugin options",
+            );
+        }
+    });
 }
 
 fn create_customer_on_sign_up_hook(options: StripeOptions) -> PluginDatabaseHook {

@@ -1,8 +1,9 @@
-use openauth_core::db::{DbRecord, DbValue, FindOne, Where};
+use openauth_core::db::{Create, DbRecord, DbValue, FindOne, Update, Where};
 use openauth_core::error::OpenAuthError;
 use time::OffsetDateTime;
 
 use crate::models::{StripeSubscription, Subscription};
+use crate::options::StripePlan;
 
 pub(super) fn customer_id_from_stripe_subscription(
     subscription: &StripeSubscription,
@@ -106,6 +107,28 @@ fn record_timestamp(record: &DbRecord, field: &str) -> Option<OffsetDateTime> {
 
 pub(super) fn optional_string(value: Option<String>) -> DbValue {
     value.map(DbValue::String).unwrap_or(DbValue::Null)
+}
+
+pub(super) fn plan_limits_value(plan: &StripePlan) -> DbValue {
+    plan.limits
+        .as_ref()
+        .map(|limits| DbValue::Json(limits.clone()))
+        .unwrap_or(DbValue::Null)
+}
+
+pub(super) fn apply_plan_limits_to_create(create: Create, plan: &StripePlan) -> Create {
+    if plan.limits.is_some() {
+        create.data("limits", plan_limits_value(plan))
+    } else {
+        create
+    }
+}
+
+pub(super) fn apply_plan_limits_to_update(update: Update, plan: Option<&StripePlan>) -> Update {
+    match plan.and_then(|plan| plan.limits.as_ref()) {
+        Some(limits) => update.data("limits", DbValue::Json(limits.clone())),
+        None => update,
+    }
 }
 
 pub(super) fn optional_unix_timestamp(value: Option<i64>) -> DbValue {

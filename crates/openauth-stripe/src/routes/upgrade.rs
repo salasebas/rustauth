@@ -665,14 +665,7 @@ async fn effective_seats(
     if customer_type != "organization" || plan.seat_price_id.is_none() {
         return Ok(requested_seats);
     }
-    let member_count = adapter
-        .find_many(FindMany::new("member").where_clause(Where::new(
-            "organization_id",
-            DbValue::String(reference_id.to_owned()),
-        )))
-        .await?
-        .len() as i64;
-    Ok(member_count.max(1))
+    crate::organization::organization_member_count(adapter, reference_id).await
 }
 
 fn checkout_subscription(

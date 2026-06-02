@@ -208,6 +208,65 @@ async fn subscription_created_webhook_creates_local_subscription_for_customer(
 }
 
 #[tokio::test]
+async fn subscription_created_webhook_persists_plan_limits(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin = stripe(
+        StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
+            SubscriptionOptions::enabled(vec![StripePlan::new("pro")
+                .price_id("price_pro")
+                .limits(json!({ "projects": 10 }))]),
+        ),
+    );
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/stripe/webhook")
+        .ok_or("webhook endpoint")?;
+    let adapter = MemoryAdapter::new();
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .create(
+            Create::new("user")
+                .data("id", DbValue::String("user_1".to_owned()))
+                .data("name", DbValue::String("Ada Lovelace".to_owned()))
+                .data("email", DbValue::String("ada@example.com".to_owned()))
+                .data("email_verified", DbValue::Boolean(true))
+                .data("image", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(now))
+                .data("updated_at", DbValue::Timestamp(now))
+                .data("stripe_customer_id", DbValue::String("cus_123".to_owned()))
+                .force_allow_id(),
+        )
+        .await?;
+    let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            ..OpenAuthOptions::default()
+        },
+        adapter_arc,
+    )?;
+    let payload = br#"{"id":"evt_limits","type":"customer.subscription.created","data":{"object":{"id":"stripe_sub_limits","customer":"cus_123","status":"active","metadata":{},"cancel_at_period_end":false,"items":{"data":[{"id":"si_limits","price":{"id":"price_pro","recurring":{"interval":"month","usage_type":"licensed"}},"quantity":1,"current_period_start":1700000000,"current_period_end":1702592000}]}}}}"#;
+    let request = signed_webhook_request(payload)?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let subscription = adapter
+        .find_one(FindOne::new("subscription").where_clause(Where::new(
+            "stripe_subscription_id",
+            DbValue::String("stripe_sub_limits".to_owned()),
+        )))
+        .await?
+        .ok_or("created subscription")?;
+    assert_eq!(
+        subscription.get("limits"),
+        Some(&DbValue::Json(json!({ "projects": 10 })))
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn subscription_created_webhook_verifies_realistic_dashboard_secret(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // OPE-39: a realistic `whsec_...` secret whose suffix is valid base64 must

@@ -507,8 +507,22 @@ pub(super) fn respond_stripe_api_error(
     error: StripeApiError,
     default: StripeErrorCode,
 ) -> Result<ApiResponse, OpenAuthError> {
-    let (status, code) = error.plugin_response(default);
-    plugin_error_response(status, code, stripe_original_message(&error))
+    let (status, plugin_code) = error.plugin_response(default);
+    match &error {
+        StripeApiError::Stripe {
+            code: Some(stripe_code),
+            message,
+            ..
+        } if plugin_code == default => json_response(
+            status,
+            &ApiErrorResponse {
+                code: stripe_code.clone(),
+                message: message.clone(),
+                original_message: None,
+            },
+        ),
+        _ => plugin_error_response(status, plugin_code, stripe_original_message(&error)),
+    }
 }
 
 fn stripe_original_message(error: &StripeApiError) -> Option<String> {

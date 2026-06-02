@@ -16,7 +16,9 @@ Server-side manual validation for Stripe **test mode**. No example app UI is req
 | Plans configured in code | `StripePlan::price_id(...)` must match **test** Price IDs from Dashboard |
 | HTTPS or localhost | Checkout `successUrl` / `cancelUrl` must be allowed by your app |
 
-**Out of scope for this runbook:** example app UI, `groupId`, webhook idempotency by `event.id` (see [ROADMAP](./ROADMAP.md)).
+**Out of scope for this runbook:** example app UI, `groupId`.
+
+**In scope (implemented):** webhook idempotency by Stripe `event.id` via table `stripeWebhookEvent` (see [UPSTREAM](./UPSTREAM.md), [parity tests doc](../../docs/parity/openauth-stripe/upstream-test-catalog.md)).
 
 ---
 

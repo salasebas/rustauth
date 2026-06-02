@@ -8,8 +8,8 @@ use crate::models::{StripeCheckoutSession, StripeEvent, StripeSubscription};
 use crate::options::{StripeOptions, SubscriptionLifecycleInput};
 
 use super::support::{
-    customer_id_from_stripe_subscription, optional_string, optional_unix_timestamp,
-    subscription_from_record,
+    apply_plan_limits_to_update, customer_id_from_stripe_subscription, optional_string,
+    optional_unix_timestamp, subscription_from_record,
 };
 
 pub(super) async fn on_checkout_session_completed(
@@ -117,58 +117,57 @@ pub(super) async fn on_checkout_session_completed(
         .recurring
         .as_ref()
         .map(|recurring| recurring.interval.clone());
-    adapter
-        .update(
-            Update::new("subscription")
-                .where_clause(Where::new(
-                    "id",
-                    DbValue::String(local_subscription_id.clone()),
-                ))
-                .data("plan", DbValue::String(plan.name.to_ascii_lowercase()))
-                .data("stripe_customer_id", optional_string(customer_id))
-                .data(
-                    "stripe_subscription_id",
-                    DbValue::String(stripe_subscription.id.clone()),
-                )
-                .data(
-                    "status",
-                    DbValue::String(stripe_subscription.status.clone()),
-                )
-                .data(
-                    "period_start",
-                    optional_unix_timestamp(resolved.item.current_period_start),
-                )
-                .data(
-                    "period_end",
-                    optional_unix_timestamp(resolved.item.current_period_end),
-                )
-                .data(
-                    "trial_start",
-                    optional_unix_timestamp(stripe_subscription.trial_start),
-                )
-                .data(
-                    "trial_end",
-                    optional_unix_timestamp(stripe_subscription.trial_end),
-                )
-                .data(
-                    "cancel_at_period_end",
-                    DbValue::Boolean(stripe_subscription.cancel_at_period_end),
-                )
-                .data(
-                    "cancel_at",
-                    optional_unix_timestamp(stripe_subscription.cancel_at),
-                )
-                .data(
-                    "canceled_at",
-                    optional_unix_timestamp(stripe_subscription.canceled_at),
-                )
-                .data(
-                    "ended_at",
-                    optional_unix_timestamp(stripe_subscription.ended_at),
-                )
-                .data("seats", DbValue::Number(quantity))
-                .data("billing_interval", optional_string(recurring_interval)),
+    let update = Update::new("subscription")
+        .where_clause(Where::new(
+            "id",
+            DbValue::String(local_subscription_id.clone()),
+        ))
+        .data("plan", DbValue::String(plan.name.to_ascii_lowercase()))
+        .data("stripe_customer_id", optional_string(customer_id))
+        .data(
+            "stripe_subscription_id",
+            DbValue::String(stripe_subscription.id.clone()),
         )
+        .data(
+            "status",
+            DbValue::String(stripe_subscription.status.clone()),
+        )
+        .data(
+            "period_start",
+            optional_unix_timestamp(resolved.item.current_period_start),
+        )
+        .data(
+            "period_end",
+            optional_unix_timestamp(resolved.item.current_period_end),
+        )
+        .data(
+            "trial_start",
+            optional_unix_timestamp(stripe_subscription.trial_start),
+        )
+        .data(
+            "trial_end",
+            optional_unix_timestamp(stripe_subscription.trial_end),
+        )
+        .data(
+            "cancel_at_period_end",
+            DbValue::Boolean(stripe_subscription.cancel_at_period_end),
+        )
+        .data(
+            "cancel_at",
+            optional_unix_timestamp(stripe_subscription.cancel_at),
+        )
+        .data(
+            "canceled_at",
+            optional_unix_timestamp(stripe_subscription.canceled_at),
+        )
+        .data(
+            "ended_at",
+            optional_unix_timestamp(stripe_subscription.ended_at),
+        )
+        .data("seats", DbValue::Number(quantity))
+        .data("billing_interval", optional_string(recurring_interval));
+    adapter
+        .update(apply_plan_limits_to_update(update, Some(plan)))
         .await?;
     if let Some(updated_record) = adapter
         .find_one(
