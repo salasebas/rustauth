@@ -3,7 +3,7 @@ use std::sync::Arc;
 use http::{header, Method, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context_with_adapter;
-use openauth_core::db::{DbAdapter, DbValue, FindOne, MemoryAdapter, Where};
+use openauth_core::db::{Create, DbAdapter, DbValue, FindOne, MemoryAdapter, Where};
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 use openauth_passkey::{
     passkey, AuthenticatorAttachment, AuthenticatorSelection, PasskeyOptions,
@@ -12,6 +12,7 @@ use openauth_passkey::{
     UserVerificationRequirement, WebAuthnConfig,
 };
 use serde_json::{json, Value};
+use time::OffsetDateTime;
 
 use crate::support::{
     cookie_header_from_response, empty_request, expired_registration_challenge_cookie,
@@ -152,6 +153,37 @@ async fn generate_register_options_rejects_invalid_resolved_user(
 }
 
 #[tokio::test]
+async fn generate_register_options_uses_resolve_user_display_name(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = PasskeyOptions::default().registration(
+        PasskeyRegistrationOptions::new()
+            .require_session(false)
+            .resolve_user(|input| {
+                let context = input.context.as_deref().unwrap_or("unknown");
+                Some(
+                    PasskeyRegistrationUser::new(format!("user-{context}"), context.to_owned())
+                        .display_name(format!("Pre-auth {context}")),
+                )
+            }),
+    );
+    let (_adapter, router, _backend) = seeded_router(options).await?;
+
+    let response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-register-options?context=preauth%40example.com",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["user"]["name"], "preauth@example.com");
+    assert_eq!(body["user"]["displayName"], "Pre-auth preauth@example.com");
+    Ok(())
+}
+
+#[tokio::test]
 async fn generate_register_options_uses_query_name_for_webauthn_user_name(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let options = PasskeyOptions::default().registration(
@@ -178,6 +210,58 @@ async fn generate_register_options_uses_query_name_for_webauthn_user_name(
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["user"]["name"], "Work Laptop");
     assert_eq!(body["user"]["displayName"], "preauth@example.com");
+    Ok(())
+}
+
+#[tokio::test]
+async fn generate_register_options_excludes_legacy_credential_ids(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    let session_cookie = sign_in_cookie(&router).await?;
+    adapter
+        .create(
+            Create::new("passkey")
+                .data("id", DbValue::String("legacy-passkey".to_owned()))
+                .data("name", DbValue::String("Legacy".to_owned()))
+                .data("public_key", DbValue::String("public-key".to_owned()))
+                .data("user_id", DbValue::String("user_1".to_owned()))
+                .data(
+                    "credential_id",
+                    DbValue::String("legacy-credential-id".to_owned()),
+                )
+                .data("counter", DbValue::Number(0))
+                .data("device_type", DbValue::String("singleDevice".to_owned()))
+                .data("backed_up", DbValue::Boolean(false))
+                .data("transports", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("aaguid", DbValue::Null)
+                .data("webauthn_credential", DbValue::Null)
+                .force_allow_id(),
+        )
+        .await?;
+
+    let response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-register-options",
+            Some(&session_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    let Some(excluded) = body
+        .get("excludeCredentials")
+        .and_then(|value| value.as_array())
+    else {
+        return Err(format!("excludeCredentials missing: {body:?}").into());
+    };
+    assert!(
+        excluded
+            .iter()
+            .any(|entry| entry["id"].as_str() == Some("legacy-credential-id")),
+        "legacy credential id must be excluded: {excluded:?}"
+    );
     Ok(())
 }
 
@@ -760,7 +844,7 @@ async fn verify_registration_rejects_stale_session() -> Result<(), Box<dyn std::
         )?)
         .await?;
 
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["code"], "SESSION_NOT_FRESH");
     Ok(())
@@ -810,7 +894,7 @@ async fn generate_register_options_rejects_stale_session() -> Result<(), Box<dyn
         )?)
         .await?;
 
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["code"], "SESSION_NOT_FRESH");
     Ok(())

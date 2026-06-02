@@ -1,15 +1,15 @@
 use base64::Engine;
 use openauth_core::error::OpenAuthError;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
     AttestationMetadata, COSEAlgorithm, COSEKey, COSEKeyType, CreationChallengeResponse,
-    Credential, ECDSACurve, EDDSACurve, Passkey, PublicKeyCredential, RegisterPublicKeyCredential,
-    RequestChallengeResponse,
+    Credential, CredentialID, ECDSACurve, EDDSACurve, Passkey, PublicKeyCredential,
+    RegisterPublicKeyCredential, RequestChallengeResponse,
 };
 use webauthn_rs_core::proto::{
     AttestationConveyancePreference, AuthenticationState, RegistrationState,
@@ -114,11 +114,8 @@ impl PasskeyWebAuthnBackend for RealPasskeyWebAuthnBackend {
         let core = core(&config)?;
         let exclude = exclude_credentials
             .into_iter()
-            .map(|value| {
-                serde_json::from_value::<Credential>(value).map(|credential| credential.cred_id)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+            .map(parse_exclude_credential_id)
+            .collect::<Result<Vec<_>, _>>()?;
         let user_id = Uuid::new_v4();
         let display_name = user.display_name.as_deref().unwrap_or(&user.name);
         let policy =
@@ -352,6 +349,48 @@ fn apply_authentication_request_options(options: &mut Value, extensions: Option<
 
 fn credential_value_to_passkey(value: Value) -> Result<Passkey, OpenAuthError> {
     serde_json::from_value::<Passkey>(value).map_err(json_error)
+}
+
+fn parse_exclude_credential_id(value: Value) -> Result<CredentialID, OpenAuthError> {
+    if let Ok(credential) = serde_json::from_value::<Credential>(value.clone()) {
+        return Ok(credential.cred_id);
+    }
+    let id = value
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| {
+            value
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| OpenAuthError::Api("invalid passkey exclude credential entry".to_owned()))?;
+    serde_json::from_value(json!(id)).map_err(json_error)
+}
+
+/// Merge legacy passkey ids into `allowCredentials` when full credential state is unavailable.
+pub(crate) fn merge_legacy_allow_credentials(
+    options: &mut Value,
+    legacy_credential_ids: &[String],
+) {
+    if legacy_credential_ids.is_empty() {
+        return;
+    }
+    let Some(options) = options.as_object_mut() else {
+        return;
+    };
+    let allow = options
+        .entry("allowCredentials")
+        .or_insert_with(|| json!([]));
+    let Some(items) = allow.as_array_mut() else {
+        return;
+    };
+    for id in legacy_credential_ids {
+        items.push(json!({
+            "type": "public-key",
+            "id": id,
+        }));
+    }
 }
 
 fn credential_output(passkey: Passkey) -> Result<VerifiedPasskeyCredential, OpenAuthError> {

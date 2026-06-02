@@ -15,6 +15,21 @@ pub fn not_allowed() -> Result<ApiResponse, OpenAuthError> {
     )
 }
 
+pub fn session_not_fresh() -> Result<ApiResponse, OpenAuthError> {
+    error_response(
+        StatusCode::FORBIDDEN,
+        "SESSION_NOT_FRESH",
+        "Session is not fresh",
+    )
+}
+
+pub fn internal_error(
+    code: impl Into<String>,
+    message: impl Into<String>,
+) -> Result<ApiResponse, OpenAuthError> {
+    error_response(StatusCode::INTERNAL_SERVER_ERROR, code, message)
+}
+
 pub fn error_response(
     status: StatusCode,
     code: impl Into<String>,

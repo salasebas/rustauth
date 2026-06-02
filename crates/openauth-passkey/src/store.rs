@@ -35,6 +35,22 @@ pub struct PasskeyStore<'a> {
     adapter: &'a dyn DbAdapter,
 }
 
+impl Passkey {
+    /// Value for `excludeCredentials` during registration (full credential or legacy id).
+    pub(crate) fn registration_exclude_value(&self) -> Value {
+        if !self.webauthn_credential.is_null() {
+            self.webauthn_credential.clone()
+        } else {
+            Value::String(self.credential_id.clone())
+        }
+    }
+
+    /// Stored WebAuthn credential state for authentication ceremonies, when available.
+    pub(crate) fn authentication_credential_value(&self) -> Option<Value> {
+        (!self.webauthn_credential.is_null()).then(|| self.webauthn_credential.clone())
+    }
+}
+
 impl<'a> PasskeyStore<'a> {
     pub fn new(adapter: &'a dyn DbAdapter) -> Self {
         Self { adapter }

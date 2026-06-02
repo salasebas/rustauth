@@ -644,13 +644,23 @@ impl PasskeyWebAuthnBackend for FakeWebAuthnBackend {
         &self,
         config: WebAuthnConfig,
         user: &PasskeyRegistrationUser,
-        _exclude_credentials: Vec<Value>,
+        exclude_credentials: Vec<Value>,
         request_options: RegistrationWebAuthnOptions,
     ) -> Result<PasskeyRegistrationStart, openauth_core::error::OpenAuthError> {
         self.registration_users
             .lock()
             .map_err(|_| openauth_core::error::OpenAuthError::Adapter("mutex poisoned".to_owned()))?
             .push(user.id.clone());
+        let exclude_credentials: Vec<Value> = exclude_credentials
+            .into_iter()
+            .map(|value| {
+                if let Some(id) = value.as_str() {
+                    json!({ "type": "public-key", "id": id })
+                } else {
+                    value
+                }
+            })
+            .collect();
         let mut options = json!({
             "challenge": "registration-challenge",
             "rp": { "id": config.rp_id, "name": config.rp_name },
@@ -661,6 +671,7 @@ impl PasskeyWebAuthnBackend for FakeWebAuthnBackend {
             },
             "pubKeyCredParams": [],
             "authenticatorSelection": request_options.authenticator_selection.to_json(),
+            "excludeCredentials": exclude_credentials,
         });
         if let Some(extensions) = request_options.extensions {
             options["extensions"] = extensions;

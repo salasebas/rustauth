@@ -17,13 +17,15 @@ use crate::options::{
     AfterRegistrationVerificationInput, AuthenticatorAttachment, PasskeyExtensionsInput,
     PasskeyOptions, RegistrationWebAuthnOptions,
 };
-use crate::response::{error_response, json_response, not_allowed};
+use crate::response::{
+    error_response, internal_error, json_response, not_allowed, session_not_fresh,
+};
 use crate::routes::{
     adapter, query_param, resolve_extensions, verification_webauthn_config, webauthn_config,
     VerifyRegistrationBody,
 };
 use crate::session::{current_session, registration_user, session_is_fresh, RegistrationUserError};
-use crate::store::PasskeyStore;
+use crate::store::{Passkey, PasskeyStore};
 
 pub(super) fn generate_register_options_endpoint(
     options: Arc<PasskeyOptions>,
@@ -58,11 +60,7 @@ pub(super) fn generate_register_options_endpoint(
                 let session = current_session(context, &request).await?;
                 if let Some((session, _, _)) = &session {
                     if options.registration.require_session && !session_is_fresh(context, session) {
-                        return error_response(
-                            StatusCode::UNAUTHORIZED,
-                            "SESSION_NOT_FRESH",
-                            "Session is not fresh",
-                        );
+                        return session_not_fresh();
                     }
                 }
                 let context_value = query_param(&request, "context");
@@ -119,6 +117,7 @@ pub(super) fn generate_register_options_endpoint(
                     &options.registration.extensions,
                     PasskeyExtensionsInput {
                         context: context_value.clone(),
+                        user_id: session.as_ref().map(|(_, user, _)| user.id.clone()),
                     },
                 )
                 .await;
@@ -132,11 +131,8 @@ pub(super) fn generate_register_options_endpoint(
                     webauthn_config(context, &options, &request)?,
                     &webauthn_user,
                     user_passkeys
-                        .into_iter()
-                        .filter_map(|passkey| {
-                            (!passkey.webauthn_credential.is_null())
-                                .then_some(passkey.webauthn_credential)
-                        })
+                        .iter()
+                        .map(Passkey::registration_exclude_value)
                         .collect(),
                     request_options,
                 )?;
@@ -218,11 +214,7 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                 }
                 if let Some((session, _, _)) = &session {
                     if options.registration.require_session && !session_is_fresh(context, session) {
-                        return error_response(
-                            StatusCode::UNAUTHORIZED,
-                            "SESSION_NOT_FRESH",
-                            "Session is not fresh",
-                        );
+                        return session_not_fresh();
                     }
                 }
                 let Some(resolved_user) = challenge.user.clone() else {
@@ -252,8 +244,7 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                 ) {
                     Ok(verified) => verified,
                     Err(_) => {
-                        return error_response(
-                            StatusCode::BAD_REQUEST,
+                        return internal_error(
                             "FAILED_TO_VERIFY_REGISTRATION",
                             "Failed to verify registration",
                         )

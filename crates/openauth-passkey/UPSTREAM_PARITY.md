@@ -1,12 +1,15 @@
 # Passkey Upstream Parity
 
+> **Documentación completa:** [docs/parity/crates/openauth-passkey/README.md](../../docs/parity/crates/openauth-passkey/README.md)  
+> Incluye auditoría de código fuente: [08-implementation-audit.md](../../docs/parity/crates/openauth-passkey/08-implementation-audit.md).
+
 This document records server-side parity decisions for `openauth-passkey`
 against Better Auth's passkey plugin.
 
 ## Status
 
 Server-side parity is considered complete for the current OpenAuth architecture.
-Estimated parity: **98%**.
+Estimated parity: **~99%** server-side (optional `schema` field merge remains unported).
 
 The remaining differences are either client/TypeScript-only concerns or
 intentional Rust/OpenAuth architecture choices that preserve the observable

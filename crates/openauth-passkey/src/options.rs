@@ -442,6 +442,8 @@ pub struct ResolveRegistrationUserInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasskeyExtensionsInput {
     pub context: Option<String>,
+    /// Authenticated user id when generating session-scoped authentication options.
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

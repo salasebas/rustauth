@@ -38,6 +38,61 @@ async fn generate_authenticate_options_without_session_returns_discoverable_opti
 }
 
 #[tokio::test]
+async fn generate_authenticate_options_includes_legacy_credential_ids_in_allow_list(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    let session_cookie = sign_in_cookie(&router).await?;
+    adapter
+        .create(
+            openauth_core::db::Create::new("passkey")
+                .data("id", DbValue::String("legacy-passkey".to_owned()))
+                .data("name", DbValue::String("Legacy".to_owned()))
+                .data("public_key", DbValue::String("public-key".to_owned()))
+                .data("user_id", DbValue::String("user_1".to_owned()))
+                .data(
+                    "credential_id",
+                    DbValue::String("legacy-credential-id".to_owned()),
+                )
+                .data("counter", DbValue::Number(0))
+                .data("device_type", DbValue::String("singleDevice".to_owned()))
+                .data("backed_up", DbValue::Boolean(false))
+                .data("transports", DbValue::Null)
+                .data(
+                    "created_at",
+                    DbValue::Timestamp(time::OffsetDateTime::now_utc()),
+                )
+                .data("aaguid", DbValue::Null)
+                .data("webauthn_credential", DbValue::Null)
+                .force_allow_id(),
+        )
+        .await?;
+
+    let response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            Some(&session_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    let Some(allowed) = body
+        .get("allowCredentials")
+        .and_then(|value| value.as_array())
+    else {
+        return Err(format!("allowCredentials missing: {body:?}").into());
+    };
+    assert!(
+        allowed
+            .iter()
+            .any(|entry| entry["id"].as_str() == Some("legacy-credential-id")),
+        "legacy credential id must be allowed: {allowed:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn generate_authenticate_options_with_session_includes_user_credentials(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
@@ -367,9 +422,9 @@ async fn verify_authentication_rejects_deleted_user_with_json_error(
         )?)
         .await?;
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let body: Value = serde_json::from_slice(response.body())?;
-    assert_eq!(body["code"], "AUTHENTICATION_FAILED");
+    assert_eq!(body["code"], "User not found");
     Ok(())
 }
 

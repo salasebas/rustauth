@@ -6,6 +6,17 @@ All notable changes to `openauth-passkey` are documented in this file.
 
 ### Fixed
 
+- Align passkey registration stale-session responses with Better Auth (`403` +
+  `SESSION_NOT_FRESH`).
+- Align passkey verification HTTP status with Better Auth for failed
+  registration verification (`500` + `FAILED_TO_VERIFY_REGISTRATION`) and
+  missing users after authentication (`500` + `User not found`).
+- Include legacy passkeys (rows without `webauthn_credential` JSON) in
+  `excludeCredentials` and session-scoped `allowCredentials` via stored
+  `credential_id`.
+- Pass authenticated `user_id` into authentication extension resolvers.
+- Stop re-emitting session cookies on `GET /passkey/list-user-passkeys`
+  (upstream returns JSON only).
 - Fixed the WebAuthn challenge cookie to route through the core auth-cookie
   configuration (`AuthContext::create_auth_cookie`) so it inherits the
   `cookie_prefix` namespace, secure-name prefix, cross-subdomain `domain`, and

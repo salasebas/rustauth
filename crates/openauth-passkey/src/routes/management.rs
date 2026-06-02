@@ -38,13 +38,13 @@ pub(super) fn list_passkeys_endpoint(_options: Arc<PasskeyOptions>) -> AsyncAuth
         move |context, request| {
             Box::pin(async move {
                 let adapter = adapter(context)?;
-                let Some((_, user, cookies)) = current_session(context, &request).await? else {
+                let Some((_, user, _)) = current_session(context, &request).await? else {
                     return unauthorized();
                 };
                 let passkeys = PasskeyStore::new(adapter.as_ref())
                     .list_by_user(&user.id)
                     .await?;
-                json_response(StatusCode::OK, &passkeys, cookies)
+                json_response(StatusCode::OK, &passkeys, Vec::new())
             })
         },
     )
