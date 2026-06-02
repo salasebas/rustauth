@@ -68,5 +68,6 @@ and transport hooks may change before stable release.
 
 ## Links
 
+- [Parity vs Better Auth 1.6.9](../../docs/parity/openauth-telemetry/README.md)
 - [Root README](../../README.md)
 - [Repository](https://github.com/sebasxsala/openauth-rs)

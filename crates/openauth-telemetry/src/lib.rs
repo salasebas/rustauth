@@ -29,14 +29,15 @@
 //!
 //! # Intentional gaps vs upstream
 //!
-//! - **Framework** detection is stubbed to Axum until HTTP stack sniffing exists.
-//! - **Database** detection from manifests is not implemented (`None` unless overridden in tests).
+//! - **Framework** and **database** are inferred from the host `Cargo.toml` when `CARGO_MANIFEST_DIR`
+//!   (or cwd) is available; override with [`TelemetryContext`] or [`TelemetryTestHooks`].
 //! - **`get_telemetry_auth_config`** emits Better Auth-shaped JSON; many branches are static defaults
 //!   until matching fields exist on [`openauth_core::options::OpenAuthOptions`].
 //! - **Runtime** is reported as `rust` (not Node/Bun/Deno).
-//! - **System metrics** (CPU, memory, Docker, WSL, TTY) are mostly unset (`null`), matching the
-//!   non-Node “edge” build of upstream telemetry.
+//! - **System metrics** `cpuModel`, `cpuSpeed`, and `memory` stay `null` without a platform sysinfo dependency.
 //! - **HTTP**: JSON POST uses `reqwest` when the `http` feature is enabled (default).
+//!
+//! Parity tables: [`docs/parity/openauth-telemetry/README.md`](../../docs/parity/openauth-telemetry/README.md).
 
 mod auth_config;
 mod detectors;
