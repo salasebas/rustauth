@@ -1,0 +1,93 @@
+[
+    {
+        "title": "SCIM: Group routes expose and mutate non-SCIM organization teams",
+        "status": "resolved",
+        "type": "security",
+        "scope": "scim-provisioning",
+        "project_name_label": "openauth-rs",
+        "severity": "medium",
+        "commit_hash": "bd581b585bef168fdf79b8050a28c76fe9490033",
+        "detected_at_pst": "2026-05-31T21:23:00-07:00",
+        "reported_link": "https://linear.app/openauth/issue/OPE-80/scim-group-routes-expose-and-mutate-non-scim-organization-teams",
+        "resolution": "scimGroupProfile marker + groups_native_team_boundary tests",
+        "resolved_at_pst": "2026-06-01"
+    },
+    {
+        "title": "Plugins: MCP refresh token grant skips client secret authentication",
+        "status": "resolved",
+        "type": "security",
+        "scope": "plugins-architecture",
+        "project_name_label": "openauth-rs",
+        "severity": "medium",
+        "commit_hash": "bd581b585bef168fdf79b8050a28c76fe9490033",
+        "detected_at_pst": "2026-05-31T21:24:27-0700",
+        "reported_link": "https://linear.app/openauth/issue/OPE-78/plugins-mcp-refresh-token-grant-skips-client-secret-authentication",
+        "resolution": "refresh_token_confidential_client_* tests in mcp/token_hardening.rs",
+        "resolved_at_pst": "2026-06-01"
+    },
+    {
+        "title": "Passkey: login sessions trust raw x-forwarded-for metadata",
+        "status": "resolved",
+        "type": "security",
+        "scope": "passkey-webauthn",
+        "project_name_label": "openauth-rs",
+        "severity": "medium",
+        "commit_hash": "bd581b585bef168fdf79b8050a28c76fe9490033",
+        "detected_at_pst": "2026-05-31T21:22:00-0700",
+        "reported_link": "https://linear.app/openauth/issue/OPE-79/passkey-login-sessions-trust-raw-x-forwarded-for-metadata",
+        "resolution": "RequestClientIp / advanced.ip_address allow-list; verify_authentication_session_ip_* test",
+        "resolved_at_pst": "2026-06-01"
+    },
+    {
+        "title": "Core: secure cookie mode accepts unprefixed session tokens first",
+        "status": "resolved",
+        "type": "security",
+        "scope": "core-auth",
+        "project_name_label": "openauth-rs",
+        "severity": "medium",
+        "commit_hash": "bd581b585bef168fdf79b8050a28c76fe9490033",
+        "detected_at_pst": "2026-05-31T21:28:22-0700",
+        "reported_link": "https://linear.app/openauth/issue/OPE-82/core-secure-cookie-mode-accepts-unprefixed-session-tokens-first",
+        "resolution": "get_session_cookie ignores unprefixed name in secure mode; cookie tests",
+        "resolved_at_pst": "2026-06-01"
+    },
+    {
+        "title": "Core: rememberMe=false sessions become persistent after sensitive flows",
+        "status": "resolved",
+        "type": "security",
+        "scope": "core-auth",
+        "project_name_label": "openauth-rs",
+        "severity": "medium",
+        "commit_hash": "bd581b585bef168fdf79b8050a28c76fe9490033",
+        "detected_at_pst": "2026-05-31T21:28:22-0700",
+        "reported_link": "https://linear.app/openauth/issue/OPE-83/core-remembermefalse-sessions-become-persistent-after-sensitive-flows",
+        "resolution": "dont_remember marker preserved on change-password/email; regression tests",
+        "resolved_at_pst": "2026-06-01"
+    },
+    {
+        "title": "Stripe: Subscription update webhook can overwrite the wrong local row",
+        "status": "resolved",
+        "type": "bug",
+        "scope": "stripe-payments-billing",
+        "project_name_label": "openauth-rs",
+        "severity": "medium",
+        "commit_hash": "bd581b585bef168fdf79b8050a28c76fe9490033",
+        "detected_at_pst": "2026-05-31T21:27:47-07:00",
+        "reported_link": "https://linear.app/openauth/issue/OPE-81/stripe-subscription-update-webhook-can-overwrite-the-wrong-local-row",
+        "resolution": "Ambiguous customer fallback skips update; subscription_updated_webhook_skips_ambiguous_* test",
+        "resolved_at_pst": "2026-06-01"
+    },
+    {
+        "title": "OAuth: form_post callbacks are blocked by origin checks",
+        "status": "resolved",
+        "type": "bug",
+        "scope": "consumer-oauth",
+        "project_name_label": "openauth-rs",
+        "severity": "medium",
+        "commit_hash": "bd581b585bef168fdf79b8050a28c76fe9490033",
+        "detected_at_pst": "2026-05-31T21:29:32-0700",
+        "reported_link": "https://linear.app/openauth/issue/OPE-84/oauth-form-post-callbacks-are-blocked-by-origin-checks",
+        "resolution": "social callback POST path; callback_oauth_post_allows_cross_site_form_post_navigation test",
+        "resolved_at_pst": "2026-06-01"
+    }
+]
