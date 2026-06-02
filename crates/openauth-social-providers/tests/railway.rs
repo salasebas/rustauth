@@ -89,22 +89,21 @@ fn railway_authorization_url_requires_client_id_and_secret() {
 }
 
 #[test]
-fn railway_authorization_url_requires_code_verifier() {
+fn railway_authorization_url_allows_missing_code_verifier() {
     let provider = railway(provider_options());
 
-    let error = provider
+    let url = provider
         .create_authorization_url(RailwayAuthorizationUrlRequest {
             state: "state-1".to_owned(),
             redirect_uri: "https://app.example.com/auth/callback/railway".to_owned(),
             code_verifier: None,
             scopes: Vec::new(),
         })
-        .unwrap_err();
+        .expect("railway authorization URL should build without PKCE");
 
-    assert_eq!(
-        error.to_string(),
-        "missing OAuth provider option `code_verifier`"
-    );
+    assert!(url
+        .query_pairs()
+        .all(|(key, _)| key != "code_challenge" && key != "code_challenge_method"));
 }
 
 #[test]

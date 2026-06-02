@@ -5,6 +5,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use openauth_oauth::oauth2::{
     authorization_code_request, create_authorization_url, get_oauth2_tokens,
     refresh_access_token_request, validate_authorization_code, AuthorizationCodeRequest,
@@ -249,7 +251,10 @@ impl PayPalProvider {
             return verify_id_token(token.to_owned(), nonce.map(str::to_owned)).await;
         }
 
-        Ok(false)
+        let payload = decode_jwt_payload(token)?;
+        Ok(payload
+            .get("sub")
+            .is_some_and(|sub| !sub.as_str().is_some_and(str::is_empty) && !sub.is_null()))
     }
 
     pub async fn get_user_info(
@@ -327,6 +332,17 @@ impl OAuthProviderContract for PayPalProvider {
     fn name(&self) -> &str {
         PAYPAL_NAME
     }
+}
+
+fn decode_jwt_payload(token: &str) -> Result<Value, OAuthError> {
+    let payload = token
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| OAuthError::InvalidResponse("id token must contain a payload".to_owned()))?;
+    let decoded = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|error| OAuthError::InvalidResponse(error.to_string()))?;
+    serde_json::from_slice(&decoded).map_err(|error| OAuthError::InvalidResponse(error.to_string()))
 }
 
 fn paypal_token_headers() -> BTreeMap<String, String> {

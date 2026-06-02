@@ -93,9 +93,6 @@ impl RailwayProvider {
         request: RailwayAuthorizationUrlRequest,
     ) -> Result<Url, OAuthError> {
         self.ensure_client_credentials()?;
-        if request.code_verifier.is_none() {
-            return Err(OAuthError::MissingOption("code_verifier"));
-        }
 
         create_authorization_url(AuthorizationUrlRequest {
             id: RAILWAY_ID.to_owned(),

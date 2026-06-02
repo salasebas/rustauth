@@ -52,7 +52,7 @@ fn discord_authorization_url_uses_default_scopes_prompt_and_redirect_override() 
         url.query_pairs()
             .find(|(key, _)| key == "scope")
             .map(|(_, value)| value.into_owned()),
-        Some("identify email".to_owned())
+        Some("identify+email".to_owned())
     );
     assert_eq!(
         url.query_pairs()
@@ -92,7 +92,7 @@ fn discord_authorization_url_adds_bot_permissions_only_for_bot_scope() {
         url.query_pairs()
             .find(|(key, _)| key == "scope")
             .map(|(_, value)| value.into_owned()),
-        Some("identify email guilds bot".to_owned())
+        Some("identify+email+guilds+bot".to_owned())
     );
     assert_eq!(
         url.query_pairs()

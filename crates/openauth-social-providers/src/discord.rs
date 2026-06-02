@@ -141,6 +141,7 @@ impl DiscordProvider {
             scopes,
             prompt: Some(self.options.prompt.as_str().to_owned()),
             additional_params,
+            scope_joiner: "+".to_owned(),
             ..AuthorizationUrlRequest::default()
         })
     }

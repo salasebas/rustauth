@@ -53,7 +53,7 @@ fn roblox_authorization_url_uses_default_scopes_prompt_and_redirect_override() {
     );
     assert_eq!(
         query_value(&url, "scope"),
-        Some("openid profile extra-scope request-scope".to_owned())
+        Some("openid+profile+extra-scope+request-scope".to_owned())
     );
     assert_eq!(
         query_value(&url, "prompt"),
@@ -87,7 +87,7 @@ fn roblox_authorization_url_can_disable_default_scope_and_choose_prompt() {
 
     assert_eq!(
         query_value(&url, "scope"),
-        Some("openid profile".to_owned())
+        Some("openid+profile".to_owned())
     );
     assert_eq!(query_value(&url, "prompt"), Some("login".to_owned()));
 }

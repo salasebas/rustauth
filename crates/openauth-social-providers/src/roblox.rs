@@ -115,6 +115,7 @@ impl RobloxProvider {
             state: request.state,
             scopes: self.authorization_scopes(request.scopes),
             prompt: Some(self.options.prompt.as_str().to_owned()),
+            scope_joiner: "+".to_owned(),
             ..AuthorizationUrlRequest::default()
         })
     }

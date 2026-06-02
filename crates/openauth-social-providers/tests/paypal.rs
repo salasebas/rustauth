@@ -177,14 +177,14 @@ fn paypal_profile_maps_to_user_info() {
 }
 
 #[tokio::test]
-async fn paypal_verify_id_token_rejects_payload_only_tokens_by_default() {
+async fn paypal_verify_id_token_accepts_unsigned_jwt_with_sub_by_default() {
     let provider = paypal(paypal_options());
     let token = unsigned_jwt(json!({ "sub": "paypal-user-1" }));
 
-    assert!(!provider
+    assert!(provider
         .verify_id_token(&token, None)
         .await
-        .expect("payload-only token should not error"));
+        .expect("unsigned jwt with sub should verify like upstream decodeJwt"));
 
     let provider = paypal(PayPalOptions {
         oauth: ProviderOptions {
