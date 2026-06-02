@@ -10,6 +10,7 @@ behavior, tests, and intentional design differences.
 | --- | --- | --- |
 | [`openauth-stripe`](openauth-stripe/README.md) | `@better-auth/stripe` | High server parity; **174** Rust integration tests vs upstream Vitest catalog; gaps G1–G12 closed |
 | [`openauth-telemetry`](openauth-telemetry/README.md) | `@better-auth/telemetry` | High server parity; **6** upstream Vitest vs **33** Rust tests (**34** with `oauth`); see [gaps](openauth-telemetry/09-gaps-and-follow-ups.md) |
+| [`openauth-passkey`](crates/openauth-passkey/README.md) | `@better-auth/passkey` | **~99%** server parity; **19** upstream Vitest server cases vs **60+** Rust tests; optional `mergeSchema` + legacy `publicKey`-only verify remain |
 
 Additional crate parity folders may exist as work-in-progress under `docs/parity/`; the table above lists documented surfaces committed with this index.
 

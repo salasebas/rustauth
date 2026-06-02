@@ -57,5 +57,6 @@ production rollout.
 
 ## Links
 
+- [Better Auth 1.6.9 parity](../../docs/parity/crates/openauth-passkey/README.md)
 - [Root README](../../README.md)
 - [Repository](https://github.com/sebasxsala/openauth-rs)
