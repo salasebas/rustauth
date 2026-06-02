@@ -9,7 +9,8 @@ use crate::db::{
     Update, Verification, Where, WhereOperator,
 };
 use crate::error::OpenAuthError;
-use crate::options::SecondaryStorage;
+use crate::options::{SecondaryStorage, StoreIdentifierOption, VerificationOptions};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 const VERIFICATION_MODEL: &str = "verification";
@@ -22,6 +23,22 @@ const VERIFICATION_FIELDS: [&str; 6] = [
     "created_at",
     "updated_at",
 ];
+
+/// Transform a verification identifier according to configured storage options.
+pub async fn process_verification_identifier(
+    options: &VerificationOptions,
+    identifier: &str,
+) -> Result<String, OpenAuthError> {
+    match options.store_identifier.resolve(identifier) {
+        StoreIdentifierOption::Plain => Ok(identifier.to_owned()),
+        StoreIdentifierOption::Hashed => Ok(hash_verification_identifier(identifier)),
+        StoreIdentifierOption::Custom(hash_fn) => hash_fn(identifier.to_owned()).await,
+    }
+}
+
+fn hash_verification_identifier(identifier: &str) -> String {
+    hex::encode(Sha256::digest(identifier.as_bytes()))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateVerificationInput {
@@ -76,20 +93,27 @@ impl UpdateVerificationInput {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct DbVerificationStore<'a> {
     adapter: &'a dyn DbAdapter,
+    options: VerificationOptions,
 }
 
 impl<'a> DbVerificationStore<'a> {
     pub fn new(adapter: &'a dyn DbAdapter) -> Self {
-        Self { adapter }
+        Self::with_options(adapter, VerificationOptions::default())
+    }
+
+    pub fn with_options(adapter: &'a dyn DbAdapter, options: VerificationOptions) -> Self {
+        Self { adapter, options }
     }
 
     pub async fn create_verification(
         &self,
         input: CreateVerificationInput,
     ) -> Result<Verification, OpenAuthError> {
+        let stored_identifier =
+            process_verification_identifier(&self.options, &input.identifier).await?;
         let now = OffsetDateTime::now_utc();
         let id = input
             .id
@@ -100,7 +124,7 @@ impl<'a> DbVerificationStore<'a> {
             .create(
                 Create::new(VERIFICATION_MODEL)
                     .data("id", DbValue::String(id))
-                    .data("identifier", DbValue::String(input.identifier))
+                    .data("identifier", DbValue::String(stored_identifier))
                     .data("value", DbValue::String(input.value))
                     .data("expires_at", DbValue::Timestamp(input.expires_at))
                     .data("created_at", DbValue::Timestamp(now))
@@ -117,13 +141,16 @@ impl<'a> DbVerificationStore<'a> {
         &self,
         identifier: &str,
     ) -> Result<Option<Verification>, OpenAuthError> {
-        self.delete_expired_verifications().await?;
+        if !self.options.disable_cleanup {
+            self.delete_expired_verifications().await?;
+        }
 
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
         let Some(record) = self
             .adapter
             .find_many(
                 FindMany::new(VERIFICATION_MODEL)
-                    .where_clause(identifier_where(identifier))
+                    .where_clause(identifier_where(&stored_identifier))
                     .sort_by(Sort::new("created_at", SortDirection::Desc))
                     .limit(1)
                     .select(VERIFICATION_FIELDS),
@@ -137,7 +164,9 @@ impl<'a> DbVerificationStore<'a> {
 
         let verification = verification_from_record(record)?;
         if verification.expires_at <= OffsetDateTime::now_utc() {
-            self.delete_expired_verifications().await?;
+            if !self.options.disable_cleanup {
+                self.delete_expired_verifications().await?;
+            }
             return Ok(None);
         }
 
@@ -148,10 +177,11 @@ impl<'a> DbVerificationStore<'a> {
         &self,
         identifier: &str,
     ) -> Result<Option<Verification>, OpenAuthError> {
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
         self.adapter
             .find_many(
                 FindMany::new(VERIFICATION_MODEL)
-                    .where_clause(identifier_where(identifier))
+                    .where_clause(identifier_where(&stored_identifier))
                     .sort_by(Sort::new("created_at", SortDirection::Desc))
                     .limit(1)
                     .select(VERIFICATION_FIELDS),
@@ -168,7 +198,9 @@ impl<'a> DbVerificationStore<'a> {
         identifier: &str,
         input: UpdateVerificationInput,
     ) -> Result<Option<Verification>, OpenAuthError> {
-        let mut query = Update::new(VERIFICATION_MODEL).where_clause(identifier_where(identifier));
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
+        let mut query =
+            Update::new(VERIFICATION_MODEL).where_clause(identifier_where(&stored_identifier));
 
         if let Some(value) = input.value {
             query = query.data("value", DbValue::String(value));
@@ -186,12 +218,18 @@ impl<'a> DbVerificationStore<'a> {
     }
 
     pub async fn delete_verification(&self, identifier: &str) -> Result<(), OpenAuthError> {
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
         self.adapter
-            .delete(Delete::new(VERIFICATION_MODEL).where_clause(identifier_where(identifier)))
+            .delete(
+                Delete::new(VERIFICATION_MODEL).where_clause(identifier_where(&stored_identifier)),
+            )
             .await
     }
 
     pub async fn delete_expired_verifications(&self) -> Result<u64, OpenAuthError> {
+        if self.options.disable_cleanup {
+            return Ok(0);
+        }
         self.adapter
             .delete_many(
                 DeleteMany::new(VERIFICATION_MODEL).where_clause(
@@ -208,13 +246,16 @@ impl<'a> DbVerificationStore<'a> {
 pub struct VerificationStore<'a> {
     database: DbVerificationStore<'a>,
     secondary_storage: Option<Arc<dyn SecondaryStorage>>,
+    options: VerificationOptions,
 }
 
 impl<'a> VerificationStore<'a> {
     pub fn new(adapter: &'a dyn DbAdapter, context: &AuthContext) -> Self {
+        let options = context.options.verification.clone();
         Self {
-            database: DbVerificationStore::new(adapter),
+            database: DbVerificationStore::with_options(adapter, options.clone()),
             secondary_storage: context.secondary_storage(),
+            options,
         }
     }
 
@@ -225,12 +266,14 @@ impl<'a> VerificationStore<'a> {
         let Some(storage) = &self.secondary_storage else {
             return self.database.create_verification(input).await;
         };
+        let stored_identifier =
+            process_verification_identifier(&self.options, &input.identifier).await?;
         let now = OffsetDateTime::now_utc();
         let verification = Verification {
             id: input
                 .id
                 .unwrap_or_else(|| generate_random_string(DEFAULT_ID_LENGTH)),
-            identifier: input.identifier,
+            identifier: stored_identifier,
             value: input.value,
             expires_at: input.expires_at,
             created_at: now,
@@ -253,14 +296,17 @@ impl<'a> VerificationStore<'a> {
         let Some(storage) = &self.secondary_storage else {
             return self.database.find_verification(identifier).await;
         };
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
         let Some(verification) = self
-            .find_secondary_verification(storage.as_ref(), identifier)
+            .find_secondary_verification(storage.as_ref(), &stored_identifier)
             .await?
         else {
             return Ok(None);
         };
         if verification.expires_at <= OffsetDateTime::now_utc() {
-            storage.delete(&verification_key(identifier)).await?;
+            storage
+                .delete(&verification_key(&stored_identifier))
+                .await?;
             return Ok(None);
         }
         Ok(Some(verification))
@@ -276,7 +322,8 @@ impl<'a> VerificationStore<'a> {
                 .find_verification_including_expired(identifier)
                 .await;
         };
-        self.find_secondary_verification(storage.as_ref(), identifier)
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
+        self.find_secondary_verification(storage.as_ref(), &stored_identifier)
             .await
     }
 
@@ -288,8 +335,9 @@ impl<'a> VerificationStore<'a> {
         let Some(storage) = &self.secondary_storage else {
             return self.database.update_verification(identifier, input).await;
         };
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
         let Some(mut verification) = self
-            .find_secondary_verification(storage.as_ref(), identifier)
+            .find_secondary_verification(storage.as_ref(), &stored_identifier)
             .await?
         else {
             return Ok(None);
@@ -303,7 +351,7 @@ impl<'a> VerificationStore<'a> {
         verification.updated_at = OffsetDateTime::now_utc();
         storage
             .set(
-                &verification_key(identifier),
+                &verification_key(&stored_identifier),
                 serialize_verification(&verification)?,
                 ttl_seconds(verification.expires_at),
             )
@@ -315,10 +363,14 @@ impl<'a> VerificationStore<'a> {
         let Some(storage) = &self.secondary_storage else {
             return self.database.delete_verification(identifier).await;
         };
-        storage.delete(&verification_key(identifier)).await
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
+        storage.delete(&verification_key(&stored_identifier)).await
     }
 
     pub async fn delete_expired_verifications(&self) -> Result<u64, OpenAuthError> {
+        if self.options.disable_cleanup {
+            return Ok(0);
+        }
         let Some(_storage) = &self.secondary_storage else {
             return self.database.delete_expired_verifications().await;
         };
@@ -328,10 +380,10 @@ impl<'a> VerificationStore<'a> {
     async fn find_secondary_verification(
         &self,
         storage: &dyn SecondaryStorage,
-        identifier: &str,
+        stored_identifier: &str,
     ) -> Result<Option<Verification>, OpenAuthError> {
         storage
-            .get(&verification_key(identifier))
+            .get(&verification_key(stored_identifier))
             .await?
             .map(|value| deserialize_verification(&value))
             .transpose()

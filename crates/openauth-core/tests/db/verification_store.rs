@@ -6,8 +6,10 @@ use openauth_core::db::{
     UpdateMany, Verification, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
+use openauth_core::options::VerificationOptions;
 use openauth_core::verification::{
-    CreateVerificationInput, DbVerificationStore, UpdateVerificationInput,
+    process_verification_identifier, CreateVerificationInput, DbVerificationStore,
+    UpdateVerificationInput,
 };
 use time::{Duration, OffsetDateTime};
 use tokio::sync::Mutex;
@@ -284,6 +286,42 @@ async fn db_verification_store_deletes_by_identifier() -> Result<(), OpenAuthErr
 
     assert!(adapter.records.lock().await.is_empty());
     assert_eq!(adapter.deletes.lock().await.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn db_verification_store_hashes_identifiers_when_configured() -> Result<(), OpenAuthError> {
+    let adapter = InMemoryVerificationAdapter::default();
+    let options = VerificationOptions::new().store_identifier_hashed();
+    let store = DbVerificationStore::with_options(&adapter, options.clone());
+    let expires_at = OffsetDateTime::now_utc() + Duration::minutes(10);
+    let identifier = "reset-password:token";
+
+    let expected_identifier = process_verification_identifier(&options, identifier).await?;
+
+    let verification = store
+        .create_verification(CreateVerificationInput::new(
+            identifier, "user_1", expires_at,
+        ))
+        .await?;
+
+    assert_eq!(verification.identifier, expected_identifier);
+    assert_ne!(verification.identifier, identifier);
+
+    let creates = adapter.creates.lock().await;
+    let Some(create) = creates.first() else {
+        return Err(OpenAuthError::Adapter("missing create query".to_owned()));
+    };
+    assert_eq!(
+        string_field(&create.data, "identifier")?,
+        expected_identifier.as_str()
+    );
+
+    let found = store.find_verification(identifier).await?;
+    let Some(found) = found else {
+        return Err(OpenAuthError::Adapter("missing verification".to_owned()));
+    };
+    assert_eq!(found.identifier, expected_identifier);
     Ok(())
 }
 

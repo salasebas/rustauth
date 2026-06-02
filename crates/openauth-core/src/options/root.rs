@@ -17,6 +17,7 @@ use super::password::PasswordOptions;
 use super::rate_limit::RateLimitOptions;
 use super::session::SessionOptions;
 use super::user::UserOptions;
+use super::verification::VerificationOptions;
 
 /// Telemetry collection settings (parity with Better Auth `telemetry` init option).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -86,6 +87,7 @@ pub struct OpenAuthOptions {
     pub production: bool,
     pub telemetry: TelemetryOptions,
     pub experimental: ExperimentalOptions,
+    pub verification: VerificationOptions,
 }
 
 impl OpenAuthOptions {
@@ -243,6 +245,12 @@ impl OpenAuthOptions {
         self.experimental = experimental;
         self
     }
+
+    #[must_use]
+    pub fn verification(mut self, verification: VerificationOptions) -> Self {
+        self.verification = verification;
+        self
+    }
 }
 
 impl fmt::Debug for OpenAuthOptions {
@@ -278,6 +286,7 @@ impl fmt::Debug for OpenAuthOptions {
             .field("production", &self.production)
             .field("telemetry", &self.telemetry)
             .field("experimental", &self.experimental)
+            .field("verification", &self.verification)
             .finish()
     }
 }

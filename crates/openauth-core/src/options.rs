@@ -12,6 +12,7 @@ mod root;
 mod session;
 mod storage;
 mod user;
+mod verification;
 
 pub use account::{AccountLinkingOptions, AccountOptions, OAuthStateStoreStrategy};
 pub use advanced::{
@@ -37,3 +38,7 @@ pub use root::{ExperimentalOptions, OpenAuthOptions, TelemetryOptions};
 pub use session::{SessionAdditionalField, SessionOptions};
 pub use storage::{SecondaryStorage, SecondaryStorageFuture};
 pub use user::{ChangeEmailOptions, DeleteUserOptions, UserAdditionalField, UserOptions};
+pub use verification::{
+    StoreIdentifierHashFn, StoreIdentifierHashFuture, StoreIdentifierOption, VerificationOptions,
+    VerificationStoreIdentifierConfig,
+};
