@@ -98,6 +98,7 @@ fn try_clipboard_command(program: &str, args: &[&str], text: &str) -> bool {
         return false;
     };
     if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write as _;
         if stdin.write_all(text.as_bytes()).is_err() {
             return false;
         }

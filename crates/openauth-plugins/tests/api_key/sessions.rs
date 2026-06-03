@@ -322,6 +322,7 @@ async fn api_key_session_hook_rejects_out_of_range_session_expiry(
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("test-secret-at-least-32-chars-long!".to_owned()),
             session: SessionOptions::default().expires_in(u64::MAX),
+            on_api_error: openauth_core::options::OnApiErrorOptions::default().throw(true),
             ..OpenAuthOptions::default()
         },
     )?;
