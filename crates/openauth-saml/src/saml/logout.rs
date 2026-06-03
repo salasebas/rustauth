@@ -93,37 +93,36 @@ pub fn build_logout_request_binding(
             binding,
         )
         .map_err(map_logout_build_error)?;
-        return Ok(binding_context_to_response(ctx));
+        Ok(binding_context_to_response(ctx))
     }
     #[cfg(not(feature = "saml-signed"))]
     {
-        let _ = build;
+        let destination = idp_logout_service(config);
+        let xml = logout_request_xml_for_destination(config, &input, &destination.location)?;
+        let binding = if destination.binding == SamlLogoutServiceBinding::Post {
+            SamlLogoutBinding::Post {
+                html: post_binding_form(
+                    &destination.location,
+                    "SAMLRequest",
+                    &base64_xml(&xml),
+                    Some(&input.relay_state),
+                ),
+            }
+        } else {
+            SamlLogoutBinding::Redirect {
+                url: redirect_binding_url(
+                    &destination.location,
+                    "SAMLRequest",
+                    &deflate_and_encode(&xml)?,
+                    Some(&input.relay_state),
+                )?,
+            }
+        };
+        Ok(SamlLogoutBindingResponse {
+            id: input.request_id,
+            binding,
+        })
     }
-    let destination = idp_logout_service(config);
-    let xml = logout_request_xml_for_destination(config, &input, &destination.location)?;
-    let binding = if destination.binding == SamlLogoutServiceBinding::Post {
-        SamlLogoutBinding::Post {
-            html: post_binding_form(
-                &destination.location,
-                "SAMLRequest",
-                &base64_xml(&xml),
-                Some(&input.relay_state),
-            ),
-        }
-    } else {
-        SamlLogoutBinding::Redirect {
-            url: redirect_binding_url(
-                &destination.location,
-                "SAMLRequest",
-                &deflate_and_encode(&xml)?,
-                Some(&input.relay_state),
-            )?,
-        }
-    };
-    Ok(SamlLogoutBindingResponse {
-        id: input.request_id,
-        binding,
-    })
 }
 
 pub fn build_logout_response_redirect(
@@ -169,42 +168,41 @@ pub fn build_logout_response_binding(
             binding,
         )
         .map_err(map_logout_build_error)?;
-        return Ok(binding_context_to_response(ctx));
+        Ok(binding_context_to_response(ctx))
     }
     #[cfg(not(feature = "saml-signed"))]
     {
-        let _ = build;
+        let destination = idp_logout_service(config);
+        let xml = logout_response_xml_for_destination(
+            config,
+            &response_id,
+            in_response_to,
+            &destination.location,
+        )?;
+        let binding = if destination.binding == SamlLogoutServiceBinding::Post {
+            SamlLogoutBinding::Post {
+                html: post_binding_form(
+                    &destination.location,
+                    "SAMLResponse",
+                    &base64_xml(&xml),
+                    relay_state,
+                ),
+            }
+        } else {
+            SamlLogoutBinding::Redirect {
+                url: redirect_binding_url(
+                    &destination.location,
+                    "SAMLResponse",
+                    &deflate_and_encode(&xml)?,
+                    relay_state,
+                )?,
+            }
+        };
+        Ok(SamlLogoutBindingResponse {
+            id: response_id,
+            binding,
+        })
     }
-    let destination = idp_logout_service(config);
-    let xml = logout_response_xml_for_destination(
-        config,
-        &response_id,
-        in_response_to,
-        &destination.location,
-    )?;
-    let binding = if destination.binding == SamlLogoutServiceBinding::Post {
-        SamlLogoutBinding::Post {
-            html: post_binding_form(
-                &destination.location,
-                "SAMLResponse",
-                &base64_xml(&xml),
-                relay_state,
-            ),
-        }
-    } else {
-        SamlLogoutBinding::Redirect {
-            url: redirect_binding_url(
-                &destination.location,
-                "SAMLResponse",
-                &deflate_and_encode(&xml)?,
-                relay_state,
-            )?,
-        }
-    };
-    Ok(SamlLogoutBindingResponse {
-        id: response_id,
-        binding,
-    })
 }
 
 pub fn logout_request_xml(
@@ -349,6 +347,7 @@ fn configured_service_destination(
     first
 }
 
+#[cfg(not(feature = "saml-signed"))]
 fn redirect_binding_url(
     destination: &str,
     message_name: &str,
@@ -365,6 +364,7 @@ fn redirect_binding_url(
     Ok(url.to_string())
 }
 
+#[cfg(not(feature = "saml-signed"))]
 fn post_binding_form(
     action: &str,
     message_name: &str,
@@ -389,6 +389,7 @@ fn post_binding_form(
     )
 }
 
+#[cfg(not(feature = "saml-signed"))]
 fn base64_xml(xml: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(xml.as_bytes())
 }

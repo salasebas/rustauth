@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use base64::Engine;
 use opensaml::constants::signature_algorithm;
 use opensaml::constants::Binding;
 use opensaml::entity::{BindingContext, EntitySetting, User};
@@ -181,9 +180,11 @@ pub fn parse_login_response(
     .ok()
     .and_then(|bytes| String::from_utf8(bytes).ok())
     .is_some_and(|xml| xml.contains("EncryptedAssertion"));
-    let decrypt_key = encrypted
-        .then(|| sp.setting.enc_private_key.as_deref())
-        .flatten();
+    let decrypt_key = if encrypted {
+        sp.setting.enc_private_key.as_deref()
+    } else {
+        None
+    };
     let audience = sp
         .setting
         .entity_id
@@ -213,6 +214,7 @@ fn sp_has_signing_key(config: &SamlConfig) -> bool {
 }
 
 /// Build an outbound SP-initiated [`LogoutRequest`] via opensaml.
+#[allow(clippy::too_many_arguments)]
 pub fn build_sp_logout_request(
     config: &SamlConfig,
     base_url: &str,
@@ -243,6 +245,7 @@ pub fn build_sp_logout_request(
 }
 
 /// Build an outbound SP [`LogoutResponse`] via opensaml.
+#[allow(clippy::too_many_arguments)]
 pub fn build_sp_logout_response(
     config: &SamlConfig,
     base_url: &str,
@@ -470,6 +473,10 @@ fn secret_to_string(secret: Option<&openauth_core::secret::SecretString>) -> Opt
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic)]
+
+    use base64::Engine;
+
     use super::*;
     use crate::options::SamlSpMetadata;
 
@@ -599,7 +606,7 @@ mod tests {
             .expect("SAMLRequest");
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
-            .expect("base64");
+            .expect("base64 decode");
         let mut xml = String::new();
         flate2::read::DeflateDecoder::new(bytes.as_slice())
             .read_to_string(&mut xml)

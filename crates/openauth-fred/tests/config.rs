@@ -142,7 +142,6 @@ async fn rejects_empty_rate_limit_prefix_before_calling_redis(
         Client::default(),
         FredRateLimitOptions {
             key_prefix: String::new(),
-            ..FredRateLimitOptions::default()
         },
     );
     let error = store

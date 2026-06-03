@@ -1,4 +1,11 @@
 #![cfg(any(feature = "oidc", feature = "saml"))]
+#![allow(
+    clippy::duplicate_mod,
+    dead_code,
+    unused_imports,
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 
 #[path = "sso/docs.rs"]
 mod docs;

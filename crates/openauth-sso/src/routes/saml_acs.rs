@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use base64::Engine;
 use http::Method;
 use openauth_core::api::{
     create_auth_endpoint, parse_request_body, session_cookies, ApiRequest, ApiResponse,

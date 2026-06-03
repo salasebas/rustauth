@@ -143,7 +143,7 @@ fn verify_post_message(
         } else {
             SamlSignedElement::Response
         };
-        return Ok(VerifiedSamlSignature { element });
+        Ok(VerifiedSamlSignature { element })
     }
     #[cfg(not(feature = "saml-signed"))]
     {
@@ -211,7 +211,7 @@ fn verify_redirect_signature(
             &request,
         )
         .map_err(map_verify_error)?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(feature = "saml-signed"))]
     {

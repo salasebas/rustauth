@@ -400,7 +400,10 @@ async fn default_permissions_resolver_is_applied_on_create(
     let resolver: DefaultPermissionsResolver =
         Arc::new(move |_context: &AuthContext, reference_id: &str| {
             let calls = Arc::clone(&calls_for_resolver);
-            let expected = user_id_for_resolver.lock().unwrap().clone();
+            let expected = user_id_for_resolver
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
             let reference_id = reference_id.to_owned();
             Box::pin(async move {
                 calls.fetch_add(1, Ordering::SeqCst);
@@ -423,7 +426,9 @@ async fn default_permissions_resolver_is_applied_on_create(
         }),
     )?;
     let user = sign_up(&router, "Resolver", "resolver-api@example.com").await?;
-    *user_id.lock().unwrap() = user.user_id.clone();
+    *user_id
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = user.user_id.clone();
     let created = request_json(
         &router,
         Method::POST,

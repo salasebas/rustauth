@@ -153,7 +153,7 @@ impl StripeTransport for StripeOnlyActiveSubscriptionTransport {
 #[tokio::test]
 async fn stripe_active_subscription_blocks_organization_delete_without_local_row(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let transport = Arc::new(StripeOnlyActiveSubscriptionTransport::default());
+    let transport = Arc::new(StripeOnlyActiveSubscriptionTransport);
     let plugin = stripe(
         StripeOptions::new(
             StripeClient::with_transport(

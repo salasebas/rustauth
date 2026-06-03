@@ -3,7 +3,7 @@ use openauth_core::api::{
     create_auth_endpoint, parse_request_body, AuthEndpointOptions, BodyField, BodySchema,
     JsonSchemaType, OpenApiOperation,
 };
-use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindMany, FindOne, Where};
+use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindOne, Where};
 use openauth_core::error::OpenAuthError;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
