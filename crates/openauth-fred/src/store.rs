@@ -47,16 +47,26 @@ impl FredRateLimitStore {
         }
     }
 
-    fn key(&self, key: &str) -> String {
-        format!("{}rate-limit:{key}", self.options.key_prefix)
+    fn key(&self, key: &str) -> Result<String, OpenAuthError> {
+        validate_rate_limit_key_prefix(&self.options.key_prefix)?;
+        Ok(format!("{}rate-limit:{key}", self.options.key_prefix))
     }
+}
+
+fn validate_rate_limit_key_prefix(prefix: &str) -> Result<(), OpenAuthError> {
+    if prefix.is_empty() {
+        return Err(OpenAuthError::InvalidConfig(
+            "rate limit key prefix must not be empty".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 impl RateLimitStore for FredRateLimitStore {
     fn consume<'a>(&'a self, input: RateLimitConsumeInput) -> RateLimitFuture<'a> {
         Box::pin(async move {
             let window_ms = validate_rule(&input)?;
-            let redis_key = self.key(&input.key);
+            let redis_key = self.key(&input.key)?;
             let result = self
                 .script
                 .evalsha_with_reload(

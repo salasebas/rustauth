@@ -1,5 +1,6 @@
 //! Fred-backed Redis and Valkey integrations for OpenAuth.
 
+mod bundle;
 mod config;
 mod error;
 mod script;
@@ -7,6 +8,7 @@ mod storage;
 mod store;
 mod url;
 
+pub use bundle::{FredOpenAuthOptions, FredOpenAuthStores};
 pub use config::{FredRateLimitOptions, FredSecondaryStorageOptions};
 pub use script::{parse_rate_limit_script_result, RateLimitScriptResult};
 pub use storage::FredSecondaryStorage;

@@ -18,7 +18,7 @@ local data = redis.call("HMGET", key, "count", "last_request")
 local count = tonumber(data[1])
 local last_request = tonumber(data[2])
 
-if count == nil or last_request == nil or (now - last_request) >= window then
+if count == nil or last_request == nil or (now - last_request) > window then
   redis.call("HSET", key, "count", 1, "last_request", now)
   redis.call("PEXPIRE", key, window)
   return {1, 1, now}

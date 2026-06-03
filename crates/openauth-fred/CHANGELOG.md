@@ -4,8 +4,16 @@ All notable changes to `openauth-fred` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `FredOpenAuthStores` shares one `fred` client between rate limiting and
+  secondary storage.
+- `FredOpenAuthStores::apply_to_options` wires `secondary_storage` and
+  `RateLimitOptions::secondary_storage` in one call.
+
 ### Fixed
 
+- `FredRateLimitStore` rejects an empty `key_prefix` before calling Redis.
 - Aligned secondary storage with `openauth-redis` by storing keys under the
   explicit `secondary:` namespace (`{key_prefix}secondary:{key}`) instead of
   `{key_prefix}{key}`. Logical keys are now portable between

@@ -2,11 +2,15 @@
 
 Target upstream package: `@better-auth/redis-storage` from Better Auth 1.6.9.
 
+**Documentación completa:** [`docs/parity/openauth-fred/`](../../docs/parity/openauth-fred/README.md) (índice, tablas, tests, diferencias vs `openauth-redis`).
+
 This crate is considered server-side parity complete for the OpenAuth Fred
 surface. The remaining differences are intentional Rust/OpenAuth design choices
 or behavior delegated to upstream consumers and the `fred` client.
 
-Estimated server-side parity: **98%**.
+Estimated server-side parity: **~95%** vs literal `@better-auth/redis-storage`; **~98%** vs contrato OpenAuth. See [09-audit-deep-dive.md](../../docs/parity/openauth-fred/09-audit-deep-dive.md) for code-verified matrix (`ttl=0`, `list_keys` scope, 34 tests).
+
+**No comparar** este crate con la librería `fred` de crates.io — esa es solo el driver. La paridad de producto es contra Better Auth.
 
 ## Upstream Surface Covered
 

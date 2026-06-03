@@ -9,7 +9,9 @@ use openauth::{
 use openauth_core::options::{
     PasswordResetEmail, RateLimitConsumeInput, RateLimitRule, RateLimitStore, SecondaryStorage,
 };
-use openauth_fred::{FredRateLimitStore, FredSecondaryStorage, FredSecondaryStorageOptions};
+use openauth_fred::{
+    FredOpenAuthStores, FredRateLimitStore, FredSecondaryStorage, FredSecondaryStorageOptions,
+};
 use openauth_redis::RedisSecondaryStorage;
 
 const DEFAULT_REDIS_URL: &str = "redis://127.0.0.1:6379";
@@ -218,12 +220,12 @@ async fn fred_rate_limit_store_resets_after_window() -> Result<(), Box<dyn std::
 }
 
 #[tokio::test]
-async fn fred_rate_limit_store_resets_at_exact_window_boundary(
+async fn fred_rate_limit_store_does_not_reset_at_exact_window_boundary(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for target in available_fred_targets().await? {
         let store = FredRateLimitStore::connect(&target.url).await?;
         let now_ms = now_ms();
-        let key = format!("test:{}:{now_ms}|/exact-reset", target.name);
+        let key = format!("test:{}:{now_ms}|/exact-boundary", target.name);
         let rule = RateLimitRule { window: 1, max: 1 };
 
         let first = store
@@ -243,8 +245,8 @@ async fn fred_rate_limit_store_resets_at_exact_window_boundary(
 
         assert!(first.permitted);
         assert!(
-            second.permitted,
-            "{} should reset at exact window boundary",
+            !second.permitted,
+            "{} should not reset until after the window (Better Auth uses >)",
             target.name
         );
     }
@@ -348,6 +350,30 @@ async fn openauth_email_signup_uses_fred_secondary_storage_for_sessions(
             .await?;
         assert_eq!(session.status(), StatusCode::OK);
         assert!(String::from_utf8_lossy(session.body()).contains("ada@example.com"));
+
+        let list = auth
+            .handler_async(json_request(
+                Method::GET,
+                "/api/auth/list-sessions",
+                "",
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(list.status(), StatusCode::OK);
+        let list_body = String::from_utf8_lossy(list.body());
+        assert!(list_body.contains("\"token\""));
+        assert!(!list_body.trim().eq("[]"));
+
+        let revoke = auth
+            .handler_async(json_request(
+                Method::POST,
+                "/api/auth/revoke-sessions",
+                "{}",
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(revoke.status(), StatusCode::OK);
+        assert!(storage.list_keys().await?.is_empty());
 
         storage.clear().await?;
     }
@@ -573,6 +599,24 @@ async fn fred_secondary_storage_supports_strings_ttl_delete_list_and_clear(
 
         storage.clear().await?;
         assert_eq!(storage.list_keys().await?, Vec::<String>::new());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn fred_open_auth_stores_share_one_client() -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let stores = FredOpenAuthStores::connect(&target.url).await?;
+        let key = format!("bundle:{}:{}", target.name, now_ms());
+        stores
+            .secondary_storage
+            .set(&key, "from-bundle".to_owned(), None)
+            .await?;
+        assert_eq!(
+            stores.secondary_storage.get(&key).await?.as_deref(),
+            Some("from-bundle")
+        );
+        stores.secondary_storage.delete(&key).await?;
     }
     Ok(())
 }

@@ -1,11 +1,28 @@
 use fred::clients::Client;
 use fred::types::Value;
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{RateLimitConsumeInput, RateLimitRule, RateLimitStore};
-use openauth_fred::{
-    normalize_fred_url, parse_rate_limit_script_result, FredRateLimitOptions, FredRateLimitStore,
-    FredSecondaryStorageOptions, RateLimitScriptResult,
+use openauth_core::options::{
+    OpenAuthOptions, RateLimitConsumeInput, RateLimitRule, RateLimitStore,
 };
+use openauth_fred::{
+    normalize_fred_url, parse_rate_limit_script_result, FredOpenAuthStores, FredRateLimitOptions,
+    FredRateLimitStore, FredSecondaryStorage, FredSecondaryStorageOptions, RateLimitScriptResult,
+};
+
+#[test]
+fn fred_open_auth_stores_apply_to_options_wires_both_stores() {
+    let stores = FredOpenAuthStores {
+        rate_limit: FredRateLimitStore::new(Client::default(), FredRateLimitOptions::default()),
+        secondary_storage: FredSecondaryStorage::new(
+            Client::default(),
+            FredSecondaryStorageOptions::default(),
+        ),
+    };
+    let options = stores.apply_to_options(OpenAuthOptions::default());
+
+    assert!(options.secondary_storage.is_some());
+    assert!(options.rate_limit.custom_store.is_some());
+}
 
 #[test]
 fn fred_rate_limit_options_default_to_openauth_prefix() {
@@ -114,6 +131,34 @@ async fn rejects_zero_rate_limit_window_before_calling_redis(
         error,
         OpenAuthError::InvalidConfig(message)
             if message == "rate limit window must be greater than zero"
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejects_empty_rate_limit_prefix_before_calling_redis(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let store = FredRateLimitStore::new(
+        Client::default(),
+        FredRateLimitOptions {
+            key_prefix: String::new(),
+            ..FredRateLimitOptions::default()
+        },
+    );
+    let error = store
+        .consume(RateLimitConsumeInput {
+            key: "127.0.0.1|/test".to_owned(),
+            rule: RateLimitRule { window: 1, max: 1 },
+            now_ms: 1_700_000_000_000,
+        })
+        .await
+        .err()
+        .ok_or("expected invalid config error")?;
+
+    assert!(matches!(
+        error,
+        OpenAuthError::InvalidConfig(message)
+            if message == "rate limit key prefix must not be empty"
     ));
     Ok(())
 }
