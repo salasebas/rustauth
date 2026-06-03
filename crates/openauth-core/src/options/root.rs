@@ -50,9 +50,15 @@ impl TelemetryOptions {
 }
 
 /// Experimental feature flags.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExperimentalOptions {
     pub joins: bool,
+}
+
+impl Default for ExperimentalOptions {
+    fn default() -> Self {
+        Self { joins: true }
+    }
 }
 
 impl ExperimentalOptions {

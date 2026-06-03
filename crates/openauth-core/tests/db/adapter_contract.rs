@@ -165,6 +165,7 @@ fn adapter_capabilities_default_to_core_safe_values() {
     assert!(!capabilities.supports_json);
     assert!(!capabilities.supports_arrays);
     assert!(!capabilities.supports_joins);
+    assert!(!capabilities.supports_native_joins);
     assert!(!capabilities.supports_transactions);
     assert!(!capabilities.disable_id_generation);
 }
@@ -176,7 +177,7 @@ fn adapter_capabilities_can_describe_sql_style_databases() {
         .with_uuid_ids()
         .with_json()
         .with_arrays()
-        .with_joins()
+        .with_native_joins()
         .with_transactions()
         .without_id_generation();
 
@@ -185,6 +186,7 @@ fn adapter_capabilities_can_describe_sql_style_databases() {
     assert!(capabilities.supports_json);
     assert!(capabilities.supports_arrays);
     assert!(capabilities.supports_joins);
+    assert!(capabilities.supports_native_joins);
     assert!(capabilities.supports_transactions);
     assert!(capabilities.disable_id_generation);
 }

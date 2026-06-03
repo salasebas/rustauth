@@ -623,6 +623,36 @@ async fn join_adapter_passes_joins_when_experimental_and_supported() -> Result<(
     Ok(())
 }
 
+#[tokio::test]
+async fn join_adapter_passes_multi_joins_when_inner_supports_native_joins(
+) -> Result<(), OpenAuthError> {
+    let inner = CapturingAdapter::with_capabilities(
+        AdapterCapabilities::new("capture").with_native_joins(),
+    );
+    let adapter = JoinAdapter::new(
+        auth_schema(Default::default()),
+        Arc::new(inner.clone()),
+        false,
+    );
+
+    adapter
+        .find_many(
+            FindMany::new("user")
+                .join("account", JoinOption::enabled())
+                .join("session", JoinOption::enabled()),
+        )
+        .await?;
+
+    let captured =
+        inner.find_many.lock().await.clone().ok_or_else(|| {
+            OpenAuthError::Adapter("find_many query was not delegated".to_owned())
+        })?;
+
+    assert!(captured.joins.contains_key("account"));
+    assert!(captured.joins.contains_key("session"));
+    Ok(())
+}
+
 impl CapturingAdapter {
     fn with_capabilities(capabilities: AdapterCapabilities) -> Self {
         Self {

@@ -163,7 +163,11 @@ where
     A: DbAdapter,
 {
     fn should_delegate_joins(&self) -> bool {
-        self.experimental_joins && self.inner.capabilities().supports_joins
+        let caps = self.inner.capabilities();
+        if caps.supports_native_joins {
+            return true;
+        }
+        self.experimental_joins && caps.supports_joins
     }
 
     async fn fallback_find_one(

@@ -1,10 +1,10 @@
 use openauth_core::db::sql::{
     consume_sql_rate_limit_record, count_statement, create_statement, delete_one_statement,
     ensure_executable_migration_plan, execute_schema_migration_plan, find_many_statement,
-    internal_base_selection, joined_rows, plan_schema_migration, rate_limit_consume_statements,
-    resolve_native_joins, update_one_plan, DeleteOneStrategy, SqlAdapterRunner, SqlColumnSnapshot,
-    SqlDialect, SqlExecutor, SqlRateLimitNames, SqlRowReader, SqlSchemaSnapshot, SqlStatement,
-    SqlUpdateOnePlan,
+    find_many_with_joins_statement, internal_base_selection, joined_rows, plan_schema_migration,
+    rate_limit_consume_statements, resolve_native_joins, update_one_plan, DeleteOneStrategy,
+    SqlAdapterRunner, SqlColumnSnapshot, SqlDialect, SqlExecutor, SqlRateLimitNames, SqlRowReader,
+    SqlSchemaSnapshot, SqlStatement, SqlUpdateOnePlan,
 };
 use openauth_core::db::{
     auth_schema, AdapterFuture, AuthSchemaOptions, Connector, Create, DbField, DbFieldType,
@@ -533,6 +533,23 @@ fn create_statement_builds_insert_sql_and_params() -> Result<(), OpenAuthError> 
             DbValue::String("ada@example.com".to_owned()),
         ]
     );
+    Ok(())
+}
+
+#[test]
+fn find_many_with_joins_statement_compiles_account_and_session_joins() -> Result<(), OpenAuthError>
+{
+    let schema = auth_schema(AuthSchemaOptions::default());
+    let read = find_many_with_joins_statement(
+        SqlDialect::Postgres,
+        &schema,
+        &FindMany::new("user")
+            .where_clause(Where::new("id", DbValue::String("user_1".to_owned())))
+            .join("account", JoinOption::enabled())
+            .join("session", JoinOption::enabled()),
+    )?;
+
+    assert_eq!(read.statement.sql.matches("LEFT JOIN").count(), 2);
     Ok(())
 }
 

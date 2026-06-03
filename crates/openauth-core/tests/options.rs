@@ -138,14 +138,14 @@ fn is_production_only_accepts_exact_production_rust_env() {
 }
 
 #[test]
-fn experimental_joins_default_to_disabled_and_can_be_enabled() {
-    assert!(!OpenAuthOptions::default().experimental.joins);
+fn experimental_joins_default_to_enabled_and_can_be_disabled() {
+    assert!(OpenAuthOptions::default().experimental.joins);
 
     let options = OpenAuthOptions {
-        experimental: ExperimentalOptions { joins: true },
+        experimental: ExperimentalOptions { joins: false },
         ..OpenAuthOptions::default()
     };
 
-    assert!(options.experimental.joins);
+    assert!(!options.experimental.joins);
     assert!(format!("{options:?}").contains("experimental"));
 }

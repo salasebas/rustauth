@@ -12,6 +12,8 @@ pub struct AdapterCapabilities {
     pub supports_booleans: bool,
     pub supports_arrays: bool,
     pub supports_joins: bool,
+    #[serde(default)]
+    pub supports_native_joins: bool,
     pub supports_transactions: bool,
     pub disable_id_generation: bool,
 }
@@ -28,6 +30,7 @@ impl AdapterCapabilities {
             supports_booleans: true,
             supports_arrays: false,
             supports_joins: false,
+            supports_native_joins: false,
             supports_transactions: false,
             disable_id_generation: false,
         }
@@ -70,6 +73,12 @@ impl AdapterCapabilities {
 
     pub fn with_joins(mut self) -> Self {
         self.supports_joins = true;
+        self
+    }
+
+    pub fn with_native_joins(mut self) -> Self {
+        self.supports_joins = true;
+        self.supports_native_joins = true;
         self
     }
 
