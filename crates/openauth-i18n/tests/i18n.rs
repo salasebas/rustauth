@@ -761,6 +761,142 @@ async fn session_detection_reads_user_locale_field_from_request_state(
 }
 
 #[tokio::test]
+async fn session_detection_reads_default_locale_field() -> Result<(), Box<dyn std::error::Error>> {
+    let mut opts = I18nOptions::new(base_translations());
+    opts.default_locale = Some("en".into());
+    opts.detection = vec![LocaleDetectionStrategy::Session];
+
+    let endpoint = create_auth_endpoint(
+        "/session-locale-error",
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context, _request| {
+            Box::pin(async move {
+                set_current_session_user(json!({
+                    "id": "user_1",
+                    "locale": "fr"
+                }))?;
+                http::Response::builder()
+                    .status(http::StatusCode::BAD_REQUEST)
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(
+                        serde_json::to_vec(&json!({
+                            "code": "INVALID_EMAIL_OR_PASSWORD",
+                            "message": "Invalid email or password"
+                        }))
+                        .map_err(|error| {
+                            openauth_core::error::OpenAuthError::Api(error.to_string())
+                        })?,
+                    )
+                    .map_err(|error| openauth_core::error::OpenAuthError::Api(error.to_string()))
+            })
+        },
+    );
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("test-secret-123456789012345678901234".to_owned()),
+        plugins: vec![i18n(opts)?],
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), vec![endpoint])?;
+
+    let response = router
+        .handle_async(empty_get_request("/api/auth/session-locale-error", &[])?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(body["message"], "Email ou mot de passe invalide");
+    assert_eq!(body["originalMessage"], "Invalid email or password");
+    Ok(())
+}
+
+#[tokio::test]
+async fn translates_not_found_on_early_router_exit() -> Result<(), Box<dyn std::error::Error>> {
+    let mut translations = IndexMap::new();
+    translations.insert(
+        "en".into(),
+        translation_dictionary([("NOT_FOUND", "Introuvable")]),
+    );
+    let opts = I18nOptions::new(translations).default_locale("en");
+
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("test-secret-123456789012345678901234".to_owned()),
+        plugins: vec![i18n(opts)?],
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
+
+    let response = router
+        .handle_async(
+            http::Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/does-not-exist")
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), http::StatusCode::NOT_FOUND);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "NOT_FOUND");
+    assert_eq!(body["message"], "Introuvable");
+    assert_eq!(body["originalMessage"], "Not Found");
+    Ok(())
+}
+
+#[tokio::test]
+async fn translates_rate_limit_on_early_router_exit() -> Result<(), Box<dyn std::error::Error>> {
+    use openauth_core::options::{RateLimitOptions, RateLimitPathRule, RateLimitRule};
+
+    let mut translations = IndexMap::new();
+    translations.insert(
+        "en".into(),
+        translation_dictionary([("TOO_MANY_REQUESTS", "Trop de requêtes, réessayez plus tard")]),
+    );
+    let opts = I18nOptions::new(translations).default_locale("en");
+
+    let endpoint = create_auth_endpoint(
+        "/limited",
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context, _request| {
+            Box::pin(async move {
+                http::Response::builder()
+                    .status(http::StatusCode::OK)
+                    .body(Vec::new())
+                    .map_err(|error| openauth_core::error::OpenAuthError::Api(error.to_string()))
+            })
+        },
+    );
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("test-secret-123456789012345678901234".to_owned()),
+        plugins: vec![i18n(opts)?],
+        rate_limit: RateLimitOptions {
+            enabled: Some(true),
+            custom_rules: vec![RateLimitPathRule {
+                path: "/limited".to_owned(),
+                rule: Some(RateLimitRule { window: 60, max: 1 }),
+            }],
+            ..RateLimitOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), vec![endpoint])?;
+
+    let first = router
+        .handle_async(empty_get_request("/api/auth/limited", &[])?)
+        .await?;
+    assert_eq!(first.status(), http::StatusCode::OK);
+
+    let second = router
+        .handle_async(empty_get_request("/api/auth/limited", &[])?)
+        .await?;
+    assert_eq!(second.status(), http::StatusCode::TOO_MANY_REQUESTS);
+    let body: Value = serde_json::from_slice(second.body())?;
+    assert_eq!(body["code"], "TOO_MANY_REQUESTS");
+    assert_eq!(body["message"], "Trop de requêtes, réessayez plus tard");
+    Ok(())
+}
+
+#[tokio::test]
 async fn session_resolver_falls_through_when_absent_or_unsupported(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
@@ -1594,5 +1730,181 @@ async fn existing_original_message_is_preserved() -> Result<(), Box<dyn std::err
 
     assert_eq!(body["message"], "Message traduit");
     assert_eq!(body["originalMessage"], "Original message");
+    Ok(())
+}
+
+#[tokio::test]
+async fn session_detection_reads_locale_from_session_cookie_hydration(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::collections::BTreeMap;
+
+    use common::{session, signed_session_cookie};
+    use openauth_core::api::{core_auth_async_endpoints, json_response, ApiErrorResponse};
+    use openauth_core::context::create_auth_context_with_adapter;
+    use openauth_core::db::DbAdapter;
+    use openauth_core::db::DbFieldType;
+    use openauth_core::options::{AdvancedOptions, UserAdditionalField, UserOptions};
+
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user_with_locale(user(now), "fr").await;
+    adapter
+        .insert_session(session(now, now + time::Duration::hours(1)))
+        .await;
+
+    let opts = I18nOptions::new(base_translations())
+        .default_locale("en")
+        .detection([LocaleDetectionStrategy::Session]);
+
+    let endpoint = create_auth_endpoint(
+        "/session-cookie-error",
+        Method::GET,
+        AuthEndpointOptions::new(),
+        |_context, _request| {
+            Box::pin(async move {
+                json_response(
+                    http::StatusCode::BAD_REQUEST,
+                    &ApiErrorResponse {
+                        code: "INVALID_EMAIL_OR_PASSWORD".to_owned(),
+                        message: "Invalid email or password".to_owned(),
+                        original_message: None,
+                    },
+                    Vec::new(),
+                )
+            })
+        },
+    );
+
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            secret: Some("test-secret-123456789012345678901234".to_owned()),
+            advanced: AdvancedOptions {
+                disable_csrf_check: true,
+                disable_origin_check: true,
+                ..AdvancedOptions::default()
+            },
+            user: UserOptions {
+                additional_fields: BTreeMap::from([(
+                    "locale".to_owned(),
+                    UserAdditionalField::new(DbFieldType::String),
+                )]),
+                ..UserOptions::default()
+            },
+            plugins: vec![i18n(opts)?],
+            ..OpenAuthOptions::default()
+        },
+        Arc::clone(&adapter) as Arc<dyn DbAdapter>,
+    )?;
+    let mut endpoints = core_auth_async_endpoints(Arc::clone(&adapter) as Arc<dyn DbAdapter>);
+    endpoints.push(endpoint);
+    let router = AuthRouter::with_async_endpoints(context, Vec::new(), endpoints)?;
+
+    let cookie = signed_session_cookie("token_1")?;
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            "/api/auth/session-cookie-error",
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(body["message"], "Email ou mot de passe invalide");
+    assert_eq!(body["originalMessage"], "Invalid email or password");
+    Ok(())
+}
+
+#[tokio::test]
+async fn translates_invalid_origin_on_security_short_circuit(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use openauth_core::api::core_auth_async_endpoints;
+    use openauth_core::options::{AdvancedOptions, TrustedOriginOptions};
+
+    let mut translations = IndexMap::new();
+    translations.insert(
+        "en".into(),
+        translation_dictionary([("INVALID_ORIGIN", "Origine invalide")]),
+    );
+    let opts = I18nOptions::new(translations).default_locale("en");
+
+    let adapter = Arc::new(RouteAdapter::default());
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("test-secret-123456789012345678901234".to_owned()),
+        trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
+        advanced: AdvancedOptions::default(),
+        plugins: vec![i18n(opts)?],
+        ..OpenAuthOptions::default()
+    })?;
+    let router =
+        AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))?;
+
+    let response = router
+        .handle_async(json_request_with_headers(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"x"}"#,
+            &[
+                ("origin", "https://evil.example.com"),
+                ("cookie", "session=abc"),
+            ],
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), http::StatusCode::FORBIDDEN);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "INVALID_ORIGIN");
+    assert_eq!(body["message"], "Origine invalide");
+    Ok(())
+}
+
+#[tokio::test]
+async fn translates_error_from_on_request_plugin_short_circuit(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use openauth_core::api::json_response;
+    use openauth_core::plugin::{AuthPlugin, PluginRequestAction};
+
+    let mut translations = IndexMap::new();
+    translations.insert(
+        "en".into(),
+        translation_dictionary([("EARLY_PLUGIN_ERROR", "Erreur anticipée")]),
+    );
+    let i18n_plugin = i18n(I18nOptions::new(translations).default_locale("en"))?;
+    let early_plugin = AuthPlugin::new("early-error").with_on_request(|_context, _request| {
+        let response = json_response(
+            http::StatusCode::BAD_REQUEST,
+            &openauth_core::api::ApiErrorResponse {
+                code: "EARLY_PLUGIN_ERROR".to_owned(),
+                message: "Early plugin error".to_owned(),
+                original_message: None,
+            },
+            Vec::new(),
+        )?;
+        Ok(PluginRequestAction::Respond(response))
+    });
+
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            secret: Some("test-secret-123456789012345678901234".to_owned()),
+            plugins: vec![early_plugin, i18n_plugin],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"x"}"#,
+            None,
+        )?)
+        .await?;
+
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["message"], "Erreur anticipée");
+    assert_eq!(body["originalMessage"], "Early plugin error");
     Ok(())
 }

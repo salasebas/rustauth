@@ -48,7 +48,7 @@ Adapters are still in scope as Rust traits and Rust implementations. The exclusi
 | `openauth-sso` | Scaffold | Enterprise OIDC SSO, SAML SSO, provider CRUD, domain verification |
 | `openauth-scim` | Scaffold | SCIM 2.0 token management, resources, filters, users, metadata |
 | `openauth-stripe` | Scaffold | Stripe customer/subscription plugin and webhooks |
-| `openauth-i18n` | Scaffold | Localized messages and error labels |
+| `openauth-i18n` | Implemented (server) | Server i18n plugin parity vs `@better-auth/i18n@1.6.9`; see `docs/parity/openauth-i18n/` |
 | `openauth-telemetry` | Scaffold | Event model and optional publisher hooks |
 
 ## Target Crate Graph

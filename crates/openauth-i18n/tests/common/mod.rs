@@ -33,6 +33,12 @@ impl RouteAdapter {
             .insert(user.email.clone(), user_record(user));
     }
 
+    pub async fn insert_user_with_locale(&self, user: User, locale: &str) {
+        let mut record = user_record(user.clone());
+        record.insert("locale".to_owned(), DbValue::String(locale.to_owned()));
+        self.users.lock().await.insert(user.email.clone(), record);
+    }
+
     pub async fn insert_account(&self, record: DbRecord) -> Result<(), OpenAuthError> {
         let id = string_field(&record, "id")?.to_owned();
         self.accounts.lock().await.insert(id, record);
@@ -347,7 +353,7 @@ fn secret() -> &'static str {
     "test-secret-123456789012345678901234"
 }
 
-fn signed_session_cookie(token: &str) -> Result<String, OpenAuthError> {
+pub fn signed_session_cookie(token: &str) -> Result<String, OpenAuthError> {
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -392,7 +398,7 @@ pub fn user(now: OffsetDateTime) -> User {
     }
 }
 
-fn session(now: OffsetDateTime, expires_at: OffsetDateTime) -> Session {
+pub fn session(now: OffsetDateTime, expires_at: OffsetDateTime) -> Session {
     Session {
         id: "session_1".to_owned(),
         user_id: "user_1".to_owned(),

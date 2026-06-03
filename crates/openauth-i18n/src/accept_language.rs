@@ -5,7 +5,7 @@ pub fn parse_accept_language(header: Option<&str>) -> Vec<String> {
     let Some(header) = header else {
         return Vec::new();
     };
-    let mut entries: Vec<(String, f32)> = Vec::new();
+    let mut entries: Vec<(usize, String, f32)> = Vec::new();
     for part in header.split(',') {
         let part = part.trim();
         if part.is_empty() {
@@ -21,11 +21,17 @@ pub fn parse_accept_language(header: Option<&str>) -> Vec<String> {
             .unwrap_or(1.0);
         let locale = locale_str.trim().to_owned();
         if !locale.is_empty() {
-            entries.push((locale, q));
+            let index = entries.len();
+            entries.push((index, locale, q));
         }
     }
-    entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    entries.into_iter().map(|(locale, _)| locale).collect()
+    // Stable ordering: higher `q` first, then header order (matches upstream `Array.sort`).
+    entries.sort_by(|a, b| {
+        b.2.partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    entries.into_iter().map(|(_, locale, _)| locale).collect()
 }
 
 #[cfg(test)]

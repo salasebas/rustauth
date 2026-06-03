@@ -13,6 +13,7 @@ behavior, tests, and intentional design differences.
 | [`openauth-passkey`](crates/openauth-passkey/README.md) | `@better-auth/passkey` | **~99%** server parity; **19** upstream Vitest server cases vs **60+** Rust tests; optional `mergeSchema` + legacy `publicKey`-only verify remain |
 | [`openauth-oauth`](openauth-oauth/README.md) | `@better-auth/core` → `oauth2/` | **High** client OAuth2 primitives; **57** Rust tests vs **15** upstream `it`; Jun 2026 closeout — [09-parity-closeout](openauth-oauth/09-parity-closeout-2026-06.md) |
 | [`openauth-oauth-provider`](openauth-oauth-provider/README.md) | `@better-auth/oauth-provider` | **High** server parity; **261** upstream `it` vs **96** Rust tests; Jun 2026 closeout — see [08-parity-closeout](openauth-oauth-provider/08-parity-closeout-2026-06.md) |
+| [`openauth-i18n`](openauth-i18n/README.md) | `@better-auth/i18n` | **High** server-only parity; **15** upstream Vitest vs **64** Rust tests; see [08-closure](openauth-i18n/08-closure.md) |
 
 Additional crate parity folders may exist as work-in-progress under `docs/parity/`; the table above lists documented surfaces committed with this index.
 
