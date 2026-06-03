@@ -368,6 +368,11 @@ impl Default for DomainVerificationOptions {
     }
 }
 
+/// Default maximum accepted base64 SAML response size (256 KiB).
+pub const DEFAULT_MAX_SAML_RESPONSE_SIZE: usize = 256 * 1024;
+/// Default maximum accepted IdP metadata XML size (100 KiB).
+pub const DEFAULT_MAX_SAML_METADATA_SIZE: usize = 100 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Runtime and security options for SAML flows.
@@ -406,8 +411,8 @@ impl Default for SamlOptions {
             request_ttl: Duration::minutes(5),
             clock_skew: Duration::minutes(5),
             require_timestamps: false,
-            max_response_size: 256 * 1024,
-            max_metadata_size: 100 * 1024,
+            max_response_size: DEFAULT_MAX_SAML_RESPONSE_SIZE,
+            max_metadata_size: DEFAULT_MAX_SAML_METADATA_SIZE,
             enable_single_logout: false,
             logout_request_ttl: Duration::minutes(5),
             want_logout_request_signed: false,

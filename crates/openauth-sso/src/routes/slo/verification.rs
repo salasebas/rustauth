@@ -5,8 +5,10 @@ use openauth_core::context::AuthContext;
 use crate::audit;
 use crate::options::{SamlConfig, SsoAuditEvent, SsoAuditEventKind, SsoAuditSeverity, SsoOptions};
 use crate::saml_impl::logout::{
-    parse_post_logout_request, parse_post_logout_response, parse_redirect_logout_request,
-    parse_redirect_logout_response, ParsedSamlLogoutRequest, ParsedSamlLogoutResponse,
+    parse_post_logout_request_with_context, parse_post_logout_response_with_context,
+    parse_redirect_logout_request_with_redirect_query,
+    parse_redirect_logout_response_with_redirect_query, ParsedSamlLogoutRequest,
+    ParsedSamlLogoutResponse, SamlLogoutParseContext,
 };
 use crate::saml_impl::signature::{
     verify_redirect_logout_request, verify_redirect_logout_response, verify_signed_logout_request,
@@ -33,10 +35,20 @@ pub(super) async fn parse_verified_logout_response(
     Result<VerifiedLogoutMessage<ParsedSamlLogoutResponse>, ApiResponse>,
     openauth_core::error::OpenAuthError,
 > {
+    let parse_context = SamlLogoutParseContext {
+        config,
+        base_url: &context.base_url,
+        provider_id: &provider.provider_id,
+        build_options: crate::routes::slo::logout_build_options(options),
+    };
     let mut message = if method == Method::GET {
-        parse_redirect_logout_response(encoded_response)
+        parse_redirect_logout_response_with_redirect_query(
+            encoded_response,
+            &parse_context,
+            &saml_redirect_query(request),
+        )
     } else {
-        parse_post_logout_response(encoded_response)
+        parse_post_logout_response_with_context(encoded_response, &parse_context)
     }
     .map_err(|error| openauth_core::error::OpenAuthError::Api(error.to_string()))?;
     let signature_verified = match verify_logout_response_signature(
@@ -74,10 +86,20 @@ pub(super) async fn parse_verified_logout_request(
     Result<VerifiedLogoutMessage<ParsedSamlLogoutRequest>, ApiResponse>,
     openauth_core::error::OpenAuthError,
 > {
+    let parse_context = SamlLogoutParseContext {
+        config,
+        base_url: &context.base_url,
+        provider_id: &provider.provider_id,
+        build_options: crate::routes::slo::logout_build_options(options),
+    };
     let mut message = if method == Method::GET {
-        parse_redirect_logout_request(encoded_request)
+        parse_redirect_logout_request_with_redirect_query(
+            encoded_request,
+            &parse_context,
+            &saml_redirect_query(request),
+        )
     } else {
-        parse_post_logout_request(encoded_request)
+        parse_post_logout_request_with_context(encoded_request, &parse_context)
     }
     .map_err(|error| openauth_core::error::OpenAuthError::Api(error.to_string()))?;
     let signature_verified = match verify_logout_request_signature(
@@ -199,4 +221,16 @@ async fn signature_result_response(
             Ok(Err(crate::routes::saml_signature_error_response(error)?))
         }
     }
+}
+
+fn saml_redirect_query(request: &ApiRequest) -> Vec<(String, String)> {
+    request
+        .uri()
+        .query()
+        .map(|query| {
+            url::form_urlencoded::parse(query.as_bytes())
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect()
+        })
+        .unwrap_or_default()
 }

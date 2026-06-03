@@ -19,9 +19,11 @@ use crate::openapi::{
     saml_slo_body_schema,
 };
 use crate::options::{SamlConfig, SsoAuditEvent, SsoAuditEventKind, SsoAuditSeverity, SsoOptions};
+use crate::saml::SpBuildOptions;
 use crate::saml_impl::logout::{
     build_logout_request_binding, build_logout_response_binding, ParsedSamlLogoutRequest,
-    ParsedSamlLogoutResponse, SamlLogoutBinding, SamlLogoutBindingResponse, SamlLogoutRequestInput,
+    ParsedSamlLogoutResponse, SamlLogoutBinding, SamlLogoutBindingResponse, SamlLogoutBuildContext,
+    SamlLogoutRequestInput,
 };
 use crate::saml_impl::state::{logout_request_key, saml_session_by_id_key, saml_session_key};
 use crate::state::SsoStateStore;
@@ -79,7 +81,6 @@ pub(super) struct SamlSessionRecord {
 pub(super) fn endpoint(options: Arc<SsoOptions>, method: Method) -> AsyncAuthEndpoint {
     let mut endpoint_options = AuthEndpointOptions::new()
         .operation_id("handleSAMLSLO")
-        .allowed_media_types(["application/json", "application/x-www-form-urlencoded"])
         .openapi(
             OpenApiOperation::new("handleSAMLSLO")
                 .tag("SSO")
@@ -88,8 +89,11 @@ pub(super) fn endpoint(options: Arc<SsoOptions>, method: Method) -> AsyncAuthEnd
         );
     if method == Method::POST {
         endpoint_options = endpoint_options
+            .allowed_media_types(["application/json", "application/x-www-form-urlencoded"])
             .body_schema(saml_slo_body_schema())
             .bypass_origin_security();
+    } else {
+        endpoint_options = endpoint_options.bypass_origin_security();
     }
 
     create_auth_endpoint(
@@ -365,6 +369,12 @@ async fn handle_saml_logout_request(
 
     let response = build_logout_response_binding(
         input.config,
+        &logout_build_context(
+            input.context,
+            input.provider_id,
+            input.config,
+            input.options,
+        ),
         format!("id-{}", generate_random_string(32)),
         &parsed.id,
         input.relay_state,
@@ -422,6 +432,32 @@ fn html_response(
         );
     }
     Ok(response)
+}
+
+fn logout_build_context<'a>(
+    context: &'a AuthContext,
+    provider_id: &'a str,
+    config: &'a SamlConfig,
+    options: &SsoOptions,
+) -> SamlLogoutBuildContext<'a> {
+    SamlLogoutBuildContext {
+        config,
+        base_url: &context.base_url,
+        provider_id,
+        build_options: logout_build_options(options),
+    }
+}
+
+pub(super) fn logout_build_options(options: &SsoOptions) -> SpBuildOptions {
+    SpBuildOptions {
+        clock_skew: std::time::Duration::from_secs(
+            options.saml.clock_skew.whole_seconds().unsigned_abs(),
+        ),
+        single_logout_enabled: options.saml.enable_single_logout,
+        want_logout_request_signed: options.saml.want_logout_request_signed,
+        want_logout_response_signed: options.saml.want_logout_response_signed,
+        ..Default::default()
+    }
 }
 
 pub(super) fn logout_endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
@@ -529,6 +565,7 @@ pub(super) fn logout_endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         let request_id = format!("id-{}", generate_random_string(32));
                         let logout_request = build_logout_request_binding(
                             &config,
+                            &logout_build_context(context, &provider_id, &config, options.as_ref()),
                             SamlLogoutRequestInput {
                                 request_id: request_id.clone(),
                                 relay_state: callback_url.clone(),

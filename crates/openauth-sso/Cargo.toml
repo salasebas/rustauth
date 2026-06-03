@@ -17,8 +17,8 @@ path = "src/lib.rs"
 [features]
 default = ["oidc"]
 oidc = ["dep:base64", "dep:openauth-oidc", "dep:reqwest"]
-saml = ["dep:base64", "dep:openauth-saml", "dep:x509-parser"]
-saml-signed = ["saml", "openauth-saml/saml-signed"]
+saml = ["dep:base64", "dep:openauth-saml", "openauth-saml/saml-signed", "dep:x509-parser"]
+saml-signed = ["saml"]
 
 [dependencies]
 base64 = { workspace = true, optional = true }
@@ -48,6 +48,7 @@ base64.workspace = true
 flate2.workspace = true
 josekit.workspace = true
 openauth-sqlx = { workspace = true, features = ["sqlite"] }
+opensaml = { workspace = true, default-features = true }
 sqlx = { workspace = true, features = ["sqlite"] }
 
 [lints]

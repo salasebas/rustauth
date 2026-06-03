@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use base64::Engine;
 use http::Method;
 use openauth_core::api::{
     create_auth_endpoint, parse_request_body, session_cookies, ApiRequest, ApiResponse,
@@ -24,7 +25,7 @@ use crate::options::{
     SamlConfig, SamlMapping, SsoAuditEvent, SsoAuditEventKind, SsoAuditSeverity, SsoOptions,
 };
 use crate::saml_impl::assertions::{
-    parse_saml_response_with_decryption_detailed, ParsedSamlResponse,
+    parse_saml_login_response, ParsedSamlResponse, SamlLoginParseContext,
 };
 use crate::saml_impl::authn_request::assertion_consumer_service_url;
 use crate::saml_impl::security::{
@@ -40,6 +41,7 @@ use crate::saml_impl::state::{
 use crate::state::SsoStateStore;
 use crate::store::SsoProviderStore;
 use crate::utils;
+use openauth_saml::SpBuildOptions;
 
 use super::support::{
     authenticated_session_user, path_param, query_param, redirect, redirect_with_cookies,
@@ -340,12 +342,72 @@ async fn parse_and_validate_saml_response(
         )?));
     }
 
-    let parsed = match parse_saml_response_with_decryption_detailed(
+    if let Ok(compact) = std::str::from_utf8(saml_response.as_bytes()) {
+        let compact = compact.split_whitespace().collect::<String>();
+        if let Ok(bytes) = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            compact.as_bytes(),
+        ) {
+            if let Ok(xml) = String::from_utf8(bytes) {
+                if let Ok(algorithms) =
+                    crate::saml_impl::security::collect_saml_runtime_algorithms(&xml)
+                {
+                    if let Err(error) = validate_saml_runtime_algorithms(
+                        &algorithms,
+                        SamlRuntimeAlgorithmPolicy {
+                            on_deprecated: options.saml.algorithms.on_deprecated,
+                            allowed_signature_algorithms: options
+                                .saml
+                                .algorithms
+                                .allowed_signature_algorithms
+                                .as_deref(),
+                            allowed_digest_algorithms: options
+                                .saml
+                                .algorithms
+                                .allowed_digest_algorithms
+                                .as_deref(),
+                            allowed_key_encryption_algorithms: options
+                                .saml
+                                .algorithms
+                                .allowed_key_encryption_algorithms
+                                .as_deref(),
+                            allowed_data_encryption_algorithms: options
+                                .saml
+                                .algorithms
+                                .allowed_data_encryption_algorithms
+                                .as_deref(),
+                        },
+                    ) {
+                        return Ok(Err(acs_error_response(
+                            context,
+                            config,
+                            relay_authn_record.as_ref(),
+                            http::StatusCode::BAD_REQUEST,
+                            super::saml_runtime_algorithm_error_code(&error),
+                        )?));
+                    }
+                }
+            }
+        }
+    }
+
+    let parsed = match parse_saml_login_response(
         saml_response,
-        config
-            .decryption_pvk
-            .as_ref()
-            .map(|key| key.expose_secret()),
+        &SamlLoginParseContext {
+            config,
+            base_url: &context.base_url,
+            provider_id: &provider.provider_id,
+            in_response_to: relay_authn_record.as_ref().map(|record| record.id.as_str()),
+            build_options: SpBuildOptions {
+                clock_skew: std::time::Duration::from_secs(
+                    options.saml.clock_skew.whole_seconds().unsigned_abs(),
+                ),
+                single_logout_enabled: options.saml.enable_single_logout,
+                want_logout_request_signed: options.saml.want_logout_request_signed,
+                want_logout_response_signed: options.saml.want_logout_response_signed,
+                ..Default::default()
+            },
+        },
     ) {
         Ok(parsed) => parsed,
         Err(error) => {
@@ -452,6 +514,14 @@ async fn verify_saml_signature(
     saml_response: &str,
 ) -> Result<Result<Option<VerifiedSamlSignature>, ApiResponse>, openauth_core::error::OpenAuthError>
 {
+    if parsed.signature_verified {
+        let element = if parsed.signature.assertion {
+            SamlSignedElement::Assertion
+        } else {
+            SamlSignedElement::Response
+        };
+        return Ok(Ok(Some(VerifiedSamlSignature { element })));
+    }
     if !parsed.signature.is_signed() {
         return Ok(Ok(None));
     }

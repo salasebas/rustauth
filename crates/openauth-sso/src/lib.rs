@@ -6,9 +6,11 @@
 //!
 //! # SAML support
 //!
-//! SAML is currently limited to compatibility scaffolding. Signed and encrypted
-//! SAML messages fail closed until OpenAuth has a dedicated, auditable XML
-//! signature backend. Prefer OIDC for new IdP integrations.
+//! SAML 2.0 SP flows (sign-in, ACS, metadata, SLO) are implemented via the
+//! [`openauth_saml`] crate and the pinned [`opensaml`] dependency. Enable the
+//! `saml` feature on this crate; use `saml-signed` on [`openauth_saml`] for
+//! XMLDSig and XML-Enc. Without `saml-signed`, signed or encrypted IdP messages
+//! are rejected fail-closed.
 //!
 //! # Example
 //!
@@ -62,7 +64,8 @@ pub use options::{
     ProvidersLimitResolver, ProvisionUserInput, ProvisionUserResolver, SamlAlgorithmOptions,
     SamlConfig, SamlIdpMetadata, SamlMapping, SamlOptions, SamlService, SamlSpMetadata,
     SsoAuditEvent, SsoAuditEventKind, SsoAuditEventResolver, SsoAuditSeverity, SsoOptions,
-    SsoProvider, SsoRateLimitOptions, TokenEndpointAuthentication,
+    SsoProvider, SsoRateLimitOptions, TokenEndpointAuthentication, DEFAULT_MAX_SAML_METADATA_SIZE,
+    DEFAULT_MAX_SAML_RESPONSE_SIZE,
 };
 #[cfg(feature = "saml")]
 pub use saml::DeprecatedAlgorithmBehavior;
