@@ -70,6 +70,14 @@ mod tests {
     }
 
     #[test]
+    fn rate_limit_script_resets_only_after_window_elapses() {
+        use crate::rate_limit::RATE_LIMIT_SCRIPT;
+
+        assert!(RATE_LIMIT_SCRIPT.contains("(now - last_request) > window"));
+        assert!(!RATE_LIMIT_SCRIPT.contains("(now - last_request) >= window"));
+    }
+
+    #[test]
     fn scan_pattern_escapes_redis_glob_metacharacters() {
         use crate::url::secondary_storage_scan_pattern;
 

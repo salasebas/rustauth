@@ -35,6 +35,17 @@ redis.call("PEXPIRE", key, window)
 return {1, count, now}
 "#;
 
+#[cfg(test)]
+mod tests {
+    use super::RATE_LIMIT_SCRIPT;
+
+    #[test]
+    fn rate_limit_script_resets_only_after_window_elapses() {
+        assert!(RATE_LIMIT_SCRIPT.contains("(now - last_request) > window"));
+        assert!(!RATE_LIMIT_SCRIPT.contains("(now - last_request) >= window"));
+    }
+}
+
 pub fn parse_rate_limit_script_result(
     value: Value,
 ) -> Result<RateLimitScriptResult, OpenAuthError> {
