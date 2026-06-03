@@ -89,6 +89,13 @@ behavior. Use `openauth-sso` when you want the convenience plugin that combines
 provider management, domain verification, audit hooks, and enabled OIDC/SAML
 routes. Use `openauth-scim` separately for provisioning.
 
+## Upstream parity (Better Auth 1.6.9)
+
+Structured parity notes for contributors live under [`docs/parity/`](docs/parity/README.md),
+including [`openauth-oidc`](docs/parity/openauth-oidc/README.md) (discovery/types)
+and [`openauth-sso`](docs/parity/openauth-sso/README.md) (OIDC HTTP E2E vs `oidc.test.ts`).
+Pin and fetch instructions: [`reference/upstream-better-auth/VERSION.md`](reference/upstream-better-auth/VERSION.md).
+
 ## License
 
 OpenAuth-RS is licensed under the MIT License. See [LICENSE](LICENSE).

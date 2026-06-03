@@ -116,4 +116,6 @@ but public API details may change before stable release.
 ## Links
 
 - [Root README](../../README.md)
+- [Better Auth 1.6.9 parity (`openauth-oidc`)](../../docs/parity/openauth-oidc/README.md)
+- [SSO HTTP flow parity (`openauth-sso`)](../../docs/parity/openauth-sso/README.md)
 - [Repository](https://github.com/sebasxsala/openauth-rs)

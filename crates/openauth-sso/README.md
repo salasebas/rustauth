@@ -61,4 +61,6 @@ signature/encryption support is backed by an auditable implementation.
 ## Links
 
 - [Root README](../../README.md)
+- [Better Auth 1.6.9 parity (`openauth-sso` OIDC E2E)](../../docs/parity/openauth-sso/README.md)
+- [OIDC discovery crate parity](../../docs/parity/openauth-oidc/README.md)
 - [Repository](https://github.com/sebasxsala/openauth-rs)
