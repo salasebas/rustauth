@@ -34,3 +34,22 @@ async fn revoke_session_route_deletes_session_for_current_user(
     assert!(!contains_record_string(&adapter, "session", "token", "token_2").await?);
     Ok(())
 }
+
+#[tokio::test]
+async fn revoke_session_route_requires_authenticated_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router(adapter)?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/revoke-session",
+            r#"{"token":"token_1"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
+}

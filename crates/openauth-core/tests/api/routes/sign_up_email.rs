@@ -335,6 +335,42 @@ async fn sign_up_email_route_duplicate_errors_when_auto_sign_in_disabled_without
     Ok(())
 }
 
+#[tokio::test]
+async fn sign_up_email_route_duplicate_can_use_another_email_error_code(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions::default().email_password(
+            EmailPasswordOptions::new()
+                .auto_sign_in(false)
+                .another_email_error_on_duplicate(true),
+        ),
+    )?;
+
+    router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    let duplicate = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(duplicate.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(duplicate.body())?;
+    assert_eq!(body["code"], "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL");
+    Ok(())
+}
+
 #[derive(Default)]
 struct TestSecondaryStorage {
     values: Mutex<HashMap<String, String>>,

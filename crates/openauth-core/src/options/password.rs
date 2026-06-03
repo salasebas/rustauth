@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use http::Request;
 
+use crate::auth::email_password::{PasswordHashFn, PasswordVerifyFn};
 use crate::db::User;
 use crate::error::OpenAuthError;
 
@@ -79,6 +80,8 @@ pub struct PasswordOptions {
     pub reset_password_token_expires_in: Option<u64>,
     pub on_password_reset: Option<Arc<dyn OnPasswordReset>>,
     pub revoke_sessions_on_password_reset: bool,
+    pub hash_password: Option<PasswordHashFn>,
+    pub verify_password: Option<PasswordVerifyFn>,
 }
 
 impl Default for PasswordOptions {
@@ -90,6 +93,8 @@ impl Default for PasswordOptions {
             reset_password_token_expires_in: None,
             on_password_reset: None,
             revoke_sessions_on_password_reset: false,
+            hash_password: None,
+            verify_password: None,
         }
     }
 }
@@ -142,6 +147,18 @@ impl PasswordOptions {
     #[must_use]
     pub fn revoke_sessions_on_password_reset(mut self, enabled: bool) -> Self {
         self.revoke_sessions_on_password_reset = enabled;
+        self
+    }
+
+    #[must_use]
+    pub fn hash_password(mut self, hash: PasswordHashFn) -> Self {
+        self.hash_password = Some(hash);
+        self
+    }
+
+    #[must_use]
+    pub fn verify_password(mut self, verify: PasswordVerifyFn) -> Self {
+        self.verify_password = Some(verify);
         self
     }
 }

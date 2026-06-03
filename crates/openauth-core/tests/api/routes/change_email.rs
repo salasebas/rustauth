@@ -23,6 +23,7 @@ async fn change_email_route_updates_unverified_user_when_allowed(
                 change_email: ChangeEmailOptions {
                     enabled: true,
                     update_email_without_verification: true,
+                    ..Default::default()
                 },
                 ..UserOptions::default()
             },
@@ -82,6 +83,7 @@ async fn change_email_route_hides_existing_email() -> Result<(), Box<dyn std::er
                 change_email: ChangeEmailOptions {
                     enabled: true,
                     update_email_without_verification: true,
+                    ..Default::default()
                 },
                 ..UserOptions::default()
             },
@@ -127,6 +129,7 @@ async fn change_email_immediate_update_preserves_non_remembered_session(
                 change_email: ChangeEmailOptions {
                     enabled: true,
                     update_email_without_verification: true,
+                    ..Default::default()
                 },
                 ..UserOptions::default()
             },
@@ -160,5 +163,85 @@ async fn change_email_immediate_update_preserves_non_remembered_session(
             .any(|value| value.starts_with("open-auth.dont_remember=")),
         "dont_remember marker cookie must be re-emitted"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn change_email_route_notifies_current_email_when_configured(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use openauth_core::options::{
+        ChangeEmailConfirmation, EmailVerificationOptions, SendChangeEmailConfirmation,
+        SendVerificationEmail, VerificationEmail,
+    };
+    use std::sync::{Arc, Mutex};
+
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .insert_user(User {
+            email_verified: true,
+            ..user(now)
+        })
+        .await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+
+    let notified = Arc::new(Mutex::new(Vec::<String>::new()));
+    struct NotifyCurrent(Arc<Mutex<Vec<String>>>);
+    impl SendChangeEmailConfirmation for NotifyCurrent {
+        fn send_change_email_confirmation(
+            &self,
+            payload: ChangeEmailConfirmation,
+            _: Option<&http::Request<Vec<u8>>>,
+        ) -> Result<(), openauth_core::error::OpenAuthError> {
+            self.0
+                .lock()
+                .map_err(|_| openauth_core::error::OpenAuthError::Api("lock".into()))?
+                .push(payload.new_email);
+            Ok(())
+        }
+    }
+    struct SendNew;
+    impl SendVerificationEmail for SendNew {
+        fn send_verification_email(
+            &self,
+            _payload: VerificationEmail,
+            _: Option<&http::Request<Vec<u8>>>,
+        ) -> Result<(), openauth_core::error::OpenAuthError> {
+            Ok(())
+        }
+    }
+
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            user: UserOptions {
+                change_email: ChangeEmailOptions::builder()
+                    .enabled(true)
+                    .send_change_email_confirmation(NotifyCurrent(Arc::clone(&notified))),
+                ..UserOptions::default()
+            },
+            email_verification: EmailVerificationOptions {
+                send_verification_email: Some(Arc::new(SendNew)),
+                ..EmailVerificationOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/change-email",
+            r#"{"newEmail":"new@example.com"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let seen = notified.lock().map_err(|_| "lock")?;
+    assert_eq!(seen.as_slice(), ["new@example.com"]);
     Ok(())
 }

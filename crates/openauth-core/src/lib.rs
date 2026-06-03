@@ -8,6 +8,7 @@ pub mod crypto;
 pub mod db;
 pub mod env;
 pub mod error;
+pub mod error_codes;
 pub mod options;
 pub mod plugin;
 pub mod rate_limit;

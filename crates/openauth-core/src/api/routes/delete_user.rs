@@ -8,13 +8,14 @@ use super::shared::{
     error_response, json_response, query_param, request_cookie_header, sensitive_session,
 };
 use crate::api::services::user as user_service;
-use crate::api::services::user::{DeleteUserError, DeleteUserErrorOrOpenAuth};
+use crate::api::services::user::{DeleteUserError, DeleteUserErrorOrOpenAuth, DeleteUserResult};
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::cookies::delete_session_cookie;
 use crate::db::DbAdapter;
+use crate::error_codes;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,7 +31,7 @@ struct DeleteUserBody {
 #[derive(Debug, Serialize)]
 struct DeleteUserResponse {
     success: bool,
-    message: &'static str,
+    message: String,
 }
 
 pub(super) fn delete_user_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndpoint {
@@ -45,10 +46,13 @@ pub(super) fn delete_user_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndp
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {
                 if !context.options.user.delete_user.enabled {
-                    return error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "Not found");
+                    return error_response(
+                        StatusCode::NOT_FOUND,
+                        error_codes::NOT_FOUND,
+                        "Not found",
+                    );
                 }
                 let body: DeleteUserBody = parse_request_body(&request)?;
-                let _callback_url_seen = body.callback_url.as_deref();
                 if let Some(token) = body.token.as_deref() {
                     return delete_user_by_token(adapter.as_ref(), context, &request, token).await;
                 }
@@ -57,30 +61,45 @@ pub(super) fn delete_user_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndp
                 else {
                     return super::shared::unauthorized();
                 };
-                if let Err(error) = user_service::delete_user_with_password_or_fresh_session(
+                let result = match user_service::delete_user_with_password_or_fresh_session(
                     adapter.as_ref(),
                     context,
+                    Some(&request),
                     &session,
                     &user,
                     body.password.as_deref(),
+                    body.callback_url.as_deref(),
                 )
                 .await
                 {
-                    return delete_user_error_response(error);
+                    Ok(result) => result,
+                    Err(error) => return delete_user_error_response(error),
+                };
+                match result {
+                    DeleteUserResult::VerificationSent => json_response(
+                        StatusCode::OK,
+                        &DeleteUserResponse {
+                            success: true,
+                            message: "Verification email sent".to_owned(),
+                        },
+                        Vec::new(),
+                    ),
+                    DeleteUserResult::Deleted => {
+                        let cookies = delete_session_cookie(
+                            &context.auth_cookies,
+                            &request_cookie_header(&request).unwrap_or_default(),
+                            false,
+                        );
+                        json_response(
+                            StatusCode::OK,
+                            &DeleteUserResponse {
+                                success: true,
+                                message: "User deleted".to_owned(),
+                            },
+                            cookies,
+                        )
+                    }
                 }
-                let cookies = delete_session_cookie(
-                    &context.auth_cookies,
-                    &request_cookie_header(&request).unwrap_or_default(),
-                    false,
-                );
-                json_response(
-                    StatusCode::OK,
-                    &DeleteUserResponse {
-                        success: true,
-                        message: "User deleted",
-                    },
-                    cookies,
-                )
             })
         },
     )
@@ -98,7 +117,11 @@ pub(super) fn delete_user_callback_endpoint(adapter: Arc<dyn DbAdapter>) -> Asyn
             let adapter = Arc::clone(&adapter);
             Box::pin(async move {
                 if !context.options.user.delete_user.enabled {
-                    return error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "Not found");
+                    return error_response(
+                        StatusCode::NOT_FOUND,
+                        error_codes::NOT_FOUND,
+                        "Not found",
+                    );
                 }
                 let Some(token) = query_param(&request, "token") else {
                     return invalid_token();
@@ -118,7 +141,9 @@ async fn delete_user_by_token(
     let Some((_, user, _)) = sensitive_session(adapter, context, request).await? else {
         return super::shared::unauthorized();
     };
-    if let Err(error) = user_service::delete_user_with_token(adapter, context, &user, token).await {
+    if let Err(error) =
+        user_service::delete_user_with_token(adapter, context, Some(request), &user, token).await
+    {
         return delete_user_error_response(error);
     }
     let cookies = delete_session_cookie(
@@ -130,14 +155,18 @@ async fn delete_user_by_token(
         StatusCode::OK,
         &DeleteUserResponse {
             success: true,
-            message: "User deleted",
+            message: "User deleted".to_owned(),
         },
         cookies,
     )
 }
 
 fn invalid_token() -> Result<crate::api::ApiResponse, crate::error::OpenAuthError> {
-    error_response(StatusCode::NOT_FOUND, "INVALID_TOKEN", "Invalid token")
+    error_response(
+        StatusCode::NOT_FOUND,
+        error_codes::INVALID_TOKEN,
+        "Invalid token",
+    )
 }
 
 fn delete_user_error_response(
@@ -148,14 +177,19 @@ fn delete_user_error_response(
         DeleteUserErrorOrOpenAuth::Service(error) => match error {
             DeleteUserError::InvalidPassword => error_response(
                 StatusCode::BAD_REQUEST,
-                "INVALID_PASSWORD",
+                error_codes::INVALID_PASSWORD,
                 "Invalid password",
             ),
             DeleteUserError::InvalidToken => invalid_token(),
             DeleteUserError::SessionExpired => error_response(
                 StatusCode::BAD_REQUEST,
-                "SESSION_EXPIRED",
+                error_codes::SESSION_EXPIRED,
                 "Session expired",
+            ),
+            DeleteUserError::CredentialAccountNotFound => error_response(
+                StatusCode::BAD_REQUEST,
+                error_codes::CREDENTIAL_ACCOUNT_NOT_FOUND,
+                "Credential account not found",
             ),
         },
     }

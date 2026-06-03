@@ -61,16 +61,16 @@ async fn sign_out_route_does_not_report_success_when_delete_fails(
         AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))?;
     let cookie = signed_session_cookie("token_1")?;
 
-    let result = router
+    let response = router
         .handle_async(json_request(
             Method::POST,
             "/api/auth/sign-out",
             "{}",
             Some(&cookie),
         )?)
-        .await;
+        .await?;
 
-    assert!(result.is_err());
+    assert_ne!(response.status(), StatusCode::OK);
     Ok(())
 }
 

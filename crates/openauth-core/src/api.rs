@@ -7,6 +7,7 @@ pub mod routes;
 pub mod additional_fields;
 mod endpoint;
 mod error;
+mod on_api_error;
 mod openapi;
 mod path;
 mod plugin_pipeline;

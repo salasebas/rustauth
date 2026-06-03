@@ -5,7 +5,9 @@ use openauth_core::api::{
 };
 use openauth_core::context::create_auth_context;
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions, TrustedOriginOptions};
+use openauth_core::options::{
+    AdvancedOptions, OnApiErrorOptions, OpenAuthOptions, TrustedOriginOptions,
+};
 
 fn post_ok_endpoint() -> AuthEndpoint {
     AuthEndpoint {
@@ -459,5 +461,77 @@ fn auth_router_requires_origin_when_fetch_metadata_is_present(
         "MISSING_OR_NULL_ORIGIN",
         "Missing or null Origin",
     )?;
+    Ok(())
+}
+
+fn failing_endpoint() -> AuthEndpoint {
+    AuthEndpoint {
+        path: "/fail".to_owned(),
+        method: Method::GET,
+        handler: failing_handler,
+    }
+}
+
+fn failing_handler(
+    _context: &openauth_core::context::AuthContext,
+    _request: ApiRequest,
+) -> Result<ApiResponse, OpenAuthError> {
+    Err(OpenAuthError::Api("handler failed".to_owned()))
+}
+
+struct TeapotOnError;
+
+impl openauth_core::options::OnApiErrorHandler for TeapotOnError {
+    fn on_error(
+        &self,
+        error: &OpenAuthError,
+        _request: &ApiRequest,
+    ) -> Result<Option<ApiResponse>, OpenAuthError> {
+        Ok(Some(response(
+            StatusCode::IM_A_TEAPOT,
+            format!("handled: {error}").into_bytes(),
+        )?))
+    }
+}
+
+#[test]
+fn auth_router_on_api_error_handler_can_replace_unhandled_errors(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        on_api_error: OnApiErrorOptions::new().on_error(TeapotOnError),
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::new(context, vec![failing_endpoint()]);
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("http://localhost:3000/api/auth/fail")
+        .body(Vec::new())?;
+
+    let response = router.handle(request)?;
+
+    assert_eq!(response.status(), StatusCode::IM_A_TEAPOT);
+    assert_eq!(response.body(), b"handled: api error: handler failed");
+    Ok(())
+}
+
+#[test]
+fn auth_router_on_api_error_throw_propagates_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let context = create_auth_context(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        on_api_error: OnApiErrorOptions::new().throw(true),
+        ..OpenAuthOptions::default()
+    })?;
+    let router = AuthRouter::new(context, vec![failing_endpoint()]);
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("http://localhost:3000/api/auth/fail")
+        .body(Vec::new())?;
+
+    let error = match router.handle(request) {
+        Ok(_) => return Err("throw should propagate handler errors".into()),
+        Err(error) => error,
+    };
+    assert!(matches!(error, OpenAuthError::Api(message) if message == "handler failed"));
     Ok(())
 }

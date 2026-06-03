@@ -15,6 +15,7 @@ use super::endpoint::{
     AsyncAuthEndpoint, AuthEndpoint, EndpointInfo, EndpointKind,
 };
 use super::error::{api_error, rate_limit_response, response, ApiErrorCode};
+use super::on_api_error::handle_on_api_error;
 use super::openapi::build_openapi_schema;
 use super::path::{match_path_pattern, route_pathname, PathParams};
 use super::plugin_pipeline::{
@@ -99,7 +100,15 @@ impl AuthRouter {
         build_openapi_schema(&self.context, &self.async_endpoints)
     }
 
-    pub fn handle(&self, mut request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
+    pub fn handle(&self, request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
+        let request_for_error = request.clone();
+        match self.handle_inner(request) {
+            Ok(response) => Ok(response),
+            Err(error) => handle_on_api_error(&self.context, &request_for_error, error),
+        }
+    }
+
+    fn handle_inner(&self, mut request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
         let normalized_path =
             normalize_pathname(&request.uri().to_string(), &self.context.base_path);
         if self
@@ -163,7 +172,11 @@ impl AuthRouter {
     }
 
     pub async fn handle_async(&self, request: ApiRequest) -> Result<ApiResponse, OpenAuthError> {
-        run_with_request_state(self.handle_async_scoped(request, true)).await
+        let request_for_error = request.clone();
+        match run_with_request_state(self.handle_async_scoped(request, true)).await {
+            Ok(response) => Ok(response),
+            Err(error) => handle_on_api_error(&self.context, &request_for_error, error),
+        }
     }
 
     /// Handle a request from trusted server-side code.
@@ -176,7 +189,11 @@ impl AuthRouter {
         &self,
         request: ApiRequest,
     ) -> Result<ApiResponse, OpenAuthError> {
-        run_with_request_state(self.handle_async_scoped(request, false)).await
+        let request_for_error = request.clone();
+        match run_with_request_state(self.handle_async_scoped(request, false)).await {
+            Ok(response) => Ok(response),
+            Err(error) => handle_on_api_error(&self.context, &request_for_error, error),
+        }
     }
 
     async fn handle_async_scoped(

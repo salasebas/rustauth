@@ -10,14 +10,18 @@ use crate::plugin::AuthPlugin;
 
 use super::account::AccountOptions;
 use super::advanced::AdvancedOptions;
+use super::api_error::OnApiErrorOptions;
 use super::email_password::EmailPasswordOptions;
 use super::email_verification::EmailVerificationOptions;
+use super::hooks::GlobalHooksOptions;
 use super::origins::TrustedOriginOptions;
 use super::password::PasswordOptions;
 use super::rate_limit::RateLimitOptions;
 use super::session::SessionOptions;
 use super::user::UserOptions;
 use super::verification::VerificationOptions;
+use crate::env::logger::LoggerOptions;
+use crate::plugin::PluginDatabaseHook;
 
 /// Telemetry collection settings (parity with Better Auth `telemetry` init option).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -66,6 +70,7 @@ impl ExperimentalOptions {
 /// Top-level OpenAuth configuration.
 #[derive(Clone, Default)]
 pub struct OpenAuthOptions {
+    pub app_name: Option<String>,
     pub base_url: Option<String>,
     pub base_path: Option<String>,
     pub secret: Option<String>,
@@ -78,6 +83,11 @@ pub struct OpenAuthOptions {
     pub email_verification: EmailVerificationOptions,
     pub password: PasswordOptions,
     pub account: AccountOptions,
+    pub verification: VerificationOptions,
+    pub hooks: GlobalHooksOptions,
+    pub on_api_error: OnApiErrorOptions,
+    pub database_hooks: Vec<PluginDatabaseHook>,
+    pub logger: LoggerOptions,
     pub advanced: AdvancedOptions,
     pub rate_limit: RateLimitOptions,
     pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
@@ -87,7 +97,6 @@ pub struct OpenAuthOptions {
     pub production: bool,
     pub telemetry: TelemetryOptions,
     pub experimental: ExperimentalOptions,
-    pub verification: VerificationOptions,
 }
 
 impl OpenAuthOptions {
@@ -97,6 +106,12 @@ impl OpenAuthOptions {
 
     pub fn builder() -> Self {
         Self::new()
+    }
+
+    #[must_use]
+    pub fn app_name(mut self, app_name: impl Into<String>) -> Self {
+        self.app_name = Some(app_name.into());
+        self
     }
 
     #[must_use]
@@ -182,6 +197,12 @@ impl OpenAuthOptions {
     }
 
     #[must_use]
+    pub fn verification(mut self, verification: VerificationOptions) -> Self {
+        self.verification = verification;
+        self
+    }
+
+    #[must_use]
     pub fn advanced(mut self, advanced: AdvancedOptions) -> Self {
         self.advanced = advanced;
         self
@@ -190,6 +211,30 @@ impl OpenAuthOptions {
     #[must_use]
     pub fn rate_limit(mut self, rate_limit: RateLimitOptions) -> Self {
         self.rate_limit = rate_limit;
+        self
+    }
+
+    #[must_use]
+    pub fn hooks(mut self, hooks: GlobalHooksOptions) -> Self {
+        self.hooks = hooks;
+        self
+    }
+
+    #[must_use]
+    pub fn on_api_error(mut self, on_api_error: OnApiErrorOptions) -> Self {
+        self.on_api_error = on_api_error;
+        self
+    }
+
+    #[must_use]
+    pub fn database_hook(mut self, hook: PluginDatabaseHook) -> Self {
+        self.database_hooks.push(hook);
+        self
+    }
+
+    #[must_use]
+    pub fn logger(mut self, logger: LoggerOptions) -> Self {
+        self.logger = logger;
         self
     }
 
@@ -245,18 +290,13 @@ impl OpenAuthOptions {
         self.experimental = experimental;
         self
     }
-
-    #[must_use]
-    pub fn verification(mut self, verification: VerificationOptions) -> Self {
-        self.verification = verification;
-        self
-    }
 }
 
 impl fmt::Debug for OpenAuthOptions {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("OpenAuthOptions")
+            .field("app_name", &self.app_name)
             .field("base_url", &self.base_url)
             .field("base_path", &self.base_path)
             .field("secret", &self.secret.as_ref().map(|_| "<redacted>"))
@@ -272,6 +312,11 @@ impl fmt::Debug for OpenAuthOptions {
             .field("email_verification", &self.email_verification)
             .field("password", &self.password)
             .field("account", &self.account)
+            .field("verification", &self.verification)
+            .field("hooks", &self.hooks)
+            .field("on_api_error", &self.on_api_error)
+            .field("database_hooks", &self.database_hooks)
+            .field("logger", &"<logger-options>")
             .field("advanced", &self.advanced)
             .field("rate_limit", &self.rate_limit)
             .field(
@@ -286,7 +331,6 @@ impl fmt::Debug for OpenAuthOptions {
             .field("production", &self.production)
             .field("telemetry", &self.telemetry)
             .field("experimental", &self.experimental)
-            .field("verification", &self.verification)
             .finish()
     }
 }

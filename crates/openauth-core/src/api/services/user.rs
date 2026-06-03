@@ -1,13 +1,14 @@
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 
 use crate::api::{request_base_url, ApiRequest};
 use crate::context::AuthContext;
+use crate::crypto::random::generate_random_string;
 use crate::db::{DbAdapter, Session, User};
 use crate::error::OpenAuthError;
-use crate::options::VerificationEmail;
+use crate::options::{ChangeEmailConfirmation, DeleteAccountVerificationEmail, VerificationEmail};
 use crate::session::SessionStore;
 use crate::user::DbUserStore;
-use crate::verification::VerificationStore;
+use crate::verification::{CreateVerificationInput, VerificationStore};
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub(in crate::api) enum DeleteUserError {
@@ -17,6 +18,8 @@ pub(in crate::api) enum DeleteUserError {
     InvalidToken,
     #[error("session expired")]
     SessionExpired,
+    #[error("credential account not found")]
+    CredentialAccountNotFound,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +28,12 @@ pub(in crate::api) enum DeleteUserErrorOrOpenAuth {
     Service(#[from] DeleteUserError),
     #[error(transparent)]
     OpenAuth(#[from] OpenAuthError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::api) enum DeleteUserResult {
+    Deleted,
+    VerificationSent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +126,22 @@ pub(in crate::api) async fn change_email(
         request_base_url(context, request),
         percent_encode(&callback_url)
     );
+    if let Some(confirm) = &context
+        .options
+        .user
+        .change_email
+        .send_change_email_confirmation
+    {
+        confirm.send_change_email_confirmation(
+            ChangeEmailConfirmation {
+                user: user.clone(),
+                new_email: new_email.clone(),
+                url: url.clone(),
+                token: token.clone(),
+            },
+            request,
+        )?;
+    }
     sender.send_verification_email(
         VerificationEmail {
             user: User {
@@ -134,27 +159,52 @@ pub(in crate::api) async fn change_email(
 pub(in crate::api) async fn delete_user_with_password_or_fresh_session(
     adapter: &dyn DbAdapter,
     context: &AuthContext,
+    request: Option<&ApiRequest>,
     session: &Session,
     user: &User,
     password: Option<&str>,
-) -> Result<(), DeleteUserErrorOrOpenAuth> {
+    callback_url: Option<&str>,
+) -> Result<DeleteUserResult, DeleteUserErrorOrOpenAuth> {
     if let Some(password) = password {
+        let has_credential = DbUserStore::new(adapter)
+            .find_credential_account(&user.id)
+            .await?
+            .is_some();
+        if !has_credential {
+            return Err(DeleteUserError::CredentialAccountNotFound.into());
+        }
         if !verify_delete_password(adapter, context, &user.id, password).await? {
             return Err(DeleteUserError::InvalidPassword.into());
         }
-    } else if context.session_config.fresh_age != 0 {
+        perform_delete(adapter, context, request, user).await?;
+        return Ok(DeleteUserResult::Deleted);
+    }
+
+    if context
+        .options
+        .user
+        .delete_user
+        .send_delete_account_verification
+        .is_some()
+    {
+        send_delete_account_verification(adapter, context, request, user, callback_url).await?;
+        return Ok(DeleteUserResult::VerificationSent);
+    }
+
+    if context.session_config.fresh_age != 0 {
         let age = OffsetDateTime::now_utc() - session.created_at;
         if age.whole_seconds() >= context.session_config.fresh_age as i64 {
             return Err(DeleteUserError::SessionExpired.into());
         }
     }
-    delete_user_records(adapter, context, &user.id).await?;
-    Ok(())
+    perform_delete(adapter, context, request, user).await?;
+    Ok(DeleteUserResult::Deleted)
 }
 
 pub(in crate::api) async fn delete_user_with_token(
     adapter: &dyn DbAdapter,
     context: &AuthContext,
+    request: Option<&ApiRequest>,
     user: &User,
     token: &str,
 ) -> Result<(), DeleteUserErrorOrOpenAuth> {
@@ -166,8 +216,73 @@ pub(in crate::api) async fn delete_user_with_token(
     if verification.value != user.id {
         return Err(DeleteUserError::InvalidToken.into());
     }
-    delete_user_records(adapter, context, &user.id).await?;
+    perform_delete(adapter, context, request, user).await?;
     verifications.delete_verification(&identifier).await?;
+    Ok(())
+}
+
+async fn send_delete_account_verification(
+    adapter: &dyn DbAdapter,
+    context: &AuthContext,
+    request: Option<&ApiRequest>,
+    user: &User,
+    callback_url: Option<&str>,
+) -> Result<(), OpenAuthError> {
+    let Some(sender) = &context
+        .options
+        .user
+        .delete_user
+        .send_delete_account_verification
+    else {
+        return Ok(());
+    };
+    let token = generate_random_string(24);
+    let expires_in = context
+        .options
+        .user
+        .delete_user
+        .delete_token_expires_in
+        .unwrap_or(60 * 60);
+    let expires_in = i64::try_from(expires_in).map_err(|_| OpenAuthError::NumericOutOfRange {
+        context: "delete_token_expires_in",
+    })?;
+    let identifier = format!("delete-account-{token}");
+    VerificationStore::new(adapter, context)
+        .create_verification(CreateVerificationInput::new(
+            identifier,
+            user.id.clone(),
+            OffsetDateTime::now_utc() + Duration::seconds(expires_in),
+        ))
+        .await?;
+    let callback = callback_url.unwrap_or("/");
+    let url = format!(
+        "{}/delete-user/callback?token={token}&callbackURL={}",
+        request_base_url(context, request),
+        percent_encode(callback)
+    );
+    sender.send_delete_account_verification(
+        DeleteAccountVerificationEmail {
+            user: user.clone(),
+            url,
+            token,
+        },
+        request,
+    )
+}
+
+async fn perform_delete(
+    adapter: &dyn DbAdapter,
+    context: &AuthContext,
+    request: Option<&ApiRequest>,
+    user: &User,
+) -> Result<(), OpenAuthError> {
+    if let Some(before) = &context.options.user.delete_user.before_delete {
+        before.before_delete(user, request)?;
+    }
+    delete_user_records(adapter, context, &user.id).await?;
+    if let Some(after) = &context.options.user.delete_user.after_delete {
+        after.after_delete(user, request)?;
+    }
     Ok(())
 }
 

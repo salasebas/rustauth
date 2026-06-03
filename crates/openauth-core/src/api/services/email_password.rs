@@ -141,7 +141,16 @@ pub(in crate::api) async fn sign_up_email(
                 synthetic_additional_fields: Some(sign_up.additional_user_fields),
             });
         }
-        return Err(AuthFlowError::new(AuthFlowErrorCode::UserAlreadyExists).into());
+        let code = if context
+            .options
+            .email_password
+            .another_email_error_on_duplicate
+        {
+            AuthFlowErrorCode::UserAlreadyExistsUseAnotherEmail
+        } else {
+            AuthFlowErrorCode::UserAlreadyExists
+        };
+        return Err(AuthFlowError::new(code).into());
     }
 
     run_password_validators(context, "/sign-up/email", &sign_up.password)

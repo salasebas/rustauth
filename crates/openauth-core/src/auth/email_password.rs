@@ -22,6 +22,7 @@ pub enum AuthFlowErrorCode {
     InvalidPasswordLength,
     InvalidEmailOrPassword,
     UserAlreadyExists,
+    UserAlreadyExistsUseAnotherEmail,
     EmailNotVerified,
     FailedToCreateSession,
     StorageError,
@@ -33,7 +34,10 @@ impl AuthFlowErrorCode {
             Self::InvalidEmail => "INVALID_EMAIL",
             Self::InvalidPasswordLength => "INVALID_PASSWORD_LENGTH",
             Self::InvalidEmailOrPassword => "INVALID_EMAIL_OR_PASSWORD",
-            Self::UserAlreadyExists => "USER_ALREADY_EXISTS",
+            Self::UserAlreadyExists => crate::error_codes::USER_ALREADY_EXISTS,
+            Self::UserAlreadyExistsUseAnotherEmail => {
+                crate::error_codes::USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL
+            }
             Self::EmailNotVerified => "EMAIL_NOT_VERIFIED",
             Self::FailedToCreateSession => "FAILED_TO_CREATE_SESSION",
             Self::StorageError => "STORAGE_ERROR",
@@ -46,6 +50,7 @@ impl AuthFlowErrorCode {
             Self::InvalidPasswordLength => "Invalid password length",
             Self::InvalidEmailOrPassword => "Invalid email or password",
             Self::UserAlreadyExists => "User already exists",
+            Self::UserAlreadyExistsUseAnotherEmail => "User already exists. Use another email.",
             Self::EmailNotVerified => "Email not verified",
             Self::FailedToCreateSession => "Failed to create session",
             Self::StorageError => "Storage error",

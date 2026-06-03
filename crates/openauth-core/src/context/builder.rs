@@ -10,12 +10,14 @@ use crate::crypto::{build_secret_config, parse_secrets_env};
 use crate::db::RateLimitStorage as DbRateLimitStorage;
 use crate::db::{auth_schema, AuthSchemaOptions, DbAdapter, DbField, HookedAdapter};
 use crate::env::is_production;
-use crate::env::logger::{create_logger, LoggerOptions};
+use crate::env::logger::create_logger;
 use crate::error::OpenAuthError;
+use crate::options::hooks::{plugin_after_hooks, plugin_before_hooks};
 use crate::options::RateLimitStore;
 use crate::options::{
     OpenAuthOptions, RateLimitStorageOption, SessionAdditionalField, UserAdditionalField,
 };
+use crate::plugin::AuthPlugin;
 use crate::rate_limit::{GovernorMemoryRateLimitStore, LegacyRateLimitStorageAdapter};
 
 use super::origins::resolve_trusted_origins;
@@ -53,7 +55,7 @@ pub fn create_auth_context_with_environment_and_adapter(
     environment: AuthEnvironment,
     adapter: Option<Arc<dyn DbAdapter>>,
 ) -> Result<AuthContext, OpenAuthError> {
-    let logger = create_logger(LoggerOptions::default());
+    let logger = create_logger(options.logger.clone());
     let production = options.production || is_production();
     let env_secrets = parse_secrets_env(environment.openauth_secrets.as_deref())?;
     let secrets = if options.secrets.is_empty() {
@@ -102,8 +104,8 @@ pub fn create_auth_context_with_environment_and_adapter(
             min_password_length: options.password.min_password_length,
             max_password_length: options.password.max_password_length,
         },
-        hash: hash_password,
-        verify: verify_password,
+        hash: options.password.hash_password.unwrap_or(hash_password),
+        verify: options.password.verify_password.unwrap_or(verify_password),
     };
     validate_rate_limit_storage(&options)?;
     let rate_limit = RateLimitContext {
@@ -128,8 +130,12 @@ pub fn create_auth_context_with_environment_and_adapter(
     };
 
     let schema_options = schema_options_from_auth_options(&options);
+    let app_name = options
+        .app_name
+        .clone()
+        .unwrap_or_else(|| "OpenAuth".to_owned());
     let mut context = AuthContext {
-        app_name: "OpenAuth".to_owned(),
+        app_name,
         base_url,
         base_path,
         options: options.clone(),
@@ -149,11 +155,12 @@ pub fn create_auth_context_with_environment_and_adapter(
         social_providers,
         db_schema: auth_schema(schema_options),
         plugin_error_codes: BTreeMap::new(),
-        plugin_database_hooks: Vec::new(),
+        plugin_database_hooks: options.database_hooks.clone(),
         plugin_migrations: Vec::new(),
         telemetry_publisher: noop_telemetry_publisher(),
         logger,
     };
+    apply_global_hooks(&mut context);
     initialize_plugins(&mut context)?;
     if !context.plugin_database_hooks.is_empty() {
         if let Some(adapter) = context.adapter.clone() {
@@ -165,6 +172,18 @@ pub fn create_auth_context_with_environment_and_adapter(
         }
     }
     Ok(context)
+}
+
+fn apply_global_hooks(context: &mut AuthContext) {
+    let before = plugin_before_hooks(&context.options.hooks);
+    let after = plugin_after_hooks(&context.options.hooks);
+    if before.is_empty() && after.is_empty() {
+        return;
+    }
+    let mut plugin = AuthPlugin::new("__openauth_global__");
+    plugin.hooks.before = before;
+    plugin.hooks.after = after;
+    context.plugins.insert(0, plugin);
 }
 
 #[cfg(feature = "oauth")]

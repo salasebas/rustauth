@@ -131,7 +131,7 @@ async fn update_session_route_rejects_non_input_fields() -> Result<(), Box<dyn s
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body: Value = serde_json::from_slice(response.body())?;
-    assert_eq!(body["code"], "INVALID_REQUEST_BODY");
+    assert_eq!(body["code"], "FIELD_NOT_ALLOWED");
     Ok(())
 }
 

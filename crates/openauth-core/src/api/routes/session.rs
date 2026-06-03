@@ -315,7 +315,7 @@ fn update_session_error_response(
             ),
             UpdateSessionError::FieldNotInput => error_response(
                 StatusCode::BAD_REQUEST,
-                "INVALID_REQUEST_BODY",
+                "FIELD_NOT_ALLOWED",
                 "field is not accepted as input",
             ),
             UpdateSessionError::InvalidFieldValue => error_response(

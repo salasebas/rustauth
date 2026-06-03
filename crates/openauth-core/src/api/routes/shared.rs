@@ -59,7 +59,8 @@ pub(super) fn auth_flow_error_response(error: AuthFlowError) -> Result<ApiRespon
         }
         AuthFlowErrorCode::InvalidEmail
         | AuthFlowErrorCode::InvalidPasswordLength
-        | AuthFlowErrorCode::UserAlreadyExists => StatusCode::BAD_REQUEST,
+        | AuthFlowErrorCode::UserAlreadyExists
+        | AuthFlowErrorCode::UserAlreadyExistsUseAnotherEmail => StatusCode::BAD_REQUEST,
     };
     json_response(
         status,

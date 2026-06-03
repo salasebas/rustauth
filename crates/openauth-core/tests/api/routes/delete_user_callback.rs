@@ -36,7 +36,7 @@ async fn delete_user_callback_route_deletes_user_for_valid_token(
         adapter.clone(),
         OpenAuthOptions {
             user: UserOptions {
-                delete_user: DeleteUserOptions { enabled: true },
+                delete_user: DeleteUserOptions::builder().enabled(true),
                 ..UserOptions::default()
             },
             ..OpenAuthOptions::default()

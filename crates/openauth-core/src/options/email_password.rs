@@ -48,6 +48,7 @@ pub struct EmailPasswordOptions {
     pub auto_sign_in: bool,
     pub require_email_verification: bool,
     pub on_existing_user_sign_up: Option<Arc<dyn OnExistingUserSignUp>>,
+    pub another_email_error_on_duplicate: bool,
 }
 
 impl Default for EmailPasswordOptions {
@@ -58,6 +59,7 @@ impl Default for EmailPasswordOptions {
             auto_sign_in: true,
             require_email_verification: false,
             on_existing_user_sign_up: None,
+            another_email_error_on_duplicate: false,
         }
     }
 }
@@ -101,6 +103,12 @@ impl EmailPasswordOptions {
         H: OnExistingUserSignUp,
     {
         self.on_existing_user_sign_up = Some(Arc::new(handler));
+        self
+    }
+
+    #[must_use]
+    pub fn another_email_error_on_duplicate(mut self, enabled: bool) -> Self {
+        self.another_email_error_on_duplicate = enabled;
         self
     }
 }
