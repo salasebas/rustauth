@@ -3,7 +3,7 @@ use inquire::Confirm;
 use crate::app::AppError;
 
 pub fn confirm(message: &str, yes: bool) -> Result<bool, AppError> {
-    if yes {
+    if yes || !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         return Ok(true);
     }
     Confirm::new(message)

@@ -31,6 +31,7 @@ pub async fn add(context: &AppContext, args: PluginChangeArgs) -> Result<(), App
             args.plugin
         )));
     }
+    let _ = context.load_config()?;
     let path = context.config_path();
     let source = fs::read_to_string(path).map_err(|source| AppError::Io {
         context: format!("failed to read {}", path.display()),
@@ -70,6 +71,7 @@ pub async fn add(context: &AppContext, args: PluginChangeArgs) -> Result<(), App
 }
 
 pub fn remove(context: &AppContext, args: PluginChangeArgs) -> Result<(), AppError> {
+    let _ = context.load_config()?;
     let path = context.config_path();
     let source = fs::read_to_string(path).map_err(|source| AppError::Io {
         context: format!("failed to read {}", path.display()),

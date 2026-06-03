@@ -24,7 +24,8 @@ pub fn run(args: SecretArgs) -> Result<(), AppError> {
         return Ok(());
     };
 
-    let assessment = assess_secret(&secret, true);
+    let production = args.production && !args.dev;
+    let assessment = assess_secret(&secret, production);
     match assessment.severity {
         SecretSeverity::Ok => {
             println!("{}", assessment.message);

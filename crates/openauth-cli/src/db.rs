@@ -289,6 +289,59 @@ pub fn supports_sql_migrations(config: &CliConfig) -> bool {
             .is_some_and(|provider| dialect_from_provider(provider).is_some())
 }
 
+/// Adapters that are valid in the ecosystem but not driven by `openauth db migrate`.
+///
+/// For these we print guidance and exit successfully (Better Auth parity for Prisma/Drizzle).
+pub fn unsupported_adapter_exits_successfully(adapter: &str) -> bool {
+    matches!(
+        adapter,
+        "prisma"
+            | "drizzle"
+            | "memory"
+            | "mongodb"
+            | "kysely"
+            | "tokio-postgres"
+            | "deadpool-postgres"
+    )
+}
+
+pub fn unsupported_adapter_guidance(adapter: &str, command: &str) -> String {
+    match adapter {
+        "prisma" => format!(
+            "The {command} command applies OpenAuth SQL migrations through the sqlx adapter. \
+             With Prisma configured, run `openauth db generate` to write `.sql` files, then apply \
+             them with `prisma migrate` or `prisma db push`."
+        ),
+        "drizzle" => format!(
+            "The {command} command applies OpenAuth SQL migrations through the sqlx adapter. \
+             With Drizzle configured, run `openauth db generate` to write `.sql` files, then apply \
+             them with your Drizzle migration workflow."
+        ),
+        "kysely" => format!(
+            "The {command} command uses the sqlx adapter in openauth.toml. \
+             Set `database.adapter = \"sqlx\"` and configure `database.provider`, or run \
+             `openauth db generate` and apply the SQL with your existing Kysely tooling."
+        ),
+        "memory" => format!(
+            "The {command} command does not apply migrations for the in-memory adapter. \
+             Use `database.adapter = \"sqlx\"` with a real provider for CLI migrations, or \
+             `openauth schema print` to inspect the target schema."
+        ),
+        "mongodb" => format!(
+            "The {command} command does not support MongoDB. \
+             Use a SQL provider (sqlite, postgres, mysql) with `database.adapter = \"sqlx\"`."
+        ),
+        "tokio-postgres" | "deadpool-postgres" => format!(
+            "The {command} command uses the sqlx adapter for SQL migrations. \
+             Set `database.adapter = \"sqlx\"` in openauth.toml for `openauth db` commands."
+        ),
+        other => format!(
+            "Unsupported database adapter `{other}` for {command}. \
+             OpenAuth CLI migrations require `database.adapter = \"sqlx\"` with sqlite, postgres, or mysql."
+        ),
+    }
+}
+
 fn validate_sql_adapter(config: &CliConfig) -> Result<(), DbCliError> {
     if config.database.adapter != "sqlx" {
         return Err(DbCliError::UnsupportedAdapter(

@@ -1,15 +1,19 @@
 use std::path::Path;
 
 use crate::app::{AppContext, AppError, GenerateArgs, MigrateArgs, StatusArgs};
-use crate::db::{self, DbCliError, MigrationOutput};
+use crate::commands::db_support::{ensure_safe_to_apply, map_db_error};
+use crate::db::{self, MigrationOutput};
 use crate::output::print_json;
 use crate::prompt::confirm;
 use crate::schema::{dialect_from_provider, dialect_name};
-use serde_json::{Map, Value};
+use crate::telemetry;
 
 pub async fn status(context: &AppContext, args: StatusArgs) -> Result<(), AppError> {
     let config = context.load_config()?;
-    let planned = db::plan_with_base(&config, false, Some(context.cwd())).await?;
+    let planned = match db::plan_with_base(&config, false, Some(context.cwd())).await {
+        Ok(planned) => planned,
+        Err(error) => return map_db_error(&config, "status", error).await,
+    };
     let summary = planned.summary();
     if args.json {
         print_json(&summary)?;
@@ -26,40 +30,42 @@ pub async fn generate(context: &AppContext, args: GenerateArgs) -> Result<(), Ap
     let config = context.load_config()?;
     let planned = match db::plan_with_base(&config, args.from_empty, Some(context.cwd())).await {
         Ok(planned) => planned,
-        Err(error @ DbCliError::UnsupportedAdapter(_)) => {
-            crate::telemetry::publish_generate_with_extra(
-                &config,
-                "unsupported_adapter",
-                unsupported_adapter_payload(&config),
-            )
-            .await;
-            return Err(error.into());
-        }
-        Err(error @ DbCliError::UnsupportedProvider(_)) => {
-            crate::telemetry::publish_generate_with_extra(
-                &config,
-                "unsupported_database",
-                unsupported_adapter_payload(&config),
-            )
-            .await;
-            return Err(error.into());
-        }
-        Err(error) => return Err(error.into()),
+        Err(error) => return map_db_error(&config, "generate", error).await,
     };
     if planned.plan.is_empty() {
         println!("Schema is already up to date.");
-        crate::telemetry::publish_generate(&config, "no_changes").await;
+        telemetry::publish_generate(&config, "no_changes").await;
         return Ok(());
     }
+    print_plan(&planned);
     let output = migration_output(
         context,
         &config,
         args.output.as_deref(),
         args.output_dir.as_deref(),
     )?;
+    let target = match &output {
+        MigrationOutput::File(path) => path.display().to_string(),
+        MigrationOutput::Directory(path) => path.display().to_string(),
+        MigrationOutput::Default => config.database.migrations_dir.clone(),
+    };
+    if !confirm(
+        &format!("Generate migration artifacts under {target}?"),
+        args.yes,
+    )? {
+        println!("Schema generation aborted.");
+        telemetry::publish_generate(&config, "aborted").await;
+        return Err(AppError::SilentExit { code: 1 });
+    }
     let path = db::write_migration_output(&config, &planned, output, args.force)?;
     println!("Generated migration: {}", path.display());
-    crate::telemetry::publish_generate(&config, "generated").await;
+    if args.force {
+        let mut extra = serde_json::Map::new();
+        extra.insert("forced".to_owned(), serde_json::Value::Bool(true));
+        telemetry::publish_generate_with_extra(&config, "overwritten", extra).await;
+    } else {
+        telemetry::publish_generate(&config, "generated").await;
+    }
     Ok(())
 }
 
@@ -67,58 +73,29 @@ pub async fn migrate(context: &AppContext, args: MigrateArgs) -> Result<(), AppE
     let config = context.load_config()?;
     let planned = match db::plan_with_base(&config, false, Some(context.cwd())).await {
         Ok(planned) => planned,
-        Err(error @ DbCliError::UnsupportedAdapter(_)) => {
-            crate::telemetry::publish_migrate_with_extra(
-                &config,
-                "unsupported_adapter",
-                unsupported_adapter_payload(&config),
-            )
-            .await;
-            return Err(error.into());
-        }
-        Err(error @ DbCliError::UnsupportedProvider(_)) => {
-            crate::telemetry::publish_migrate_with_extra(
-                &config,
-                "unsupported_database",
-                unsupported_adapter_payload(&config),
-            )
-            .await;
-            return Err(error.into());
-        }
-        Err(error) => return Err(error.into()),
+        Err(error) => return map_db_error(&config, "migrate", error).await,
     };
     if planned.plan.is_empty() {
         println!("No migrations needed.");
-        crate::telemetry::publish_migrate(&config, "no_changes").await;
+        telemetry::publish_migrate(&config, "no_changes").await;
         return Ok(());
     }
     print_plan(&planned);
+    ensure_safe_to_apply(&planned)?;
     if args.dry_run {
         println!("Dry run complete; no changes were applied.");
-        crate::telemetry::publish_migrate(&config, "dry_run").await;
+        telemetry::publish_migrate(&config, "dry_run").await;
         return Ok(());
     }
     if !confirm("Apply these migrations?", args.yes)? {
         println!("Migration cancelled.");
-        crate::telemetry::publish_migrate(&config, "aborted").await;
+        telemetry::publish_migrate(&config, "aborted").await;
         return Ok(());
     }
     db::migrate_with_base(&config, Some(context.cwd())).await?;
     println!("Migration completed successfully.");
-    crate::telemetry::publish_migrate(&config, "migrated").await;
+    telemetry::publish_migrate(&config, "migrated").await;
     Ok(())
-}
-
-fn unsupported_adapter_payload(config: &crate::config::CliConfig) -> Map<String, Value> {
-    let mut payload = Map::new();
-    payload.insert(
-        "adapter".to_owned(),
-        Value::String(config.database.adapter.clone()),
-    );
-    if let Some(provider) = &config.database.provider {
-        payload.insert("database".to_owned(), Value::String(provider.clone()));
-    }
-    payload
 }
 
 fn migration_output(

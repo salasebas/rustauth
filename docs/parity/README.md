@@ -17,6 +17,7 @@ behavior, tests, and intentional design differences.
 | [`openauth-fred`](openauth-fred/README.md) | `@better-auth/redis-storage` | **~95%** adapter parity; **15** Rust tests; Fred client + Lua RL; see [10-second-pass](openauth-fred/10-second-pass-findings.md) |
 | [`openauth-redis`](openauth-redis/README.md) | `@better-auth/redis-storage` | **~95%** adapter parity; **10** Rust tests; sibling to `openauth-fred`; see [11-gap-closure](openauth-redis/11-gap-closure-status.md) |
 | [`openauth-axum`](openauth-axum/README.md) | `better-auth` integrations + `better-call/node` | **High** server HTTP adapter parity; **73** Rust tests vs **5** Vitest in `integrations/`; see [06-gaps](openauth-axum/06-gaps-and-hardening.md) |
+| [`openauth-cli`](openauth-cli/README.md) | `packages/cli` (`auth` npm) | **High** server toolchain parity; **~284** upstream Vitest vs **52** Rust integration tests; see [09-parity-closure](openauth-cli/09-parity-closure.md) |
 
 Additional crate parity folders may exist as work-in-progress under `docs/parity/`; the table above lists documented surfaces committed with this index.
 

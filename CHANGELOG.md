@@ -7,6 +7,12 @@ Versioning while the API is still pre-1.0.
 
 ## Unreleased
 
+### Added
+
+- Extended `openauth-cli` parity with Better Auth v1.6.9: `info --json` / `--copy`,
+  `db generate -y` confirmation flow, global `-c` for `--cwd`, `init --seed-secrets`,
+  and parity docs under `docs/parity/openauth-cli/09-parity-closure.md`.
+
 ### Fixed
 
 - Fixed `rememberMe: false` sessions becoming persistent after sensitive

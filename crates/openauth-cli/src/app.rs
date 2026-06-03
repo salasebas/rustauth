@@ -10,7 +10,7 @@ use crate::db::DbCliError;
 #[derive(Debug, Parser)]
 #[command(name = "openauth", version, about = "Command-line tools for OpenAuth.")]
 pub struct Cli {
-    #[arg(long, global = true, default_value = ".")]
+    #[arg(short = 'c', long, global = true, default_value = ".")]
     cwd: PathBuf,
     #[arg(long, global = true)]
     config: Option<PathBuf>,
@@ -48,6 +48,9 @@ pub(crate) struct InitArgs {
     pub(crate) yes: bool,
     #[arg(long)]
     pub(crate) force: bool,
+    /// Write a generated secret into a new `.env` (development convenience).
+    #[arg(long)]
+    pub(crate) seed_secrets: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -62,8 +65,10 @@ pub(crate) struct DiagnosticArgs {
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct InfoArgs {
-    #[arg(long)]
+    #[arg(short = 'j', long)]
     pub(crate) json: bool,
+    #[arg(short = 'C', long)]
+    pub(crate) copy: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -76,6 +81,12 @@ pub(crate) struct SecretArgs {
     pub(crate) check_env: Option<String>,
     #[arg(long)]
     pub(crate) env_line: bool,
+    /// When checking a secret, apply production-strength rules (default: true).
+    #[arg(long, default_value_t = true)]
+    pub(crate) production: bool,
+    /// Shorthand to check a secret with relaxed development rules.
+    #[arg(long, conflicts_with = "production")]
+    pub(crate) dev: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -109,6 +120,8 @@ pub(crate) struct GenerateArgs {
     pub(crate) from_empty: bool,
     #[arg(long)]
     pub(crate) force: bool,
+    #[arg(short = 'y', long)]
+    pub(crate) yes: bool,
 }
 
 #[derive(Debug, clap::Args)]

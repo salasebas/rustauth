@@ -52,7 +52,6 @@ clap.workspace = true
 clap_complete.workspace = true
 hex.workspace = true
 inquire.workspace = true
-openauth.workspace = true
 openauth-core.workspace = true
 openauth-plugins.workspace = true
 openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }

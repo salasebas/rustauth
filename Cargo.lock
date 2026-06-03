@@ -2518,7 +2518,6 @@ dependencies = [
  "clap_complete",
  "hex",
  "inquire",
- "openauth",
  "openauth-core",
  "openauth-plugins",
  "openauth-sqlx",
@@ -2756,7 +2755,6 @@ version = "0.0.6"
 dependencies = [
  "openauth-core",
  "redis",
- "thiserror 2.0.18",
  "tokio",
 ]
 
