@@ -42,6 +42,9 @@ jobs:
       - name: Show Rust toolchain
         run: rustup show
 
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -66,12 +69,14 @@ jobs:
             services: postgres
           - package: openauth-passkey
             services: ""
+            doc_tests: true
           - package: openauth-sqlx
             services: postgres mysql
           - package: openauth-plugins
             services: ""
           - package: openauth-sso
             services: ""
+            doc_tests: true
           - package: openauth-telemetry
             services: ""
           - package: openauth-axum
@@ -80,6 +85,7 @@ jobs:
             services: ""
           - package: openauth-i18n
             services: ""
+            doc_tests: true
           - package: openauth-oauth-provider
             services: ""
           - package: openauth-fred
@@ -88,6 +94,7 @@ jobs:
             services: redis valkey
           - package: openauth-scim
             services: postgres mysql
+            doc_tests: true
           - package: openauth-stripe
             services: ""
           - package: openauth-example-full-app
@@ -100,6 +107,9 @@ jobs:
       - name: Show Rust toolchain
         run: rustup show
 
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
@@ -111,6 +121,7 @@ jobs:
         run: cargo nextest run -p ${{ matrix.package }} --all-features
 
       - name: Test doctests
+        if: matrix.doc_tests
         run: cargo test -p ${{ matrix.package }} --doc --all-features
 
       - name: Stop database services
