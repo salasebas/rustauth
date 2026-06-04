@@ -6,6 +6,7 @@ use openauth_core::cookies::{
 };
 use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindOne, Session, User, Where};
 use openauth_core::error::OpenAuthError;
+use openauth_core::rate_limit::resolve_client_ip;
 use openauth_core::session::CreateSessionInput;
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
@@ -18,7 +19,7 @@ pub(crate) fn session_create_input(
 ) -> CreateSessionInput {
     let mut input = CreateSessionInput::new(user_id, expires_at)
         .additional_fields(additional_session_create_values(context));
-    if let Some(ip_address) = request_ip(request) {
+    if let Some(ip_address) = resolve_client_ip(context, request) {
         input = input.ip_address(ip_address);
     }
     if let Some(user_agent) = request_user_agent(request) {
@@ -176,22 +177,4 @@ fn request_user_agent(request: &http::Request<Vec<u8>>) -> Option<String> {
         .get(http::header::USER_AGENT)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
-}
-
-fn request_ip(request: &http::Request<Vec<u8>>) -> Option<String> {
-    request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .or_else(|| {
-            request
-                .headers()
-                .get("x-real-ip")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned)
-        })
 }

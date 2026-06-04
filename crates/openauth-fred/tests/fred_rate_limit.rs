@@ -10,7 +10,8 @@ use openauth_core::options::{
     PasswordResetEmail, RateLimitConsumeInput, RateLimitRule, RateLimitStore, SecondaryStorage,
 };
 use openauth_fred::{
-    FredOpenAuthStores, FredRateLimitStore, FredSecondaryStorage, FredSecondaryStorageOptions,
+    FredOpenAuthStores, FredRateLimitOptions, FredRateLimitStore, FredSecondaryStorage,
+    FredSecondaryStorageOptions,
 };
 use openauth_redis::RedisSecondaryStorage;
 
@@ -640,6 +641,67 @@ async fn fred_and_redis_secondary_storage_share_physical_key_layout(
         // Deletion is observed across both adapters.
         redis.delete(&key).await?;
         assert_eq!(fred.get(&key).await?, None);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn fred_secondary_storage_clear_preserves_co_located_rate_limit_keys(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let prefix = format!("openauth:test:{}:{}:ope37:", target.name, now_ms());
+        let storage = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: prefix.clone(),
+                scan_count: 10,
+            },
+        )
+        .await?;
+        let rate_limit = FredRateLimitStore::connect_with_options(
+            &target.url,
+            FredRateLimitOptions {
+                key_prefix: prefix.clone(),
+            },
+        )
+        .await?;
+        storage.clear().await?;
+
+        let now_ms = now_ms();
+        let rate_key = "10.0.0.1|/sign-in".to_owned();
+        let rule = RateLimitRule { window: 60, max: 1 };
+        let first = rate_limit
+            .consume(RateLimitConsumeInput {
+                key: rate_key.clone(),
+                rule: rule.clone(),
+                now_ms,
+            })
+            .await?;
+        assert!(
+            first.permitted,
+            "{} should permit first consume",
+            target.name
+        );
+
+        storage
+            .set("session:token", "value".to_owned(), None)
+            .await?;
+        storage.clear().await?;
+        assert_eq!(storage.list_keys().await?, Vec::<String>::new());
+
+        let second = rate_limit
+            .consume(RateLimitConsumeInput {
+                key: rate_key,
+                rule,
+                now_ms,
+            })
+            .await?;
+        assert!(
+            !second.permitted,
+            "{} rate-limit state must survive secondary clear() (OPE-37)",
+            target.name
+        );
+        assert_eq!(second.remaining, 0);
     }
     Ok(())
 }
