@@ -1,13 +1,6 @@
 use std::sync::Arc;
 
-use http::{Method, StatusCode};
-use openauth_core::api::{
-    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
-    OpenApiOperation,
-};
-use openauth_core::verification::VerificationStore;
-
-use crate::challenge::{create_challenge, find_challenge, ChallengeKind, ChallengeValue};
+use crate::challenge::{consume_challenge, create_challenge, ChallengeKind, ChallengeValue};
 use crate::cookies::{challenge_cookie, challenge_token};
 use crate::openapi::{
     json_openapi_response, passkey_openapi_schema, query_parameter,
@@ -26,6 +19,11 @@ use crate::routes::{
 };
 use crate::session::{current_session, registration_user, session_is_fresh, RegistrationUserError};
 use crate::store::{Passkey, PasskeyStore};
+use http::{Method, StatusCode};
+use openauth_core::api::{
+    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
+    OpenApiOperation,
+};
 
 pub(super) fn generate_register_options_endpoint(
     options: Arc<PasskeyOptions>,
@@ -189,7 +187,7 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                         )
                     }
                 };
-                let Some(challenge) = find_challenge(adapter.as_ref(), context, &token).await?
+                let Some(challenge) = consume_challenge(adapter.as_ref(), context, &token).await?
                 else {
                     return error_response(
                         StatusCode::BAD_REQUEST,
@@ -300,9 +298,6 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                         return Err(error);
                     }
                 };
-                VerificationStore::new(adapter.as_ref(), context)
-                    .delete_verification(&token)
-                    .await?;
                 json_response(StatusCode::OK, &passkey, Vec::new())
             })
         },

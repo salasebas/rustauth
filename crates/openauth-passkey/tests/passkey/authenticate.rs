@@ -621,6 +621,125 @@ async fn verify_authentication_rejects_registration_challenge(
     Ok(())
 }
 
+#[tokio::test]
+async fn verify_authentication_rejects_reused_challenge() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    seed_passkey(
+        adapter.as_ref(),
+        "passkey_1",
+        "user_1",
+        "Laptop",
+        "credential-id",
+    )
+    .await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+
+    let first = router
+        .handle_async(json_request_with_origin(
+            Method::POST,
+            "/api/auth/passkey/verify-authentication",
+            r#"{"response":{"id":"credential-id"}}"#,
+            Some(&passkey_cookie),
+        )?)
+        .await?;
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = router
+        .handle_async(json_request_with_origin(
+            Method::POST,
+            "/api/auth/passkey/verify-authentication",
+            r#"{"response":{"id":"credential-id"}}"#,
+            Some(&passkey_cookie),
+        )?)
+        .await?;
+    assert_eq!(second.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(second.body())?;
+    assert_eq!(body["code"], "CHALLENGE_NOT_FOUND");
+    Ok(())
+}
+
+/// Concurrent verify requests must not both mint sessions from one challenge
+/// (OPE-29).
+#[tokio::test]
+async fn verify_authentication_rejects_concurrent_challenge_replay(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    seed_passkey(
+        adapter.as_ref(),
+        "passkey_1",
+        "user_1",
+        "Laptop",
+        "credential-id",
+    )
+    .await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+    let first_request = json_request_with_origin(
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&passkey_cookie),
+    )?;
+    let second_request = json_request_with_origin(
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&passkey_cookie),
+    )?;
+
+    let (first, second) = tokio::join!(
+        router.handle_async(first_request),
+        router.handle_async(second_request),
+    );
+
+    let first = first?;
+    let second = second?;
+    let successes = [first.status(), second.status()]
+        .into_iter()
+        .filter(|status| *status == StatusCode::OK)
+        .count();
+    assert_eq!(
+        successes,
+        1,
+        "exactly one concurrent verify may succeed: {:?} {:?}",
+        first.status(),
+        second.status()
+    );
+    let failures = [first.status(), second.status()]
+        .into_iter()
+        .filter(|status| *status == StatusCode::BAD_REQUEST)
+        .count();
+    assert_eq!(failures, 1);
+    let failed_body: Value = if first.status() == StatusCode::BAD_REQUEST {
+        serde_json::from_slice(first.body())?
+    } else {
+        serde_json::from_slice(second.body())?
+    };
+    assert_eq!(failed_body["code"], "CHALLENGE_NOT_FOUND");
+
+    let sessions = adapter.find_many(FindMany::new("session")).await?;
+    assert_eq!(
+        sessions.len(),
+        1,
+        "concurrent replay must not create multiple sessions"
+    );
+    Ok(())
+}
+
 /// Passkey login must persist the client IP resolved by the configured
 /// `advanced.ip_address` allow-list, not the raw `x-forwarded-for` an attacker
 /// can prepend during `/passkey/verify-authentication` (OPE-79).
