@@ -6,6 +6,12 @@ All notable changes to `openauth-tokio-postgres` are documented in this file.
 
 ### Fixed
 
+- Fixed standalone `TokioPostgresRateLimitStore` construction bypassing the
+  adapter transaction gate when both were built from cloned `Client` handles.
+  Introduced `TokioPostgresConnection` as the shared client/gate bundle,
+  added `TokioPostgresAdapter::rate_limit_store()` /
+  `TokioPostgresRateLimitStore::from_connection`, and removed constructors that
+  silently created a separate gate on the same physical connection.
 - Reject schema migrations whose plan carries non-executable warnings before any
   statement runs, matching the SQLx Postgres preflight. `create_schema` and
   `run_migrations` now fail closed on planner warnings (such as column type

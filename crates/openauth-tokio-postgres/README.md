@@ -12,6 +12,8 @@ not a pool; production applications that need pooling should usually prefer
 ## What It Provides
 
 - `TokioPostgresAdapter` for OpenAuth primary storage.
+- `TokioPostgresConnection` for sharing one client and transaction gate across
+  adapters and rate-limit stores.
 - `TokioPostgresRateLimitStore` for SQL-backed rate limiting.
 - Shared Postgres schema, query, row, migration, and transaction helpers.
 - Native Postgres arrays for OpenAuth `StringArray` and `NumberArray` fields.
@@ -27,6 +29,7 @@ let adapter = TokioPostgresAdapter::connect(
 )
 .await?;
 
+let rate_limit_store = adapter.rate_limit_store();
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
     .adapter(adapter)
@@ -34,6 +37,20 @@ let auth = OpenAuth::builder()
 
 auth.run_migrations().await?;
 # Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+When the application owns the `tokio_postgres::Client`, build a
+`TokioPostgresConnection` once and share it between the adapter and rate-limit
+store instead of cloning the client into separate constructors:
+
+```rust
+use openauth_tokio_postgres::{
+    TokioPostgresAdapter, TokioPostgresConnection, TokioPostgresRateLimitStore,
+};
+
+let connection = TokioPostgresConnection::from_client(client);
+let adapter = TokioPostgresAdapter::with_connection(connection.clone(), schema.clone());
+let rate_limit_store = TokioPostgresRateLimitStore::from_connection(&connection, "rate_limits");
 ```
 
 `connect()` and `connect_with_schema()` spawn the `tokio-postgres` connection

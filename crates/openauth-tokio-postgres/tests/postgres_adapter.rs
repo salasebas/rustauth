@@ -7,14 +7,16 @@ use openauth_core::crypto::password::verify_password;
 use openauth_core::db::{
     auth_schema, AuthSchemaOptions, Count, Create, DbAdapter, DbField, DbFieldType, DbRecord,
     DbSchema, DbValue, FindMany, FindOne, IdGeneration, IdPolicy, JoinOption, RateLimitStorage,
-    TableOptions, Update, UpdateMany, Where, WhereOperator,
+    SqlRateLimitNames, TableOptions, Update, UpdateMany, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     AdvancedOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule, RateLimitStore,
 };
 use openauth_tokio_postgres::migration::{MigrationStatementKind, SchemaMigrationWarning};
-use openauth_tokio_postgres::{TokioPostgresAdapter, TokioPostgresRateLimitStore};
+use openauth_tokio_postgres::{
+    TokioPostgresAdapter, TokioPostgresConnection, TokioPostgresRateLimitStore,
+};
 use serde_json::Value;
 
 #[path = "../../../tests/support/postgres_adapter_conformance.rs"]
@@ -849,6 +851,188 @@ async fn tokio_postgres_rate_limit_store_rejects_negative_persisted_counts(
         result,
         Err(OpenAuthError::Adapter(message)) if message.contains("negative rate limit count")
     ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn tokio_postgres_rate_limit_store_respects_adapter_transaction_gate(
+) -> Result<(), OpenAuthError> {
+    let adapter = adapter().await?;
+    let store = adapter.rate_limit_store();
+    let tx_started = Arc::new(tokio::sync::Notify::new());
+    let release_tx = Arc::new(tokio::sync::Notify::new());
+    let tx_started_for_task = Arc::clone(&tx_started);
+    let release_tx_for_task = Arc::clone(&release_tx);
+    let adapter_for_tx = adapter.clone();
+
+    let tx_task = tokio::spawn(async move {
+        adapter_for_tx
+            .transaction(Box::new(move |_tx| {
+                Box::pin(async move {
+                    tx_started_for_task.notify_one();
+                    release_tx_for_task.notified().await;
+                    Ok(())
+                })
+            }))
+            .await
+    });
+
+    tx_started.notified().await;
+
+    let consume_result = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        store.consume(RateLimitConsumeInput {
+            key: "ip:/shared-gate".to_owned(),
+            rule: RateLimitRule { window: 60, max: 1 },
+            now_ms: 1_000,
+        }),
+    )
+    .await;
+
+    assert!(
+        consume_result.is_err(),
+        "rate-limit consume should wait for the adapter transaction gate"
+    );
+
+    release_tx.notify_one();
+    match tx_task.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return Err(error),
+        Err(join_error) => {
+            return Err(OpenAuthError::Adapter(format!(
+                "transaction task panicked: {join_error}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn tokio_postgres_shared_connection_serializes_adapter_and_rate_limit(
+) -> Result<(), OpenAuthError> {
+    let client = raw_client().await?;
+    let schema = test_schema();
+    let connection = TokioPostgresConnection::from_client(client);
+    let adapter = TokioPostgresAdapter::with_connection(connection.clone(), schema.clone());
+    adapter.create_schema(&schema, None).await?;
+    let rate_limit_names = SqlRateLimitNames::from_schema(&schema);
+    let store = TokioPostgresRateLimitStore::from_connection(&connection, rate_limit_names.table);
+
+    let tx_started = Arc::new(tokio::sync::Notify::new());
+    let release_tx = Arc::new(tokio::sync::Notify::new());
+    let tx_started_for_task = Arc::clone(&tx_started);
+    let release_tx_for_task = Arc::clone(&release_tx);
+    let adapter_for_tx = adapter.clone();
+
+    let tx_task = tokio::spawn(async move {
+        adapter_for_tx
+            .transaction(Box::new(move |_tx| {
+                Box::pin(async move {
+                    tx_started_for_task.notify_one();
+                    release_tx_for_task.notified().await;
+                    Ok(())
+                })
+            }))
+            .await
+    });
+
+    tx_started.notified().await;
+
+    let consume_result = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        store.consume(RateLimitConsumeInput {
+            key: "ip:/explicit-connection".to_owned(),
+            rule: RateLimitRule { window: 60, max: 1 },
+            now_ms: 1_000,
+        }),
+    )
+    .await;
+
+    assert!(
+        consume_result.is_err(),
+        "explicit shared connection should keep rate-limit consume behind the adapter gate"
+    );
+
+    release_tx.notify_one();
+    match tx_task.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return Err(error),
+        Err(join_error) => {
+            return Err(OpenAuthError::Adapter(format!(
+                "transaction task panicked: {join_error}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn tokio_postgres_unshared_connection_bypasses_adapter_transaction_gate(
+) -> Result<(), OpenAuthError> {
+    let schema = test_schema();
+    let connection = TokioPostgresConnection::connect(&database_url()).await?;
+    let adapter = TokioPostgresAdapter::with_connection(connection.clone(), schema.clone());
+    adapter.create_schema(&schema, None).await?;
+    let rate_limit_names = SqlRateLimitNames::from_schema(&schema);
+    let store = TokioPostgresRateLimitStore::from_connection(
+        &TokioPostgresConnection::duplicate_client_unshared_gate(&connection),
+        rate_limit_names.table,
+    );
+
+    let tx_started = Arc::new(tokio::sync::Notify::new());
+    let release_tx = Arc::new(tokio::sync::Notify::new());
+    let tx_started_for_task = Arc::clone(&tx_started);
+    let release_tx_for_task = Arc::clone(&release_tx);
+    let adapter_for_tx = adapter.clone();
+
+    let tx_task = tokio::spawn(async move {
+        adapter_for_tx
+            .transaction(Box::new(move |_tx| {
+                Box::pin(async move {
+                    tx_started_for_task.notify_one();
+                    release_tx_for_task.notified().await;
+                    Ok(())
+                })
+            }))
+            .await
+    });
+
+    tx_started.notified().await;
+
+    let consume_result = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        store.consume(RateLimitConsumeInput {
+            key: "ip:/unshared-gate".to_owned(),
+            rule: RateLimitRule { window: 60, max: 1 },
+            now_ms: 1_000,
+        }),
+    )
+    .await;
+
+    assert!(
+        consume_result.is_ok(),
+        "separate connection bundles on the same cloned client bypass the adapter gate"
+    );
+    match consume_result {
+        Ok(Ok(decision)) => assert!(decision.permitted),
+        Ok(Err(error)) => return Err(error),
+        Err(_elapsed) => {
+            return Err(OpenAuthError::Adapter(
+                "rate-limit consume should not wait on an unshared gate".to_owned(),
+            ));
+        }
+    }
+
+    release_tx.notify_one();
+    match tx_task.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return Err(error),
+        Err(join_error) => {
+            return Err(OpenAuthError::Adapter(format!(
+                "transaction task panicked: {join_error}"
+            )));
+        }
+    }
     Ok(())
 }
 

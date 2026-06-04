@@ -6,6 +6,7 @@
 //! `openauth-deadpool-postgres`.
 
 mod adapter;
+mod connection;
 pub mod driver;
 mod errors;
 pub mod migration;
@@ -17,6 +18,7 @@ mod transaction;
 mod tx_guard;
 
 pub use self::adapter::TokioPostgresAdapter;
+pub use self::connection::TokioPostgresConnection;
 pub use self::migration::{
     ColumnToAdd, IndexToCreate, MigrationStatement, MigrationStatementKind, SchemaMigrationPlan,
     SchemaMigrationWarning, TableToCreate,

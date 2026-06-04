@@ -7,11 +7,12 @@ use openauth_core::db::{
     Update, UpdateMany,
 };
 use openauth_core::error::OpenAuthError;
-use tokio::sync::RwLock;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::Client;
 
+use crate::connection::TokioPostgresConnection;
 use crate::driver::PostgresSqlState;
 use crate::errors::postgres_error;
+use crate::rate_limit::TokioPostgresRateLimitStore;
 use crate::schema::{
     create_schema, execute_migration_plan, plan_migrations as plan_schema_migrations,
 };
@@ -21,8 +22,7 @@ use crate::SchemaMigrationPlan;
 
 #[derive(Clone)]
 pub struct TokioPostgresAdapter {
-    pub(crate) client: Arc<Client>,
-    pub(crate) tx_gate: Arc<RwLock<()>>,
+    pub(crate) connection: TokioPostgresConnection,
     pub(crate) schema: Arc<DbSchema>,
 }
 
@@ -41,11 +41,25 @@ impl TokioPostgresAdapter {
     }
 
     pub fn with_schema(client: Client, schema: DbSchema) -> Self {
+        Self::with_connection(TokioPostgresConnection::from_client(client), schema)
+    }
+
+    pub fn with_connection(connection: TokioPostgresConnection, schema: DbSchema) -> Self {
         Self {
-            client: Arc::new(client),
-            tx_gate: Arc::new(RwLock::new(())),
+            connection,
             schema: Arc::new(schema),
         }
+    }
+
+    /// Returns the shared client and transaction gate used by this adapter.
+    pub fn connection(&self) -> &TokioPostgresConnection {
+        &self.connection
+    }
+
+    /// Builds a SQL-backed rate-limit store that shares this adapter's client
+    /// and transaction gate.
+    pub fn rate_limit_store(&self) -> TokioPostgresRateLimitStore {
+        TokioPostgresRateLimitStore::from(self)
     }
 
     /// Connects to Postgres and spawns the `tokio-postgres` connection driver.
@@ -61,21 +75,18 @@ impl TokioPostgresAdapter {
         database_url: &str,
         schema: DbSchema,
     ) -> Result<Self, OpenAuthError> {
-        let (client, connection) = tokio_postgres::connect(database_url, NoTls)
-            .await
-            .map_err(postgres_error)?;
-        tokio::spawn(async move {
-            let _connection_result = connection.await;
-        });
-        Ok(Self::with_schema(client, schema))
+        Ok(Self::with_connection(
+            TokioPostgresConnection::connect(database_url).await?,
+            schema,
+        ))
     }
 
     pub async fn plan_migrations(
         &self,
         schema: &DbSchema,
     ) -> Result<SchemaMigrationPlan, OpenAuthError> {
-        let _gate = self.tx_gate.write().await;
-        plan_schema_migrations(self.client.as_ref(), schema).await
+        let _gate = self.connection.tx_gate.write().await;
+        plan_schema_migrations(self.connection.client.as_ref(), schema).await
     }
 
     pub async fn compile_migrations(&self, schema: &DbSchema) -> Result<String, OpenAuthError> {
@@ -89,10 +100,10 @@ impl TokioPostgresAdapter {
     where
         T: Send + 'static,
     {
-        let _gate = self.tx_gate.read().await;
+        let _gate = self.connection.tx_gate.read().await;
         f(PostgresSqlState::new(
             self.schema.as_ref(),
-            self.client.as_ref(),
+            self.connection.client.as_ref(),
         ))
         .await
     }
@@ -171,21 +182,26 @@ impl DbAdapter for TokioPostgresAdapter {
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            let gate = Arc::clone(&self.tx_gate).write_owned().await;
-            self.client
+            let gate = Arc::clone(&self.connection.tx_gate).write_owned().await;
+            self.connection
+                .client
                 .batch_execute("BEGIN")
                 .await
                 .map_err(postgres_error)?;
-            let mut guard = SharedClientRollbackGuard::new(Arc::clone(&self.client), gate);
+            let mut guard =
+                SharedClientRollbackGuard::new(Arc::clone(&self.connection.client), gate);
 
-            let adapter =
-                TokioPostgresTxAdapter::new(Arc::clone(&self.client), Arc::clone(&self.schema));
+            let adapter = TokioPostgresTxAdapter::new(
+                Arc::clone(&self.connection.client),
+                Arc::clone(&self.schema),
+            );
             let result = callback(Box::new(adapter)).await;
 
             match result {
                 Ok(()) => {
-                    if let Err(error) = self.client.batch_execute("COMMIT").await {
-                        let _rollback_result = self.client.batch_execute("ROLLBACK").await;
+                    if let Err(error) = self.connection.client.batch_execute("COMMIT").await {
+                        let _rollback_result =
+                            self.connection.client.batch_execute("ROLLBACK").await;
                         guard.disarm();
                         return Err(postgres_error(error));
                     }
@@ -193,7 +209,7 @@ impl DbAdapter for TokioPostgresAdapter {
                     Ok(())
                 }
                 Err(error) => {
-                    let _rollback_result = self.client.batch_execute("ROLLBACK").await;
+                    let _rollback_result = self.connection.client.batch_execute("ROLLBACK").await;
                     guard.disarm();
                     Err(error)
                 }
@@ -207,16 +223,16 @@ impl DbAdapter for TokioPostgresAdapter {
         _file: Option<&'a str>,
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         Box::pin(async move {
-            let _gate = self.tx_gate.write().await;
-            create_schema(self.client.as_ref(), schema).await?;
+            let _gate = self.connection.tx_gate.write().await;
+            create_schema(self.connection.client.as_ref(), schema).await?;
             Ok(None)
         })
     }
 
     fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            let _gate = self.tx_gate.write().await;
-            execute_migration_plan(self.client.as_ref(), schema).await
+            let _gate = self.connection.tx_gate.write().await;
+            execute_migration_plan(self.connection.client.as_ref(), schema).await
         })
     }
 }
