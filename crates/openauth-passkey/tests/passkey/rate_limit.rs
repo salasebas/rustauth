@@ -6,8 +6,8 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions, RateLimitOptions};
 use openauth_passkey::{
-    passkey, PasskeyOptions, PasskeyRateLimit, PasskeyRegistrationOptions,
-    RATE_LIMITED_CEREMONY_PATHS, UPSTREAM_PLUGIN_ID,
+    passkey, PasskeyChallengeRateLimit, PasskeyOptions, PasskeyRateLimit,
+    PasskeyRegistrationOptions, RATE_LIMITED_CEREMONY_PATHS, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::Value;
 
@@ -86,6 +86,172 @@ async fn verify_authentication_uses_passkey_rate_limit_rule(
 }
 
 #[tokio::test]
+async fn verify_authentication_enforces_per_challenge_rate_limit(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    crate::support::seed_user(adapter.as_ref()).await?;
+    let backend = Arc::new(crate::support::FakeWebAuthnBackend::default());
+    let router = build_rate_limited_router(
+        adapter,
+        passkey_options_with_limits(
+            PasskeyRateLimit {
+                window: 60,
+                max: 100,
+            },
+            PasskeyChallengeRateLimit { window: 60, max: 3 },
+            backend,
+        ),
+    )
+    .await?;
+
+    let options_response = empty_request(
+        &router,
+        Method::GET,
+        "/api/auth/passkey/generate-authenticate-options",
+    )
+    .await?;
+    assert_eq!(options_response.status(), StatusCode::OK);
+    let passkey_cookie = crate::support::cookie_header_from_response(&options_response);
+
+    for _ in 0..3 {
+        let response = json_request(
+            &router,
+            Method::POST,
+            "/api/auth/passkey/verify-authentication",
+            r#"{"response":{"id":"credential-id"}}"#,
+            Some(&passkey_cookie),
+        )
+        .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    let limited = json_request(
+        &router,
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&passkey_cookie),
+    )
+    .await?;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(json_body(&limited)?["code"], "TOO_MANY_REQUESTS");
+    Ok(())
+}
+
+#[tokio::test]
+async fn fresh_challenge_cookie_has_independent_per_challenge_bucket(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    crate::support::seed_user(adapter.as_ref()).await?;
+    let backend = Arc::new(crate::support::FakeWebAuthnBackend::default());
+    let router = build_rate_limited_router(
+        adapter,
+        passkey_options_with_limits(
+            PasskeyRateLimit {
+                window: 60,
+                max: 100,
+            },
+            PasskeyChallengeRateLimit { window: 60, max: 1 },
+            backend,
+        ),
+    )
+    .await?;
+
+    let first_options = empty_request(
+        &router,
+        Method::GET,
+        "/api/auth/passkey/generate-authenticate-options",
+    )
+    .await?;
+    let first_cookie = crate::support::cookie_header_from_response(&first_options);
+    let first_verify = json_request(
+        &router,
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&first_cookie),
+    )
+    .await?;
+    assert_eq!(first_verify.status(), StatusCode::BAD_REQUEST);
+
+    let second_verify = json_request(
+        &router,
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&first_cookie),
+    )
+    .await?;
+    assert_eq!(second_verify.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let second_options = empty_request(
+        &router,
+        Method::GET,
+        "/api/auth/passkey/generate-authenticate-options",
+    )
+    .await?;
+    let second_cookie = crate::support::cookie_header_from_response(&second_options);
+    let fresh_verify = json_request(
+        &router,
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&second_cookie),
+    )
+    .await?;
+    assert_eq!(fresh_verify.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn ceremony_ip_rate_limit_still_applies_when_challenge_limit_not_exceeded(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    crate::support::seed_user(adapter.as_ref()).await?;
+    let router = build_rate_limited_router(
+        adapter,
+        passkey_options_with_limits(
+            PasskeyRateLimit { window: 60, max: 1 },
+            PasskeyChallengeRateLimit {
+                window: 60,
+                max: 100,
+            },
+            Arc::new(crate::support::FakeWebAuthnBackend::default()),
+        ),
+    )
+    .await?;
+
+    let options_response = empty_request(
+        &router,
+        Method::GET,
+        "/api/auth/passkey/generate-authenticate-options",
+    )
+    .await?;
+    let passkey_cookie = crate::support::cookie_header_from_response(&options_response);
+
+    let first = json_request(
+        &router,
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&passkey_cookie),
+    )
+    .await?;
+    assert_eq!(first.status(), StatusCode::BAD_REQUEST);
+
+    let second = json_request(
+        &router,
+        Method::POST,
+        "/api/auth/passkey/verify-authentication",
+        r#"{"response":{"id":"credential-id"}}"#,
+        Some(&passkey_cookie),
+    )
+    .await?;
+    assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    Ok(())
+}
+
+#[tokio::test]
 async fn ceremony_rate_limits_are_independent_per_path() -> Result<(), Box<dyn std::error::Error>> {
     let router =
         rate_limited_router_with_registration(PasskeyRateLimit { window: 60, max: 1 }).await?;
@@ -112,9 +278,18 @@ fn passkey_options_with_rate_limit(
     rate_limit: PasskeyRateLimit,
     backend: Arc<crate::support::FakeWebAuthnBackend>,
 ) -> PasskeyOptions {
+    passkey_options_with_limits(rate_limit, PasskeyChallengeRateLimit::default(), backend)
+}
+
+fn passkey_options_with_limits(
+    rate_limit: PasskeyRateLimit,
+    challenge_rate_limit: PasskeyChallengeRateLimit,
+    backend: Arc<crate::support::FakeWebAuthnBackend>,
+) -> PasskeyOptions {
     PasskeyOptions::default()
         .backend(backend)
         .rate_limit(rate_limit)
+        .challenge_rate_limit(challenge_rate_limit)
 }
 
 async fn rate_limited_router(

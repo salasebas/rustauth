@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::challenge::{consume_challenge, create_challenge, ChallengeKind, ChallengeValue};
+use crate::challenge_rate_limit::consume_verify_challenge_rate_limit;
 use crate::cookies::{challenge_cookie, challenge_token};
 use crate::openapi::{
     json_openapi_response, passkey_openapi_schema, query_parameter,
@@ -12,6 +13,7 @@ use crate::options::{
 };
 use crate::response::{
     error_response, internal_error, json_response, not_allowed, session_not_fresh,
+    too_many_requests,
 };
 use crate::routes::{
     adapter, query_param, resolve_extensions, verification_webauthn_config, webauthn_config,
@@ -187,6 +189,17 @@ pub(super) fn verify_registration_endpoint(options: Arc<PasskeyOptions>) -> Asyn
                         )
                     }
                 };
+                if let Some(rejection) = consume_verify_challenge_rate_limit(
+                    context,
+                    &options,
+                    &request,
+                    "/passkey/verify-registration",
+                    &token,
+                )
+                .await?
+                {
+                    return too_many_requests(rejection);
+                }
                 let Some(challenge) = consume_challenge(adapter.as_ref(), context, &token).await?
                 else {
                     return error_response(

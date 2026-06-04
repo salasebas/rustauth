@@ -16,6 +16,8 @@ credential management endpoints to OpenAuth. It is server-side only and uses
   storage and referenced by a signed short-lived cookie.
 - Configurable relying-party ID, origin, relying-party name, user verification,
   authenticator selection, and registration user resolution.
+- Ceremony and per-challenge rate limits for verify endpoints (see
+  `PasskeyOptions::rate_limit` and `PasskeyOptions::challenge_rate_limit`).
 
 ## Quick Start
 

@@ -20,6 +20,7 @@
 //! not trusted from the client and is deleted after successful verification.
 
 mod challenge;
+mod challenge_rate_limit;
 mod cookies;
 mod errors;
 mod openapi;
@@ -35,9 +36,10 @@ pub use errors::PASSKEY_ERROR_CODES;
 pub use options::{
     AfterAuthenticationVerificationInput, AfterRegistrationVerificationInput,
     AuthenticatorAttachment, AuthenticatorSelection, PasskeyAdvancedOptions,
-    PasskeyAuthenticationOptions, PasskeyExtensionsInput, PasskeyOptions, PasskeyRateLimit,
-    PasskeyRegistrationOptions, PasskeyRegistrationUser, RegistrationWebAuthnOptions,
-    ResidentKeyRequirement, ResolveRegistrationUserInput, UserVerificationRequirement,
+    PasskeyAuthenticationOptions, PasskeyChallengeRateLimit, PasskeyExtensionsInput,
+    PasskeyOptions, PasskeyRateLimit, PasskeyRegistrationOptions, PasskeyRegistrationUser,
+    RegistrationWebAuthnOptions, ResidentKeyRequirement, ResolveRegistrationUserInput,
+    UserVerificationRequirement,
 };
 pub use store::Passkey;
 pub use webauthn::{

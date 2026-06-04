@@ -8,10 +8,13 @@ use crate::options::{
     RateLimitRule, RateLimitStorage, RateLimitStorageOption, RateLimitStore,
 };
 use crate::utils::ip::{
-    create_rate_limit_key, is_valid_ip, normalize_ip_with_options, NormalizeIpOptions,
+    create_rate_limit_key, create_rate_limit_key_with_suffix, is_valid_ip,
+    normalize_ip_with_options, NormalizeIpOptions,
 };
 use crate::utils::url::normalize_pathname;
+use hmac::{Hmac, Mac};
 use http::Request;
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
@@ -224,6 +227,49 @@ impl RateLimitStore for HybridRateLimitStore {
     }
 }
 
+/// Derive a stable, non-reversible rate-limit scope identifier.
+///
+/// Uses `HMAC-SHA256(secret, scope)` hex-encoded so storage keys never contain
+/// raw challenge tokens or other client-controlled secrets.
+pub fn hash_rate_limit_scope(secret: &str, scope: &str) -> Result<String, OpenAuthError> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).map_err(|_| {
+        OpenAuthError::InvalidConfig("secret is invalid for rate limit scope HMAC".to_owned())
+    })?;
+    mac.update(scope.as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Consume a rate-limit bucket keyed by client IP, path, and an opaque scope.
+///
+/// Scope values are digested with [`hash_rate_limit_scope`] before being stored.
+/// Returns `None` when rate limiting is disabled, the request is permitted, or no
+/// client IP can be resolved under the configured [`MissingIpPolicy::Allow`] policy.
+pub async fn consume_scoped_rate_limit(
+    context: &AuthContext,
+    request: &Request<Body>,
+    path: &str,
+    scope: &str,
+    rule: RateLimitRule,
+) -> Result<Option<RateLimitRejection>, OpenAuthError> {
+    if !context.rate_limit.enabled {
+        return Ok(None);
+    }
+    let scope_suffix = format!(
+        "challenge:{}",
+        hash_rate_limit_scope(&context.secret, scope)?
+    );
+    let key = match resolve_rate_limit_key_plan(context, request, path, Some(&scope_suffix))? {
+        RateLimitKeyPlan::Skip => return Ok(None),
+        RateLimitKeyPlan::Deny => {
+            return Ok(Some(RateLimitRejection {
+                retry_after: rule.window,
+            }));
+        }
+        RateLimitKeyPlan::Consume { key } => key,
+    };
+    consume_rate_limit_bucket(context, key, rule).await
+}
+
 pub async fn consume_rate_limit(
     context: &AuthContext,
     request: &Request<Body>,
@@ -238,11 +284,19 @@ pub async fn consume_rate_limit(
         }
         RateLimitPlan::Consume(config) => config,
     };
+    consume_rate_limit_bucket(context, config.key, config.rule).await
+}
+
+async fn consume_rate_limit_bucket(
+    context: &AuthContext,
+    key: String,
+    rule: RateLimitRule,
+) -> Result<Option<RateLimitRejection>, OpenAuthError> {
     let store = store(context)?;
     let decision = store
         .consume(RateLimitConsumeInput {
-            key: config.key,
-            rule: config.rule,
+            key,
+            rule,
             now_ms: now_millis(),
         })
         .await?;
@@ -293,6 +347,13 @@ enum RateLimitPlan {
     Consume(ResolvedRateLimit),
 }
 
+/// Outcome of resolving a rate-limit bucket key.
+enum RateLimitKeyPlan {
+    Skip,
+    Deny,
+    Consume { key: String },
+}
+
 /// Shared bucket key segment used when no client IP can be resolved and the
 /// configured policy is [`MissingIpPolicy::SharedBucket`]. It is not a valid IP,
 /// so it never collides with a real per-IP bucket.
@@ -306,32 +367,53 @@ fn resolve_config(
     let Some(rule) = resolve_rule(context, request, &path)? else {
         return Ok(RateLimitPlan::Skip);
     };
+    match resolve_rate_limit_key_plan(context, request, &path, None)? {
+        RateLimitKeyPlan::Skip => Ok(RateLimitPlan::Skip),
+        RateLimitKeyPlan::Deny => Ok(RateLimitPlan::Deny {
+            retry_after: rule.window,
+        }),
+        RateLimitKeyPlan::Consume { key } => {
+            Ok(RateLimitPlan::Consume(ResolvedRateLimit { key, rule }))
+        }
+    }
+}
+
+fn resolve_rate_limit_key_plan(
+    context: &AuthContext,
+    request: &Request<Body>,
+    path: &str,
+    key_suffix: Option<&str>,
+) -> Result<RateLimitKeyPlan, OpenAuthError> {
     if let Some(ip) = resolve_client_ip(context, request) {
-        return Ok(RateLimitPlan::Consume(ResolvedRateLimit {
-            key: create_rate_limit_key(&ip, &path),
-            rule,
-        }));
+        let key = match key_suffix {
+            Some(suffix) => create_rate_limit_key_with_suffix(&ip, path, suffix),
+            None => create_rate_limit_key(&ip, path),
+        };
+        return Ok(RateLimitKeyPlan::Consume { key });
     }
     // No client IP could be resolved. When IP tracking is intentionally
     // disabled, per-IP limiting cannot apply, so skip. Otherwise apply the
     // configured fail-closed policy instead of silently bypassing the limit.
     if context.options.advanced.ip_address.disable_ip_tracking {
-        return Ok(RateLimitPlan::Skip);
+        return Ok(RateLimitKeyPlan::Skip);
     }
     match context.rate_limit.missing_ip_policy {
-        MissingIpPolicy::Allow => Ok(RateLimitPlan::Skip),
-        MissingIpPolicy::SharedBucket => Ok(RateLimitPlan::Consume(ResolvedRateLimit {
-            key: create_rate_limit_key(ANONYMOUS_IP_BUCKET, &path),
-            rule,
-        })),
+        MissingIpPolicy::Allow => Ok(RateLimitKeyPlan::Skip),
+        MissingIpPolicy::SharedBucket => {
+            let key = match key_suffix {
+                Some(suffix) => {
+                    create_rate_limit_key_with_suffix(ANONYMOUS_IP_BUCKET, path, suffix)
+                }
+                None => create_rate_limit_key(ANONYMOUS_IP_BUCKET, path),
+            };
+            Ok(RateLimitKeyPlan::Consume { key })
+        }
         MissingIpPolicy::Deny => {
             context.logger.warn(
                 "Rate limiting denied a request because no client IP could be resolved; inject RequestClientIp or set advanced.ip_address.headers",
-                &[&path],
+                &[path],
             );
-            Ok(RateLimitPlan::Deny {
-                retry_after: rule.window,
-            })
+            Ok(RateLimitKeyPlan::Deny)
         }
     }
 }

@@ -41,6 +41,61 @@ impl PasskeyRateLimit {
     }
 }
 
+/// Per signed challenge cookie rate limits for passkey verify endpoints.
+///
+/// Limits verification attempts per challenge independently of the ceremony
+/// IP+path bucket. Storage keys use `HMAC-SHA256(secret, challenge_token)` via
+/// OpenAuth core; raw tokens are never persisted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PasskeyChallengeRateLimit {
+    pub window: u64,
+    pub max: u64,
+}
+
+impl Default for PasskeyChallengeRateLimit {
+    fn default() -> Self {
+        Self {
+            window: 60 * 5,
+            max: 5,
+        }
+    }
+}
+
+impl PasskeyChallengeRateLimit {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn window(mut self, window: u64) -> Self {
+        self.window = window;
+        self
+    }
+
+    #[must_use]
+    pub fn max(mut self, max: u64) -> Self {
+        self.max = max;
+        self
+    }
+
+    /// Disable per-challenge verification rate limiting.
+    #[must_use]
+    pub fn disabled(mut self) -> Self {
+        self.max = 0;
+        self
+    }
+
+    pub(crate) fn rule(&self) -> Option<RateLimitRule> {
+        if self.max == 0 || self.window == 0 {
+            return None;
+        }
+        Some(RateLimitRule {
+            window: self.window,
+            max: self.max,
+        })
+    }
+}
+
 /// Advanced passkey plugin settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasskeyAdvancedOptions {
@@ -67,6 +122,7 @@ pub struct PasskeyOptions {
     pub authentication: PasskeyAuthenticationOptions,
     pub advanced: PasskeyAdvancedOptions,
     pub rate_limit: PasskeyRateLimit,
+    pub challenge_rate_limit: PasskeyChallengeRateLimit,
     pub backend: Arc<dyn PasskeyWebAuthnBackend>,
 }
 
@@ -82,6 +138,7 @@ impl Default for PasskeyOptions {
             authentication: PasskeyAuthenticationOptions::default(),
             advanced: PasskeyAdvancedOptions::default(),
             rate_limit: PasskeyRateLimit::default(),
+            challenge_rate_limit: PasskeyChallengeRateLimit::default(),
             backend: Arc::new(RealPasskeyWebAuthnBackend),
         }
     }
@@ -143,6 +200,12 @@ impl PasskeyOptions {
     #[must_use]
     pub fn rate_limit(mut self, rate_limit: PasskeyRateLimit) -> Self {
         self.rate_limit = rate_limit;
+        self
+    }
+
+    #[must_use]
+    pub fn challenge_rate_limit(mut self, challenge_rate_limit: PasskeyChallengeRateLimit) -> Self {
+        self.challenge_rate_limit = challenge_rate_limit;
         self
     }
 

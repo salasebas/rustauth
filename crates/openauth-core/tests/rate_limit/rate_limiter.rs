@@ -9,8 +9,10 @@ use openauth_core::options::{
     RateLimitStorageOption, RateLimitStore,
 };
 use openauth_core::rate_limit::{
-    consume_rate_limit, GovernorMemoryRateLimitStore, RequestClientIp,
+    consume_rate_limit, consume_scoped_rate_limit, hash_rate_limit_scope,
+    GovernorMemoryRateLimitStore, RequestClientIp,
 };
+use openauth_core::utils::ip::{create_rate_limit_key, create_rate_limit_key_with_suffix};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{
@@ -970,6 +972,75 @@ impl RateLimitStore for DecisionStore {
             Ok(self.decision.clone())
         })
     }
+}
+
+#[test]
+fn hash_rate_limit_scope_is_stable_and_distinct() -> Result<(), Box<dyn std::error::Error>> {
+    let secret = "secret-a-at-least-32-chars-long!!";
+    let first = hash_rate_limit_scope(secret, "challenge-token-a")?;
+    let second = hash_rate_limit_scope(secret, "challenge-token-a")?;
+    let other = hash_rate_limit_scope(secret, "challenge-token-b")?;
+    assert_eq!(first, second);
+    assert_ne!(first, other);
+    assert!(!first.contains("challenge-token"));
+    Ok(())
+}
+
+#[test]
+fn create_rate_limit_key_with_suffix_extends_ip_path_key() {
+    let base = create_rate_limit_key("127.0.0.1", "/passkey/verify-authentication");
+    let scoped = create_rate_limit_key_with_suffix(
+        "127.0.0.1",
+        "/passkey/verify-authentication",
+        "challenge:deadbeef",
+    );
+    assert_eq!(scoped, format!("{base}|challenge:deadbeef"));
+}
+
+#[tokio::test]
+async fn consume_scoped_rate_limit_uses_independent_buckets_per_scope(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let context = create_auth_context(OpenAuthOptions {
+        rate_limit: RateLimitOptions {
+            enabled: Some(true),
+            window: 10,
+            max: 100,
+            ..RateLimitOptions::default()
+        },
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })?;
+    let path = "/passkey/verify-authentication";
+    let rule = RateLimitRule { window: 60, max: 2 };
+    let request = || {
+        Request::builder()
+            .method(Method::POST)
+            .uri("http://localhost:3000/api/auth/passkey/verify-authentication")
+            .body(Vec::new())
+    };
+
+    for _ in 0..2 {
+        assert!(consume_scoped_rate_limit(
+            &context,
+            &request()?,
+            path,
+            "challenge-a",
+            rule.clone()
+        )
+        .await?
+        .is_none());
+    }
+    assert!(
+        consume_scoped_rate_limit(&context, &request()?, path, "challenge-a", rule.clone())
+            .await?
+            .is_some()
+    );
+    assert!(
+        consume_scoped_rate_limit(&context, &request()?, path, "challenge-b", rule)
+            .await?
+            .is_none()
+    );
+    Ok(())
 }
 
 impl RateLimitStorage for TestStorage {

@@ -58,6 +58,14 @@ pub fn create_rate_limit_key(ip: &str, path: &str) -> String {
     format!("{ip}|{path}")
 }
 
+/// Create a rate limit key with an additional opaque scope segment.
+///
+/// The suffix must not contain raw secrets (for example a challenge cookie value);
+/// callers should pass a keyed digest such as [`hash_rate_limit_scope`].
+pub fn create_rate_limit_key_with_suffix(ip: &str, path: &str, suffix: &str) -> String {
+    format!("{}|{}", create_rate_limit_key(ip, path), suffix)
+}
+
 fn normalize_ipv6(ip: Ipv6Addr, subnet: Ipv6Subnet) -> String {
     if let Some(mapped) = ip.to_ipv4_mapped() {
         return mapped.to_string();

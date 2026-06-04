@@ -10,6 +10,7 @@ use openauth_core::user::DbUserStore;
 use serde_json::json;
 
 use crate::challenge::{consume_challenge, create_challenge, ChallengeKind, ChallengeValue};
+use crate::challenge_rate_limit::consume_verify_challenge_rate_limit;
 use crate::cookies::{challenge_cookie, challenge_token};
 use crate::openapi::{
     json_openapi_response, verify_authentication_body_schema, webauthn_options_schema,
@@ -18,7 +19,9 @@ use crate::options::{
     AfterAuthenticationVerificationInput, PasskeyExtensionsInput, PasskeyOptions,
     PasskeyRegistrationUser,
 };
-use crate::response::{authentication_failed, error_response, internal_error, json_response};
+use crate::response::{
+    authentication_failed, error_response, internal_error, json_response, too_many_requests,
+};
 use crate::routes::{
     adapter, resolve_extensions, verification_webauthn_config, webauthn_config,
     VerifyAuthenticationBody,
@@ -147,6 +150,17 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                         )
                     }
                 };
+                if let Some(rejection) = consume_verify_challenge_rate_limit(
+                    context,
+                    &options,
+                    &request,
+                    "/passkey/verify-authentication",
+                    &token,
+                )
+                .await?
+                {
+                    return too_many_requests(rejection);
+                }
                 let Some(challenge) = consume_challenge(adapter.as_ref(), context, &token).await?
                 else {
                     return error_response(
