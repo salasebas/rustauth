@@ -105,12 +105,11 @@ pub fn verify_endpoint(options: OneTimeTokenOptions) -> AsyncAuthEndpoint {
                 let identifier = token_identifier(&stored_token);
                 let verification_store = DbVerificationStore::new(adapter.as_ref());
                 let Some(verification) = verification_store
-                    .find_verification_including_expired(&identifier)
+                    .consume_verification_including_expired(&identifier)
                     .await?
                 else {
                     return error_response(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid token");
                 };
-                verification_store.delete_verification(&identifier).await?;
                 if verification.expires_at <= OffsetDateTime::now_utc() {
                     return error_response(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Token expired");
                 }

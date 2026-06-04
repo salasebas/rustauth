@@ -83,6 +83,50 @@ fn plugin_options_metadata_uses_upstream_camel_case_names() -> Result<(), Box<dy
 }
 
 #[tokio::test]
+async fn concurrent_verify_allows_only_one_redemption() -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_plugin(one_time_token())?;
+    seed_user_and_session(&adapter, default_session_expires_at()).await?;
+    seed_verification(
+        &adapter,
+        "one-time-token:race-token",
+        "session-token",
+        OffsetDateTime::now_utc() + Duration::minutes(5),
+    )
+    .await?;
+
+    let (first, second) = tokio::join!(
+        router.handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            r#"{"token":"race-token"}"#,
+            None,
+        )?),
+        router.handle_async(json_request(
+            Method::POST,
+            "/api/auth/one-time-token/verify",
+            r#"{"token":"race-token"}"#,
+            None,
+        )?),
+    );
+    let responses = [first?, second?];
+    let ok = responses
+        .iter()
+        .filter(|response| response.status() == StatusCode::OK)
+        .count();
+    let invalid = responses
+        .iter()
+        .filter(|response| response.status() == StatusCode::BAD_REQUEST)
+        .count();
+
+    assert_eq!(ok, 1, "only one concurrent verify should redeem the token");
+    assert_eq!(
+        invalid, 1,
+        "the losing concurrent verify should observe an invalid token"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn generated_token_verifies_once_and_sets_session_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_plugin(one_time_token())?;

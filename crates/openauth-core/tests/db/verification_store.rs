@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use openauth_core::db::{
     run_transaction_without_native_support, AdapterFuture, Count, Create, DbAdapter, DbRecord,
-    DbValue, Delete, DeleteMany, FindMany, FindOne, SortDirection, TransactionCallback, Update,
-    UpdateMany, Verification, Where, WhereOperator,
+    DbValue, Delete, DeleteMany, FindMany, FindOne, MemoryAdapter, SortDirection,
+    TransactionCallback, Update, UpdateMany, Verification, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::VerificationOptions;
@@ -263,6 +263,34 @@ async fn db_verification_store_updates_by_identifier() -> Result<(), OpenAuthErr
     assert!(adapter.updates.lock().await[0]
         .data
         .contains_key("updated_at"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn consume_verification_including_expired_is_single_use_under_concurrency(
+) -> Result<(), OpenAuthError> {
+    let adapter = MemoryAdapter::new();
+    let store = DbVerificationStore::new(&adapter);
+    let expires_at = OffsetDateTime::now_utc() + Duration::minutes(10);
+    store
+        .create_verification(CreateVerificationInput::new(
+            "one-time-token:race",
+            "session-token",
+            expires_at,
+        ))
+        .await?;
+
+    let store_a = store.clone();
+    let store_b = store.clone();
+    let (first, second) = tokio::join!(
+        store_a.consume_verification_including_expired("one-time-token:race"),
+        store_b.consume_verification_including_expired("one-time-token:race"),
+    );
+    let consumed = [first?, second?].into_iter().flatten().count();
+    assert_eq!(
+        consumed, 1,
+        "parallel consume attempts must redeem the verification at most once"
+    );
     Ok(())
 }
 

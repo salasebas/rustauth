@@ -193,6 +193,46 @@ impl<'a> DbVerificationStore<'a> {
             .transpose()
     }
 
+    /// Atomically consumes a verification record if present.
+    ///
+    /// Parallel callers racing on the same identifier only observe a successful
+    /// consume once: the delete is keyed by both identifier and row id so later
+    /// attempts delete zero rows and return `None`.
+    pub async fn consume_verification_including_expired(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
+        let Some(record) = self
+            .adapter
+            .find_many(
+                FindMany::new(VERIFICATION_MODEL)
+                    .where_clause(identifier_where(&stored_identifier))
+                    .sort_by(Sort::new("created_at", SortDirection::Desc))
+                    .limit(1)
+                    .select(VERIFICATION_FIELDS),
+            )
+            .await?
+            .into_iter()
+            .next()
+        else {
+            return Ok(None);
+        };
+        let verification = verification_from_record(record)?;
+        let deleted = self
+            .adapter
+            .delete_many(
+                DeleteMany::new(VERIFICATION_MODEL)
+                    .where_clause(identifier_where(&stored_identifier))
+                    .where_clause(Where::new("id", DbValue::String(verification.id.clone()))),
+            )
+            .await?;
+        if deleted == 0 {
+            return Ok(None);
+        }
+        Ok(Some(verification))
+    }
+
     pub async fn update_verification(
         &self,
         identifier: &str,
