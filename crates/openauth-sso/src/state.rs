@@ -1,4 +1,8 @@
+#[cfg(feature = "saml")]
+use std::collections::HashMap;
 use std::sync::Arc;
+#[cfg(feature = "saml")]
+use std::sync::{Mutex, OnceLock, Weak};
 
 use openauth_core::context::AuthContext;
 use openauth_core::db::DbAdapter;
@@ -7,6 +11,8 @@ use openauth_core::options::SecondaryStorage;
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+#[cfg(feature = "saml")]
+use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SsoStateRecord {
@@ -54,6 +60,48 @@ impl<'a> SsoStateStore<'a> {
             .create_verification(CreateVerificationInput::new(identifier, value, expires_at))
             .await?;
         Ok(())
+    }
+
+    /// Record SSO state only when `identifier` is not already present.
+    ///
+    /// Returns `Ok(true)` when the record was created and `Ok(false)` when another
+    /// request already claimed the identifier (for example concurrent SAML assertion
+    /// replay handling).
+    #[cfg(feature = "saml")]
+    pub async fn try_create(
+        &self,
+        identifier: impl Into<String>,
+        value: impl Into<String>,
+        expires_at: OffsetDateTime,
+    ) -> Result<bool, OpenAuthError> {
+        let identifier = identifier.into();
+        let value = value.into();
+        if let Some(storage) = &self.secondary_storage {
+            let payload = serde_json::to_string(&SecondaryStateRecord {
+                value,
+                expires_at: expires_at.unix_timestamp(),
+            })
+            .map_err(|error| {
+                OpenAuthError::Api(format!("failed to serialize SSO state: {error}"))
+            })?;
+            return storage
+                .set_if_not_exists(&identifier, payload, ttl_seconds(expires_at))
+                .await;
+        }
+
+        let lock = database_state_lock(&identifier);
+        let _guard = lock.lock().await;
+        if DbVerificationStore::new(self.adapter)
+            .find_verification(&identifier)
+            .await?
+            .is_some()
+        {
+            return Ok(false);
+        }
+        DbVerificationStore::new(self.adapter)
+            .create_verification(CreateVerificationInput::new(identifier, value, expires_at))
+            .await?;
+        Ok(true)
     }
 
     pub async fn find(&self, identifier: &str) -> Result<Option<SsoStateRecord>, OpenAuthError> {
@@ -118,4 +166,20 @@ struct SecondaryStateRecord {
 fn ttl_seconds(expires_at: OffsetDateTime) -> Option<u64> {
     let seconds = (expires_at - OffsetDateTime::now_utc()).whole_seconds();
     Some(u64::try_from(seconds).unwrap_or(0))
+}
+
+#[cfg(feature = "saml")]
+fn database_state_lock(identifier: &str) -> Arc<AsyncMutex<()>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<String, Weak<AsyncMutex<()>>>>> = OnceLock::new();
+    let mut registry = REGISTRY
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(lock) = registry.get(identifier).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(AsyncMutex::new(()));
+    registry.insert(identifier.to_owned(), Arc::downgrade(&lock));
+    registry.retain(|_, weak| weak.strong_count() > 0);
+    lock
 }

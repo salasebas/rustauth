@@ -320,6 +320,105 @@ async fn saml_acs_rejects_replayed_assertion_id() -> Result<(), Box<dyn std::err
 }
 
 #[tokio::test]
+async fn saml_acs_rejects_concurrent_duplicate_assertion_id(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_options(SsoOptions::default())?;
+    let cookie = seed_session(&adapter).await?;
+    register_saml_provider_allowing_unsigned_assertions(&router, &cookie).await?;
+
+    let first_relay = saml_sign_in_relay_state(&router).await?;
+    let second_relay = saml_sign_in_relay_state(&router).await?;
+    let first_response = valid_saml_response(&first_relay, "assertion-concurrent-replay")?;
+    let second_response = valid_saml_response(&second_relay, "assertion-concurrent-replay")?;
+
+    let router_a = router.clone();
+    let router_b = router.clone();
+    let (first, second) = tokio::join!(
+        post_saml_acs(&router_a, &first_response, &first_relay),
+        post_saml_acs(&router_b, &second_response, &second_relay),
+    );
+
+    let first = first?;
+    let second = second?;
+    assert_eq!(first.status(), StatusCode::FOUND);
+    assert_eq!(second.status(), StatusCode::FOUND);
+
+    let first_location = first
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok());
+    let second_location = second
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok());
+    let successes = [first_location, second_location]
+        .into_iter()
+        .filter(|loc| matches!(loc, Some("/dashboard")))
+        .count();
+    let replays = [first_location, second_location]
+        .into_iter()
+        .filter(|loc| matches!(loc, Some(loc) if loc.contains("replayed_saml_assertion")))
+        .count();
+    assert_eq!(successes, 1, "expected exactly one successful SAML login");
+    assert_eq!(replays, 1, "expected exactly one replay rejection");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn saml_acs_rejects_concurrent_duplicate_assertion_id_with_secondary_storage(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let storage = std::sync::Arc::new(TestSecondaryStorage::default());
+    let (adapter, router) =
+        router_with_options_and_secondary_storage(SsoOptions::default(), storage.clone())?;
+    let cookie = seed_session(&adapter).await?;
+    register_saml_provider_allowing_unsigned_assertions(&router, &cookie).await?;
+
+    let first_relay = saml_sign_in_relay_state(&router).await?;
+    let second_relay = saml_sign_in_relay_state(&router).await?;
+    let first_response =
+        valid_saml_response(&first_relay, "assertion-concurrent-replay-secondary")?;
+    let second_response =
+        valid_saml_response(&second_relay, "assertion-concurrent-replay-secondary")?;
+
+    let router_a = router.clone();
+    let router_b = router.clone();
+    let (first, second) = tokio::join!(
+        post_saml_acs(&router_a, &first_response, &first_relay),
+        post_saml_acs(&router_b, &second_response, &second_relay),
+    );
+
+    let first = first?;
+    let second = second?;
+    assert_eq!(first.status(), StatusCode::FOUND);
+    assert_eq!(second.status(), StatusCode::FOUND);
+
+    let first_location = first
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok());
+    let second_location = second
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok());
+    let successes = [first_location, second_location]
+        .into_iter()
+        .filter(|loc| matches!(loc, Some("/dashboard")))
+        .count();
+    let replays = [first_location, second_location]
+        .into_iter()
+        .filter(|loc| matches!(loc, Some(loc) if loc.contains("replayed_saml_assertion")))
+        .count();
+    assert_eq!(successes, 1, "expected exactly one successful SAML login");
+    assert_eq!(replays, 1, "expected exactly one replay rejection");
+    assert!(storage
+        .value_for("saml-used-assertion:assertion-concurrent-replay-secondary")
+        .is_some());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn saml_replay_key_ttl_uses_assertion_expiration_not_request_ttl(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let storage = std::sync::Arc::new(TestSecondaryStorage::default());

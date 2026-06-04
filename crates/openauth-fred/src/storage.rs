@@ -1,6 +1,6 @@
 use fred::clients::Client;
 use fred::interfaces::KeysInterface;
-use fred::types::Expiration;
+use fred::types::{Expiration, SetOptions};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{SecondaryStorage, SecondaryStorageFuture};
 
@@ -124,6 +124,36 @@ impl SecondaryStorage for FredSecondaryStorage {
                 .set::<(), _, _>(self.prefixed_key(key)?, value, expire, None, false)
                 .await
                 .map_err(|error| fred_error("secondary set", error))
+        })
+    }
+
+    fn set_if_not_exists<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let expire = ttl_seconds
+                .filter(|ttl| *ttl > 0)
+                .map(|ttl| {
+                    i64::try_from(ttl).map(Expiration::EX).map_err(|_| {
+                        OpenAuthError::InvalidConfig(
+                            "secondary storage ttl must fit in i64".to_owned(),
+                        )
+                    })
+                })
+                .transpose()?;
+            self.client
+                .set::<bool, _, _>(
+                    self.prefixed_key(key)?,
+                    value,
+                    expire,
+                    Some(SetOptions::NX),
+                    false,
+                )
+                .await
+                .map_err(|error| fred_error("secondary set_if_not_exists", error))
         })
     }
 

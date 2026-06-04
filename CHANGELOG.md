@@ -15,6 +15,10 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed SAML ACS assertion replay detection so concurrent posts with the same
+  assertion ID cannot both mint sessions. Replay markers are now claimed
+  atomically via `SsoStateStore::try_create` (Redis/Valkey `SET NX` when
+  secondary storage is configured, serialized verification writes otherwise).
 - Fixed `rememberMe: false` sessions becoming persistent after sensitive
   account flows. `/change-password` with `revokeOtherSessions: true` and
   `/change-email` immediate email updates now preserve the non-remembered

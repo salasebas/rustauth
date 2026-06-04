@@ -559,11 +559,14 @@ async fn complete_saml_login(
     input: SamlLoginInput<'_>,
 ) -> Result<ApiResponse, openauth_core::error::OpenAuthError> {
     let assertion_identifier = used_assertion_key(&input.parsed.assertion.id);
-    if input
+    if !input
         .state_store
-        .find(&assertion_identifier)
+        .try_create(
+            assertion_identifier,
+            input.provider.provider_id.clone(),
+            assertion_replay_expires_at(input.parsed, input.options),
+        )
         .await?
-        .is_some()
     {
         audit::emit(
             input.context,
@@ -584,15 +587,6 @@ async fn complete_saml_login(
             "REPLAYED_SAML_ASSERTION",
         );
     }
-
-    input
-        .state_store
-        .create(
-            assertion_identifier,
-            input.provider.provider_id.clone(),
-            assertion_replay_expires_at(input.parsed, input.options),
-        )
-        .await?;
     if let Some(record) = input.authn_record {
         input
             .state_store

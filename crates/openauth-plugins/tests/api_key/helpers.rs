@@ -328,6 +328,31 @@ impl SecondaryStorage for TestSecondaryStorage {
         })
     }
 
+    fn set_if_not_exists<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> Pin<Box<dyn Future<Output = Result<bool, openauth_core::error::OpenAuthError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            let mut values = self
+                .values
+                .lock()
+                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?;
+            if values.contains_key(key) {
+                return Ok(false);
+            }
+            values.insert(key.to_owned(), value);
+            drop(values);
+            self.ttl
+                .lock()
+                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
+                .insert(key.to_owned(), ttl_seconds);
+            Ok(true)
+        })
+    }
+
     fn delete<'a>(
         &'a self,
         key: &'a str,
