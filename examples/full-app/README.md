@@ -147,7 +147,10 @@ unless the server binds to a loopback address** (`127.0.0.1`, `::1`, or
 
 The dynamic auth profiles never run database migrations on the request path.
 The configured backend is migrated once at startup, and re-initialization is
-only available through the gated schema-reset action.
+only available through the gated schema-reset action. Dynamic profile routes
+cache their `OpenAuth` instances (including database adapters) by profile key,
+the database viewer reuses cached SQL adapters the same way, and both caches
+invalidate when a schema reset runs.
 
 Override the automatic behavior with `OPENAUTH_EXAMPLE_DEV_CONTROLS`:
 

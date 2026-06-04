@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
+use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -46,7 +48,7 @@ const SQL_AUTH_TABLES: &[&str] = &[
     "users",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DbBackend {
     Memory,
@@ -91,7 +93,7 @@ impl FromStr for DbBackend {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RateLimitBackend {
     Memory,
@@ -287,6 +289,94 @@ impl From<sqlx::Error> for ExampleError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ProfileKey {
+    db: DbBackend,
+    rate_limit: RateLimitBackend,
+    rate_limit_enabled: bool,
+    rate_limit_window: u64,
+    rate_limit_max: u64,
+}
+
+#[derive(Default)]
+struct ProfileCache {
+    entries: tokio::sync::Mutex<HashMap<ProfileKey, Arc<OpenAuth>>>,
+    build_count: AtomicU64,
+}
+
+impl ProfileCache {
+    async fn get_or_insert<F, Fut>(
+        &self,
+        key: ProfileKey,
+        build: F,
+    ) -> Result<Arc<OpenAuth>, ExampleError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<OpenAuth, ExampleError>>,
+    {
+        let mut entries = self.entries.lock().await;
+        if let Some(auth) = entries.get(&key) {
+            return Ok(Arc::clone(auth));
+        }
+
+        let auth = Arc::new(build().await?);
+        self.build_count.fetch_add(1, Ordering::SeqCst);
+        entries.insert(key, Arc::clone(&auth));
+        Ok(auth)
+    }
+
+    async fn invalidate_db(&self, db: DbBackend) {
+        self.entries.lock().await.retain(|key, _| key.db != db);
+    }
+
+    #[cfg(test)]
+    fn build_count(&self) -> u64 {
+        self.build_count.load(Ordering::SeqCst)
+    }
+}
+
+#[derive(Default)]
+struct ViewerAdapterCache {
+    entries: tokio::sync::Mutex<HashMap<DbBackend, Arc<dyn DbAdapter>>>,
+    connect_count: AtomicU64,
+}
+
+impl ViewerAdapterCache {
+    async fn get_or_connect(
+        &self,
+        db: DbBackend,
+        database_url: &str,
+    ) -> Result<Arc<dyn DbAdapter>, ExampleError> {
+        let mut entries = self.entries.lock().await;
+        if let Some(adapter) = entries.get(&db) {
+            return Ok(Arc::clone(adapter));
+        }
+
+        let adapter: Arc<dyn DbAdapter> = match db {
+            DbBackend::Memory => {
+                return Err(ExampleError::InvalidConfig(
+                    "memory adapters are not cached in the viewer adapter cache".to_owned(),
+                ));
+            }
+            DbBackend::Sqlite => Arc::new(SqliteAdapter::connect(database_url).await?),
+            DbBackend::Postgres => Arc::new(PostgresAdapter::connect(database_url).await?),
+            DbBackend::Mysql => Arc::new(MySqlAdapter::connect(database_url).await?),
+        };
+        self.connect_count.fetch_add(1, Ordering::SeqCst);
+        entries.insert(db, Arc::clone(&adapter));
+        Ok(adapter)
+    }
+
+    async fn invalidate_db(&self, db: DbBackend) {
+        self.entries.lock().await.remove(&db);
+    }
+
+    #[cfg(test)]
+    fn connect_count(&self) -> u64 {
+        self.connect_count.load(Ordering::SeqCst)
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
     config: ExampleConfig,
@@ -296,6 +386,8 @@ struct AppState {
     services: Vec<ServiceStatus>,
     memory_adapter: openauth::MemoryAdapter,
     memory_rate_limit_store: Arc<GovernorMemoryRateLimitStore>,
+    profile_cache: Arc<ProfileCache>,
+    viewer_adapter_cache: Arc<ViewerAdapterCache>,
     dev_controls: bool,
 }
 
@@ -665,6 +757,8 @@ fn static_app_with_data(
         services,
         memory_adapter: openauth::MemoryAdapter::new(),
         memory_rate_limit_store,
+        profile_cache: Arc::new(ProfileCache::default()),
+        viewer_adapter_cache: Arc::new(ViewerAdapterCache::default()),
         dev_controls,
     };
 
@@ -818,17 +912,32 @@ async fn dynamic_auth_handler(
         apply_rate_limit_headers(&mut config, request.headers());
     }
     let auth_base_path = profile_base_path(db, rate_limit);
-    match build_profile_auth(
-        config,
+    let profile_key = ProfileKey {
         db,
         rate_limit,
-        auth_base_path,
-        state.memory_adapter.clone(),
-        state.memory_rate_limit_store.clone(),
-    )
-    .await
+        rate_limit_enabled: config.rate_limit_enabled,
+        rate_limit_window: config.rate_limit_window,
+        rate_limit_max: config.rate_limit_max,
+    };
+    let config_for_build = config.clone();
+    let memory_adapter = state.memory_adapter.clone();
+    let memory_rate_limit_store = state.memory_rate_limit_store.clone();
+    match state
+        .profile_cache
+        .get_or_insert(profile_key, || async {
+            build_profile_auth(
+                config_for_build,
+                db,
+                rate_limit,
+                auth_base_path,
+                memory_adapter,
+                memory_rate_limit_store,
+            )
+            .await
+        })
+        .await
     {
-        Ok(auth) => openauth_axum::handle(&auth, request).await,
+        Ok(auth) => openauth_axum::handle(auth.as_ref(), request).await,
         Err(error) => json_error(StatusCode::BAD_GATEWAY, &error.to_string()),
     }
 }
@@ -993,18 +1102,13 @@ async fn table_rows_for_db(
     ensure_sqlite_parent(&config)?;
 
     match db {
-        DbBackend::Memory => read_table(state.memory_adapter.clone(), db, query).await,
-        DbBackend::Sqlite => {
-            let adapter = SqliteAdapter::connect(&config.database_url).await?;
-            read_table(adapter, db, query).await
-        }
-        DbBackend::Postgres => {
-            let adapter = PostgresAdapter::connect(&config.database_url).await?;
-            read_table(adapter, db, query).await
-        }
-        DbBackend::Mysql => {
-            let adapter = MySqlAdapter::connect(&config.database_url).await?;
-            read_table(adapter, db, query).await
+        DbBackend::Memory => read_table(&state.memory_adapter, db, query).await,
+        DbBackend::Sqlite | DbBackend::Postgres | DbBackend::Mysql => {
+            let adapter = state
+                .viewer_adapter_cache
+                .get_or_connect(db, &config.database_url)
+                .await?;
+            read_table(adapter.as_ref(), db, query).await
         }
     }
 }
@@ -1023,21 +1127,30 @@ async fn drop_database_for_db(
     match db {
         DbBackend::Memory => {
             let deleted = drop_adapter_records(&state.memory_adapter).await?;
+            invalidate_db_caches(state, db).await;
             Ok(serde_json::json!({ "db": db, "deleted": deleted, "reset_schema": false }))
         }
         DbBackend::Sqlite => {
             reset_sqlite_schema(&config).await?;
+            invalidate_db_caches(state, db).await;
             Ok(serde_json::json!({ "db": db, "deleted": null, "reset_schema": true }))
         }
         DbBackend::Postgres => {
             reset_postgres_schema(&config).await?;
+            invalidate_db_caches(state, db).await;
             Ok(serde_json::json!({ "db": db, "deleted": null, "reset_schema": true }))
         }
         DbBackend::Mysql => {
             reset_mysql_schema(&config).await?;
+            invalidate_db_caches(state, db).await;
             Ok(serde_json::json!({ "db": db, "deleted": null, "reset_schema": true }))
         }
     }
+}
+
+async fn invalidate_db_caches(state: &AppState, db: DbBackend) {
+    state.profile_cache.invalidate_db(db).await;
+    state.viewer_adapter_cache.invalidate_db(db).await;
 }
 
 async fn reset_sqlite_schema(config: &ExampleConfig) -> Result<(), ExampleError> {
@@ -1151,14 +1264,11 @@ async fn redis_set(config: &ExampleConfig, key: &str, value: &str) -> Result<(),
     Ok(())
 }
 
-async fn read_table<A>(
-    adapter: A,
+async fn read_table(
+    adapter: &dyn DbAdapter,
     db: DbBackend,
     query: TableQuery,
-) -> Result<TableRowsView, ExampleError>
-where
-    A: DbAdapter,
-{
+) -> Result<TableRowsView, ExampleError> {
     let schema = viewer_schema();
     let table = query.table.unwrap_or_else(|| "user".to_owned());
     let Some(table_meta) = schema.table(&table) else {
@@ -2828,6 +2938,182 @@ void loadStudioTables();
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn dynamic_profile_cache_reuses_auth_instances() -> Result<(), ExampleError> {
+        let cache = ProfileCache::default();
+        let memory_rate_limit_store = Arc::new(GovernorMemoryRateLimitStore::new());
+        let config = ExampleConfig {
+            host: "127.0.0.1".to_owned(),
+            port: 3000,
+            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
+            secret: DEFAULT_SECRET.to_owned(),
+            db: DbBackend::Memory,
+            rate_limit: RateLimitBackend::Memory,
+            rate_limit_enabled: true,
+            rate_limit_window: 60,
+            rate_limit_max: 120,
+            database_url: String::new(),
+            redis_url: "redis://127.0.0.1:6379".to_owned(),
+            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
+            dev_controls: true,
+        };
+        let key = ProfileKey {
+            db: DbBackend::Memory,
+            rate_limit: RateLimitBackend::Memory,
+            rate_limit_enabled: config.rate_limit_enabled,
+            rate_limit_window: config.rate_limit_window,
+            rate_limit_max: config.rate_limit_max,
+        };
+
+        for _ in 0..5 {
+            let config_for_build = config.clone();
+            let memory_adapter = openauth::MemoryAdapter::new();
+            let memory_rate_limit_store = memory_rate_limit_store.clone();
+            cache
+                .get_or_insert(key.clone(), || async {
+                    build_profile_auth(
+                        config_for_build,
+                        DbBackend::Memory,
+                        RateLimitBackend::Memory,
+                        profile_base_path(DbBackend::Memory, RateLimitBackend::Memory),
+                        memory_adapter,
+                        memory_rate_limit_store,
+                    )
+                    .await
+                })
+                .await?;
+        }
+
+        assert_eq!(
+            cache.build_count(),
+            1,
+            "repeated requests to the same profile must reuse one cached OpenAuth instance"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dynamic_profile_cache_invalidates_after_database_drop() -> Result<(), ExampleError> {
+        let cache = ProfileCache::default();
+        let memory_rate_limit_store = Arc::new(GovernorMemoryRateLimitStore::new());
+        let config = ExampleConfig {
+            host: "127.0.0.1".to_owned(),
+            port: 3000,
+            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
+            secret: DEFAULT_SECRET.to_owned(),
+            db: DbBackend::Memory,
+            rate_limit: RateLimitBackend::Memory,
+            rate_limit_enabled: true,
+            rate_limit_window: 60,
+            rate_limit_max: 120,
+            database_url: String::new(),
+            redis_url: "redis://127.0.0.1:6379".to_owned(),
+            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
+            dev_controls: true,
+        };
+        let key = ProfileKey {
+            db: DbBackend::Memory,
+            rate_limit: RateLimitBackend::Memory,
+            rate_limit_enabled: config.rate_limit_enabled,
+            rate_limit_window: config.rate_limit_window,
+            rate_limit_max: config.rate_limit_max,
+        };
+
+        let config_for_build = config.clone();
+        let memory_adapter = openauth::MemoryAdapter::new();
+        cache
+            .get_or_insert(key.clone(), || async {
+                build_profile_auth(
+                    config_for_build,
+                    DbBackend::Memory,
+                    RateLimitBackend::Memory,
+                    profile_base_path(DbBackend::Memory, RateLimitBackend::Memory),
+                    memory_adapter,
+                    memory_rate_limit_store.clone(),
+                )
+                .await
+            })
+            .await?;
+        cache.invalidate_db(DbBackend::Memory).await;
+
+        let config_for_build = config.clone();
+        let memory_adapter = openauth::MemoryAdapter::new();
+        cache
+            .get_or_insert(key, || async {
+                build_profile_auth(
+                    config_for_build,
+                    DbBackend::Memory,
+                    RateLimitBackend::Memory,
+                    profile_base_path(DbBackend::Memory, RateLimitBackend::Memory),
+                    memory_adapter,
+                    memory_rate_limit_store,
+                )
+                .await
+            })
+            .await?;
+
+        assert_eq!(
+            cache.build_count(),
+            2,
+            "dropping a database profile must invalidate cached auth instances"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn viewer_adapter_cache_reuses_sql_connections() -> Result<(), ExampleError> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| ExampleError::InvalidConfig(error.to_string()))?
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "openauth-ope93-viewer-{}-{nanos}.sqlite",
+            std::process::id()
+        ));
+        let database_url = format!("sqlite://{}", path.display());
+        ensure_sqlite_parent(&ExampleConfig {
+            host: "127.0.0.1".to_owned(),
+            port: 3000,
+            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
+            secret: DEFAULT_SECRET.to_owned(),
+            db: DbBackend::Sqlite,
+            rate_limit: RateLimitBackend::Memory,
+            rate_limit_enabled: true,
+            rate_limit_window: 60,
+            rate_limit_max: 120,
+            database_url: database_url.clone(),
+            redis_url: "redis://127.0.0.1:6379".to_owned(),
+            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
+            dev_controls: true,
+        })?;
+        let cache = ViewerAdapterCache::default();
+
+        for _ in 0..5 {
+            cache
+                .get_or_connect(DbBackend::Sqlite, &database_url)
+                .await?;
+        }
+
+        assert_eq!(
+            cache.connect_count(),
+            1,
+            "repeated table viewer reads must reuse one cached SQL adapter"
+        );
+
+        cache.invalidate_db(DbBackend::Sqlite).await;
+        cache
+            .get_or_connect(DbBackend::Sqlite, &database_url)
+            .await?;
+        assert_eq!(
+            cache.connect_count(),
+            2,
+            "schema reset must invalidate cached viewer adapters"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn build_profile_auth_does_not_migrate_on_request_path(
