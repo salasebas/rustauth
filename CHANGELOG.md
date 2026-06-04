@@ -47,6 +47,8 @@ Versioning while the API is still pre-1.0.
   `additional_params` cannot override `state`, PKCE fields, or other standard
   OAuth parameters, and HTTP Basic client credentials are form-encoded per RFC
   6749 §2.3.1 before Base64 encoding.
+- Fixed magic-link verify so session IP metadata uses the configured
+  `advanced.ip_address` resolver instead of trusting raw forwarding headers.
 - Fixed core auth flows so sign-out surfaces session deletion failures,
   password-reset callbacks reject untrusted redirect URLs, email/password
   session IP metadata uses the configured `advanced.ip_address` resolver
