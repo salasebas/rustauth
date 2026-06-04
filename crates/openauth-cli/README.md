@@ -46,6 +46,14 @@ The CLI is intentionally transparent: it inspects the current Rust workspace
 and prints or writes OpenAuth configuration/migration output without hiding the
 Rust code that owns your application behavior.
 
+## Environment variables
+
+Before running config-backed commands, the CLI loads `.env` and `.env.local`
+without overriding variables already set in the process environment. When
+`--config` points at a file outside the project root layout, files next to that
+config are loaded first, then files in `--cwd` (weaker to stronger:
+`config/.env`, `config/.env.local`, `<cwd>/.env`, `<cwd>/.env.local`).
+
 ## Status
 
 Experimental beta. Commands, flags, generated output, and workspace detection

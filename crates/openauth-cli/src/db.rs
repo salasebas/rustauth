@@ -16,7 +16,7 @@ use crate::schema::{dialect_from_provider, dialect_name, full_schema_plan, targe
 pub enum DbCliError {
     #[error("database provider is not configured")]
     MissingProvider,
-    #[error("database URL environment variable {0} is not set; add it to .env/.env.local or export it before running this command")]
+    #[error("database URL environment variable {0} is not set; add it to .env/.env.local next to the project or config file, or export it before running this command")]
     MissingDatabaseUrl(String),
     #[error("unsupported database adapter `{0}`; CLI migrations currently support sqlx with sqlite, postgres, or mysql")]
     UnsupportedAdapter(String),

@@ -308,6 +308,136 @@ fn migrate_unsupported_adapter_emits_telemetry_when_debug_enabled() {
         ));
 }
 
+fn write_config_at(path: &std::path::Path, adapter: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create config parent");
+    }
+    fs::write(
+        path,
+        format!(
+            r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "{adapter}"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/openauth"
+
+[security]
+secret_env = "OPENAUTH_SECRET"
+
+[plugins]
+enabled = []
+"#
+        ),
+    )
+    .expect("write config");
+}
+
+#[test]
+fn custom_config_loads_env_from_config_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config/auth.toml");
+    write_config_at(&config_path, "sqlx");
+    let database_url = format!(
+        "sqlite://{}",
+        temp.path().join("from-config-env.sqlite").display()
+    );
+    fs::write(
+        config_path.parent().expect("config dir").join(".env"),
+        format!(
+            "DATABASE_URL={database_url}\nOPENAUTH_SECRET=OpenAuthSecretForCliTests-1234567890!\n"
+        ),
+    )
+    .expect("write config env");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--config",
+            "config/auth.toml",
+        ])
+        .env_remove("DATABASE_URL")
+        .env_remove("OPENAUTH_SECRET")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Tables to create:"));
+}
+
+#[test]
+fn doctor_reads_env_from_custom_config_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config/auth.toml");
+    write_config_at(&config_path, "sqlx");
+    fs::write(
+        config_path.parent().expect("config dir").join(".env"),
+        "DATABASE_URL=sqlite::memory:\nOPENAUTH_SECRET=OpenAuthSecretForCliTests-1234567890!\n",
+    )
+    .expect("write config env");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "doctor",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--config",
+            "config/auth.toml",
+        ])
+        .env_remove("DATABASE_URL")
+        .env_remove("OPENAUTH_SECRET")
+        .assert()
+        .success();
+}
+
+#[test]
+fn cwd_env_takes_precedence_over_custom_config_directory_env() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config/auth.toml");
+    write_config_at(&config_path, "sqlx");
+    let config_db = temp.path().join("from-config-dir.sqlite");
+    let cwd_db = temp.path().join("from-cwd.sqlite");
+    fs::write(
+        config_path.parent().expect("config dir").join(".env"),
+        format!("DATABASE_URL=sqlite://{}\n", config_db.display()),
+    )
+    .expect("write config env");
+    fs::write(
+        temp.path().join(".env"),
+        format!(
+            "DATABASE_URL=sqlite://{}\nOPENAUTH_SECRET=OpenAuthSecretForCliTests-1234567890!\n",
+            cwd_db.display()
+        ),
+    )
+    .expect("write cwd env");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--config",
+            "config/auth.toml",
+        ])
+        .env_remove("DATABASE_URL")
+        .env_remove("OPENAUTH_SECRET")
+        .assert()
+        .success();
+
+    assert!(!config_db.exists());
+}
+
 #[test]
 fn env_local_is_loaded_without_overriding_existing_variables() {
     let temp = tempfile::tempdir().expect("tempdir");

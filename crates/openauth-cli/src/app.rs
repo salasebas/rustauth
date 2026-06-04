@@ -239,11 +239,9 @@ fn execute(cli: Cli) -> Result<(), AppError> {
 
 async fn execute_async(cli: Cli) -> Result<(), AppError> {
     let cwd = crate::paths::absolute_cwd(&cli.cwd)?;
-    crate::env::load_project_env(&cwd)?;
-    let context = AppContext {
-        config_path: crate::paths::resolve_config_path(&cwd, cli.config.as_deref()),
-        cwd,
-    };
+    let config_path = crate::paths::resolve_config_path(&cwd, cli.config.as_deref());
+    crate::env::load_project_env(&cwd, &config_path)?;
+    let context = AppContext { config_path, cwd };
     match cli.command {
         Commands::Init(args) => crate::commands::init::run(&context, args),
         Commands::Doctor(args) => crate::commands::doctor::run(&context, args).await,
