@@ -15,6 +15,11 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed SQLite adapters accepting writes that violate foreign keys when using a
+  multi-connection `SqlitePool` created without `PRAGMA foreign_keys = ON` on
+  every checkout. `connect`/`sqlite_pool_options` configure the pool hook, and
+  `SqliteAdapter::new(pool)` now enables foreign keys on each acquired connection
+  and transaction.
 - Fixed `rememberMe: false` sessions becoming persistent after sensitive
   account flows. `/change-password` with `revokeOtherSessions: true` and
   `/change-email` immediate email updates now preserve the non-remembered

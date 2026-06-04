@@ -364,6 +364,76 @@ async fn sqlite_adapter_returns_database_generated_serial_ids() -> Result<(), Op
 }
 
 #[tokio::test]
+async fn sqlite_adapter_new_enforces_foreign_keys_on_multi_connection_pool(
+) -> Result<(), OpenAuthError> {
+    let database_path = std::env::temp_dir().join(format!(
+        "openauth_sqlx_fk_new_{}_{}.db",
+        std::process::id(),
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    let database_url = format!("sqlite://{}?mode=rwc", database_path.to_string_lossy());
+    let pool = SqlitePoolOptions::new()
+        .max_connections(2)
+        .connect(&database_url)
+        .await
+        .map_err(sql_error)?;
+    let schema = auth_schema(AuthSchemaOptions::default());
+    let adapter = SqliteAdapter::with_schema(pool, schema.clone());
+    adapter.create_schema(&schema, None).await?;
+
+    let result = adapter
+        .create(
+            Create::new("session")
+                .data("id", DbValue::String("session_1".to_owned()))
+                .data("expires_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("token", DbValue::String("token_1".to_owned()))
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("ip_address", DbValue::Null)
+                .data("user_agent", DbValue::Null)
+                .data("user_id", DbValue::String("missing_user".to_owned())),
+        )
+        .await;
+
+    assert!(
+        matches!(result, Err(OpenAuthError::Adapter(message)) if message.contains("FOREIGN KEY"))
+    );
+
+    let concurrent = tokio::join!(
+        adapter.create(
+            Create::new("session")
+                .data("id", DbValue::String("session_2".to_owned()))
+                .data("expires_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("token", DbValue::String("token_2".to_owned()))
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("ip_address", DbValue::Null)
+                .data("user_agent", DbValue::Null)
+                .data("user_id", DbValue::String("missing_user".to_owned())),
+        ),
+        adapter.create(
+            Create::new("session")
+                .data("id", DbValue::String("session_3".to_owned()))
+                .data("expires_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("token", DbValue::String("token_3".to_owned()))
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("ip_address", DbValue::Null)
+                .data("user_agent", DbValue::Null)
+                .data("user_id", DbValue::String("missing_user".to_owned())),
+        ),
+    );
+
+    assert!(
+        matches!(concurrent.0, Err(OpenAuthError::Adapter(message)) if message.contains("FOREIGN KEY"))
+    );
+    assert!(
+        matches!(concurrent.1, Err(OpenAuthError::Adapter(message)) if message.contains("FOREIGN KEY"))
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn sqlite_connect_enables_foreign_keys_for_pooled_connections() -> Result<(), OpenAuthError> {
     let database_path = std::env::temp_dir().join(format!(
         "openauth_sqlx_fk_{}_{}.db",

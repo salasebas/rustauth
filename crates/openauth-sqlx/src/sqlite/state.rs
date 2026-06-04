@@ -8,6 +8,7 @@ use sqlx::sqlite::{SqliteArguments, SqliteRow};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use super::errors::{inactive_transaction, sql_error_with_context};
+use super::foreign_keys;
 use super::query::bind_param;
 use super::row::row_value_at;
 
@@ -61,11 +62,16 @@ impl SqliteState<'_, '_> {
         params: usize,
     ) -> Result<u64, OpenAuthError> {
         match &mut self.executor {
-            SqliteExecutor::Pool(pool) => sqlx::query_with(&sql, args)
-                .execute(*pool)
-                .await
-                .map(|result| result.rows_affected())
-                .map_err(|error| sql_error_with_context("execute", &sql, params, error)),
+            SqliteExecutor::Pool(pool) => {
+                let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                    .await
+                    .map_err(|error| sql_error_with_context("execute", &sql, params, error))?;
+                sqlx::query_with(&sql, args)
+                    .execute(&mut *connection)
+                    .await
+                    .map(|result| result.rows_affected())
+                    .map_err(|error| sql_error_with_context("execute", &sql, params, error))
+            }
             SqliteExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_with(&sql, args)
@@ -84,10 +90,15 @@ impl SqliteState<'_, '_> {
         params: usize,
     ) -> Result<Vec<SqliteRow>, OpenAuthError> {
         match &mut self.executor {
-            SqliteExecutor::Pool(pool) => sqlx::query_with(&sql, args)
-                .fetch_all(*pool)
-                .await
-                .map_err(|error| sql_error_with_context("fetch_all", &sql, params, error)),
+            SqliteExecutor::Pool(pool) => {
+                let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                    .await
+                    .map_err(|error| sql_error_with_context("fetch_all", &sql, params, error))?;
+                sqlx::query_with(&sql, args)
+                    .fetch_all(&mut *connection)
+                    .await
+                    .map_err(|error| sql_error_with_context("fetch_all", &sql, params, error))
+            }
             SqliteExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_with(&sql, args)
@@ -105,10 +116,17 @@ impl SqliteState<'_, '_> {
         params: usize,
     ) -> Result<Option<SqliteRow>, OpenAuthError> {
         match &mut self.executor {
-            SqliteExecutor::Pool(pool) => sqlx::query_with(&sql, args)
-                .fetch_optional(*pool)
-                .await
-                .map_err(|error| sql_error_with_context("fetch_optional", &sql, params, error)),
+            SqliteExecutor::Pool(pool) => {
+                let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                    .await
+                    .map_err(|error| {
+                        sql_error_with_context("fetch_optional", &sql, params, error)
+                    })?;
+                sqlx::query_with(&sql, args)
+                    .fetch_optional(&mut *connection)
+                    .await
+                    .map_err(|error| sql_error_with_context("fetch_optional", &sql, params, error))
+            }
             SqliteExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_with(&sql, args)
@@ -126,10 +144,15 @@ impl SqliteState<'_, '_> {
         params: usize,
     ) -> Result<i64, OpenAuthError> {
         match &mut self.executor {
-            SqliteExecutor::Pool(pool) => sqlx::query_scalar_with(&sql, args)
-                .fetch_one(*pool)
-                .await
-                .map_err(|error| sql_error_with_context("fetch_scalar", &sql, params, error)),
+            SqliteExecutor::Pool(pool) => {
+                let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                    .await
+                    .map_err(|error| sql_error_with_context("fetch_scalar", &sql, params, error))?;
+                sqlx::query_scalar_with(&sql, args)
+                    .fetch_one(&mut *connection)
+                    .await
+                    .map_err(|error| sql_error_with_context("fetch_scalar", &sql, params, error))
+            }
             SqliteExecutor::Transaction(tx) => {
                 let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
                 sqlx::query_scalar_with(&sql, args)
