@@ -142,6 +142,7 @@ fn generate_does_not_duplicate_same_plan_hash() {
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
             "--from-empty",
+            "--yes",
         ])
         .assert()
         .success()
@@ -155,6 +156,7 @@ fn generate_does_not_duplicate_same_plan_hash() {
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
             "--from-empty",
+            "--yes",
         ])
         .assert()
         .failure()
@@ -180,6 +182,7 @@ fn generate_output_treats_sql_path_as_file() {
             "--from-empty",
             "--output",
             output.to_str().expect("utf8 path"),
+            "--yes",
         ])
         .assert()
         .success()
@@ -303,6 +306,7 @@ fn output_dir_flag_writes_generated_migration_to_directory() {
             "--from-empty",
             "--output-dir",
             output_dir.to_str().expect("utf8 path"),
+            "--yes",
         ])
         .assert()
         .success()
@@ -310,6 +314,132 @@ fn output_dir_flag_writes_generated_migration_to_directory() {
 
     let entries = fs::read_dir(output_dir).expect("read output dir").count();
     assert_eq!(entries, 1);
+}
+
+/// OPE-118: non-interactive runs must not write schema artifacts without `--yes`.
+#[test]
+fn non_interactive_generate_without_yes_fails_without_writing_files() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let database_url = format!("sqlite://{}", temp.path().join("auth.sqlite").display());
+    write_config(temp.path(), &database_url, &[]);
+    let migrations_dir = temp.path().join("migrations/openauth");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "db",
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--from-empty",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--yes"));
+
+    assert!(
+        !migrations_dir.exists()
+            || fs::read_dir(&migrations_dir)
+                .map(|entries| entries.count())
+                .unwrap_or(0)
+                == 0
+    );
+}
+
+/// OPE-118: non-interactive runs must not apply migrations without `--yes`.
+#[test]
+fn non_interactive_migrate_without_yes_fails_without_applying() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let database_url = format!("sqlite://{}", temp.path().join("auth.sqlite").display());
+    write_config(temp.path(), &database_url, &[]);
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "db",
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--from-empty",
+            "--yes",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success();
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--yes"));
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--check",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .failure();
+}
+
+#[test]
+fn non_interactive_db_commands_succeed_with_yes() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let database_url = format!("sqlite://{}", temp.path().join("auth.sqlite").display());
+    write_config(temp.path(), &database_url, &[]);
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--from-empty",
+            "--yes",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Generated migration:"));
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Migration completed successfully"));
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--check",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success();
 }
 
 #[test]

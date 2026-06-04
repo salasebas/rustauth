@@ -219,6 +219,7 @@ enabled = ["username"]
             "--from-empty",
             "--output",
             "migrations/openauth/0001_init.sql",
+            "--yes",
         ])
         .env("OPENAUTH_TELEMETRY", "true")
         .env("OPENAUTH_TELEMETRY_DEBUG", "true")

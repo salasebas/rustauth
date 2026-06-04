@@ -18,6 +18,8 @@ All notable changes to `openauth-cli` are documented in this file.
 
 ### Changed
 
+- `db generate`, `db migrate`, `init`, and `plugins` commands now require
+  `--yes` when stdin is not a TTY instead of auto-confirming.
 - `init` now creates or updates `.env` alongside `.env.example` (without
   overwriting an existing `.env`).
 - `db migrate` rejects unsafe plans before apply or dry-run; telemetry uses

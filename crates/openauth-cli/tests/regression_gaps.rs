@@ -52,6 +52,7 @@ fn migrate_dry_run_does_not_apply_changes() {
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
             "--from-empty",
+            "--yes",
         ])
         .env("DATABASE_URL", &database_url)
         .assert()
@@ -102,6 +103,7 @@ fn generate_force_overwrites_duplicate_plan() {
                 temp.path().to_str().expect("utf8 path"),
                 "--from-empty",
                 "--force",
+                "--yes",
             ])
             .env("DATABASE_URL", &database_url)
             .assert()
