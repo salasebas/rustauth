@@ -195,6 +195,24 @@ mod tests {
     }
 
     #[test]
+    fn secondary_scan_pattern_is_disjoint_from_rate_limit_namespace() {
+        let prefix = "openauth:";
+        let secondary_pattern = secondary_storage_scan_pattern(&format!("{prefix}secondary:"));
+        assert_eq!(secondary_pattern, "openauth:secondary:*");
+
+        let rate_limit_key = format!("{prefix}rate-limit:10.0.0.1|/sign-in");
+        assert!(
+            !rate_limit_key.starts_with("openauth:secondary:"),
+            "co-located rate-limit keys must not share the secondary clear() scan prefix (OPE-37)"
+        );
+
+        // Legacy Fred secondary storage scanned `{prefix}*` and could delete rate-limit keys.
+        let legacy_clear_pattern = secondary_storage_scan_pattern(prefix);
+        assert_eq!(legacy_clear_pattern, "openauth:*");
+        assert!(rate_limit_key.starts_with(prefix));
+    }
+
+    #[test]
     fn secondary_storage_matches_redis_secondary_namespace_layout() {
         let storage = FredSecondaryStorage::new(
             Client::default(),

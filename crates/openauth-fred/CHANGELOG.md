@@ -20,6 +20,11 @@ All notable changes to `openauth-fred` are documented in this file.
   `FredSecondaryStorage` and `RedisSecondaryStorage` on a shared instance and
   prefix. This changes the physical Redis key layout: existing Fred records
   written under the old layout are not read by this version.
+- Fixed `FredSecondaryStorage::clear()` deleting co-located
+  `{key_prefix}rate-limit:*` keys when secondary storage and
+  `FredRateLimitStore` shared the same `key_prefix` on one Redis/Valkey
+  instance. `list_keys` / `clear` now scan only `{key_prefix}secondary:*`
+  (OPE-37).
 - Fixed `FredSecondaryStorage` so `get`, `set`, and `delete` reject an empty
   `key_prefix` instead of operating at the Redis/Valkey root namespace,
   matching the validation already enforced by `list_keys` and `clear`.
