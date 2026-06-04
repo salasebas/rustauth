@@ -1,6 +1,6 @@
 use fred::clients::Client;
 use fred::interfaces::KeysInterface;
-use fred::types::Expiration;
+use fred::types::{Expiration, SetOptions};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{SecondaryStorage, SecondaryStorageFuture};
 
@@ -127,6 +127,36 @@ impl SecondaryStorage for FredSecondaryStorage {
         })
     }
 
+    fn set_if_not_exists<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let expire = ttl_seconds
+                .filter(|ttl| *ttl > 0)
+                .map(|ttl| {
+                    i64::try_from(ttl).map(Expiration::EX).map_err(|_| {
+                        OpenAuthError::InvalidConfig(
+                            "secondary storage ttl must fit in i64".to_owned(),
+                        )
+                    })
+                })
+                .transpose()?;
+            self.client
+                .set::<bool, _, _>(
+                    self.prefixed_key(key)?,
+                    value,
+                    expire,
+                    Some(SetOptions::NX),
+                    false,
+                )
+                .await
+                .map_err(|error| fred_error("secondary set_if_not_exists", error))
+        })
+    }
+
     fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
         Box::pin(async move {
             self.client
@@ -192,6 +222,24 @@ mod tests {
             secondary_storage_scan_pattern("openauth:test:"),
             "openauth:test:*"
         );
+    }
+
+    #[test]
+    fn secondary_scan_pattern_is_disjoint_from_rate_limit_namespace() {
+        let prefix = "openauth:";
+        let secondary_pattern = secondary_storage_scan_pattern(&format!("{prefix}secondary:"));
+        assert_eq!(secondary_pattern, "openauth:secondary:*");
+
+        let rate_limit_key = format!("{prefix}rate-limit:10.0.0.1|/sign-in");
+        assert!(
+            !rate_limit_key.starts_with("openauth:secondary:"),
+            "co-located rate-limit keys must not share the secondary clear() scan prefix (OPE-37)"
+        );
+
+        // Legacy Fred secondary storage scanned `{prefix}*` and could delete rate-limit keys.
+        let legacy_clear_pattern = secondary_storage_scan_pattern(prefix);
+        assert_eq!(legacy_clear_pattern, "openauth:*");
+        assert!(rate_limit_key.starts_with(prefix));
     }
 
     #[test]

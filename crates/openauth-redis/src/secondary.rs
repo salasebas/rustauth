@@ -131,6 +131,28 @@ impl SecondaryStorage for RedisSecondaryStorage {
         })
     }
 
+    fn set_if_not_exists<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let redis_key = self.prefixed_key(key)?;
+            let mut manager = self.manager.clone();
+            let mut command = redis::cmd("SET");
+            command.arg(redis_key).arg(value).arg("NX");
+            if let Some(ttl_seconds) = ttl_seconds.filter(|ttl| *ttl > 0) {
+                command.arg("EX").arg(ttl_seconds);
+            }
+            let created: Option<String> = command
+                .query_async(&mut manager)
+                .await
+                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+            Ok(created.is_some())
+        })
+    }
+
     fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
         Box::pin(async move {
             let mut manager = self.manager.clone();

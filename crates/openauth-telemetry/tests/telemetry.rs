@@ -369,6 +369,15 @@ impl openauth_core::options::SecondaryStorage for TestSecondaryStorage {
         Box::pin(async move { Ok(()) })
     }
 
+    fn set_if_not_exists<'a>(
+        &'a self,
+        _key: &'a str,
+        _value: String,
+        _ttl_seconds: Option<u64>,
+    ) -> openauth_core::options::SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move { Ok(true) })
+    }
+
     fn delete<'a>(
         &'a self,
         _key: &'a str,

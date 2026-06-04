@@ -17,5 +17,15 @@ pub trait SecondaryStorage: Send + Sync + 'static {
         ttl_seconds: Option<u64>,
     ) -> SecondaryStorageFuture<'a, ()>;
 
+    /// Store `value` only when `key` is absent.
+    ///
+    /// Returns `Ok(true)` when the key was created, or `Ok(false)` when it already existed.
+    fn set_if_not_exists<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool>;
+
     fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()>;
 }

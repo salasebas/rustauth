@@ -125,6 +125,24 @@ impl SecondaryStorage for InMemorySecondaryStorage {
         })
     }
 
+    fn set_if_not_exists<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        _ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let mut entries = self.entries.lock().map_err(|_| {
+                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
+            })?;
+            if entries.contains_key(key) {
+                return Ok(false);
+            }
+            entries.insert(key.to_owned(), value);
+            Ok(true)
+        })
+    }
+
     fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
         Box::pin(async move {
             self.entries
