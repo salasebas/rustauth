@@ -39,6 +39,52 @@ fn sqlx_postgres_feature_does_not_enable_sqlite_driver() -> Result<(), Box<dyn s
 }
 
 #[test]
+fn default_openauth_build_does_not_enable_telemetry_crate() -> Result<(), Box<dyn std::error::Error>>
+{
+    let stdout = cargo_tree_stdout(&[
+        "tree",
+        "-p",
+        "openauth",
+        "--edges",
+        "normal,build",
+        "--no-default-features",
+    ])?;
+
+    assert!(
+        !stdout.contains("openauth-telemetry"),
+        "default openauth build unexpectedly enabled openauth-telemetry"
+    );
+    Ok(())
+}
+
+#[test]
+fn async_initializers_available_without_telemetry_feature() -> Result<(), Box<dyn std::error::Error>>
+{
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
+    let output = Command::new(cargo)
+        .args([
+            "test",
+            "-p",
+            "openauth",
+            "--no-default-features",
+            "--test",
+            "public_api",
+            "without_telemetry_feature",
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "async initializer smoke test failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+#[test]
 fn oidc_feature_does_not_enable_saml_or_xml_dependencies() -> Result<(), Box<dyn std::error::Error>>
 {
     let stdout = cargo_tree_stdout(&[

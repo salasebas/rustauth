@@ -294,27 +294,36 @@ impl OpenAuthBuilder {
         }
     }
 
-    #[cfg(feature = "telemetry")]
-    /// Build the configured [`OpenAuth`] instance and initialize telemetry.
+    /// Build the configured [`OpenAuth`] instance.
+    ///
+    /// When the `telemetry` feature is enabled, this also initializes the
+    /// telemetry publisher before returning.
     pub async fn build_async(self) -> Result<OpenAuth, OpenAuthError> {
-        let telemetry_context = self.telemetry_context.unwrap_or_default();
-        if let Some(adapter) = self.adapter {
-            open_auth_with_adapter_and_endpoints_async(
-                self.options,
-                adapter,
-                self.extra_endpoints,
-                self.async_endpoints,
-                telemetry_context,
-            )
-            .await
-        } else {
-            open_auth_with_endpoints_async(
-                self.options,
-                self.extra_endpoints,
-                self.async_endpoints,
-                telemetry_context,
-            )
-            .await
+        #[cfg(feature = "telemetry")]
+        {
+            let telemetry_context = self.telemetry_context.unwrap_or_default();
+            if let Some(adapter) = self.adapter {
+                open_auth_with_adapter_and_endpoints_async(
+                    self.options,
+                    adapter,
+                    self.extra_endpoints,
+                    self.async_endpoints,
+                    telemetry_context,
+                )
+                .await
+            } else {
+                open_auth_with_endpoints_async(
+                    self.options,
+                    self.extra_endpoints,
+                    self.async_endpoints,
+                    telemetry_context,
+                )
+                .await
+            }
+        }
+        #[cfg(not(feature = "telemetry"))]
+        {
+            self.build()
         }
     }
 }
@@ -365,15 +374,21 @@ pub fn open_auth_with_adapter_and_endpoints(
     })
 }
 
-#[cfg(feature = "telemetry")]
-/// Initialize OpenAuth with the default product endpoint set and telemetry.
+/// Initialize OpenAuth with the default product endpoint set.
 pub async fn open_auth_async(options: OpenAuthOptions) -> Result<OpenAuth, OpenAuthError> {
-    open_auth_with_endpoints_async(options, Vec::new(), Vec::new(), TelemetryContext::default())
-        .await
+    #[cfg(feature = "telemetry")]
+    {
+        open_auth_with_endpoints_async(options, Vec::new(), Vec::new(), TelemetryContext::default())
+            .await
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        open_auth_with_endpoints(options, Vec::new(), Vec::new())
+    }
 }
 
+/// Initialize OpenAuth with product endpoints.
 #[cfg(feature = "telemetry")]
-/// Initialize OpenAuth with product endpoints plus telemetry.
 pub async fn open_auth_with_endpoints_async(
     options: OpenAuthOptions,
     extra_endpoints: Vec<AuthEndpoint>,
@@ -393,24 +408,40 @@ pub async fn open_auth_with_endpoints_async(
     })
 }
 
-#[cfg(feature = "telemetry")]
-/// Initialize OpenAuth with a database adapter and telemetry.
+/// Initialize OpenAuth with product endpoints.
+#[cfg(not(feature = "telemetry"))]
+pub async fn open_auth_with_endpoints_async(
+    options: OpenAuthOptions,
+    extra_endpoints: Vec<AuthEndpoint>,
+    async_endpoints: Vec<AsyncAuthEndpoint>,
+) -> Result<OpenAuth, OpenAuthError> {
+    open_auth_with_endpoints(options, extra_endpoints, async_endpoints)
+}
+
+/// Initialize OpenAuth with a database adapter.
 pub async fn open_auth_with_adapter_async(
     options: OpenAuthOptions,
     adapter: Arc<dyn DbAdapter>,
 ) -> Result<OpenAuth, OpenAuthError> {
-    open_auth_with_adapter_and_endpoints_async(
-        options,
-        adapter,
-        Vec::new(),
-        Vec::new(),
-        TelemetryContext::default(),
-    )
-    .await
+    #[cfg(feature = "telemetry")]
+    {
+        open_auth_with_adapter_and_endpoints_async(
+            options,
+            adapter,
+            Vec::new(),
+            Vec::new(),
+            TelemetryContext::default(),
+        )
+        .await
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        open_auth_with_adapter(options, adapter)
+    }
 }
 
+/// Initialize OpenAuth with product endpoints, a database adapter, and optional extra endpoints.
 #[cfg(feature = "telemetry")]
-/// Initialize OpenAuth with product endpoints, a database adapter, and telemetry.
 pub async fn open_auth_with_adapter_and_endpoints_async(
     options: OpenAuthOptions,
     adapter: Arc<dyn DbAdapter>,
@@ -442,6 +473,17 @@ pub async fn open_auth_with_adapter_and_endpoints_async(
         context,
         adapter: Some(adapter),
     })
+}
+
+/// Initialize OpenAuth with product endpoints, a database adapter, and optional extra endpoints.
+#[cfg(not(feature = "telemetry"))]
+pub async fn open_auth_with_adapter_and_endpoints_async(
+    options: OpenAuthOptions,
+    adapter: Arc<dyn DbAdapter>,
+    extra_endpoints: Vec<AuthEndpoint>,
+    async_endpoints: Vec<AsyncAuthEndpoint>,
+) -> Result<OpenAuth, OpenAuthError> {
+    open_auth_with_adapter_and_endpoints(options, adapter, extra_endpoints, async_endpoints)
 }
 
 /// Initialize OpenAuth with the default product endpoint set plus extra endpoints.

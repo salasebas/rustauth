@@ -6,7 +6,6 @@ pub use auth::{
     open_auth, open_auth_with_adapter, open_auth_with_adapter_and_endpoints,
     open_auth_with_endpoints, OpenAuth, OpenAuthBuilder,
 };
-#[cfg(feature = "telemetry")]
 pub use auth::{
     open_auth_async, open_auth_with_adapter_and_endpoints_async, open_auth_with_adapter_async,
     open_auth_with_endpoints_async,

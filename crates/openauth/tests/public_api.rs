@@ -96,6 +96,45 @@ fn openauth_builder_exposes_primary_initializer() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+#[tokio::test]
+async fn async_init_without_telemetry_feature() -> Result<(), Box<dyn std::error::Error>> {
+    let auth = OpenAuth::builder()
+        .secret("secret-a-at-least-32-chars-long!!")
+        .rate_limit(RateLimitOptions::memory().enabled(false))
+        .build_async()
+        .await?;
+
+    let response = auth.handler(
+        Request::builder()
+            .method(Method::GET)
+            .uri("http://localhost:3000/api/auth/ok")
+            .body(Vec::new())?,
+    )?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn open_auth_async_initializer_without_telemetry_feature(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth = openauth::open_auth_async(OpenAuthOptions {
+        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+        ..OpenAuthOptions::default()
+    })
+    .await?;
+
+    let response = auth.handler(
+        Request::builder()
+            .method(Method::GET)
+            .uri("http://localhost:3000/api/auth/ok")
+            .body(Vec::new())?,
+    )?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(())
+}
+
 #[cfg(feature = "telemetry")]
 #[tokio::test]
 async fn openauth_async_builder_wires_context_telemetry_publisher(

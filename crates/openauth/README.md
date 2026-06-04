@@ -58,10 +58,10 @@ auth.run_migrations().await?;
 - `telemetry`: re-export the telemetry surface from
   [`openauth-telemetry`](../openauth-telemetry/README.md) (`create_telemetry`,
   `get_telemetry_auth_config`, `TelemetryContext`, `TelemetryEvent`,
-  `TelemetryPublisher`, `TelemetryTestHooks`, `CustomTrackFn`). Initialized
-  publishers also need the async builder wiring this feature enables
-  (`OpenAuthBuilder::build_async`, `open_auth_*_async`); see the linked crate
-  docs for sink setup and enablement precedence.
+  `TelemetryPublisher`, `TelemetryTestHooks`, `CustomTrackFn`) and wire the
+  publisher during async initialization (`OpenAuthBuilder::build_async`,
+  `open_auth_*_async`). Async constructors are available without this feature;
+  see the linked crate docs for sink setup and enablement precedence.
 - `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`: SQLx adapters.
 - `tokio-postgres` and `deadpool-postgres`: Postgres adapters.
 
