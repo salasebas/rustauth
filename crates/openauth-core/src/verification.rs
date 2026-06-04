@@ -6,12 +6,15 @@ use crate::context::AuthContext;
 use crate::crypto::random::generate_random_string;
 use crate::db::{
     Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindMany, Sort, SortDirection,
-    Update, Verification, Where, WhereOperator,
+    TransactionAdapter, Update, Verification, Where, WhereOperator,
 };
 use crate::error::OpenAuthError;
 use crate::options::{SecondaryStorage, StoreIdentifierOption, VerificationOptions};
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
+use tokio::sync::Mutex;
 
 const VERIFICATION_MODEL: &str = "verification";
 const DEFAULT_ID_LENGTH: usize = 32;
@@ -266,6 +269,50 @@ impl<'a> DbVerificationStore<'a> {
             .await
     }
 
+    /// Remove and return an active verification, if one exists.
+    ///
+    /// This enforces single-use semantics for challenge-like tokens: concurrent
+    /// callers only observe the stored value once.
+    pub async fn take_verification(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
+        if self.adapter.capabilities().supports_transactions {
+            let options = self.options.clone();
+            let identifier = identifier.to_owned();
+            let taken = Arc::new(Mutex::new(None));
+            let taken_capture = Arc::clone(&taken);
+            self.adapter
+                .transaction(Box::new(move |transaction: TransactionAdapter<'_>| {
+                    let taken = Arc::clone(&taken_capture);
+                    let options = options.clone();
+                    let identifier = identifier.clone();
+                    Box::pin(async move {
+                        let store =
+                            DbVerificationStore::with_options(transaction.as_ref(), options);
+                        if let Some(verification) = store.find_verification(&identifier).await? {
+                            if verification.expires_at > OffsetDateTime::now_utc() {
+                                store.delete_verification(&identifier).await?;
+                                *taken.lock().await = Some(verification);
+                            }
+                        }
+                        Ok(())
+                    })
+                }))
+                .await?;
+            return Ok(taken.lock().await.take());
+        }
+
+        let take_lock = verification_take_lock(self.adapter, &stored_identifier)?;
+        let _guard = take_lock.lock().await;
+        let Some(verification) = self.find_verification(identifier).await? else {
+            return Ok(None);
+        };
+        self.delete_verification(identifier).await?;
+        Ok(Some(verification))
+    }
+
     pub async fn delete_expired_verifications(&self) -> Result<u64, OpenAuthError> {
         if self.options.disable_cleanup {
             return Ok(0);
@@ -407,6 +454,24 @@ impl<'a> VerificationStore<'a> {
         storage.delete(&verification_key(&stored_identifier)).await
     }
 
+    pub async fn take_verification(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<Verification>, OpenAuthError> {
+        let Some(storage) = &self.secondary_storage else {
+            return self.database.take_verification(identifier).await;
+        };
+        let stored_identifier = process_verification_identifier(&self.options, identifier).await?;
+        let Some(raw) = storage.take(&verification_key(&stored_identifier)).await? else {
+            return Ok(None);
+        };
+        let verification = deserialize_verification(&raw)?;
+        if verification.expires_at <= OffsetDateTime::now_utc() {
+            return Ok(None);
+        }
+        Ok(Some(verification))
+    }
+
     pub async fn delete_expired_verifications(&self) -> Result<u64, OpenAuthError> {
         if self.options.disable_cleanup {
             return Ok(0);
@@ -428,6 +493,28 @@ impl<'a> VerificationStore<'a> {
             .map(|value| deserialize_verification(&value))
             .transpose()
     }
+}
+
+static VERIFICATION_TAKE_LOCKS: LazyLock<StdMutex<HashMap<u64, Arc<Mutex<()>>>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
+
+fn verification_take_lock(
+    adapter: &dyn DbAdapter,
+    stored_identifier: &str,
+) -> Result<Arc<Mutex<()>>, OpenAuthError> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (adapter as *const dyn DbAdapter).hash(&mut hasher);
+    stored_identifier.hash(&mut hasher);
+    let key = hasher.finish();
+    let mut table = VERIFICATION_TAKE_LOCKS
+        .lock()
+        .map_err(|_| OpenAuthError::LockPoisoned {
+            context: "verification take lock table",
+        })?;
+    Ok(table
+        .entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone())
 }
 
 fn identifier_where(identifier: &str) -> Where {

@@ -174,6 +174,24 @@ impl SecondaryStorage for FredSecondaryStorage {
             Ok(())
         })
     }
+
+    fn take<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let redis_key = self.prefixed_key(key)?;
+            let value = self
+                .client
+                .get::<Option<String>, _>(redis_key.clone())
+                .await
+                .map_err(|error| fred_error("secondary take", error))?;
+            if value.is_some() {
+                self.client
+                    .del::<u64, _>(redis_key)
+                    .await
+                    .map_err(|error| fred_error("secondary take", error))?;
+            }
+            Ok(value)
+        })
+    }
 }
 
 fn secondary_storage_scan_pattern(prefix: &str) -> String {

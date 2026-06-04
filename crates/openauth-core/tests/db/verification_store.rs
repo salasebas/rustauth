@@ -295,6 +295,35 @@ async fn consume_verification_including_expired_is_single_use_under_concurrency(
 }
 
 #[tokio::test]
+async fn db_verification_store_take_verification_is_single_use() -> Result<(), OpenAuthError> {
+    let adapter = InMemoryVerificationAdapter::default();
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .insert(verification(
+            "verification_1",
+            "token",
+            "value",
+            now,
+            now + Duration::minutes(10),
+        ))
+        .await;
+
+    let store = DbVerificationStore::new(&adapter);
+    let first = store.take_verification("token").await?;
+    let second = store.take_verification("token").await?;
+
+    let Some(first) = first else {
+        return Err(OpenAuthError::Adapter(
+            "missing taken verification".to_owned(),
+        ));
+    };
+    assert_eq!(first.value, "value");
+    assert!(second.is_none());
+    assert!(adapter.records.lock().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn db_verification_store_deletes_by_identifier() -> Result<(), OpenAuthError> {
     let adapter = InMemoryVerificationAdapter::default();
     let now = OffsetDateTime::now_utc();

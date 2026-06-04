@@ -384,6 +384,13 @@ impl openauth_core::options::SecondaryStorage for TestSecondaryStorage {
     ) -> openauth_core::options::SecondaryStorageFuture<'a, ()> {
         Box::pin(async move { Ok(()) })
     }
+
+    fn take<'a>(
+        &'a self,
+        _key: &'a str,
+    ) -> openauth_core::options::SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move { Ok(None) })
+    }
 }
 
 #[cfg(feature = "oauth")]

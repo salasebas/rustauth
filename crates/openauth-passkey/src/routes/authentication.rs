@@ -7,10 +7,9 @@ use openauth_core::api::{
     OpenApiOperation,
 };
 use openauth_core::user::DbUserStore;
-use openauth_core::verification::VerificationStore;
 use serde_json::json;
 
-use crate::challenge::{create_challenge, find_challenge, ChallengeKind, ChallengeValue};
+use crate::challenge::{consume_challenge, create_challenge, ChallengeKind, ChallengeValue};
 use crate::cookies::{challenge_cookie, challenge_token};
 use crate::openapi::{
     json_openapi_response, verify_authentication_body_schema, webauthn_options_schema,
@@ -148,7 +147,7 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                         )
                     }
                 };
-                let Some(challenge) = find_challenge(adapter.as_ref(), context, &token).await?
+                let Some(challenge) = consume_challenge(adapter.as_ref(), context, &token).await?
                 else {
                     return error_response(
                         StatusCode::BAD_REQUEST,
@@ -214,9 +213,6 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                 };
                 let session =
                     create_session_for_user(adapter.as_ref(), context, &request, &user).await?;
-                VerificationStore::new(adapter.as_ref(), context)
-                    .delete_verification(&token)
-                    .await?;
                 let cookies = session_response_cookies(context, &session, &user, false)?;
                 json_response(
                     StatusCode::OK,

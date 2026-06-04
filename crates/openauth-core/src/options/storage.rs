@@ -30,4 +30,7 @@ pub trait SecondaryStorage: Send + Sync + 'static {
     ) -> SecondaryStorageFuture<'a, bool>;
 
     fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()>;
+
+    /// Atomically remove and return the stored value when present.
+    fn take<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>>;
 }

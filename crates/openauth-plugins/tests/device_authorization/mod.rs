@@ -225,4 +225,14 @@ impl SecondaryStorage for TestSecondaryStorage {
             Ok(())
         })
     }
+
+    fn take<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move {
+            Ok(self
+                .values
+                .lock()
+                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
+                .remove(key))
+        })
+    }
 }

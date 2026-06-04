@@ -313,6 +313,26 @@ impl SecondaryStorage for TestSecondaryStorage {
             Ok(())
         })
     }
+
+    fn take<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, OpenAuthError>> + Send + 'a>> {
+        Box::pin(async move {
+            let value = self
+                .values
+                .lock()
+                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
+                .remove(key);
+            if value.is_some() {
+                self.deleted
+                    .lock()
+                    .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
+                    .push(key.to_owned());
+            }
+            Ok(value)
+        })
+    }
 }
 
 pub fn json_request(

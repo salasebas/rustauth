@@ -43,13 +43,14 @@ pub async fn create_challenge(
     Ok(token)
 }
 
-pub async fn find_challenge(
+/// Consume a challenge token so it cannot be verified again.
+pub async fn consume_challenge(
     adapter: &dyn DbAdapter,
     context: &AuthContext,
     token: &str,
 ) -> Result<Option<ChallengeValue>, OpenAuthError> {
     VerificationStore::new(adapter, context)
-        .find_verification(token)
+        .take_verification(token)
         .await?
         .map(|verification| {
             serde_json::from_str::<ChallengeValue>(&verification.value)

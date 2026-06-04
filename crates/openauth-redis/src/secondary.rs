@@ -176,6 +176,17 @@ impl SecondaryStorage for RedisSecondaryStorage {
             Ok(())
         })
     }
+
+    fn take<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let mut manager = self.manager.clone();
+            redis::cmd("GETDEL")
+                .arg(self.prefixed_key(key)?)
+                .query_async(&mut manager)
+                .await
+                .map_err(|error| OpenAuthError::Adapter(error.to_string()))
+        })
+    }
 }
 
 fn validate_secondary_storage_options(
