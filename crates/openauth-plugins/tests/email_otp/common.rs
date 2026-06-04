@@ -245,6 +245,26 @@ impl SecondaryStorage for TestSecondaryStorage {
         })
     }
 
+    fn set_if_not_exists<'a>(
+        &'a self,
+        key: &'a str,
+        value: String,
+        _ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let mut values = self.values.lock().map_err(|_| {
+                openauth_core::error::OpenAuthError::Api(
+                    "secondary storage lock poisoned".to_owned(),
+                )
+            })?;
+            if values.contains_key(key) {
+                return Ok(false);
+            }
+            values.insert(key.to_owned(), value);
+            Ok(true)
+        })
+    }
+
     fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
         Box::pin(async move {
             self.values

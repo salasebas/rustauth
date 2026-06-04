@@ -6,6 +6,10 @@ All notable changes to `openauth-plugins` are documented in this file.
 
 ### Fixed
 
+- Fixed magic-link verify creating sessions with IP metadata read directly from
+  raw `x-forwarded-for` / `x-real-ip` headers instead of the configured
+  `advanced.ip_address` resolver, which let clients spoof stored session IPs when
+  they could reach the server directly.
 - Fixed the MCP token endpoint `refresh_token` grant skipping client
   authentication, so a leaked refresh token for a confidential client could
   mint new tokens without the configured secret; the grant now loads the client,

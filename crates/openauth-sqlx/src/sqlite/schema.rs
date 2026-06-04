@@ -1,4 +1,5 @@
 use super::errors::{inactive_transaction, sql_error};
+use super::foreign_keys;
 use super::state::SqliteExecutor;
 use super::support::sanitize_identifier;
 use crate::migration::SchemaMigrationPlan;
@@ -88,6 +89,7 @@ pub(super) async fn execute_migration_plan_on_pool(
     plan: &SchemaMigrationPlan,
 ) -> Result<(), OpenAuthError> {
     let mut tx = pool.begin().await.map_err(sql_error)?;
+    foreign_keys::enable_on_transaction(&mut tx).await?;
     for statement in &plan.statements {
         sqlx::query(&statement.sql)
             .execute(&mut *tx)
@@ -103,13 +105,18 @@ async fn table_exists(
     table: &str,
 ) -> Result<bool, OpenAuthError> {
     let count = match executor {
-        SqliteExecutor::Pool(pool) => sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
-        )
-        .bind(table)
-        .fetch_one(*pool)
-        .await
-        .map_err(sql_error)?,
+        SqliteExecutor::Pool(pool) => {
+            let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                .await
+                .map_err(sql_error)?;
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+            )
+            .bind(table)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(sql_error)?
+        }
         SqliteExecutor::Transaction(tx) => {
             let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
             sqlx::query_scalar::<_, i64>(
@@ -134,11 +141,16 @@ async fn column_snapshot(
         sql_string_literal(table),
     );
     let row = match executor {
-        SqliteExecutor::Pool(pool) => sqlx::query_as::<_, (String, i64, i64)>(&sql)
-            .bind(column)
-            .fetch_optional(*pool)
-            .await
-            .map_err(sql_error)?,
+        SqliteExecutor::Pool(pool) => {
+            let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                .await
+                .map_err(sql_error)?;
+            sqlx::query_as::<_, (String, i64, i64)>(&sql)
+                .bind(column)
+                .fetch_optional(&mut *connection)
+                .await
+                .map_err(sql_error)?
+        }
         SqliteExecutor::Transaction(tx) => {
             let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
             sqlx::query_as::<_, (String, i64, i64)>(&sql)
@@ -171,13 +183,18 @@ async fn index_exists(
     index: &str,
 ) -> Result<bool, OpenAuthError> {
     let count = match executor {
-        SqliteExecutor::Pool(pool) => sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
-        )
-        .bind(index)
-        .fetch_one(*pool)
-        .await
-        .map_err(sql_error)?,
+        SqliteExecutor::Pool(pool) => {
+            let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                .await
+                .map_err(sql_error)?;
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+            )
+            .bind(index)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(sql_error)?
+        }
         SqliteExecutor::Transaction(tx) => {
             let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
             sqlx::query_scalar::<_, i64>(
@@ -205,11 +222,16 @@ async fn unique_column_exists(
         sql_string_literal(table),
     );
     let count = match executor {
-        SqliteExecutor::Pool(pool) => sqlx::query_scalar::<_, i64>(&sql)
-            .bind(column)
-            .fetch_one(*pool)
-            .await
-            .map_err(sql_error)?,
+        SqliteExecutor::Pool(pool) => {
+            let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                .await
+                .map_err(sql_error)?;
+            sqlx::query_scalar::<_, i64>(&sql)
+                .bind(column)
+                .fetch_one(&mut *connection)
+                .await
+                .map_err(sql_error)?
+        }
         SqliteExecutor::Transaction(tx) => {
             let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
             sqlx::query_scalar::<_, i64>(&sql)
@@ -232,11 +254,16 @@ async fn foreign_key(
         sql_string_literal(table),
     );
     let row = match executor {
-        SqliteExecutor::Pool(pool) => sqlx::query_as::<_, (String, String, String)>(&sql)
-            .bind(column)
-            .fetch_optional(*pool)
-            .await
-            .map_err(sql_error)?,
+        SqliteExecutor::Pool(pool) => {
+            let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                .await
+                .map_err(sql_error)?;
+            sqlx::query_as::<_, (String, String, String)>(&sql)
+                .bind(column)
+                .fetch_optional(&mut *connection)
+                .await
+                .map_err(sql_error)?
+        }
         SqliteExecutor::Transaction(tx) => {
             let tx = tx.as_mut().ok_or_else(inactive_transaction)?;
             sqlx::query_as::<_, (String, String, String)>(&sql)
@@ -285,7 +312,13 @@ pub(super) async fn execute_schema_sql(
 ) -> Result<(), OpenAuthError> {
     match executor {
         SqliteExecutor::Pool(pool) => {
-            sqlx::query(sql).execute(*pool).await.map_err(sql_error)?;
+            let mut connection = foreign_keys::acquire_with_foreign_keys(pool)
+                .await
+                .map_err(sql_error)?;
+            sqlx::query(sql)
+                .execute(&mut *connection)
+                .await
+                .map_err(sql_error)?;
         }
         SqliteExecutor::Transaction(tx) => {
             let tx = tx.as_mut().ok_or_else(inactive_transaction)?;

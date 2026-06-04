@@ -5,8 +5,8 @@ use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{DbAdapter, DbFieldType, DbValue, MemoryAdapter, Update, Where};
 use openauth_core::options::{
-    AdvancedOptions, CookieCacheOptions, OpenAuthOptions, RateLimitOptions, SessionOptions,
-    TrustedOriginOptions,
+    AdvancedOptions, CookieCacheOptions, IpAddressOptions, OpenAuthOptions, RateLimitOptions,
+    SessionOptions, TrustedOriginOptions,
 };
 use openauth_plugins::additional_fields::{
     additional_fields, AdditionalField, AdditionalFieldsOptions,
@@ -16,8 +16,8 @@ use openauth_plugins::magic_link::{
 };
 
 use super::support::{
-    build_router, build_router_with_plugins, get, json_body, location, post_json, seed_user,
-    sent_messages, set_cookie_values, test_advanced_options, SECRET,
+    build_router, build_router_with_adapter, build_router_with_plugins, get, json_body, location,
+    post_json, seed_user, sent_messages, set_cookie_values, test_advanced_options, SECRET,
 };
 
 #[tokio::test]
@@ -296,8 +296,22 @@ async fn verify_returns_returned_additional_session_fields(
 #[tokio::test]
 async fn verify_persists_request_metadata_on_session() -> Result<(), Box<dyn std::error::Error>> {
     let sent = sent_messages();
-    let (router, adapter) =
-        build_router(sent.clone(), MagicLinkOptions::new(sender(sent.clone())))?;
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = build_router_with_adapter(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000".to_owned()),
+            secret: Some(SECRET.to_owned()),
+            advanced: test_advanced_options()
+                .ip_address(IpAddressOptions::new().header("x-forwarded-for")),
+            plugins: vec![magic_link(MagicLinkOptions::new(sender(sent.clone())))],
+            rate_limit: RateLimitOptions {
+                enabled: Some(false),
+                ..RateLimitOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
     seed_user(&adapter, "user_1", "Ada", "ada@example.com", true).await?;
 
     post_json(
@@ -326,6 +340,56 @@ async fn verify_persists_request_metadata_on_session() -> Result<(), Box<dyn std
     assert_eq!(
         sessions.first().and_then(|record| record.get("user_agent")),
         Some(&DbValue::String("MagicLinkTest/1.0".to_owned()))
+    );
+    Ok(())
+}
+
+/// Magic-link verify must persist the client IP from the configured resolver, not
+/// a spoofed `x-forwarded-for` an attacker can prepend (OPE-67).
+#[tokio::test]
+async fn verify_session_ip_uses_resolver_not_spoofed_forwarded_for(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sent = sent_messages();
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = build_router_with_adapter(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("http://localhost:3000".to_owned()),
+            secret: Some(SECRET.to_owned()),
+            advanced: test_advanced_options()
+                .ip_address(IpAddressOptions::new().header("x-real-ip")),
+            plugins: vec![magic_link(MagicLinkOptions::new(sender(sent.clone())))],
+            rate_limit: RateLimitOptions {
+                enabled: Some(false),
+                ..RateLimitOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    seed_user(&adapter, "user_1", "Ada", "ada@example.com", true).await?;
+
+    post_json(
+        &router,
+        "/api/auth/sign-in/magic-link",
+        r#"{"email":"ada@example.com"}"#,
+    )
+    .await?;
+    let token = last_message(&sent)?.token;
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(format!(
+            "http://localhost:3000/api/auth/magic-link/verify?token={token}"
+        ))
+        .header("x-real-ip", "198.51.100.4")
+        .header("x-forwarded-for", "203.0.113.99")
+        .body(Vec::new())?;
+    let response = router.handle_async(request).await?;
+    let sessions = adapter.records("session").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        sessions.first().and_then(|record| record.get("ip_address")),
+        Some(&DbValue::String("198.51.100.4".to_owned()))
     );
     Ok(())
 }

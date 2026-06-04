@@ -15,6 +15,15 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed SQLite adapters accepting writes that violate foreign keys when using a
+  multi-connection `SqlitePool` created without `PRAGMA foreign_keys = ON` on
+  every checkout. `connect`/`sqlite_pool_options` configure the pool hook, and
+  `SqliteAdapter::new(pool)` now enables foreign keys on each acquired connection
+  and transaction.
+- Fixed SAML ACS assertion replay detection so concurrent posts with the same
+  assertion ID cannot both mint sessions. Replay markers are now claimed
+  atomically via `SsoStateStore::try_create` (Redis/Valkey `SET NX` when
+  secondary storage is configured, serialized verification writes otherwise).
 - Fixed `rememberMe: false` sessions becoming persistent after sensitive
   account flows. `/change-password` with `revokeOtherSessions: true` and
   `/change-email` immediate email updates now preserve the non-remembered
@@ -47,6 +56,8 @@ Versioning while the API is still pre-1.0.
   `additional_params` cannot override `state`, PKCE fields, or other standard
   OAuth parameters, and HTTP Basic client credentials are form-encoded per RFC
   6749 §2.3.1 before Base64 encoding.
+- Fixed magic-link verify so session IP metadata uses the configured
+  `advanced.ip_address` resolver instead of trusting raw forwarding headers.
 - Fixed core auth flows so sign-out surfaces session deletion failures,
   password-reset callbacks reject untrusted redirect URLs, email/password
   session IP metadata uses the configured `advanced.ip_address` resolver
