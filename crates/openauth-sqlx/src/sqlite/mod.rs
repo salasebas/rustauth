@@ -1,9 +1,12 @@
 mod errors;
+mod foreign_keys;
 mod query;
 mod row;
 mod schema;
 mod state;
 mod support;
+
+pub use foreign_keys::pool_options;
 
 use std::sync::Arc;
 
@@ -16,8 +19,7 @@ use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
     RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitRecord, RateLimitStore,
 };
-use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::{Executor, Row, Sqlite, SqlitePool, Transaction};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use tokio::sync::Mutex;
 
 use self::errors::sql_error;
@@ -79,6 +81,7 @@ async fn consume_sqlite_rate_limit(
         &names.last_request,
     )?;
     let mut tx = pool.begin().await.map_err(sql_error)?;
+    foreign_keys::enable_on_transaction(&mut tx).await?;
     sqlx::query(&plan.insert_ignore.sql)
         .bind(&input.key)
         .bind(input.now_ms)
@@ -133,13 +136,7 @@ impl SqliteAdapter {
         database_url: &str,
         schema: DbSchema,
     ) -> Result<Self, OpenAuthError> {
-        let pool = SqlitePoolOptions::new()
-            .after_connect(|connection, _metadata| {
-                Box::pin(async move {
-                    connection.execute("PRAGMA foreign_keys = ON").await?;
-                    Ok(())
-                })
-            })
+        let pool = foreign_keys::pool_options()
             .connect(database_url)
             .await
             .map_err(sql_error)?;
@@ -213,7 +210,8 @@ impl DbAdapter for SqliteAdapter {
 
     fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            let tx = self.pool.begin().await.map_err(sql_error)?;
+            let mut tx = self.pool.begin().await.map_err(sql_error)?;
+            foreign_keys::enable_on_transaction(&mut tx).await?;
             let adapter = Arc::new(SqliteTxAdapter {
                 schema: Arc::clone(&self.schema),
                 tx: Mutex::new(Some(tx)),
@@ -247,10 +245,6 @@ impl DbAdapter for SqliteAdapter {
             } else {
                 None
             };
-            self.pool
-                .execute("PRAGMA foreign_keys = ON")
-                .await
-                .map_err(sql_error)?;
             create_schema(SqliteExecutor::Pool(&self.pool), schema).await?;
             match (file, code) {
                 (Some(path), Some(code)) => {
@@ -263,13 +257,10 @@ impl DbAdapter for SqliteAdapter {
 
     fn run_migrations<'a>(&'a self, schema: &'a DbSchema) -> AdapterFuture<'a, ()> {
         Box::pin(async move {
-            self.pool
-                .execute("PRAGMA foreign_keys = ON")
-                .await
-                .map_err(sql_error)?;
             let plan = plan_schema_migrations(SqliteExecutor::Pool(&self.pool), schema).await?;
             crate::migration::ensure_executable(&plan)?;
             let mut tx = self.pool.begin().await.map_err(sql_error)?;
+            foreign_keys::enable_on_transaction(&mut tx).await?;
             for statement in &plan.statements {
                 sqlx::query(&statement.sql)
                     .execute(&mut *tx)

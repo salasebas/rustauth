@@ -53,8 +53,10 @@ openauth-sqlx = { version = "0.0.6", features = ["sqlite"] }
   reported as warnings/errors instead of being applied automatically.
 - `plan_migrations` and `compile_migrations` let you inspect generated SQL
   before applying it.
-- `SqliteAdapter::connect` enables `PRAGMA foreign_keys = ON`; `new(pool)`
-  assumes the caller configured the pool.
+- `SqliteAdapter::connect` and [`sqlite_pool_options`](crate::sqlite_pool_options)
+  enable `PRAGMA foreign_keys = ON` on every pooled connection. `new(pool)` also
+  enforces foreign keys on each checkout even when the caller omitted pool
+  options; prefer `sqlite_pool_options()` when building pools yourself.
 
 ## Status
 

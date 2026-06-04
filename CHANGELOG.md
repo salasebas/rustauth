@@ -15,6 +15,11 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Fixed SQLite adapters accepting writes that violate foreign keys when using a
+  multi-connection `SqlitePool` created without `PRAGMA foreign_keys = ON` on
+  every checkout. `connect`/`sqlite_pool_options` configure the pool hook, and
+  `SqliteAdapter::new(pool)` now enables foreign keys on each acquired connection
+  and transaction.
 - Fixed SAML ACS assertion replay detection so concurrent posts with the same
   assertion ID cannot both mint sessions. Replay markers are now claimed
   atomically via `SsoStateStore::try_create` (Redis/Valkey `SET NX` when
