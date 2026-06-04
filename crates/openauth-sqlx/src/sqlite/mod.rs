@@ -82,8 +82,9 @@ async fn consume_sqlite_rate_limit(
         &names.count,
         &names.last_request,
     )?;
-    let mut tx = pool.begin().await.map_err(sql_error)?;
-    foreign_keys::enable_on_transaction(&mut tx).await?;
+    // SQLite has no `SELECT ... FOR UPDATE`. Reserve the writer lock up front so
+    // concurrent pool connections cannot observe stale counts mid-transaction.
+    let mut tx = foreign_keys::begin_immediate_transaction(pool).await?;
     sqlx::query(&plan.insert_ignore.sql)
         .bind(&input.key)
         .bind(input.now_ms)

@@ -37,3 +37,16 @@ pub(super) async fn enable_on_transaction(
         .map(|_| ())
         .map_err(sql_error)
 }
+
+/// Starts a write transaction that acquires SQLite's reserved lock immediately.
+///
+/// Rate-limit consumes must use this instead of a deferred `BEGIN` so concurrent
+/// pool connections cannot read stale counts before another transaction commits.
+pub(super) async fn begin_immediate_transaction(
+    pool: &SqlitePool,
+) -> Result<Transaction<'_, Sqlite>, OpenAuthError> {
+    let connection = acquire_with_foreign_keys(pool).await.map_err(sql_error)?;
+    Transaction::begin(connection, Some("BEGIN IMMEDIATE".into()))
+        .await
+        .map_err(sql_error)
+}

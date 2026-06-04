@@ -562,6 +562,58 @@ async fn sqlite_rate_limit_store_allows_exactly_one_concurrent_request() -> Resu
 }
 
 #[tokio::test]
+async fn sqlite_rate_limit_store_serializes_concurrent_consumes_on_multi_connection_pool(
+) -> Result<(), OpenAuthError> {
+    // `connect()` uses the default multi-connection pool; rate-limit consumes must
+    // remain correct when parallel requests checkout different connections.
+    let database_path = std::env::temp_dir().join(format!(
+        "openauth_sqlx_rate_limit_{}_{}.db",
+        std::process::id(),
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    let database_url = format!("sqlite://{}?mode=rwc", database_path.to_string_lossy());
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .map_err(sql_error)?;
+    let schema = auth_schema(AuthSchemaOptions {
+        rate_limit_storage: RateLimitStorage::Database,
+        ..AuthSchemaOptions::default()
+    });
+    let adapter = SqliteAdapter::with_schema(pool.clone(), schema.clone());
+    adapter.create_schema(&schema, None).await?;
+    let store = SqliteRateLimitStore::from(&adapter);
+    let rule = RateLimitRule { window: 60, max: 1 };
+    let key = "127.0.0.1|/multi-connection".to_owned();
+    let first = RateLimitConsumeInput {
+        key: key.clone(),
+        rule: rule.clone(),
+        now_ms: 1_700_000_000_000,
+    };
+    let second = RateLimitConsumeInput {
+        key: key.clone(),
+        rule,
+        now_ms: 1_700_000_000_000,
+    };
+
+    let (first, second) = tokio::join!(store.consume(first), store.consume(second));
+    let permitted = [first?, second?]
+        .into_iter()
+        .filter(|decision| decision.permitted)
+        .count();
+
+    assert_eq!(permitted, 1);
+    let stored_count: i64 = sqlx::query_scalar("SELECT count FROM rate_limits WHERE key = ?")
+        .bind(key)
+        .fetch_one(&pool)
+        .await
+        .map_err(sql_error)?;
+    assert_eq!(stored_count, 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn sqlite_rate_limit_store_uses_physical_column_names() -> Result<(), OpenAuthError> {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
