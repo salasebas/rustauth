@@ -104,9 +104,11 @@ Token storage modes: plain, hashed, encrypted, custom (same intent as `src/scim-
 
 ### 3.4 DELETE semantics (important)
 
-Both upstream and OpenAuth **delete the OpenAuth user record** on `DELETE /Users/:id`, not only the provider account link. Upstream uses `internalAdapter.deleteUser`. OpenAuth also clears SCIM profiles and team memberships in a transaction.
+Upstream Better Auth **deletes the OpenAuth user record** on `DELETE /Users/:id` via `internalAdapter.deleteUser`, even when create linked an existing user by email.
 
-If create linked an existing user by email (shared across IdPs), SCIM DELETE from one provider removes the global user—**same class of behavior as upstream**, not an OpenAuth-only surprise.
+OpenAuth defaults to `ScimDeprovisionMode::UnlinkAccount`: DELETE removes only the current provider account and SCIM profile (and org membership when org-scoped). The global user remains when other accounts exist (password `credential`, other IdPs, or additional SCIM providers).
+
+`ScimDeprovisionMode::DeleteUser` removes the user only when no other linked accounts remain besides the current SCIM provider; otherwise it unlinks like the default mode.
 
 ---
 
@@ -215,7 +217,7 @@ Prioritized from code audit (2026-05).
 | Item routes provider isolation | Tests in `tests/scim/routes/isolation.rs` | ✅ added |
 | Bearer org suffix ≠ stored `organization_id` | Same | ✅ added |
 | PUT duplicate `externalId` same provider | `ensure_provider_account_id_available` on PUT/bulk PUT | ✅ added |
-| Shared user DELETE removes all accounts | Document as upstream-aligned ([§3.4](#34-delete-semantics-important)); optional future: unlink-only deprovision | 📋 product decision |
+| Shared user DELETE removes all accounts | Default unlink; `DeleteUser` only when sole SCIM account ([§3.4](#34-delete-semantics-important)) | ✅ |
 
 ### P1 — tests & parity
 
@@ -228,7 +230,7 @@ Prioritized from code audit (2026-05).
 | Bulk PATCH without `If-Match` header | Bulk ignores per-op concurrency headers | ✅ `bulk.rs` |
 | PATCH duplicate `externalId` | Same uniqueness as PUT | ✅ `isolation.rs` + handler |
 | Link SCIM account to existing user by email | Upstream `scim.test.ts` | ✅ `provisioning.rs` |
-| DELETE removes global user (shared email) | Document upstream-aligned semantics | ✅ `provisioning.rs` |
+| DELETE unlinks provider for shared email | Default + `DeleteUser` guard | ✅ `provisioning.rs`, `deprovision.rs` |
 | Groups visible across org providers | Teams are org-scoped, not provider-isolated | ✅ `isolation.rs` |
 
 ### P2 — operability

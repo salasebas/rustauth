@@ -49,10 +49,11 @@ pub enum ScimBulkMode {
 /// How `DELETE /scim/v2/Users/:id` (and bulk user delete) deprovisions users.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScimDeprovisionMode {
-    /// Delete the OpenAuth user record (Better Auth `deleteUser` parity).
-    #[default]
+    /// Delete the OpenAuth user when they have no linked accounts besides the
+    /// current SCIM provider; otherwise unlink (see [`ScimDeprovisionMode::UnlinkAccount`]).
     DeleteUser,
     /// Remove only the current provider account link and SCIM profile.
+    #[default]
     UnlinkAccount,
 }
 
