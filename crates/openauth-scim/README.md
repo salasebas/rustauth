@@ -156,12 +156,14 @@ Bulk operations do not evaluate per-operation `If-Match` headers (unlike direct
 
 ## Deprovision mode
 
-`ScimDeprovisionMode::DeleteUser` (default) matches Better Auth: `DELETE
-/Users/:id` removes the OpenAuth user and linked accounts.
+`ScimDeprovisionMode::UnlinkAccount` (default) removes only the current provider
+account and SCIM profile (and org membership when the provider is org-scoped).
+The user row remains while other linked accounts exist (password credentials,
+other IdPs, or additional SCIM providers).
 
-`ScimDeprovisionMode::UnlinkAccount` removes only the current provider account and
-SCIM profile (and org membership when the provider is org-scoped). The user row
-remains while other provider accounts exist.
+`ScimDeprovisionMode::DeleteUser` removes the OpenAuth user when they have no
+other linked accounts besides the current SCIM provider; otherwise it unlinks the
+current provider only, so email-linked identities are not destroyed by one IdP.
 
 ## Token storage
 

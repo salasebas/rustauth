@@ -928,7 +928,18 @@ pub(super) async fn deprovision_scim_user(
     mode: crate::options::ScimDeprovisionMode,
 ) -> Result<(), OpenAuthError> {
     match mode {
-        crate::options::ScimDeprovisionMode::DeleteUser => delete_scim_user(adapter, user_id).await,
+        crate::options::ScimDeprovisionMode::DeleteUser => {
+            let users = DbUserStore::new(adapter);
+            let accounts = users.list_accounts_for_user(user_id).await?;
+            let has_other_accounts = accounts
+                .iter()
+                .any(|account| account.provider_id != provider_id);
+            if has_other_accounts {
+                unlink_scim_user(adapter, user_id, provider_id, organization_id).await
+            } else {
+                delete_scim_user(adapter, user_id).await
+            }
+        }
         crate::options::ScimDeprovisionMode::UnlinkAccount => {
             unlink_scim_user(adapter, user_id, provider_id, organization_id).await
         }

@@ -54,7 +54,7 @@ async fn scim_post_user_links_account_to_existing_user_by_email() {
 }
 
 #[tokio::test]
-async fn scim_delete_user_removes_global_user_when_linked_by_email_across_providers() {
+async fn scim_delete_user_unlinks_provider_when_linked_by_email_across_providers() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     for (provider_id, base_token) in [("okta", "okta-secret"), ("entra", "entra-secret")] {
         ScimProviderStore::new(adapter.as_ref())
@@ -118,11 +118,29 @@ async fn scim_delete_user_removes_global_user_when_linked_by_email_across_provid
         .expect("request should succeed");
     assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
 
-    let user_gone = DbUserStore::new(adapter.as_ref())
+    let user = DbUserStore::new(adapter.as_ref())
         .find_user_by_id(&existing_id)
         .await
-        .expect("lookup should succeed");
-    assert!(user_gone.is_none());
+        .expect("lookup should succeed")
+        .expect("user should remain");
+    assert_eq!(user.email, "shared-delete@example.com");
+
+    let accounts_after = DbUserStore::new(adapter.as_ref())
+        .list_accounts_for_user(&existing_id)
+        .await
+        .expect("accounts should list");
+    assert_eq!(accounts_after.len(), 1);
+    assert_eq!(accounts_after[0].provider_id, "entra");
+
+    let okta_get = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{existing_id}"),
+            &okta_token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(okta_get.status(), StatusCode::NOT_FOUND);
 
     let entra_get = router
         .handle_async(auth_request(
@@ -132,5 +150,5 @@ async fn scim_delete_user_removes_global_user_when_linked_by_email_across_provid
         ))
         .await
         .expect("request should succeed");
-    assert_eq!(entra_get.status(), StatusCode::NOT_FOUND);
+    assert_eq!(entra_get.status(), StatusCode::OK);
 }
