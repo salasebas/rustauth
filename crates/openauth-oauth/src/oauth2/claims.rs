@@ -199,17 +199,27 @@ fn required_numeric_claim(
     required: bool,
 ) -> Result<Option<i64>, OAuthError> {
     match claims.get(claim) {
-        Some(Value::Number(number)) => Ok(number
-            .as_i64()
-            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))),
-        Some(_) => Err(OAuthError::InvalidClaim {
-            claim,
-            reason: "must be a numeric timestamp".to_owned(),
-        }),
+        Some(value) => parse_integer_numeric_timestamp(value, claim).map(Some),
         None if required => Err(OAuthError::InvalidClaim {
             claim,
             reason: "missing required claim".to_owned(),
         }),
         None => Ok(None),
+    }
+}
+
+fn parse_integer_numeric_timestamp(value: &Value, claim: &'static str) -> Result<i64, OAuthError> {
+    match value {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
+            .ok_or_else(|| OAuthError::InvalidClaim {
+                claim,
+                reason: "must be an integer numeric timestamp".to_owned(),
+            }),
+        _ => Err(OAuthError::InvalidClaim {
+            claim,
+            reason: "must be a numeric timestamp".to_owned(),
+        }),
     }
 }

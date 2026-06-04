@@ -408,17 +408,17 @@ fn audience_matches(value: Option<&Value>, expected: &[String]) -> bool {
 
 fn validate_temporal_claims(claims: &serde_json::Map<String, Value>) -> Result<(), OAuthError> {
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    if let Some(expiration) = numeric_claim(claims.get("exp")) {
+    if let Some(expiration) = numeric_claim(claims.get("exp"), "exp")? {
         if expiration <= now {
             return Err(OAuthError::TokenVerification("token expired".to_owned()));
         }
     }
-    if let Some(not_before) = numeric_claim(claims.get("nbf")) {
+    if let Some(not_before) = numeric_claim(claims.get("nbf"), "nbf")? {
         if not_before > now {
             return Err(OAuthError::TokenVerification("token not active".to_owned()));
         }
     }
-    if let Some(issued_at) = numeric_claim(claims.get("iat")) {
+    if let Some(issued_at) = numeric_claim(claims.get("iat"), "iat")? {
         if issued_at > now + 60 {
             return Err(OAuthError::TokenVerification(
                 "token issued in the future".to_owned(),
@@ -428,12 +428,23 @@ fn validate_temporal_claims(claims: &serde_json::Map<String, Value>) -> Result<(
     Ok(())
 }
 
-fn numeric_claim(value: Option<&Value>) -> Option<i64> {
+fn numeric_claim(value: Option<&Value>, claim: &'static str) -> Result<Option<i64>, OAuthError> {
     match value {
-        Some(Value::Number(number)) => number
-            .as_i64()
-            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok())),
-        _ => None,
+        None => Ok(None),
+        Some(value) => match value {
+            Value::Number(number) => number
+                .as_i64()
+                .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
+                .map(Some)
+                .ok_or_else(|| OAuthError::InvalidClaim {
+                    claim,
+                    reason: "must be an integer numeric timestamp".to_owned(),
+                }),
+            _ => Err(OAuthError::InvalidClaim {
+                claim,
+                reason: "must be a numeric timestamp".to_owned(),
+            }),
+        },
     }
 }
 
@@ -492,6 +503,29 @@ mod tests {
         assert!(provider
             .verify_id_token_with_jwk_set(&token, Some("n"), &jwks)
             .expect("verification should complete"));
+    }
+
+    #[tokio::test]
+    async fn verify_id_token_rejects_non_integer_temporal_claims() {
+        let provider = test_provider(false);
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let oversized_exp = serde_json::Number::from((i64::MAX as u64) + 1);
+
+        for (claim, value) in [
+            ("exp", json!(0.1)),
+            ("exp", json!(oversized_exp)),
+            ("nbf", json!(1.5)),
+            ("iat", json!(2.7)),
+        ] {
+            let (token, jwk) = signed_google_id_token_with_claim(claim, value, now, Some("n"));
+            let jwks = jwks_with_key(jwk);
+            assert!(
+                !provider
+                    .verify_id_token_with_jwk_set(&token, Some("n"), &jwks)
+                    .expect("verification should complete"),
+                "claim `{claim}` with non-integer value should be rejected"
+            );
+        }
     }
 
     #[tokio::test]
@@ -573,6 +607,64 @@ mod tests {
         payload
             .set_claim("exp", Some(json!(now + 3600)))
             .expect("exp claim");
+
+        let mut header = JwsHeader::new();
+        header.set_algorithm("RS256");
+        header.set_key_id(kid);
+        let token =
+            jwt::encode_with_signer(&payload, &header, &signer).expect("token should encode");
+        let mut public_jwk = jwk.to_public_key().expect("public jwk should export");
+        public_jwk.set_key_id(kid);
+        public_jwk.set_algorithm("RS256");
+        public_jwk.set_key_use("sig");
+        (token, public_jwk)
+    }
+
+    fn signed_google_id_token_with_claim(
+        claim: &str,
+        value: serde_json::Value,
+        now: i64,
+        nonce: Option<&str>,
+    ) -> (String, Jwk) {
+        let kid = "google-test-key";
+        let mut jwk = Jwk::generate_rsa_key(2048).expect("rsa key should generate");
+        jwk.set_key_id(kid);
+        jwk.set_algorithm("RS256");
+        jwk.set_key_use("sig");
+
+        let signer = Rs256
+            .signer_from_jwk(&jwk)
+            .expect("rsa signer should build");
+        let mut payload = JwtPayload::new();
+        payload
+            .set_claim("aud", Some(json!("web-client")))
+            .expect("aud claim");
+        payload
+            .set_claim("iss", Some(json!(GOOGLE_ISSUER_HTTPS)))
+            .expect("iss claim");
+        payload
+            .set_claim("sub", Some(json!("google-subject")))
+            .expect("sub claim");
+        payload
+            .set_claim("email", Some(json!("ada@example.com")))
+            .expect("email claim");
+        payload
+            .set_claim("email_verified", Some(json!(true)))
+            .expect("email_verified claim");
+        if let Some(nonce) = nonce {
+            payload
+                .set_claim("nonce", Some(json!(nonce)))
+                .expect("nonce claim");
+        }
+        payload
+            .set_claim("iat", Some(json!(now)))
+            .expect("iat claim");
+        payload
+            .set_claim("exp", Some(json!(now + 3600)))
+            .expect("exp claim");
+        payload
+            .set_claim(claim, Some(value))
+            .expect("custom temporal claim");
 
         let mut header = JwsHeader::new();
         header.set_algorithm("RS256");

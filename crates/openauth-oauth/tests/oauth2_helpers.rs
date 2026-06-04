@@ -10,7 +10,7 @@ use std::net::TcpListener;
 use std::thread;
 
 use josekit::jwk::Jwk;
-use josekit::jwk::{Ed25519, P_256};
+use josekit::jwk::{Ed25519, JwkSet, P_256};
 use josekit::jws::alg::ecdsa::EcdsaJwsAlgorithm::Es256;
 use josekit::jws::alg::eddsa::EddsaJwsAlgorithm::Eddsa;
 use josekit::jws::alg::hmac::HmacJwsAlgorithm::Hs256;
@@ -24,16 +24,17 @@ use openauth_oauth::oauth2::{
     get_primary_client_id, refresh_access_token_with_client, validate_code_verifier,
     validate_token_with_client, verify_access_token_with_client,
     verify_jws_access_token_with_client, verify_jws_access_token_with_client_and_cache_config,
-    AuthorizationCodeRequest, AuthorizationEndpoint, AuthorizationUrlRequest, ClientAuthentication,
-    ClientCredentialsGrant, ClientCredentialsTokenRequest, ClientId, ClientTokenRequest,
-    OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthFormRequest, OAuthHttpClient,
-    OAuthHttpClientConfig, OAuthJwksCacheConfig, ProviderOptions, RedirectUri,
+    verify_jws_with_jwks, AuthorizationCodeRequest, AuthorizationEndpoint, AuthorizationUrlRequest,
+    ClientAuthentication, ClientCredentialsGrant, ClientCredentialsTokenRequest, ClientId,
+    ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthFormRequest,
+    OAuthHttpClient, OAuthHttpClientConfig, OAuthJwksCacheConfig, ProviderOptions, RedirectUri,
     RefreshAccessTokenRequest, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
     SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture, TokenEndpoint,
     TokenValidationOptions, TokenValidationResult, VerifyAccessTokenOptions,
     VerifyAccessTokenRemote,
 };
 use serde_json::json;
+use serde_json::Number;
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -1282,6 +1283,63 @@ async fn validate_token_rejects_expired_tokens() {
     .is_err());
 }
 
+#[test]
+fn verify_jws_with_jwks_rejects_non_integer_temporal_claims() {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let options = TokenValidationOptions::default().allow_hmac_algorithms();
+    let oversized_exp = Number::from((i64::MAX as u64) + 1);
+
+    for (claim, value) in [
+        ("exp", json!(0.1)),
+        ("exp", json!(oversized_exp)),
+        ("nbf", json!(1.5)),
+        ("iat", json!(2.7)),
+    ] {
+        let mut claims = json!({
+            "sub": "user-123",
+            "exp": now + 3600,
+            "iat": now,
+        });
+        claims
+            .as_object_mut()
+            .expect("claims should be an object")
+            .insert(claim.to_owned(), value);
+        let (token, jwk) = signed_hs256_token("temporal-key", claims);
+        let jwks = jwks_from_key(jwk);
+
+        let error = verify_jws_with_jwks(&token, &jwks, &options)
+            .expect_err("non-integer temporal claim should be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("invalid OAuth claim `{claim}`")),
+            "unexpected error for claim `{claim}`: {error}"
+        );
+    }
+}
+
+#[test]
+fn verify_jws_with_jwks_requires_parseable_exp_when_required() {
+    let (token, jwk) = signed_hs256_token(
+        "required-exp-key",
+        json!({
+            "sub": "user-123",
+            "iss": "https://issuer.example.com",
+            "aud": "client-id",
+            "exp": 0.1
+        }),
+    );
+    let jwks = jwks_from_key(jwk);
+    let options = TokenValidationOptions {
+        require_expiration: true,
+        ..TokenValidationOptions::default().allow_hmac_algorithms()
+    };
+
+    let error = verify_jws_with_jwks(&token, &jwks, &options)
+        .expect_err("required exp must be an integer numeric timestamp");
+    assert!(error.to_string().contains("invalid OAuth claim `exp`"));
+}
+
 #[tokio::test]
 async fn validate_token_verifies_rs256_es256_and_eddsa_tokens() {
     let cases = [
@@ -1795,6 +1853,11 @@ fn signed_hs256_token(kid: &str, claims: serde_json::Value) -> (String, Jwk) {
         jwt::encode_with_signer(payload, header, &signer)
     });
     (token, jwk)
+}
+
+fn jwks_from_key(jwk: Jwk) -> JwkSet {
+    let bytes = json!({ "keys": [jwk] }).to_string();
+    JwkSet::from_bytes(bytes.as_bytes()).expect("jwks should parse")
 }
 
 fn signed_asymmetric_token(algorithm: &str, kid: &str) -> (String, Jwk) {
