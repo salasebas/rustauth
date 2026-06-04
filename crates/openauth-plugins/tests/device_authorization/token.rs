@@ -207,7 +207,7 @@ async fn token_route_allows_only_one_concurrent_approved_exchange(
     let rejected = responses
         .iter()
         .find(|response| response.status() == StatusCode::BAD_REQUEST)
-        .expect("one rejected response");
+        .ok_or("one rejected response")?;
     assert_token_cache_headers(rejected);
     let body: Value = serde_json::from_slice(rejected.body())?;
     assert_eq!(body["error"], "invalid_grant");
