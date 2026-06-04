@@ -115,11 +115,15 @@ impl FigmaProvider {
         code_verifier: Option<impl Into<String>>,
         redirect_uri: impl Into<String>,
     ) -> Result<OAuthFormRequest, OAuthError> {
+        let code_verifier = code_verifier
+            .map(Into::into)
+            .ok_or(OAuthError::MissingOption("code_verifier"))?;
+
         authorization_code_request(AuthorizationCodeRequest {
             code: code.into(),
             redirect_uri: redirect_uri.into(),
             options: self.options.clone(),
-            code_verifier: code_verifier.map(Into::into),
+            code_verifier: Some(code_verifier),
             authentication: ClientAuthentication::Basic,
             ..AuthorizationCodeRequest::default()
         })
@@ -131,13 +135,17 @@ impl FigmaProvider {
         code_verifier: Option<impl Into<String>>,
         redirect_uri: impl Into<String>,
     ) -> Result<OAuth2Tokens, OAuthError> {
+        let code_verifier = code_verifier
+            .map(Into::into)
+            .ok_or(OAuthError::MissingOption("code_verifier"))?;
+
         validate_authorization_code(ClientTokenRequest {
             token_endpoint: FIGMA_TOKEN_ENDPOINT.to_owned(),
             request: AuthorizationCodeRequest {
                 code: code.into(),
                 redirect_uri: redirect_uri.into(),
                 options: self.options.clone(),
-                code_verifier: code_verifier.map(Into::into),
+                code_verifier: Some(code_verifier),
                 authentication: ClientAuthentication::Basic,
                 ..AuthorizationCodeRequest::default()
             },

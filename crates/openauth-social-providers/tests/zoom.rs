@@ -90,6 +90,39 @@ fn zoom_authorization_url_requires_code_verifier_when_pkce_is_enabled() {
 }
 
 #[test]
+fn zoom_authorization_code_request_requires_code_verifier_when_pkce_is_enabled() {
+    let provider = zoom(zoom_options());
+
+    let error = provider
+        .authorization_code_request(ZoomAuthorizationCodeRequest {
+            code: "code-1".to_owned(),
+            redirect_uri: "https://app.example.com/auth/callback".to_owned(),
+            code_verifier: None,
+        })
+        .unwrap_err();
+
+    assert!(matches!(error, OAuthError::MissingOption("code_verifier")));
+}
+
+#[test]
+fn zoom_authorization_code_request_allows_missing_code_verifier_when_pkce_is_disabled(
+) -> Result<(), OAuthError> {
+    let provider = zoom(ZoomOptions {
+        pkce: false,
+        ..zoom_options()
+    });
+
+    let request = provider.authorization_code_request(ZoomAuthorizationCodeRequest {
+        code: "code-1".to_owned(),
+        redirect_uri: "https://app.example.com/auth/callback".to_owned(),
+        code_verifier: None,
+    })?;
+
+    assert_eq!(request.form_value("code_verifier"), None);
+    Ok(())
+}
+
+#[test]
 fn zoom_authorization_code_request_uses_post_client_authentication() -> Result<(), OAuthError> {
     let provider = zoom(zoom_options());
 

@@ -71,6 +71,18 @@ impl GenericOAuthProvider {
         })
     }
 
+    fn resolve_code_verifier(
+        &self,
+        code_verifier: Option<String>,
+    ) -> Result<Option<String>, OAuthError> {
+        if !self.config.pkce {
+            return Ok(None);
+        }
+        code_verifier
+            .ok_or(OAuthError::MissingOption("code_verifier"))
+            .map(Some)
+    }
+
     fn authorization_code_input(
         &self,
         input: SocialAuthorizationCodeRequest,
@@ -79,7 +91,7 @@ impl GenericOAuthProvider {
             code: input.code,
             redirect_uri: input.redirect_uri,
             options: self.config.provider_options(),
-            code_verifier: self.config.pkce.then_some(input.code_verifier).flatten(),
+            code_verifier: self.resolve_code_verifier(input.code_verifier)?,
             device_id: input.device_id,
             authentication: self.config.authentication,
             headers: super::discovery::headers(&self.config.authorization_headers),
@@ -142,7 +154,7 @@ impl SocialOAuthProvider for GenericOAuthProvider {
             authorization_endpoint,
             redirect_uri: input.redirect_uri,
             state: input.state,
-            code_verifier: self.config.pkce.then_some(input.code_verifier).flatten(),
+            code_verifier: self.resolve_code_verifier(input.code_verifier)?,
             scopes: self.config.scopes(input.scopes),
             prompt: self.config.prompt.clone(),
             access_type: self.config.access_type.clone(),
@@ -167,7 +179,7 @@ impl SocialOAuthProvider for GenericOAuthProvider {
                         .redirect_uri
                         .clone()
                         .unwrap_or(input.redirect_uri),
-                    code_verifier: self.config.pkce.then_some(input.code_verifier).flatten(),
+                    code_verifier: self.resolve_code_verifier(input.code_verifier)?,
                     device_id: input.device_id,
                 })
                 .await;

@@ -208,11 +208,13 @@ impl ZoomProvider {
         &self,
         request: ZoomAuthorizationCodeRequest,
     ) -> Result<OAuthFormRequest, OAuthError> {
+        let code_verifier = self.resolve_authorization_code_verifier(request.code_verifier)?;
+
         authorization_code_request(AuthorizationCodeRequest {
             code: request.code,
             redirect_uri: request.redirect_uri,
             options: self.options.oauth.clone(),
-            code_verifier: request.code_verifier,
+            code_verifier,
             authentication: ClientAuthentication::Post,
             ..AuthorizationCodeRequest::default()
         })
@@ -222,13 +224,15 @@ impl ZoomProvider {
         &self,
         request: ZoomAuthorizationCodeRequest,
     ) -> Result<OAuth2Tokens, OAuthError> {
+        let code_verifier = self.resolve_authorization_code_verifier(request.code_verifier)?;
+
         validate_authorization_code(ClientTokenRequest {
             token_endpoint: ZOOM_TOKEN_ENDPOINT.to_owned(),
             request: AuthorizationCodeRequest {
                 code: request.code,
                 redirect_uri: request.redirect_uri,
                 options: self.options.oauth.clone(),
-                code_verifier: request.code_verifier,
+                code_verifier,
                 authentication: ClientAuthentication::Post,
                 ..AuthorizationCodeRequest::default()
             },
@@ -335,6 +339,20 @@ impl ZoomProvider {
             image: profile.pic_url.clone(),
             email_verified: profile.verified != 0,
         }
+    }
+
+    fn resolve_authorization_code_verifier(
+        &self,
+        code_verifier: Option<String>,
+    ) -> Result<Option<String>, OAuthError> {
+        if !self.options.pkce {
+            return Ok(code_verifier);
+        }
+
+        code_verifier
+            .filter(|value| !value.is_empty())
+            .ok_or(OAuthError::MissingOption("code_verifier"))
+            .map(Some)
     }
 }
 

@@ -183,6 +183,8 @@ impl AtlassianProvider {
         redirect_uri: impl Into<String>,
         code_verifier: Option<String>,
     ) -> Result<OAuth2Tokens, OAuthError> {
+        let code_verifier = code_verifier.ok_or(OAuthError::MissingOption("code_verifier"))?;
+
         validate_authorization_code_with_client(
             ClientTokenRequest {
                 token_endpoint: self.token_endpoint.to_owned(),
@@ -190,7 +192,7 @@ impl AtlassianProvider {
                     code: code.into(),
                     redirect_uri: redirect_uri.into(),
                     options: self.options.oauth.clone(),
-                    code_verifier,
+                    code_verifier: Some(code_verifier),
                     ..AuthorizationCodeRequest::default()
                 },
             },
@@ -412,6 +414,18 @@ mod tests {
             query_value(&url, "scope"),
             Some("configured:scope request:scope".to_owned())
         );
+    }
+
+    #[tokio::test]
+    async fn validate_authorization_code_requires_code_verifier() {
+        let provider = AtlassianProvider::new(AtlassianOptions::new("client-id", "client-secret"));
+
+        let error = provider
+            .validate_authorization_code("code-123", "https://app.example.com/callback", None)
+            .await
+            .expect_err("missing code verifier should fail before token request");
+
+        assert!(matches!(error, OAuthError::MissingOption("code_verifier")));
     }
 
     #[tokio::test]

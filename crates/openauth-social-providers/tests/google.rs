@@ -1,7 +1,7 @@
-use openauth_oauth::oauth2::{ClientId, OAuthProviderContract, ProviderOptions};
+use openauth_oauth::oauth2::{ClientId, OAuthError, OAuthProviderContract, ProviderOptions};
 use openauth_social_providers::google::{
-    GoogleAccessType, GoogleAuthorizationUrlRequest, GoogleDisplay, GoogleOptions, GoogleProfile,
-    GoogleProvider,
+    GoogleAccessType, GoogleAuthorizationCodeRequest, GoogleAuthorizationUrlRequest, GoogleDisplay,
+    GoogleOptions, GoogleProfile, GoogleProvider,
 };
 
 #[test]
@@ -150,6 +150,25 @@ fn authorization_url_requires_client_id_secret_and_code_verifier() {
             ..valid_authorization_request()
         })
         .is_err());
+}
+
+#[tokio::test]
+async fn google_validate_authorization_code_requires_code_verifier() {
+    let provider = GoogleProvider::new(valid_options());
+
+    let result = provider
+        .validate_authorization_code(GoogleAuthorizationCodeRequest {
+            code: "code-1".to_owned(),
+            redirect_uri: "https://app.example.com/callback".to_owned(),
+            code_verifier: None,
+            ..GoogleAuthorizationCodeRequest::default()
+        })
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(OAuthError::MissingOption("code_verifier"))
+    ));
 }
 
 #[test]

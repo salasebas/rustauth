@@ -79,6 +79,25 @@ fn figma_authorization_url_requires_code_verifier() {
 }
 
 #[test]
+fn figma_authorization_code_request_requires_code_verifier() {
+    let provider = figma(provider_options());
+
+    let error = provider
+        .authorization_code_request(
+            "code-1",
+            None::<String>,
+            "https://app.example.com/auth/callback",
+        )
+        .err()
+        .map(|error| error.to_string());
+
+    assert_eq!(
+        error.as_deref(),
+        Some("missing OAuth provider option `code_verifier`")
+    );
+}
+
+#[test]
 fn figma_token_requests_use_basic_auth() -> Result<(), OAuthError> {
     let provider = figma(provider_options());
     let request = provider.authorization_code_request(

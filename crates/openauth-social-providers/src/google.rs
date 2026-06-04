@@ -185,6 +185,8 @@ impl GoogleProvider {
         &self,
         request: GoogleAuthorizationCodeRequest,
     ) -> Result<OAuth2Tokens, OAuthError> {
+        self.ensure_authorization_options(request.code_verifier.as_deref())?;
+
         validate_authorization_code(ClientTokenRequest {
             token_endpoint: GOOGLE_TOKEN_ENDPOINT.to_owned(),
             request: AuthorizationCodeRequest {

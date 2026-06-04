@@ -91,6 +91,24 @@ fn vercel_authorization_url_requires_code_verifier() {
 }
 
 #[test]
+fn vercel_authorization_code_request_requires_code_verifier() {
+    let provider = vercel(vercel_options());
+
+    let error = provider
+        .authorization_code_request(
+            "code-1",
+            None::<String>,
+            "https://app.example.com/auth/callback/vercel",
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "missing OAuth provider option `code_verifier`"
+    );
+}
+
+#[test]
 fn vercel_authorization_code_request_matches_upstream_form_contract() -> Result<(), OAuthError> {
     let provider = vercel(vercel_options());
     let request = provider.authorization_code_request(
