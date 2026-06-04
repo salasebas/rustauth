@@ -80,7 +80,7 @@ fn provider_token_url_params_cannot_override_protected_token_request_values(
     let provider = provider(config);
     let request = provider.authorization_code_request(SocialAuthorizationCodeRequest {
         code: "code-1".to_owned(),
-        code_verifier: None,
+        code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
         redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
         device_id: None,
     })?;
@@ -92,6 +92,65 @@ fn provider_token_url_params_cannot_override_protected_token_request_values(
     );
     assert_eq!(request.form_value("audience"), Some("api"));
     Ok(())
+}
+
+#[test]
+fn provider_authorization_code_request_requires_code_verifier_when_pkce_is_enabled() {
+    let provider = provider(example_config());
+
+    let error = provider
+        .authorization_code_request(SocialAuthorizationCodeRequest {
+            code: "code-1".to_owned(),
+            code_verifier: None,
+            redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
+            device_id: None,
+        })
+        .err()
+        .map(|error| error.to_string());
+
+    assert_eq!(
+        error.as_deref(),
+        Some("missing OAuth provider option `code_verifier`")
+    );
+}
+
+#[test]
+fn provider_authorization_code_request_allows_missing_code_verifier_when_pkce_is_disabled(
+) -> Result<(), OAuthError> {
+    let mut config = example_config();
+    config.pkce = false;
+    let provider = provider(config);
+
+    let request = provider.authorization_code_request(SocialAuthorizationCodeRequest {
+        code: "code-1".to_owned(),
+        code_verifier: None,
+        redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
+        device_id: None,
+    })?;
+
+    assert_eq!(request.form_value("code_verifier"), None);
+    Ok(())
+}
+
+#[test]
+fn provider_create_authorization_url_requires_code_verifier_when_pkce_is_enabled() {
+    let provider = provider(example_config());
+
+    let error = provider
+        .create_authorization_url(SocialAuthorizationUrlRequest {
+            state: "state-1".to_owned(),
+            redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
+            code_verifier: None,
+            scopes: Vec::new(),
+            login_hint: None,
+        })
+        .err()
+        .map(|error| error.to_string());
+
+    assert_eq!(
+        error.as_deref(),
+        Some("missing OAuth provider option `code_verifier`")
+    );
 }
 
 #[tokio::test]
@@ -125,7 +184,7 @@ async fn provider_uses_custom_get_token_and_maps_profile() {
     let tokens = provider
         .validate_authorization_code(SocialAuthorizationCodeRequest {
             code: "code-1".to_owned(),
-            code_verifier: None,
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
             redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
             device_id: None,
         })

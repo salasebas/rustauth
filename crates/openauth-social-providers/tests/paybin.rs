@@ -144,6 +144,21 @@ fn paybin_authorization_url_requires_client_id_secret_and_code_verifier() {
 }
 
 #[test]
+fn paybin_authorization_code_request_requires_code_verifier() {
+    let provider = paybin(paybin_options());
+
+    let error = provider
+        .authorization_code_request(
+            "code-1",
+            None::<String>,
+            "https://app.example.com/auth/callback/paybin",
+        )
+        .unwrap_err();
+
+    assert!(matches!(error, OAuthError::MissingOption("code_verifier")));
+}
+
+#[test]
 fn paybin_authorization_code_request_matches_upstream_form_contract() -> Result<(), OAuthError> {
     let provider = paybin(paybin_options());
     let request = provider.authorization_code_request(
