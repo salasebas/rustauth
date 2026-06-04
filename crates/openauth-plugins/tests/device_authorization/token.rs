@@ -144,6 +144,85 @@ async fn token_route_exchanges_approved_code_for_bearer_token_and_scope(
 }
 
 #[tokio::test]
+async fn token_route_rejects_reused_approved_device_code() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(TestAdapter::default());
+    let router = router(adapter.clone(), DeviceAuthorizationOptions::default())?;
+    let code = create_device_code(&router, "test-client", None).await?;
+    let (_user_id, cookie) = create_user_session(&adapter).await?;
+    approve(&router, string_field(&code, "user_code"), &cookie).await?;
+    let device_code = string_field(&code, "device_code");
+
+    let first = poll_token(&router, device_code, "test-client").await?;
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = poll_token(&router, device_code, "test-client").await?;
+    assert_eq!(second.status(), StatusCode::BAD_REQUEST);
+    assert_token_cache_headers(&second);
+    let body: Value = serde_json::from_slice(second.body())?;
+    assert_eq!(body["error"], "invalid_grant");
+    assert_eq!(body["error_description"], "Invalid device code");
+    assert_eq!(adapter.len("deviceCode").await, 0);
+    assert_eq!(adapter.len("session").await, 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn token_route_allows_only_one_concurrent_approved_exchange(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(TestAdapter::default());
+    let router = Arc::new(router(
+        adapter.clone(),
+        DeviceAuthorizationOptions::default(),
+    )?);
+    let code = create_device_code(&router, "test-client", None).await?;
+    let (_user_id, cookie) = create_user_session(&adapter).await?;
+    approve(&router, string_field(&code, "user_code"), &cookie).await?;
+    let device_code = string_field(&code, "device_code").to_owned();
+    let client_id = "test-client".to_owned();
+
+    let router_a = Arc::clone(&router);
+    let router_b = Arc::clone(&router);
+    let device_code_a = device_code.clone();
+    let device_code_b = device_code;
+    let client_id_a = client_id.clone();
+    let client_id_b = client_id;
+    let (response_a, response_b) = tokio::join!(
+        poll_token(&router_a, &device_code_a, &client_id_a),
+        poll_token(&router_b, &device_code_b, &client_id_b),
+    );
+
+    let responses = [response_a?, response_b?];
+    let success_count = responses
+        .iter()
+        .filter(|response| response.status() == StatusCode::OK)
+        .count();
+    let rejection_count = responses
+        .iter()
+        .filter(|response| response.status() == StatusCode::BAD_REQUEST)
+        .count();
+    assert_eq!(success_count, 1);
+    assert_eq!(rejection_count, 1);
+
+    let rejected = responses
+        .iter()
+        .find(|response| response.status() == StatusCode::BAD_REQUEST)
+        .ok_or("one rejected response")?;
+    assert_token_cache_headers(rejected);
+    let body: Value = serde_json::from_slice(rejected.body())?;
+    assert_eq!(body["error"], "invalid_grant");
+    assert!(
+        body["error_description"] == "Device code has already been used"
+            || body["error_description"] == "Invalid device code",
+        "unexpected rejection description: {}",
+        body["error_description"]
+    );
+    assert_eq!(adapter.len("deviceCode").await, 0);
+    assert_eq!(adapter.len("session").await, 2);
+    Ok(())
+}
+
+#[tokio::test]
 async fn approved_token_session_uses_secondary_storage_when_configured(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(TestAdapter::default());

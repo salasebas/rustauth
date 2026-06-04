@@ -145,6 +145,13 @@ async fn approved_response(
     record: &DeviceCodeRecord,
     request: &ApiRequest,
 ) -> Result<ApiResponse, OpenAuthError> {
+    if !store.consume_approved(&record.id).await? {
+        return token_oauth_error_response(
+            StatusCode::BAD_REQUEST,
+            OAuthDeviceError::InvalidGrant,
+            "Device code has already been used",
+        );
+    }
     let Some(user_id) = &record.user_id else {
         return token_oauth_error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -185,7 +192,6 @@ async fn approved_response(
     if request_state::has_request_state() {
         request_state::set_current_new_session(session.clone(), user)?;
     }
-    store.delete(&record.id).await?;
 
     let expires_in = (session.expires_at - OffsetDateTime::now_utc())
         .whole_seconds()

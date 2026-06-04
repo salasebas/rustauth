@@ -1,5 +1,7 @@
 use openauth_core::crypto::random::generate_random_string;
-use openauth_core::db::{Create, DbAdapter, DbRecord, DbValue, Delete, FindOne, Update, Where};
+use openauth_core::db::{
+    Create, DbAdapter, DbRecord, DbValue, Delete, DeleteMany, FindOne, Update, Where,
+};
 use openauth_core::error::OpenAuthError;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -198,6 +200,26 @@ impl<'a> DeviceCodeStore<'a> {
         self.adapter
             .delete(Delete::new(DEVICE_CODE_MODEL).where_clause(id_where(id)))
             .await
+    }
+
+    /// Atomically consumes an approved device code before token minting.
+    ///
+    /// Parallel callers racing on the same approved code only observe a
+    /// successful consume once: the delete is keyed by both row id and
+    /// `status = approved`, so later attempts delete zero rows.
+    pub async fn consume_approved(&self, id: &str) -> Result<bool, OpenAuthError> {
+        let deleted = self
+            .adapter
+            .delete_many(
+                DeleteMany::new(DEVICE_CODE_MODEL)
+                    .where_clause(id_where(id))
+                    .where_clause(Where::new(
+                        "status",
+                        DbValue::String(DeviceAuthorizationStatus::Approved.as_str().to_owned()),
+                    )),
+            )
+            .await?;
+        Ok(deleted == 1)
     }
 
     async fn find_one(
