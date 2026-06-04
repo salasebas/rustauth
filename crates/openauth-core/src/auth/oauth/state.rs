@@ -129,26 +129,25 @@ pub async fn parse_oauth_state(
 ) -> Result<OAuthStateData, OpenAuthError> {
     let data = match context.options.account.store_state_strategy {
         OAuthStateStoreStrategy::Cookie => {
-            let json = decrypt_with_context(state, context)?;
-            let data = serde_json::from_str::<OAuthStateData>(&json)
-                .map_err(|error| OpenAuthError::Crypto(error.to_string()))?;
             // Enforce single-use when a server-side marker exists. Cookie-mode
             // states generated with an adapter create a marker at generation time;
-            // consuming it here rejects replays (OPE-19). A missing marker means the
-            // state was already consumed or expired, so we reject it.
+            // atomically consuming it here rejects replays and parallel callbacks
+            // (OPE-19, OPE-106). A missing marker means the state was already
+            // consumed or never issued with an adapter.
             if let Some(adapter) = adapter {
                 let verifications = DbVerificationStore::new(adapter);
                 let identifier = cookie_state_single_use_identifier(state);
                 if verifications
-                    .find_verification(&identifier)
+                    .consume_verification_including_expired(&identifier)
                     .await?
                     .is_none()
                 {
                     return Err(OpenAuthError::Api("invalid OAuth state".to_owned()));
                 }
-                verifications.delete_verification(&identifier).await?;
             }
-            data
+            let json = decrypt_with_context(state, context)?;
+            serde_json::from_str::<OAuthStateData>(&json)
+                .map_err(|error| OpenAuthError::Crypto(error.to_string()))?
         }
         OAuthStateStoreStrategy::Database => {
             let adapter = adapter.ok_or_else(|| {
@@ -157,15 +156,11 @@ pub async fn parse_oauth_state(
             let verifications = DbVerificationStore::new(adapter);
             let identifier = oauth_state_identifier(state);
             let verification = verifications
-                .find_verification(&identifier)
+                .consume_verification_including_expired(&identifier)
                 .await?
                 .ok_or_else(|| OpenAuthError::Api("invalid OAuth state".to_owned()))?;
-            let data = serde_json::from_str::<OAuthStateData>(&verification.value)
-                .map_err(|error| OpenAuthError::Crypto(error.to_string()))?;
-            if data.expires_at > OffsetDateTime::now_utc() {
-                verifications.delete_verification(&identifier).await?;
-            }
-            data
+            serde_json::from_str::<OAuthStateData>(&verification.value)
+                .map_err(|error| OpenAuthError::Crypto(error.to_string()))?
         }
     };
     if data.expires_at <= OffsetDateTime::now_utc() {

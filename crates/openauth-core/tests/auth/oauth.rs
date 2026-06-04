@@ -239,6 +239,75 @@ async fn oauth_state_cookie_strategy_is_single_use_with_database(
 }
 
 #[tokio::test]
+async fn parse_oauth_state_database_strategy_allows_only_one_concurrent_parse(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = MemoryAdapter::new();
+    let context = test_context(AccountOptions {
+        store_state_strategy: OAuthStateStoreStrategy::Database,
+        ..AccountOptions::default()
+    })?;
+    let state = generate_oauth_state(
+        &context,
+        Some(&adapter),
+        OAuthStateInput {
+            callback_url: "https://app.example.com/callback".to_owned(),
+            ..OAuthStateInput::default()
+        },
+    )
+    .await?;
+
+    let context_a = context.clone();
+    let context_b = context.clone();
+    let state_value = state.state.clone();
+    let (first, second) = tokio::join!(
+        parse_oauth_state(&context_a, Some(&adapter), &state_value),
+        parse_oauth_state(&context_b, Some(&adapter), &state_value),
+    );
+    let parsed = [first, second]
+        .into_iter()
+        .filter(|result| result.is_ok())
+        .count();
+    assert_eq!(
+        parsed, 1,
+        "parallel parse attempts must consume database OAuth state at most once"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn parse_oauth_state_cookie_marker_allows_only_one_concurrent_parse(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = MemoryAdapter::new();
+    let context = test_context(AccountOptions::default())?;
+    let state = generate_oauth_state(
+        &context,
+        Some(&adapter),
+        OAuthStateInput {
+            callback_url: "https://app.example.com/callback".to_owned(),
+            ..OAuthStateInput::default()
+        },
+    )
+    .await?;
+
+    let context_a = context.clone();
+    let context_b = context.clone();
+    let state_value = state.state.clone();
+    let (first, second) = tokio::join!(
+        parse_oauth_state(&context_a, Some(&adapter), &state_value),
+        parse_oauth_state(&context_b, Some(&adapter), &state_value),
+    );
+    let parsed = [first, second]
+        .into_iter()
+        .filter(|result| result.is_ok())
+        .count();
+    assert_eq!(
+        parsed, 1,
+        "parallel parse attempts must consume the cookie single-use marker at most once"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn oauth_state_cookie_strategy_without_adapter_skips_single_use_marker(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let context = test_context(AccountOptions::default())?;
