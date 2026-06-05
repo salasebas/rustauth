@@ -718,8 +718,8 @@ async fn fred_and_redis_secondary_storage_take_match_for_same_key(
         let key = format!("take-parity:{}:{}", target.name, now_ms());
 
         redis.set(&key, "shared-payload".to_owned(), None).await?;
-        assert_eq!(fred.take(&key).await?, None);
-        assert_eq!(redis.take(&key).await?, Some("shared-payload".to_owned()));
+        assert_eq!(fred.take(&key).await?, Some("shared-payload".to_owned()));
+        assert_eq!(redis.take(&key).await?, None);
 
         fred.set(&key, "fred-payload".to_owned(), None).await?;
         assert_eq!(redis.take(&key).await?, Some("fred-payload".to_owned()));
