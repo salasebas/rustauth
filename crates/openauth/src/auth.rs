@@ -7,7 +7,7 @@ use openauth_core::api::{
 #[cfg(feature = "telemetry")]
 use openauth_core::context::ContextTelemetryEvent;
 use openauth_core::context::{create_auth_context, create_auth_context_with_adapter, AuthContext};
-use openauth_core::db::{DbAdapter, HookedAdapter, JoinAdapter, SchemaCreation};
+use openauth_core::db::{DbAdapter, JoinAdapter, SchemaCreation};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::OpenAuthOptions;
 #[cfg(feature = "telemetry")]
@@ -349,17 +349,13 @@ pub fn open_auth_with_adapter_and_endpoints(
     async_endpoints: Vec<AsyncAuthEndpoint>,
 ) -> Result<OpenAuth, OpenAuthError> {
     let context = create_auth_context(options.clone())?;
-    let hooked_adapter: Arc<dyn DbAdapter> = Arc::new(HookedAdapter::with_logger(
-        adapter,
-        context.plugin_database_hooks.clone(),
-        context.logger.clone(),
-    ));
-    let adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
+    let joined_adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
         context.db_schema.clone(),
-        hooked_adapter,
+        adapter,
         options.experimental.joins,
     ));
-    let context = create_auth_context_with_adapter(options.clone(), Arc::clone(&adapter))?;
+    let context = create_auth_context_with_adapter(options.clone(), Arc::clone(&joined_adapter))?;
+    let adapter = context.adapter.clone().unwrap_or(joined_adapter);
     let mut endpoints = core_endpoints();
     endpoints.extend(extra_endpoints);
     let mut product_async_endpoints = core_auth_async_endpoints(Arc::clone(&adapter));
@@ -450,16 +446,14 @@ pub async fn open_auth_with_adapter_and_endpoints_async(
     telemetry_context: TelemetryContext,
 ) -> Result<OpenAuth, OpenAuthError> {
     let context = create_auth_context(options.clone())?;
-    let hooked_adapter: Arc<dyn DbAdapter> = Arc::new(HookedAdapter::new(
-        adapter,
-        context.plugin_database_hooks.clone(),
-    ));
-    let adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
+    let joined_adapter: Arc<dyn DbAdapter> = Arc::new(JoinAdapter::new(
         context.db_schema.clone(),
-        hooked_adapter,
+        adapter,
         options.experimental.joins,
     ));
-    let mut context = create_auth_context_with_adapter(options.clone(), Arc::clone(&adapter))?;
+    let mut context =
+        create_auth_context_with_adapter(options.clone(), Arc::clone(&joined_adapter))?;
+    let adapter = context.adapter.clone().unwrap_or(joined_adapter);
     attach_telemetry(&mut context, &options, telemetry_context).await;
     let mut endpoints = core_endpoints();
     endpoints.extend(extra_endpoints);
