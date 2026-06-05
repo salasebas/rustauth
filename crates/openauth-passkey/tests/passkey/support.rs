@@ -82,6 +82,30 @@ pub async fn seeded_router_with_advanced(
     Ok((adapter, router, backend))
 }
 
+/// Build a seeded router with caller-supplied top-level auth options.
+pub async fn seeded_router_with_auth_options(
+    auth_options: OpenAuthOptions,
+    passkey_options: PasskeyOptions,
+) -> Result<(Arc<MemoryAdapter>, AuthRouter, Arc<FakeWebAuthnBackend>), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user(adapter.as_ref()).await?;
+    let backend = Arc::new(FakeWebAuthnBackend::default());
+    let context = create_auth_context_with_adapter(
+        OpenAuthOptions {
+            plugins: vec![passkey(passkey_options.backend(backend.clone()))],
+            ..auth_options
+        },
+        adapter.clone(),
+    )?;
+    let router = AuthRouter::with_async_endpoints(
+        context,
+        Vec::new(),
+        core_auth_async_endpoints(adapter.clone()),
+    )?;
+    Ok((adapter, router, backend))
+}
+
 /// In-memory `SecondaryStorage` test double that records keys for assertions.
 #[derive(Default)]
 pub struct InMemorySecondaryStorage {
@@ -401,6 +425,21 @@ impl DbAdapter for RaceDuplicateAdapter {
     ) -> AdapterFuture<'a, Option<SchemaCreation>> {
         self.inner.create_schema(schema, file)
     }
+}
+
+pub fn get_request_with_origin(
+    method: Method,
+    authority: &str,
+    path: &str,
+    origin: Option<&str>,
+) -> Result<Request<Vec<u8>>, http::Error> {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(format!("http://{authority}{path}"));
+    if let Some(origin) = origin {
+        builder = builder.header(header::ORIGIN, origin);
+    }
+    builder.body(Vec::new())
 }
 
 pub fn empty_request(

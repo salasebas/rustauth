@@ -20,3 +20,5 @@ mod sql;
 mod sqlite;
 #[path = "passkey/support.rs"]
 mod support;
+#[path = "passkey/webauthn_config.rs"]
+mod webauthn_config;

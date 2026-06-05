@@ -56,28 +56,59 @@ pub(crate) fn adapter(context: &AuthContext) -> Result<Arc<dyn DbAdapter>, OpenA
     })
 }
 
-pub(crate) fn webauthn_config(
+const PASSKEY_ORIGIN_REQUIRED: &str =
+    "passkey requires an explicit origin, a request Origin header, or a configured base_url";
+const PASSKEY_RP_ID_REQUIRED: &str =
+    "passkey requires an explicit rp_id or a host derivable from base_url or origin";
+
+fn resolve_passkey_origins(
     context: &AuthContext,
     options: &PasskeyOptions,
     request: &ApiRequest,
+) -> Result<Vec<String>, OpenAuthError> {
+    if !options.origin.is_empty() {
+        return Ok(options.origin.clone());
+    }
+    if let Some(origin) = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    {
+        return Ok(vec![origin.trim_end_matches('/').to_owned()]);
+    }
+    if !context.base_url.is_empty() {
+        return Ok(vec![context.base_url.trim_end_matches('/').to_owned()]);
+    }
+    Err(OpenAuthError::InvalidConfig(
+        PASSKEY_ORIGIN_REQUIRED.to_owned(),
+    ))
+}
+
+fn resolve_passkey_rp_id(
+    context: &AuthContext,
+    options: &PasskeyOptions,
+    origins: &[String],
+) -> Result<String, OpenAuthError> {
+    if let Some(rp_id) = &options.rp_id {
+        return Ok(rp_id.clone());
+    }
+    if let Some(host) = host_from_url(context.base_url.as_str()) {
+        return Ok(host);
+    }
+    if let Some(host) = origins.first().and_then(|origin| host_from_url(origin)) {
+        return Ok(host);
+    }
+    Err(OpenAuthError::InvalidConfig(
+        PASSKEY_RP_ID_REQUIRED.to_owned(),
+    ))
+}
+
+fn passkey_webauthn_config(
+    context: &AuthContext,
+    options: &PasskeyOptions,
+    origins: Vec<String>,
 ) -> Result<WebAuthnConfig, OpenAuthError> {
-    let origins = if options.origin.is_empty() {
-        request
-            .headers()
-            .get(header::ORIGIN)
-            .and_then(|value| value.to_str().ok())
-            .map(|origin| vec![origin.trim_end_matches('/').to_owned()])
-            .or_else(|| (!context.base_url.is_empty()).then(|| vec![context.base_url.clone()]))
-            .unwrap_or_else(|| vec!["http://localhost".to_owned()])
-    } else {
-        options.origin.clone()
-    };
-    let rp_id = options
-        .rp_id
-        .clone()
-        .or_else(|| host_from_url(context.base_url.as_str()))
-        .or_else(|| origins.first().and_then(|origin| host_from_url(origin)))
-        .unwrap_or_else(|| "localhost".to_owned());
+    let rp_id = resolve_passkey_rp_id(context, options, &origins)?;
     Ok(WebAuthnConfig {
         rp_id,
         rp_name: options
@@ -86,6 +117,15 @@ pub(crate) fn webauthn_config(
             .unwrap_or_else(|| context.app_name.clone()),
         origins,
     })
+}
+
+pub(crate) fn webauthn_config(
+    context: &AuthContext,
+    options: &PasskeyOptions,
+    request: &ApiRequest,
+) -> Result<WebAuthnConfig, OpenAuthError> {
+    let origins = resolve_passkey_origins(context, options, request)?;
+    passkey_webauthn_config(context, options, origins)
 }
 
 pub(crate) fn verification_webauthn_config(
@@ -105,20 +145,7 @@ pub(crate) fn verification_webauthn_config(
     } else {
         options.origin.clone()
     };
-    let rp_id = options
-        .rp_id
-        .clone()
-        .or_else(|| host_from_url(context.base_url.as_str()))
-        .or_else(|| origins.first().and_then(|origin| host_from_url(origin)))
-        .unwrap_or_else(|| "localhost".to_owned());
-    Ok(Some(WebAuthnConfig {
-        rp_id,
-        rp_name: options
-            .rp_name
-            .clone()
-            .unwrap_or_else(|| context.app_name.clone()),
-        origins,
-    }))
+    Ok(Some(passkey_webauthn_config(context, options, origins)?))
 }
 
 fn host_from_url(value: &str) -> Option<String> {

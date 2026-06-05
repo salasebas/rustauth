@@ -258,6 +258,13 @@ enum StoredAuthenticationState {
     Discoverable(AuthenticationState),
 }
 
+/// Builds the low-level WebAuthn verifier.
+///
+/// `WebauthnCore::new_unsafe_experts_only` is required here because OpenAuth must
+/// opt into loopback-only `allow_any_port` origin matching (see `origins_allow_any_port`).
+/// The high-level `WebauthnBuilder` path does not expose that control without the same
+/// expert constructor. Callers must already have resolved `rp_id` and `origins` via
+/// `routes::webauthn_config`, which fails closed instead of defaulting to localhost.
 fn core(config: &WebAuthnConfig) -> Result<WebauthnCore, OpenAuthError> {
     if config.origins.is_empty() {
         return Err(OpenAuthError::InvalidConfig(
