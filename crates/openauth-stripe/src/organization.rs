@@ -194,10 +194,9 @@ async fn stripe_customer_has_blocking_subscription(
     stripe_customer_id: &str,
 ) -> Result<bool, OpenAuthError> {
     let list = stripe_client
-        .list_subscriptions(json!({
+        .list_subscriptions_all(json!({
             "customer": stripe_customer_id,
             "status": "all",
-            "limit": 100
         }))
         .await
         .map_err(|error| OpenAuthError::Api(error.to_string()))?;

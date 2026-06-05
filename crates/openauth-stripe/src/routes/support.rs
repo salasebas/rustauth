@@ -11,6 +11,10 @@ use serde_json::{json, Value};
 use crate::errors::StripeErrorCode;
 use crate::options::SubscriptionOptions;
 use crate::stripe_api::StripeApiError;
+use crate::subscription_lookup::{
+    all_reference_subscription_records, reference_subscription_exists,
+};
+use crate::utils::is_active_or_trialing;
 
 pub(super) async fn require_session(
     context: &AuthContext,
@@ -159,12 +163,7 @@ pub(super) async fn subscription_records_for_reference(
     adapter: &dyn openauth_core::db::DbAdapter,
     reference_id: &str,
 ) -> Result<Vec<DbRecord>, OpenAuthError> {
-    adapter
-        .find_many(FindMany::new("subscription").where_clause(Where::new(
-            "reference_id",
-            DbValue::String(reference_id.to_owned()),
-        )))
-        .await
+    all_reference_subscription_records(adapter, reference_id).await
 }
 
 pub(super) fn find_incomplete_subscription_record(records: &[DbRecord]) -> Option<&DbRecord> {
@@ -302,17 +301,7 @@ pub(super) async fn reference_has_ever_trialed(
     adapter: &dyn openauth_core::db::DbAdapter,
     reference_id: &str,
 ) -> Result<bool, OpenAuthError> {
-    let records = adapter
-        .find_many(
-            FindMany::new("subscription")
-                .where_clause(Where::new(
-                    "reference_id",
-                    DbValue::String(reference_id.to_owned()),
-                ))
-                .limit(100),
-        )
-        .await?;
-    Ok(records.into_iter().any(|record| {
+    reference_subscription_exists(adapter, reference_id, |record| {
         record
             .get("status")
             .and_then(db_string)
@@ -323,30 +312,22 @@ pub(super) async fn reference_has_ever_trialed(
             || record
                 .get("trial_end")
                 .is_some_and(|value| !is_db_null(value))
-    }))
+    })
+    .await
 }
 
 pub(super) async fn active_subscription_records(
     adapter: &dyn openauth_core::db::DbAdapter,
     reference_id: &str,
 ) -> Result<Vec<DbRecord>, OpenAuthError> {
-    let records = adapter
-        .find_many(
-            FindMany::new("subscription")
-                .where_clause(Where::new(
-                    "reference_id",
-                    DbValue::String(reference_id.to_owned()),
-                ))
-                .limit(100),
-        )
-        .await?;
-    Ok(records
+    Ok(all_reference_subscription_records(adapter, reference_id)
+        .await?
         .into_iter()
         .filter(|record| {
             record
                 .get("status")
                 .and_then(db_string)
-                .is_some_and(crate::utils::is_active_or_trialing)
+                .is_some_and(is_active_or_trialing)
         })
         .collect())
 }

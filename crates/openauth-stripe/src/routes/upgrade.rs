@@ -537,31 +537,28 @@ async fn reconcile_active_upgrade_record(
     active_local_hint: Option<&DbRecord>,
     local_records: &[DbRecord],
 ) -> Result<Option<DbRecord>, StripeApiError> {
-    let stripe_list = options
+    let stripe_sub = options
         .stripe_client
-        .list_subscriptions(json!({ "customer": customer_id }))
-        .await?;
-    let Some(stripe_data) = stripe_list.get("data").and_then(Value::as_array) else {
-        return Ok(None);
-    };
-    let active_stripe_sub = stripe_data.iter().find(|sub| {
-        let Some(status) = sub.get("status").and_then(Value::as_str) else {
-            return false;
-        };
-        if !crate::utils::is_active_or_trialing(status) {
-            return false;
-        }
-        if let Some(hint) = stripe_id_hint {
-            return sub.get("id").and_then(Value::as_str) == Some(hint);
-        }
-        if let Some(local) = active_local_hint {
-            if let Some(local_stripe) = local.get("stripe_subscription_id").and_then(db_string) {
-                return sub.get("id").and_then(Value::as_str) == Some(local_stripe);
+        .find_subscription(json!({ "customer": customer_id }), |sub| {
+            let Some(status) = sub.get("status").and_then(Value::as_str) else {
+                return false;
+            };
+            if !crate::utils::is_active_or_trialing(status) {
+                return false;
             }
-        }
-        false
-    });
-    let Some(stripe_sub) = active_stripe_sub else {
+            if let Some(hint) = stripe_id_hint {
+                return sub.get("id").and_then(Value::as_str) == Some(hint);
+            }
+            if let Some(local) = active_local_hint {
+                if let Some(local_stripe) = local.get("stripe_subscription_id").and_then(db_string)
+                {
+                    return sub.get("id").and_then(Value::as_str) == Some(local_stripe);
+                }
+            }
+            false
+        })
+        .await?;
+    let Some(stripe_sub) = stripe_sub else {
         return Ok(None);
     };
     let Some(stripe_subscription_id) = stripe_sub.get("id").and_then(Value::as_str) else {
@@ -618,24 +615,17 @@ async fn stripe_subscription_matches_requested_price(
     let Some(customer_id) = subscription.get("stripe_customer_id").and_then(db_string) else {
         return Ok(None);
     };
-    let stripe_subscriptions = match options
+    let stripe_subscription_value = match options
         .stripe_client
-        .list_subscriptions(json!({ "customer": customer_id }))
+        .find_subscription(json!({ "customer": customer_id }), |subscription| {
+            subscription.get("id").and_then(Value::as_str) == Some(stripe_subscription_id)
+        })
         .await
     {
-        Ok(stripe_subscriptions) => stripe_subscriptions,
+        Ok(stripe_subscription_value) => stripe_subscription_value,
         Err(_) => return Ok(None),
     };
-    let Some(stripe_subscription_value) = stripe_subscriptions
-        .get("data")
-        .and_then(Value::as_array)
-        .and_then(|subscriptions| {
-            subscriptions.iter().find(|subscription| {
-                subscription.get("id").and_then(Value::as_str) == Some(stripe_subscription_id)
-            })
-        })
-        .cloned()
-    else {
+    let Some(stripe_subscription_value) = stripe_subscription_value else {
         return Ok(Some(false));
     };
     let stripe_subscription =

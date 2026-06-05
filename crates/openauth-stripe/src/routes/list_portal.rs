@@ -209,29 +209,25 @@ pub fn subscription_success(options: StripeOptions) -> openauth_core::api::Async
                 // List without an active-only filter so a `trialing` subscription
                 // created during checkout can still be reconciled when the webhook
                 // is delayed or missed; the find below selects active or trialing.
-                let Ok(stripe_subscriptions) = options
+                let Ok(stripe_subscription_value) = options
                     .stripe_client
-                    .list_subscriptions(json!({
-                        "customer": customer_id,
-                        "status": "all"
-                    }))
-                    .await
-                else {
-                    return redirect_response(&callback);
-                };
-                let Some(stripe_subscription_value) = stripe_subscriptions
-                    .get("data")
-                    .and_then(Value::as_array)
-                    .and_then(|subscriptions| {
-                        subscriptions.iter().find(|stripe_subscription| {
+                    .find_subscription(
+                        json!({
+                            "customer": customer_id,
+                            "status": "all"
+                        }),
+                        |stripe_subscription| {
                             stripe_subscription
                                 .get("status")
                                 .and_then(Value::as_str)
                                 .is_some_and(crate::utils::is_active_or_trialing)
-                        })
-                    })
-                    .cloned()
+                        },
+                    )
+                    .await
                 else {
+                    return redirect_response(&callback);
+                };
+                let Some(stripe_subscription_value) = stripe_subscription_value else {
                     return redirect_response(&callback);
                 };
                 let Ok(stripe_subscription) =

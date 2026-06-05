@@ -14,6 +14,8 @@ use http::StatusCode;
 
 use crate::errors::StripeErrorCode;
 
+mod paginated_list;
+
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type StripeTransportFuture<'a> = BoxFuture<'a, Result<StripeResponse, StripeApiError>>;
 

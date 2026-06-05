@@ -13,6 +13,7 @@ pub mod stripe_api;
 pub mod utils;
 
 mod organization;
+mod subscription_lookup;
 
 use openauth_core::plugin::{
     AuthPlugin, PluginDatabaseAfterInput, PluginDatabaseHook, PluginDatabaseOperation,

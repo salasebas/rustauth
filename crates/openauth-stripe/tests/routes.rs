@@ -299,6 +299,8 @@ mod manage;
 mod reference;
 #[path = "routes/reuse_incomplete.rs"]
 mod reuse_incomplete;
+#[path = "routes/subscription_pagination.rs"]
+mod subscription_pagination;
 #[path = "routes/trial_abuse.rs"]
 mod trial_abuse;
 #[path = "routes/upgrade.rs"]

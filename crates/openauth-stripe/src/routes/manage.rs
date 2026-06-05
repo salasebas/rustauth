@@ -144,7 +144,7 @@ pub fn cancel_subscription(options: StripeOptions) -> openauth_core::api::AsyncA
                     .map(str::to_owned);
                 let active_subscriptions = match options
                     .stripe_client
-                    .list_subscriptions(json!({ "customer": customer_id.clone() }))
+                    .list_subscriptions_all(json!({ "customer": customer_id.clone() }))
                     .await
                 {
                     Ok(active_subscriptions) => active_subscriptions,
@@ -446,7 +446,7 @@ pub fn restore_subscription(options: StripeOptions) -> openauth_core::api::Async
                 }
                 let active_subscriptions = match options
                     .stripe_client
-                    .list_subscriptions(json!({ "customer": customer_id }))
+                    .list_subscriptions_all(json!({ "customer": customer_id }))
                     .await
                 {
                     Ok(active_subscriptions) => active_subscriptions,

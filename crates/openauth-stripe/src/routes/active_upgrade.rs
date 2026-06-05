@@ -40,28 +40,20 @@ pub(super) async fn handle(input: ActiveUpgradeInput<'_>) -> Result<ApiResponse,
             StripeErrorCode::SubscriptionNotFound,
         );
     };
-    let active_stripe_subscriptions = match input
+    let active_stripe_subscription = match input
         .options
         .stripe_client
-        .list_subscriptions(json!({ "customer": input.customer_id }))
+        .find_subscription(json!({ "customer": input.customer_id }), |subscription| {
+            subscription.get("id").and_then(Value::as_str) == Some(stripe_subscription_id.as_str())
+        })
         .await
     {
-        Ok(active_stripe_subscriptions) => active_stripe_subscriptions,
+        Ok(active_stripe_subscription) => active_stripe_subscription,
         Err(error) => {
             return respond_stripe_api_error(error, StripeErrorCode::SubscriptionNotFound)
         }
     };
-    let Some(active_stripe_subscription) = active_stripe_subscriptions
-        .get("data")
-        .and_then(Value::as_array)
-        .and_then(|subscriptions| {
-            subscriptions.iter().find(|subscription| {
-                subscription.get("id").and_then(Value::as_str)
-                    == Some(stripe_subscription_id.as_str())
-            })
-        })
-        .cloned()
-    else {
+    let Some(active_stripe_subscription) = active_stripe_subscription else {
         return error_response(
             StatusCode::BAD_REQUEST,
             StripeErrorCode::SubscriptionNotFound,
@@ -132,41 +124,35 @@ async fn release_plugin_schedule_if_needed(
     if active_subscription.schedule.is_none() {
         return Ok(None);
     }
-    let schedules = match input
+    let schedule = match input
         .options
         .stripe_client
-        .list_subscription_schedules(json!({
-            "customer": input.customer_id,
-        }))
+        .find_subscription_schedule(
+            json!({
+                "customer": input.customer_id,
+            }),
+            |schedule| {
+                schedule_subscription_id(schedule).as_deref()
+                    == Some(active_subscription.id.as_str())
+                    && schedule.get("status").and_then(Value::as_str) == Some("active")
+                    && schedule
+                        .get("metadata")
+                        .and_then(|metadata| metadata.get("source"))
+                        .and_then(Value::as_str)
+                        == Some("@better-auth/stripe")
+            },
+        )
         .await
     {
-        Ok(schedules) => schedules,
+        Ok(schedule) => schedule,
         Err(_) => return Ok(None),
     };
-    let Some(schedule_id) = schedules
-        .get("data")
-        .and_then(Value::as_array)
-        .and_then(|schedules| {
-            schedules.iter().find_map(|schedule| {
-                let matches_subscription = schedule_subscription_id(schedule).as_deref()
-                    == Some(active_subscription.id.as_str());
-                let is_active = schedule.get("status").and_then(Value::as_str) == Some("active");
-                let is_plugin_owned = schedule
-                    .get("metadata")
-                    .and_then(|metadata| metadata.get("source"))
-                    .and_then(Value::as_str)
-                    == Some("@better-auth/stripe");
-                (matches_subscription && is_active && is_plugin_owned)
-                    .then(|| {
-                        schedule
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    })
-                    .flatten()
-            })
-        })
-    else {
+    let Some(schedule_id) = schedule.and_then(|schedule| {
+        schedule
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }) else {
         return Ok(None);
     };
     if let Err(error) = input
