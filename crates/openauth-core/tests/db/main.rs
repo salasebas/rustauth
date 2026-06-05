@@ -5,6 +5,7 @@ mod id_policy;
 mod memory_adapter;
 mod output;
 mod schema;
+mod secondary_session_store;
 mod session_store;
 mod sql;
 mod user_store;

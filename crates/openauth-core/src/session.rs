@@ -299,6 +299,11 @@ impl<'a> SessionStore<'a> {
         session.updated_at = OffsetDateTime::now_utc();
         self.set_secondary_session(storage.as_ref(), &session)
             .await?;
+        let tokens = self
+            .user_session_tokens(storage.as_ref(), &session.user_id)
+            .await?;
+        self.set_user_session_tokens(storage.as_ref(), &session.user_id, &tokens)
+            .await?;
         if self.store_session_in_database {
             let _updated = self
                 .database
@@ -453,14 +458,35 @@ impl<'a> SessionStore<'a> {
         user_id: &str,
         tokens: &[String],
     ) -> Result<(), OpenAuthError> {
-        if tokens.is_empty() {
+        let now = OffsetDateTime::now_utc();
+        let mut active_tokens = Vec::with_capacity(tokens.len());
+        let mut furthest_expiry = None;
+
+        for token in tokens {
+            let Some(session) = self.find_secondary_session(storage, token).await? else {
+                continue;
+            };
+            if session.expires_at <= now {
+                storage.delete(&session_key(token)).await?;
+                continue;
+            }
+            active_tokens.push(token.clone());
+            furthest_expiry = Some(match furthest_expiry {
+                Some(current) if current >= session.expires_at => current,
+                _ => session.expires_at,
+            });
+        }
+
+        if active_tokens.is_empty() {
             return storage.delete(&user_sessions_key(user_id)).await;
         }
+
+        let ttl = furthest_expiry.and_then(index_ttl_seconds);
         storage
             .set(
                 &user_sessions_key(user_id),
-                serialize_user_session_tokens(tokens)?,
-                None,
+                serialize_user_session_tokens(&active_tokens)?,
+                ttl,
             )
             .await
     }
@@ -527,6 +553,16 @@ fn deserialize_user_session_tokens(value: &str) -> Result<Vec<String>, OpenAuthE
 fn ttl_seconds(expires_at: OffsetDateTime) -> Option<u64> {
     let seconds = (expires_at - OffsetDateTime::now_utc()).whole_seconds();
     Some(u64::try_from(seconds.max(0)).unwrap_or(0))
+}
+
+fn index_ttl_seconds(expires_at: OffsetDateTime) -> Option<u64> {
+    let seconds = (expires_at - OffsetDateTime::now_utc()).whole_seconds();
+    let ttl = u64::try_from(seconds.max(0)).unwrap_or(0);
+    if ttl == 0 {
+        None
+    } else {
+        Some(ttl)
+    }
 }
 
 fn token_where(token: &str) -> Where {
