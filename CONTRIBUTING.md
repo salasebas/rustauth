@@ -28,7 +28,8 @@ cargo nextest run -p <crate>
 ## Porting Work
 
 Each crate under `crates/` maps to an upstream Better Auth package when possible.
-Keep roadmap notes in `PORTING.md`.
+Record parity status in the crate README and, when a surface is closed out, in
+`docs/parity/<crate>/` (see [`docs/parity/README.md`](docs/parity/README.md)).
 
 When porting behavior:
 
@@ -38,6 +39,11 @@ When porting behavior:
 3. Write a focused Rust test.
 4. Implement an idiomatic Rust equivalent with explicit errors.
 5. Keep framework- or database-specific behavior in a dedicated crate.
+6. Update the crate README parity section and the matching `docs/parity/` note when
+   behavior, gaps, or test coverage change.
+
+Do not add intermediate audit checklists or agent planning docs to the repo.
+Keep closure/closeout notes concise and link them from the crate README.
 
 ## Pull Requests
 
