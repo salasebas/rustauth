@@ -168,6 +168,7 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                         );
                     }
                 }
+                let mut oidc_trust_boundary_changed = false;
                 let merged_oidc_config = if let Some(update) = body.oidc_config {
                     #[cfg(not(feature = "oidc"))]
                     {
@@ -189,7 +190,9 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                                 &json!({"code": "OIDC_CONFIG_NOT_CONFIGURED"}),
                             );
                         };
-                        let merged = merge_oidc_config(existing_config, update);
+                        let merged = merge_oidc_config(existing_config.clone(), update);
+                        oidc_trust_boundary_changed =
+                            oidc_config_changes_trust_boundary(&existing_config, &merged);
                         if !is_valid_oidc_config_urls(&merged) {
                             return utils::json(
                                 http::StatusCode::BAD_REQUEST,
@@ -214,6 +217,7 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                 } else {
                     None
                 };
+                let mut saml_trust_boundary_changed = false;
                 let merged_saml_config = if let Some(update) = body.saml_config {
                     #[cfg(not(feature = "saml"))]
                     {
@@ -236,12 +240,14 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                             );
                         };
                         let merged = match super::saml_config::normalize_saml_config(
-                            merge_saml_config(existing_config, update),
+                            merge_saml_config(existing_config.clone(), update),
                             &options,
                         ) {
                             Ok(config) => config,
                             Err(error) => return super::saml_config::error_response(error),
                         };
+                        saml_trust_boundary_changed =
+                            saml_config_changes_trust_boundary(&existing_config, &merged);
                         if let Err(error) =
                             super::validate_configured_saml_algorithms(&merged, &options)
                         {
@@ -256,8 +262,20 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                 } else {
                     None
                 };
+                let issuer_changed = body
+                    .issuer
+                    .as_ref()
+                    .is_some_and(|issuer| issuer != &existing.issuer);
+                let domain_changed = body
+                    .domain
+                    .as_ref()
+                    .is_some_and(|domain| domain != &existing.domain);
                 let reset_domain_verified = options.domain_verification.enabled
-                    && (body.issuer.is_some() || body.domain.is_some());
+                    && (issuer_changed
+                        || domain_changed
+                        || oidc_trust_boundary_changed
+                        || saml_trust_boundary_changed);
+                let was_domain_verified = existing.domain_verified.unwrap_or(false);
                 let updated = store
                     .update(
                         &body.provider_id,
@@ -280,11 +298,29 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                 let mut event =
                     SsoAuditEvent::new(SsoAuditEventKind::ProviderUpdated, SsoAuditSeverity::Info)
                         .provider_id(updated.provider_id.clone())
-                        .user_id(user_id);
+                        .user_id(user_id.clone());
                 if let Some(organization_id) = updated.organization_id.clone() {
                     event = event.organization_id(organization_id);
                 }
                 audit::emit(context, &options, event).await;
+                if reset_domain_verified && was_domain_verified {
+                    let mut revoked = SsoAuditEvent::new(
+                        SsoAuditEventKind::DomainVerificationRevoked,
+                        SsoAuditSeverity::Warn,
+                    )
+                    .provider_id(updated.provider_id.clone())
+                    .user_id(user_id.clone())
+                    .reason(domain_verification_revocation_reason(
+                        issuer_changed,
+                        domain_changed,
+                        oidc_trust_boundary_changed,
+                        saml_trust_boundary_changed,
+                    ));
+                    if let Some(organization_id) = updated.organization_id.clone() {
+                        revoked = revoked.organization_id(organization_id);
+                    }
+                    audit::emit(context, &options, revoked).await;
+                }
                 utils::json(
                     http::StatusCode::OK,
                     &updated.sanitized_with_options(&context.base_url, Some(&options)),
@@ -292,6 +328,28 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
             })
         },
     )
+}
+
+fn domain_verification_revocation_reason(
+    issuer_changed: bool,
+    domain_changed: bool,
+    oidc_trust_boundary_changed: bool,
+    saml_trust_boundary_changed: bool,
+) -> String {
+    let mut reasons = Vec::new();
+    if issuer_changed {
+        reasons.push("issuer_changed");
+    }
+    if domain_changed {
+        reasons.push("domain_changed");
+    }
+    if oidc_trust_boundary_changed {
+        reasons.push("oidc_trust_boundary_changed");
+    }
+    if saml_trust_boundary_changed {
+        reasons.push("saml_trust_boundary_changed");
+    }
+    reasons.join(",")
 }
 
 fn normalize_stored_oidc_endpoint(endpoint: Option<String>) -> Option<String> {
@@ -419,4 +477,219 @@ fn merge_saml_config(mut existing: SamlConfig, update: UpdateSamlConfig) -> Saml
         existing.additional_params = Some(value);
     }
     existing
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct IdentityClaimMapping {
+    id: Option<String>,
+    email: Option<String>,
+    email_verified: Option<String>,
+}
+
+impl IdentityClaimMapping {
+    fn from_oidc(mapping: &OidcMapping) -> Self {
+        Self {
+            id: mapping.id.clone(),
+            email: mapping.email.clone(),
+            email_verified: mapping.email_verified.clone(),
+        }
+    }
+
+    #[cfg(feature = "saml")]
+    fn from_saml(mapping: &SamlMapping) -> Self {
+        Self {
+            id: mapping.id.clone(),
+            email: mapping.email.clone(),
+            email_verified: mapping.email_verified.clone(),
+        }
+    }
+}
+
+fn identity_claim_mapping_changed(
+    before: &Option<OidcMapping>,
+    after: &Option<OidcMapping>,
+) -> bool {
+    match (before, after) {
+        (None, None) => false,
+        (None, Some(after)) => {
+            IdentityClaimMapping::from_oidc(after) != IdentityClaimMapping::default()
+        }
+        (Some(before), None) => {
+            IdentityClaimMapping::from_oidc(before) != IdentityClaimMapping::default()
+        }
+        (Some(before), Some(after)) => {
+            IdentityClaimMapping::from_oidc(before) != IdentityClaimMapping::from_oidc(after)
+        }
+    }
+}
+
+#[cfg(feature = "saml")]
+fn saml_identity_claim_mapping_changed(
+    before: &Option<SamlMapping>,
+    after: &Option<SamlMapping>,
+) -> bool {
+    match (before, after) {
+        (None, None) => false,
+        (None, Some(after)) => {
+            IdentityClaimMapping::from_saml(after) != IdentityClaimMapping::default()
+        }
+        (Some(before), None) => {
+            IdentityClaimMapping::from_saml(before) != IdentityClaimMapping::default()
+        }
+        (Some(before), Some(after)) => {
+            IdentityClaimMapping::from_saml(before) != IdentityClaimMapping::from_saml(after)
+        }
+    }
+}
+
+#[cfg(feature = "oidc")]
+fn oidc_config_changes_trust_boundary(before: &OidcConfig, after: &OidcConfig) -> bool {
+    before.issuer != after.issuer
+        || before.discovery_endpoint != after.discovery_endpoint
+        || before.authorization_endpoint != after.authorization_endpoint
+        || before.token_endpoint != after.token_endpoint
+        || before.user_info_endpoint != after.user_info_endpoint
+        || before.jwks_endpoint != after.jwks_endpoint
+        || before.client_id != after.client_id
+        || before.client_secret != after.client_secret
+        || before.token_endpoint_authentication != after.token_endpoint_authentication
+        || before.override_user_info != after.override_user_info
+        || identity_claim_mapping_changed(&before.mapping, &after.mapping)
+}
+
+#[cfg(feature = "saml")]
+fn saml_config_changes_trust_boundary(before: &SamlConfig, after: &SamlConfig) -> bool {
+    before.issuer != after.issuer
+        || before.entry_point != after.entry_point
+        || before.cert != after.cert
+        || before.idp_metadata != after.idp_metadata
+        || before.sp_metadata.entity_id != after.sp_metadata.entity_id
+        || before.sp_metadata.metadata != after.sp_metadata.metadata
+        || before.audience != after.audience
+        || before.want_assertions_signed != after.want_assertions_signed
+        || before.authn_requests_signed != after.authn_requests_signed
+        || before.signature_algorithm != after.signature_algorithm
+        || before.digest_algorithm != after.digest_algorithm
+        || before.private_key != after.private_key
+        || before.decryption_pvk != after.decryption_pvk
+        || saml_identity_claim_mapping_changed(&before.mapping, &after.mapping)
+}
+
+#[cfg(test)]
+mod trust_boundary_tests {
+    use super::*;
+    use openauth_core::secret::SecretString;
+
+    #[cfg(feature = "oidc")]
+    fn sample_oidc_config() -> OidcConfig {
+        OidcConfig {
+            issuer: "https://idp.example.com".to_owned(),
+            pkce: true,
+            client_id: "client".to_owned(),
+            client_secret: SecretString::new("secret"),
+            discovery_endpoint: "https://idp.example.com/.well-known/openid-configuration"
+                .to_owned(),
+            authorization_endpoint: Some("https://idp.example.com/authorize".to_owned()),
+            token_endpoint: Some("https://idp.example.com/token".to_owned()),
+            user_info_endpoint: Some("https://idp.example.com/userinfo".to_owned()),
+            jwks_endpoint: Some("https://idp.example.com/keys".to_owned()),
+            revocation_endpoint: None,
+            end_session_endpoint: None,
+            introspection_endpoint: None,
+            token_endpoint_authentication: None,
+            scopes: Some(vec!["openid".to_owned()]),
+            mapping: None,
+            override_user_info: false,
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "oidc")]
+    fn oidc_trust_boundary_ignores_pkce_and_auxiliary_endpoints() {
+        let before = sample_oidc_config();
+        let mut after = before.clone();
+        after.pkce = false;
+        after.scopes = Some(vec!["openid".to_owned(), "profile".to_owned()]);
+        after.revocation_endpoint = Some("https://idp.example.com/revoke".to_owned());
+        assert!(!oidc_config_changes_trust_boundary(&before, &after));
+    }
+
+    #[test]
+    #[cfg(feature = "oidc")]
+    fn oidc_trust_boundary_detects_jwks_endpoint_change() {
+        let before = sample_oidc_config();
+        let mut after = before.clone();
+        after.jwks_endpoint = Some("https://evil.example.com/keys".to_owned());
+        assert!(oidc_config_changes_trust_boundary(&before, &after));
+    }
+
+    #[test]
+    #[cfg(feature = "saml")]
+    fn saml_trust_boundary_detects_idp_metadata_entity_id_change() {
+        use crate::options::{SamlIdpMetadata, SamlSpMetadata};
+
+        let before = SamlConfig {
+            issuer: "https://sp.example.com/metadata".to_owned(),
+            entry_point: "https://idp.example.com/sso".to_owned(),
+            cert: "CERT".to_owned(),
+            callback_url: "https://sp.example.com/acs".to_owned(),
+            acs_url: None,
+            audience: None,
+            idp_metadata: Some(SamlIdpMetadata {
+                entity_id: Some("https://idp.example.com".to_owned()),
+                ..SamlIdpMetadata::default()
+            }),
+            sp_metadata: SamlSpMetadata {
+                entity_id: Some("https://sp.example.com".to_owned()),
+                ..SamlSpMetadata::default()
+            },
+            mapping: None,
+            want_assertions_signed: true,
+            authn_requests_signed: false,
+            signature_algorithm: None,
+            digest_algorithm: None,
+            identifier_format: None,
+            private_key: None,
+            decryption_pvk: None,
+            additional_params: None,
+        };
+        let mut after = before.clone();
+        after.idp_metadata = Some(SamlIdpMetadata {
+            entity_id: Some("https://evil.example.com".to_owned()),
+            ..SamlIdpMetadata::default()
+        });
+        assert!(saml_config_changes_trust_boundary(&before, &after));
+    }
+
+    #[test]
+    #[cfg(feature = "saml")]
+    fn saml_trust_boundary_ignores_callback_url_change() {
+        use crate::options::SamlSpMetadata;
+
+        let before = SamlConfig {
+            issuer: "https://sp.example.com/metadata".to_owned(),
+            entry_point: "https://idp.example.com/sso".to_owned(),
+            cert: "CERT".to_owned(),
+            callback_url: "https://sp.example.com/acs".to_owned(),
+            acs_url: None,
+            audience: None,
+            idp_metadata: None,
+            sp_metadata: SamlSpMetadata {
+                entity_id: Some("https://sp.example.com".to_owned()),
+                ..SamlSpMetadata::default()
+            },
+            mapping: None,
+            want_assertions_signed: true,
+            authn_requests_signed: false,
+            signature_algorithm: None,
+            digest_algorithm: None,
+            identifier_format: None,
+            private_key: None,
+            decryption_pvk: None,
+            additional_params: None,
+        };
+        let mut after = before.clone();
+        after.callback_url = "https://sp.example.com/acs/updated".to_owned();
+        assert!(!saml_config_changes_trust_boundary(&before, &after));
+    }
 }

@@ -9,12 +9,19 @@ Versioning while the API is still pre-1.0.
 
 ### Added
 
+- Added SSO audit event `DomainVerificationRevoked` (`Warn`) when a provider
+  update clears a previously verified domain after issuer/domain changes or
+  OIDC/SAML trust-boundary edits.
 - Extended `openauth-cli` parity with Better Auth v1.6.9: `info --json` / `--copy`,
   `db generate -y` confirmation flow, global `-c` for `--cwd`, `init --seed-secrets`,
   and parity docs under `docs/parity/openauth-cli/09-parity-closure.md`.
 
 ### Fixed
 
+- Fixed `/sso/update-provider` so domain verification is revoked when nested
+  OIDC or SAML configuration changes alter the effective IdP trust boundary (not
+  only top-level `issuer` or `domain`). Safe SP-only metadata such as OIDC
+  auxiliary endpoints or SAML `callbackUrl` updates preserve verification.
 - Fixed SQLite adapters accepting writes that violate foreign keys when using a
   multi-connection `SqlitePool` created without `PRAGMA foreign_keys = ON` on
   every checkout. `connect`/`sqlite_pool_options` configure the pool hook, and

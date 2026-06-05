@@ -448,3 +448,160 @@ async fn update_provider_rejects_public_suffix_domain() -> Result<(), Box<dyn st
 
     Ok(())
 }
+
+async fn mark_provider_domain_verified(
+    adapter: &MemoryAdapter,
+    provider_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    SsoProviderStore::new(adapter)
+        .update_domain_verified(provider_id, true)
+        .await?
+        .ok_or_else(|| format!("provider {provider_id} not found"))?;
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg(feature = "oidc")]
+async fn update_provider_oidc_trust_boundary_change_resets_domain_verification(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) =
+        router_with_options(SsoOptions::default().domain_verification_enabled(true))?;
+    let cookie = seed_session(&adapter).await?;
+    register_oidc_provider(&router, &cookie).await?;
+    mark_provider_domain_verified(&adapter, "okta").await?;
+
+    for payload in [
+        r#"{"providerId":"okta","oidcConfig":{"jwksEndpoint":"https://evil.example.com/keys"}}"#,
+        r#"{"providerId":"okta","oidcConfig":{"issuer":"https://evil.example.com"}}"#,
+        r#"{"providerId":"okta","oidcConfig":{"userInfoEndpoint":"https://evil.example.com/userinfo"}}"#,
+    ] {
+        mark_provider_domain_verified(&adapter, "okta").await?;
+        let response = router
+            .handle_async(json_request(
+                Method::POST,
+                "/sso/update-provider",
+                payload,
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK, "payload: {payload}");
+        let body = json_body(response)?;
+        assert_eq!(body["domainVerified"], false, "payload: {payload}");
+        assert_eq!(
+            adapter.records("ssoProvider").await[0].get("domainVerified"),
+            Some(&DbValue::Boolean(false)),
+            "payload: {payload}"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg(feature = "oidc")]
+async fn update_provider_oidc_safe_metadata_preserves_domain_verification(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) =
+        router_with_options(SsoOptions::default().domain_verification_enabled(true))?;
+    let cookie = seed_session(&adapter).await?;
+    register_oidc_provider(&router, &cookie).await?;
+    mark_provider_domain_verified(&adapter, "okta").await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sso/update-provider",
+            r#"{
+                "providerId":"okta",
+                "oidcConfig":{
+                    "pkce":false,
+                    "scopes":["openid","profile"],
+                    "revocationEndpoint":"https://idp.example.com/revoke"
+                }
+            }"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response)?;
+    assert_eq!(body["domainVerified"], true);
+    assert_eq!(
+        adapter.records("ssoProvider").await[0].get("domainVerified"),
+        Some(&DbValue::Boolean(true))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg(feature = "saml")]
+async fn update_provider_saml_trust_boundary_change_resets_domain_verification(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) =
+        router_with_options(SsoOptions::default().domain_verification_enabled(true))?;
+    let cookie = seed_session(&adapter).await?;
+    register_saml_provider(&router, &cookie).await?;
+    mark_provider_domain_verified(&adapter, "saml-okta").await?;
+
+    for payload in [
+        r#"{"providerId":"saml-okta","samlConfig":{"cert":"ROTATED-CERTIFICATE"}}"#,
+        r#"{"providerId":"saml-okta","samlConfig":{"entryPoint":"https://evil.example.com/saml/sso"}}"#,
+        r#"{"providerId":"saml-okta","samlConfig":{"idpMetadata":{"entityId":"https://evil.example.com"}}}"#,
+    ] {
+        mark_provider_domain_verified(&adapter, "saml-okta").await?;
+        let response = router
+            .handle_async(json_request(
+                Method::POST,
+                "/sso/update-provider",
+                payload,
+                Some(&cookie),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK, "payload: {payload}");
+        let body = json_body(response)?;
+        assert_eq!(body["domainVerified"], false, "payload: {payload}");
+        assert_eq!(
+            adapter.records("ssoProvider").await[0].get("domainVerified"),
+            Some(&DbValue::Boolean(false)),
+            "payload: {payload}"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg(feature = "saml")]
+async fn update_provider_saml_callback_url_preserves_domain_verification(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) =
+        router_with_options(SsoOptions::default().domain_verification_enabled(true))?;
+    let cookie = seed_session(&adapter).await?;
+    register_saml_provider(&router, &cookie).await?;
+    mark_provider_domain_verified(&adapter, "saml-okta").await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sso/update-provider",
+            r#"{
+                "providerId":"saml-okta",
+                "samlConfig":{
+                    "callbackUrl":"https://app.example.com/sso/saml2/sp/acs/saml-okta-v2"
+                }
+            }"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response)?;
+    assert_eq!(body["domainVerified"], true);
+    assert_eq!(
+        adapter.records("ssoProvider").await[0].get("domainVerified"),
+        Some(&DbValue::Boolean(true))
+    );
+
+    Ok(())
+}

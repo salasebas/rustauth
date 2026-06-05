@@ -23,6 +23,9 @@ fn log(context: &AuthContext, event: &SsoAuditEvent) {
         crate::options::SsoAuditEventKind::DomainVerificationFailed => {
             "sso domain verification failed"
         }
+        crate::options::SsoAuditEventKind::DomainVerificationRevoked => {
+            "sso domain verification revoked"
+        }
         crate::options::SsoAuditEventKind::SamlReplayRejected => "saml replay rejected",
         crate::options::SsoAuditEventKind::SamlSignatureFailed => "saml signature failed",
         crate::options::SsoAuditEventKind::SamlSloSessionDeleted => "saml slo session deleted",
