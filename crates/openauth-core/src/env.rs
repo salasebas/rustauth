@@ -19,6 +19,7 @@ fn is_development_env() -> bool {
 
 fn is_test_runtime() -> bool {
     std::env::var("RUST_TEST_THREADS").is_ok()
+        || std::env::var("NEXTEST").is_ok_and(|value| value == "1")
         || std::env::var("TEST")
             .is_ok_and(|value| !value.is_empty() && value != "0" && value.to_lowercase() != "false")
 }
