@@ -89,6 +89,13 @@ and generic-oauth `additional_params` gaps. **57** Rust tests vs **15** upstream
 cargo nextest run -p openauth-oauth
 ```
 
+### Upstream lookup
+
+1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Client OAuth2 primitives: `reference/upstream-src/<version>/repository/packages/core/src/oauth2/`.
+3. Account linking and token storage: `packages/better-auth/src/` (integrated in `openauth-core`, not this crate).
+4. Tests: `packages/core/src/oauth2/*.test.ts` → `cargo nextest run -p openauth-oauth`.
+
 ## Status
 
 Experimental beta. Helper APIs, request builders, and validation behavior may

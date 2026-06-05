@@ -3,16 +3,13 @@
 This file maps OpenAuth SCIM test modules to the upstream Better Auth SCIM test
 areas inspected during implementation.
 
-For full parity documentation, see
+For parity status, design differences, and upstream references, see
 [README — Upstream parity](../../README.md#upstream-parity-better-auth-169).
-
-For intentional design differences, divergences, and prioritized gaps, see
-[docs/better-auth-design-differences.md](../docs/better-auth-design-differences.md).
 
 | OpenAuth test module | Upstream reference | Covered behavior |
 | --- | --- | --- |
 | `tests/scim/routes/users.rs` (+ `isolation.rs`, `provisioning.rs`, `concurrency.rs`) | `packages/scim/src/scim-users.test.ts` + `scim.test.ts` POST Users | SCIM User create, list, filter, get, PUT, PATCH, DELETE, provider isolation (list + item routes), organization isolation, invalid auth, invalid body, duplicate users (PUT + PATCH), link-by-email provisioning, shared-email DELETE semantics, `If-Match: *`, ETag stale rejection, not-found behavior, `externalId` removal fallback, explicit MemoryAdapter cleanup, and Bulk user delete scope hardening. |
-| `tests/scim/routes/parity_gaps.rs` | `scim.test.ts`, `scim.management.test.ts`, `scim-patch.test.ts` (gaps de segunda auditoría) | Regresiones documentadas: scope org en regenerate, `providerId` requerido en get-connection, create con nombre/email/externalId, rechazo `userName` opaco, PATCH `update` → SCIM `invalidSyntax`, DELETE sin `Content-Type`, filtro `userName eq ""` (ver también `filters.rs`). |
+| `tests/scim/routes/parity_gaps.rs` | `scim.test.ts`, `scim.management.test.ts`, `scim-patch.test.ts` | Second-audit regressions: org scope on regenerate, required `providerId` on get-connection, create with name/email/externalId, opaque `userName` rejection, PATCH `update` → SCIM `invalidSyntax`, DELETE without `Content-Type`, `userName eq ""` filter (see also `filters.rs`). |
 | `tests/scim/routes/organization.rs` | `scim.management.test.ts` role-based auth | Org-scoped management, `admin,member` comma-separated roles, GHSA member denial, custom `requiredRole`, creator role. |
 | `tests/scim/routes/groups_auth.rs`, `groups_scope.rs` | OpenAuth Groups coverage | Groups bearer auth battery, personal provider rejection, org-shared teams across providers. |
 | `tests/scim/routes.rs` | `packages/scim/src/scim.management.test.ts` | Token generation, token replacement, token invalidation, provider list/get/delete, ownership, hooks, token storage modes, and controlled rejection of default or persisted org-scoped SCIM providers when the organization plugin is absent. |

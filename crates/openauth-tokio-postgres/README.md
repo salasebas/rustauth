@@ -69,6 +69,53 @@ rolled back.
 Experimental beta. Adapter behavior, migration planning, and rate-limit store
 contracts may change before stable release.
 
+## Upstream parity (Better Auth 1.6.9)
+
+Compared against Better Auth's Kysely adapter, core adapter factory, shared adapter
+test suites, and PostgreSQL e2e coverage. Target contract is observable server-side
+behavior, not a line-by-line TypeScript port. Server-only parity is approximately
+**96%** for behavior this crate owns.
+
+### Status
+
+CRUD (create, find, count, update, update many, delete, delete many), physical table
+and field names from `AuthSchemaOptions`, generated text/UUID/identity IDs, JSON and
+native Postgres arrays, scalar and pattern filters, null equality, mixed `AND`/`OR`
+groups, one-to-one/one-to-many/reverse/limited/missing-row/multi-join reads, join
+reads inside transactions, transactional commit/rollback, additive schema creation and
+migration planning (tables, columns, indexes, unique constraints, foreign keys,
+generated defaults, type-mismatch reporting), schema-qualified names such as
+`internal.users`, database-backed rate limiting, and core email/password route flows
+are implemented.
+
+### Intentional differences
+
+- Uses a single async `tokio-postgres` client, not a pool. Normal queries may pipeline
+  concurrently; transactions, migrations, schema creation, and rate-limit consumes acquire
+  an exclusive gate so transaction state is not interleaved on one connection.
+- Transaction callbacks return `Result<(), OpenAuthError>` instead of a generic value;
+  database state transitions are preserved.
+- SQL pattern filters escape `%`, `_`, and `\` from user input (stricter than Kysely
+  wildcard semantics).
+- PostgreSQL schemas are not created implicitly for `schema.table` names; the caller
+  or migration environment must create the schema first.
+- TypeScript-only factory ergonomics (debug logs, dynamic transform hooks) live in
+  OpenAuth core/plugin layers, not in this adapter.
+
+### Open gaps/risks
+
+- Remaining gap is mostly API-shape parity with TypeScript, not missing database
+  semantics. Further gains would require shared OpenAuth adapter contract changes.
+- For pooling, use `openauth-deadpool-postgres`, which shares Postgres SQL planning
+  with this crate and `openauth-sqlx`.
+
+### Upstream lookup
+
+1. Read the pin in [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Open `reference/upstream-src/<version>/repository/packages/<upstream-package>/` (run `./scripts/fetch-upstream-better-auth.sh` if missing).
+3. Map Rust modules in `crates/openauth-tokio-postgres/src/` to upstream `.ts` by route paths, exported handlers, and `*.test.ts` files.
+4. Add a failing Rust integration test before changing behavior; match HTTP status, JSON error codes, and DB side effects—not TypeScript types.
+
 ## Links
 
 - [Root README](../../README.md)

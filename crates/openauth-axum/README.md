@@ -101,6 +101,14 @@ in `openauth` / `openauth-core`; this crate only mounts and translates HTTP.
 
 Verify: `cargo nextest run -p openauth-axum`.
 
+### Upstream lookup
+
+1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Core HTTP handler: `reference/upstream-src/<version>/repository/packages/better-auth/src/` (`auth.handler`, route mounting).
+3. Framework adapters: `packages/better-auth/src/integrations/` (Next.js, Node, Hono).
+4. Map `crates/openauth-axum/src/` to fetch-style `Request`/`Response` bridging.
+5. Verify: `cargo nextest run -p openauth-axum`.
+
 ## Links
 
 - [Root README](../../README.md)

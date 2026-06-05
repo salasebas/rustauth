@@ -82,21 +82,60 @@ production schema and privileges before rollout.
 
 ## Upstream parity (Better Auth 1.6.9)
 
-Parity pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
 Primary upstream: `@better-auth/kysely-adapter` + `getMigrations` in `better-auth`.
-Not a port of Drizzle, Prisma, or Mongo adapters.
+Not a port of Drizzle, Prisma, or Mongo adapters. Estimated server-only parity:
+**~95%**; remaining gap is mostly intentional Rust design, TypeScript-only factory
+behavior, or unsafe upstream patterns we do not copy.
 
-| Area | Status | Notes |
+### Status
+
+| Area | Level | Notes |
 | --- | --- | --- |
 | CRUD, joins, transactions | **High (~95%)** | SQLite, Postgres, MySQL via SQLx |
 | Migrations (additive) | **High** | Blocks unsafe plans; missing-index repair beyond upstream |
 | Rate limit SQL stores | **High** | Single-tx consume; denied requests do not increment |
-| `delete` | **Intentional** | One row; use `delete_many` for bulk (upstream deletes all matches) |
-| `findMany` default limit | **Intentional** | No default limit (upstream factory defaults to 100) |
-| LIKE wildcards | **Intentional** | Escapes `%`, `_`, `\` + `ESCAPE` clause |
 | MSSQL / D1 / Bun sqlite | **Gap** | Not implemented in this crate |
 
-See [UPSTREAM_PARITY.md](./UPSTREAM_PARITY.md) for intentional differences and risks.
+CRUD, count, transaction, and migration surfaces match relevant Better Auth adapter
+operations. Queries use parameter binding and validated identifiers. WHERE operators
+cover equality, inequality, comparison, IN, NOT IN, contains, starts-with, and
+ends-with; null equality compiles to `IS NULL` / `IS NOT NULL`. Join behavior matches
+one-to-one and one-to-many contracts including default join limits, missing rows as
+`null`/empty arrays, and multi-join `find_many` as a single statement when
+`supports_native_joins`. Schema planning is additive and refuses unsafe warning plans.
+`create_schema(file)` can write compiled migration SQL with `SchemaCreation` metadata.
+Postgres and MySQL coverage runs against live Docker Compose database services.
+
+### Intentional differences
+
+- `delete` removes one matching row; use `delete_many` for bulk (upstream Kysely
+  `deleteFrom(...).where(...)` can delete every match).
+- Default values and `onUpdate` transforms from Better Auth's factory are applied
+  explicitly in OpenAuth service layers before adapter calls.
+- SQLx Postgres uses native `TEXT[]`/`BIGINT[]`; upstream Kysely stores arrays as
+  JSON-like values. MySQL uses `DATETIME(6)` instead of upstream `timestamp(3)`.
+- Count queries use `COUNT(*)` instead of counting `id` (equivalent for these schemas).
+- Rate-limit counters consume in one transaction (Rust atomic store contract) rather
+  than Better Auth's split read/write phases.
+- LIKE pattern operators escape `%`, `_`, and `\` with an explicit `ESCAPE` clause.
+- `FindMany` defaults to no limit (upstream factory defaults to 100); callers should
+  set explicit limits on externally driven list endpoints.
+
+### Open gaps/risks
+
+- Postgres and MySQL runtime coverage requires live database services; CI and
+  contributors must provide reachable databases equivalent to local Docker Compose.
+- Direct SQLx adapter use expects the schema configured in `with_schema`; the
+  OpenAuth builder wraps adapters with schema and hook layers for normal use.
+- A configurable default `FindMany` limit would be a core API change, not a SQLx-only
+  parity fix.
+
+### Upstream lookup
+
+1. Read the pin in [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Open `reference/upstream-src/<version>/repository/packages/<upstream-package>/` (run `./scripts/fetch-upstream-better-auth.sh` if missing).
+3. Map Rust modules in `crates/openauth-sqlx/src/` to upstream `.ts` by route paths, exported handlers, and `*.test.ts` files.
+4. Add a failing Rust integration test before changing behavior; match HTTP status, JSON error codes, and DB side effects—not TypeScript types.
 
 ## Links
 

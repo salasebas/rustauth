@@ -76,6 +76,13 @@ SQL migrations via `openauth-sqlx`, and CLI telemetry via `openauth-telemetry`.
 
 Verify: `cargo nextest run -p openauth-cli`.
 
+### Upstream lookup
+
+1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. CLI package: `reference/upstream-src/<version>/repository/packages/cli/`.
+3. Map upstream `src/commands/` to `crates/openauth-cli/src/`.
+4. Verify: `cargo nextest run -p openauth-cli`.
+
 ## Links
 
 - [Root README](../../README.md)

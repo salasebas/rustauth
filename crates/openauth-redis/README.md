@@ -86,9 +86,11 @@ contracts may change before stable release.
 
 ## Upstream parity (Better Auth 1.6.9)
 
-Parity pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
 Upstream: `@better-auth/redis-storage` (ioredis). Sibling crate: `openauth-fred`
-(same contract, `fred` client).
+(same contract, `fred` client). Secondary-storage KV adapter parity is **high**;
+session payload interchange depends on `openauth-core`, not this crate.
+
+### Status
 
 | Area | Status | Notes |
 | --- | --- | --- |
@@ -98,8 +100,29 @@ Upstream: `@better-auth/redis-storage` (ioredis). Sibling crate: `openauth-fred`
 | Session data interchange | **Low** | Key layout and JSON differ in `openauth-core` |
 | Auto rate limit on secondary only | **Gap (core)** | Upstream defaults RL to secondary; OpenAuth requires explicit wiring |
 
-**Tests:** 19 `nextest` in this crate; email sign-up E2E with Redis in `openauth-fred`.
-See [PARITY.md](./PARITY.md).
+**Tests:** **19** `nextest` in this crate; email sign-up E2E with Redis in `openauth-fred`.
+Upstream `packages/redis-storage/` has no package-local tests; behavior is inferred
+from `redis-storage.ts` plus `better-auth/src/db/secondary-storage.test.ts`.
+
+### Intentional differences
+
+- `list_keys` / `clear` use `SCAN` instead of upstream `KEYS` for safer production scans.
+- `RedisRateLimitStore` is a dedicated Lua-backed store; upstream reuses secondary KV as JSON.
+- Default key prefix is `openauth:` (upstream defaults to `better-auth:`).
+- `rediss://` / `valkeys://` TLS requires an explicit crate feature (`rustls` or `native-tls`).
+
+### Open gaps/risks
+
+- Session payloads are not portable to Better Auth without `openauth-core` migration.
+- Rate-limit wiring is explicit in OpenAuth; upstream can default rate limiting to secondary storage.
+- Wire rate-limit JSON separately from secondary storage when comparing to upstream deployments.
+
+### Upstream lookup
+
+1. Read the pin in [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Open `reference/upstream-src/<version>/repository/packages/redis-storage/` (run `./scripts/fetch-upstream-better-auth.sh` if missing).
+3. Map Rust modules in `crates/openauth-redis/src/` to `redis-storage.ts` and shared secondary-storage tests under `packages/better-auth/src/db/`.
+4. Add a failing Rust integration test before changing behavior; match key layout, TTL semantics, and storage side effects—not TypeScript types.
 
 ## Links
 

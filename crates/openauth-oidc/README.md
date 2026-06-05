@@ -135,6 +135,14 @@ covered in `openauth-sso`. No SAML/XML dependency surface in this crate.
 cargo nextest run -p openauth-oidc
 ```
 
+### Upstream lookup
+
+1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. OIDC types/discovery: `reference/upstream-src/<version>/repository/packages/sso/src/oidc/`.
+3. Full SSO HTTP flow: `packages/sso/src/` routes and `oidc.test.ts` →
+   [`openauth-sso`](../openauth-sso/README.md#upstream-lookup).
+4. Verify: `cargo nextest run -p openauth-oidc`.
+
 ## Status
 
 Experimental beta. Discovery, validation, and configuration types are usable,

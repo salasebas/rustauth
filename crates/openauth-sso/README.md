@@ -81,6 +81,14 @@ Vitest cases in `openauth-oidc`. Run: `cargo nextest run -p openauth-sso --test 
 maintenance between `tests/sso/oidc.rs` and `openauth-oidc/tests/flow.rs`; no
 typed browser client. SCIM and full SAML parity live in sibling crates.
 
+### Upstream lookup
+
+1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. SSO plugin: `reference/upstream-src/<version>/repository/packages/sso/` (fetch via `./scripts/fetch-upstream-better-auth.sh`).
+3. OIDC discovery/types: [`openauth-oidc`](../openauth-oidc/README.md#upstream-lookup); SAML SP XML:
+   [`openauth-saml`](../openauth-saml/README.md#upstream-lookup).
+4. Tests: `packages/sso/src/oidc.test.ts` → `cargo nextest run -p openauth-sso --test sso`.
+
 ## Links
 
 - [Root README](../../README.md)

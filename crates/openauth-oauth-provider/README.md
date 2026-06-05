@@ -83,6 +83,14 @@ metadata. **96** Rust tests vs **261** upstream `it`.
 cargo nextest run -p openauth-oauth-provider
 ```
 
+### Upstream lookup
+
+1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Provider package: `reference/upstream-src/<version>/repository/packages/oauth-provider/`.
+3. Map routes and handlers in upstream `src/` to `crates/openauth-oauth-provider/src/`.
+4. Test maintainer matrix: [`tests/upstream_mapping.md`](tests/upstream_mapping.md).
+5. Verify: `cargo nextest run -p openauth-oauth-provider`.
+
 ## Status
 
 Experimental beta. The provider is implemented server-side and has focused

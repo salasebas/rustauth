@@ -141,14 +141,27 @@ port.
 | Webhook idempotency | Extension | Durable `stripeWebhookEvent` by `event.id` |
 | `group` on subscription list | Extension | When plan defines `group` |
 
-June 2026 gap closure (G1–G12) closed remaining runtime parity gaps. **174** Rust
-tests vs **150** upstream Vitest `it`. Intentional differences: custom
-`StripeClient` + `StripeTransport`, no deprecated error aliases, stricter
-`/subscription/success` validation. See [ROADMAP.md](./ROADMAP.md) for pending work.
+June 2026 gap closure (G1–G12) closed remaining runtime parity gaps against
+Better Auth 1.6.9. **174** Rust tests vs **150** upstream Vitest `it`.
+Intentional differences: custom `StripeClient` + `StripeTransport`, no
+deprecated error aliases, stricter `/subscription/success` validation, durable
+webhook idempotency by `event.id`, and `group` on subscription list when the
+plan defines it. `groupId` exists in upstream types only and is not implemented
+in either stack.
 
-```bash
-cargo nextest run -p openauth-stripe
-```
+### Upstream lookup
+
+Clone the Better Auth monorepo (gitignored) with
+[`./scripts/fetch-upstream-better-auth.sh`](../../scripts/fetch-upstream-better-auth.sh);
+parity pin in
+[`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+
+| Concern | Path under `reference/upstream-src/1.6.9/repository/packages/stripe/` |
+| --- | --- |
+| Plugin / routes | `src/index.ts`, `src/routes.ts` |
+| Schema / hooks | `src/schema.ts`, `src/hooks.ts`, `src/middleware.ts` |
+| Metadata | `src/metadata.ts` |
+| Tests | `test/stripe.test.ts`, `test/stripe-organization.test.ts`, `test/seat-based-billing.test.ts`, `test/metadata.test.ts`, `test/utils.test.ts` |
 
 ## Status
 

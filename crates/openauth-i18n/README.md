@@ -83,6 +83,13 @@ N/A for this server-only crate). Re-exported from `openauth` with feature `i18n`
 
 Verify: `cargo nextest run -p openauth-i18n`.
 
+### Upstream lookup
+
+1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Server plugin: `reference/upstream-src/<version>/repository/packages/i18n/src/` (ignore `client/`).
+3. Map `crates/openauth-i18n/src/` to upstream plugin hooks and `*.test.ts`.
+4. Verify: `cargo nextest run -p openauth-i18n`.
+
 ## Links
 
 - [Root README](../../README.md)

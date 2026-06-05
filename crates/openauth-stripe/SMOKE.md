@@ -2,7 +2,7 @@
 
 Server-side manual validation for Stripe **test mode**. No example app UI is required; use your own OpenAuth server harness (Axum, Actix, etc.) with the stripe plugin enabled.
 
-**Related:** [README](./README.md) · [ROADMAP](./ROADMAP.md) · [UPSTREAM](./UPSTREAM.md) · `scripts/stripe-smoke.sh` · `.env.smoke.example`
+**Related:** [README](./README.md) · [README parity section](./README.md#upstream-parity-better-auth-169) · `scripts/stripe-smoke.sh` · `.env.smoke.example`
 
 ---
 

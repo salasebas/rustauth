@@ -71,8 +71,7 @@ before stable release.
 
 ## Upstream parity (Better Auth 1.6.9)
 
-Parity pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md)
-(commit `f484269`). Upstream splits contracts (`@better-auth/core`) from runtime
+Upstream splits contracts (`@better-auth/core`) from runtime
 (`packages/better-auth/src`); OpenAuth merges both into this crate. The `openauth`
 facade re-exports core plus optional integrations.
 
@@ -86,6 +85,8 @@ facade re-exports core plus optional integrations.
 | `@better-auth/core/instrumentation` | Not in core (`openauth-telemetry` is separate) |
 | JS/React/Vue clients | N/A (server-only) |
 
+### Status
+
 **Parity level (server, in-scope):** High for email/password, session, cookies,
 crypto, DB adapter traits, rate limiting, and plugin pipeline. Medium for some
 top-level options and OpenAPI exposure. Low/N/A for OpenTelemetry spans in core
@@ -98,12 +99,49 @@ better-auth server tests. Every in-scope HTTP route has at least one test, but
 many routes have shallow coverage compared with upstream suites such as
 `session-api.test.ts`.
 
-**Open gaps:** Deeper test matrices for session revocation and account routes;
-route tests run with CSRF/origin checks disabled; social/OAuth token routes live
-in other crates; `trustedProviders` dynamic callbacks not yet public; user
-lifecycle hooks (`sendDeleteAccountVerification`, fresh-session delete semantics)
-partially diverge. See `SERVER_PARITY.md` and `SQL_ADAPTER_PARITY.md` for detailed
-notes.
+**Completed:** Social OAuth implicit account linking follows the central
+`handle_oauth_user_info` policy across authorization-code callbacks and `idToken`
+sign-in: existing same-email users link when the provider email is verified;
+unverified provider emails require the provider in `account.account_linking.trusted_providers`;
+`disable_implicit_linking` and disabled account linking fail closed. Explicit
+link-account flows keep email-match and `allow_different_emails` behavior.
+
+**SQL adapter contracts (shared with SQL crates):** `SqlDialect::quote_identifier`
+quotes dotted identifiers per segment (e.g. PostgreSQL `internal.users` compiles as
+`"internal"."users"`), matching Better Auth PostgreSQL e2e schema-qualified names.
+String pattern filters escape `%`, `_`, and `\` before `LIKE`/`ILIKE` so untrusted
+filter input cannot broaden a query.
+
+### Intentional differences
+
+- OpenAuth uses static `trusted_providers: Vec<String>` instead of Better Auth's
+  JavaScript `trustedProviders` array-or-function union. Request-scoped dynamic
+  resolution would require a public Rust callback API and should be designed separately.
+- Error responses keep OpenAuth's typed JSON/redirect conventions rather than
+  duplicating every Better Auth string shape where observable security behavior is
+  equivalent.
+- Identifier segments remain strict ASCII SQL identifiers; empty segments, multiple
+  dots, spaces, and punctuation are rejected rather than escaped into SQL.
+- Pattern filters treat adapter input as literal user data; Better Auth's Kysely
+  helper allows SQL wildcard semantics from the input string.
+
+### Open gaps/risks
+
+- Deeper test matrices for session revocation and account routes; route tests run
+  with CSRF/origin checks disabled.
+- Social/OAuth token routes live in other crates.
+- `trustedProviders` dynamic callbacks are not yet public.
+- User lifecycle hooks (`sendDeleteAccountVerification`, fresh-session delete semantics)
+  partially diverge.
+- Applications needing tenant- or request-dependent trusted providers must construct
+  separate `AuthContext` values or wait for a dedicated dynamic trusted-provider API.
+
+### Upstream lookup
+
+1. Read the pin in [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+2. Open `reference/upstream-src/<version>/repository/packages/<upstream-package>/` (run `./scripts/fetch-upstream-better-auth.sh` if missing).
+3. Map Rust modules in `crates/openauth-core/src/` to upstream `.ts` by route paths, exported handlers, and `*.test.ts` files.
+4. Add a failing Rust integration test before changing behavior; match HTTP status, JSON error codes, and DB side effects—not TypeScript types.
 
 ## Links
 

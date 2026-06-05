@@ -249,8 +249,27 @@ ETags.
 **Open gaps / design differences:** `userName` must be a valid email (upstream
 allows non-email usernames); regenerating a token when a `before` hook fails keeps
 the provider row (upstream deletes it); transactional PATCH; `email_verified: true`
-on create. Legacy notes: [docs/better-auth-design-differences.md](docs/better-auth-design-differences.md),
-[tests/support/scim_parity.md](tests/support/scim_parity.md). Short pointer: [PARITY.md](PARITY.md).
+on create; PATCH duplicate `externalId` uses the same uniqueness rules as PUT;
+groups map to org teams and are shared across org-scoped providers (not
+provider-isolated); identical PATCH `add` on unchanged fields is a no-op upstream
+but may return 400 "No valid fields" in OpenAuth.
+
+**Test matrix:** [tests/support/scim_parity.md](tests/support/scim_parity.md).
+
+### Upstream lookup
+
+Clone the Better Auth monorepo (gitignored) with
+[`./scripts/fetch-upstream-better-auth.sh`](../../scripts/fetch-upstream-better-auth.sh);
+parity pin in
+[`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
+
+| Concern | Path under `reference/upstream-src/1.6.9/repository/packages/scim/` |
+| --- | --- |
+| Plugin / routes | `src/index.ts`, `src/routes.ts` |
+| Tokens / auth | `src/scim-tokens.ts`, `src/middlewares.ts` |
+| Filters / patch | `src/scim-filters.ts`, `src/patch-operations.ts` |
+| Metadata | `src/scim-metadata.ts`, `src/user-schemas.ts` |
+| Tests | `src/scim.test.ts`, `src/scim-users.test.ts`, `src/scim-patch.test.ts`, `src/scim.management.test.ts` |
 
 ## Links
 
