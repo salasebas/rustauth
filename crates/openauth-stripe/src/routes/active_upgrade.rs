@@ -313,6 +313,51 @@ async fn direct_subscription_update(
     )
 }
 
+async fn persist_stripe_schedule_id(
+    input: &ActiveUpgradeInput<'_>,
+    schedule_id: &str,
+) -> Result<(), OpenAuthError> {
+    if let Some(local_subscription_id) = input.local_subscription.get("id").and_then(db_string) {
+        input
+            .adapter
+            .update(
+                Update::new("subscription")
+                    .where_clause(Where::new(
+                        "id",
+                        DbValue::String(local_subscription_id.to_owned()),
+                    ))
+                    .data(
+                        "stripe_schedule_id",
+                        DbValue::String(schedule_id.to_owned()),
+                    ),
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+async fn release_created_subscription_schedule(
+    input: &ActiveUpgradeInput<'_>,
+    schedule_id: &str,
+) -> bool {
+    input
+        .options
+        .stripe_client
+        .release_subscription_schedule(schedule_id)
+        .await
+        .is_ok()
+}
+
+async fn abandon_created_subscription_schedule(
+    input: &ActiveUpgradeInput<'_>,
+    schedule_id: &str,
+) -> Result<(), OpenAuthError> {
+    if !release_created_subscription_schedule(input, schedule_id).await {
+        persist_stripe_schedule_id(input, schedule_id).await?;
+    }
+    Ok(())
+}
+
 async fn schedule_period_end_change(
     input: ActiveUpgradeInput<'_>,
     active_subscription: &StripeSubscription,
@@ -343,6 +388,7 @@ async fn schedule_period_end_change(
         .and_then(Value::as_array)
         .and_then(|phases| phases.first())
     else {
+        abandon_created_subscription_schedule(&input, schedule_id).await?;
         return error_response(
             StatusCode::BAD_GATEWAY,
             StripeErrorCode::UnableToCreateBillingPortal,
@@ -386,24 +432,10 @@ async fn schedule_period_end_change(
         )
         .await
     {
+        abandon_created_subscription_schedule(&input, schedule_id).await?;
         return respond_stripe_api_error(error, StripeErrorCode::UnableToCreateBillingPortal);
     }
-    if let Some(local_subscription_id) = input.local_subscription.get("id").and_then(db_string) {
-        input
-            .adapter
-            .update(
-                Update::new("subscription")
-                    .where_clause(Where::new(
-                        "id",
-                        DbValue::String(local_subscription_id.to_owned()),
-                    ))
-                    .data(
-                        "stripe_schedule_id",
-                        DbValue::String(schedule_id.to_owned()),
-                    ),
-            )
-            .await?;
-    }
+    persist_stripe_schedule_id(&input, schedule_id).await?;
     json_response(
         StatusCode::OK,
         &json!({

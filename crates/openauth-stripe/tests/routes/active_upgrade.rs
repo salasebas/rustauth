@@ -7,6 +7,8 @@ struct ActiveUpgradeTransport {
     include_seat_item: bool,
     schedule_source: Option<&'static str>,
     fail_billing_portal: bool,
+    fail_schedule_update: bool,
+    fail_schedule_release: bool,
 }
 
 #[derive(Default)]
@@ -200,6 +202,8 @@ impl ActiveUpgradeTransport {
             include_seat_item: false,
             schedule_source: Some("@better-auth/stripe"),
             fail_billing_portal: false,
+            fail_schedule_update: false,
+            fail_schedule_release: false,
         }
     }
 
@@ -210,6 +214,8 @@ impl ActiveUpgradeTransport {
             include_seat_item: false,
             schedule_source: Some("stripe-dashboard"),
             fail_billing_portal: false,
+            fail_schedule_update: false,
+            fail_schedule_release: false,
         }
     }
 
@@ -220,6 +226,8 @@ impl ActiveUpgradeTransport {
             include_seat_item: true,
             schedule_source: None,
             fail_billing_portal: false,
+            fail_schedule_update: false,
+            fail_schedule_release: false,
         }
     }
 
@@ -230,6 +238,32 @@ impl ActiveUpgradeTransport {
             include_seat_item: false,
             schedule_source: None,
             fail_billing_portal: true,
+            fail_schedule_update: false,
+            fail_schedule_release: false,
+        }
+    }
+
+    fn with_schedule_update_failure() -> Self {
+        Self {
+            requests: Mutex::new(Vec::new()),
+            schedule: None,
+            include_seat_item: false,
+            schedule_source: None,
+            fail_billing_portal: false,
+            fail_schedule_update: true,
+            fail_schedule_release: false,
+        }
+    }
+
+    fn with_schedule_update_and_release_failure() -> Self {
+        Self {
+            requests: Mutex::new(Vec::new()),
+            schedule: None,
+            include_seat_item: false,
+            schedule_source: None,
+            fail_billing_portal: false,
+            fail_schedule_update: true,
+            fail_schedule_release: true,
         }
     }
 
@@ -351,6 +385,14 @@ impl StripeTransport for ActiveUpgradeTransport {
                         ]
                     }]
                 }),
+            ),
+            ("/v1/subscription_schedules/sched_new/release", _) if self.fail_schedule_release => (
+                500,
+                json!({ "error": { "message": "schedule release failed" } }),
+            ),
+            ("/v1/subscription_schedules/sched_new", "POST") if self.fail_schedule_update => (
+                500,
+                json!({ "error": { "message": "schedule update failed" } }),
             ),
             ("/v1/subscription_schedules/sched_new", _) => (
                 200,
@@ -881,6 +923,121 @@ async fn subscription_upgrade_schedules_period_end_change_and_stores_schedule_id
     assert!(!requests
         .iter()
         .any(|request| request.path == "/v1/billing_portal/sessions"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscription_upgrade_releases_orphan_schedule_when_period_end_update_fails(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transport = Arc::new(ActiveUpgradeTransport::with_schedule_update_failure());
+    let options = StripeOptions::new(
+        StripeClient::with_transport(
+            "sk_test",
+            Arc::clone(&transport) as Arc<dyn StripeTransport>,
+        ),
+        "whsec_test",
+    )
+    .subscription(SubscriptionOptions::enabled(vec![
+        StripePlan::new("starter")
+            .price_id("price_starter")
+            .line_item(json!({ "price": "price_starter_events" })),
+        StripePlan::new("pro")
+            .price_id("price_pro")
+            .line_item(json!({ "price": "price_pro_events" })),
+    ]));
+    let plugin = stripe(options);
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/subscription/upgrade")
+        .ok_or("upgrade endpoint")?;
+    let (context, adapter, cookie_header) = authenticated_context().await?;
+    seed_active_starter_subscription(&adapter).await?;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/subscription/upgrade")
+        .header("content-type", "application/json")
+        .header("cookie", cookie_header)
+        .body(
+            br#"{"plan":"pro","scheduleAtPeriodEnd":true,"returnUrl":"/account","successUrl":"/ok","cancelUrl":"/pricing"}"#
+                .to_vec(),
+        )?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "FAILED_TO_FETCH_PLANS");
+    let requests = transport.requests()?;
+    assert!(requests.iter().any(|request| {
+        request.path == "/v1/subscription_schedules" && request.method == "POST"
+    }));
+    assert!(requests.iter().any(|request| {
+        request.path == "/v1/subscription_schedules/sched_new" && request.method == "POST"
+    }));
+    assert!(requests
+        .iter()
+        .any(|request| request.path == "/v1/subscription_schedules/sched_new/release"));
+    let records = adapter.records("subscription").await;
+    let subscription = records
+        .iter()
+        .find(|record| record.get("id") == Some(&DbValue::String("sub_active".to_owned())))
+        .ok_or("subscription")?;
+    assert_eq!(subscription.get("stripe_schedule_id"), Some(&DbValue::Null));
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscription_upgrade_persists_schedule_id_when_period_end_cleanup_release_fails(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transport = Arc::new(ActiveUpgradeTransport::with_schedule_update_and_release_failure());
+    let options = StripeOptions::new(
+        StripeClient::with_transport(
+            "sk_test",
+            Arc::clone(&transport) as Arc<dyn StripeTransport>,
+        ),
+        "whsec_test",
+    )
+    .subscription(SubscriptionOptions::enabled(vec![
+        StripePlan::new("starter")
+            .price_id("price_starter")
+            .line_item(json!({ "price": "price_starter_events" })),
+        StripePlan::new("pro")
+            .price_id("price_pro")
+            .line_item(json!({ "price": "price_pro_events" })),
+    ]));
+    let plugin = stripe(options);
+    let endpoint = plugin
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.path == "/subscription/upgrade")
+        .ok_or("upgrade endpoint")?;
+    let (context, adapter, cookie_header) = authenticated_context().await?;
+    seed_active_starter_subscription(&adapter).await?;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("http://localhost:3000/api/auth/subscription/upgrade")
+        .header("content-type", "application/json")
+        .header("cookie", cookie_header)
+        .body(
+            br#"{"plan":"pro","scheduleAtPeriodEnd":true,"returnUrl":"/account","successUrl":"/ok","cancelUrl":"/pricing"}"#
+                .to_vec(),
+        )?;
+
+    let response = (endpoint.handler)(&context, request).await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "FAILED_TO_FETCH_PLANS");
+    let records = adapter.records("subscription").await;
+    let subscription = records
+        .iter()
+        .find(|record| record.get("id") == Some(&DbValue::String("sub_active".to_owned())))
+        .ok_or("subscription")?;
+    assert_eq!(
+        subscription.get("stripe_schedule_id"),
+        Some(&DbValue::String("sched_new".to_owned()))
+    );
     Ok(())
 }
 
