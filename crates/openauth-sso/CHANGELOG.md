@@ -4,8 +4,18 @@ All notable changes to `openauth-sso` are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Added audit event `DomainVerificationRevoked` when an update clears a
+  previously verified provider domain, with stable `reason` codes such as
+  `oidc_trust_boundary_changed` and `saml_trust_boundary_changed`.
+
 ### Fixed
 
+- Fixed `update-provider` to revoke domain verification when merged OIDC or SAML
+  config changes alter the effective IdP trust boundary, not only when top-level
+  `issuer` or `domain` change. Auxiliary OIDC endpoints and SAML callback URLs
+  may still be updated without revoking verification.
 - Fixed the OIDC SSO callback so it always validates the ID token (issuer,
   audience, expiration, subject, `nonce`, and `azp`) before trusting any
   profile source. Providers with a `userInfoEndpoint` previously skipped ID

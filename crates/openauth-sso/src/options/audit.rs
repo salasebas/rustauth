@@ -34,6 +34,8 @@ pub enum SsoAuditEventKind {
     DomainVerificationSucceeded,
     /// Domain verification failed.
     DomainVerificationFailed,
+    /// A previously verified provider domain was revoked by an update.
+    DomainVerificationRevoked,
     /// A replayed SAML assertion was rejected.
     SamlReplayRejected,
     /// SAML signature validation failed.
