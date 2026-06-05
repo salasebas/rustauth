@@ -29,6 +29,7 @@ struct CapturingAdapter {
     delete_many_result: Arc<Mutex<u64>>,
     transaction_count: Arc<Mutex<u64>>,
     transaction_should_fail: Arc<Mutex<bool>>,
+    find_many_should_fail: Arc<Mutex<bool>>,
 }
 
 impl DbAdapter for CapturingAdapter {
@@ -59,6 +60,11 @@ impl DbAdapter for CapturingAdapter {
     fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
         Box::pin(async move {
             self.find_many.lock().await.replace(query);
+            if *self.find_many_should_fail.lock().await {
+                return Err(OpenAuthError::Adapter(
+                    "find_many failed during delete snapshot preload".to_owned(),
+                ));
+            }
             Ok(self.find_many_result.lock().await.clone())
         })
     }
@@ -534,6 +540,82 @@ async fn hooked_adapter_delete_hooks_receive_snapshots() -> Result<(), OpenAuthE
         ["before:user:1", "after:user:1"]
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn hooked_adapter_delete_fails_when_snapshot_preload_fails() {
+    let inner = CapturingAdapter::default();
+    *inner.find_many_should_fail.lock().await = true;
+    let hook_ran = Arc::new(StdMutex::new(false));
+    let adapter = HookedAdapter::new(
+        Arc::new(inner.clone()),
+        vec![
+            PluginDatabaseHook::before_delete("before-delete", {
+                let hook_ran = Arc::clone(&hook_ran);
+                move |_context, query, snapshots| {
+                    *hook_ran.lock().unwrap() = true;
+                    Ok(PluginDatabaseBeforeAction::Continue(
+                        PluginDatabaseBeforeInput::Delete { query, snapshots },
+                    ))
+                }
+            }),
+            PluginDatabaseHook::after_delete("after-delete", {
+                let hook_ran = Arc::clone(&hook_ran);
+                move |_context, _query, _snapshots| {
+                    *hook_ran.lock().unwrap() = true;
+                    Ok(())
+                }
+            }),
+        ],
+    );
+
+    let result = adapter.delete(Delete::new("user")).await;
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::Adapter(message))
+            if message == "find_many failed during delete snapshot preload"
+    ));
+    assert!(!*hook_ran.lock().unwrap());
+    assert!(inner.delete.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn hooked_adapter_delete_many_fails_when_snapshot_preload_fails() {
+    let inner = CapturingAdapter::default();
+    *inner.find_many_should_fail.lock().await = true;
+    let hook_ran = Arc::new(StdMutex::new(false));
+    let adapter = HookedAdapter::new(
+        Arc::new(inner.clone()),
+        vec![
+            PluginDatabaseHook::before_delete_many("before-delete-many", {
+                let hook_ran = Arc::clone(&hook_ran);
+                move |_context, query, snapshots| {
+                    *hook_ran.lock().unwrap() = true;
+                    Ok(PluginDatabaseBeforeAction::Continue(
+                        PluginDatabaseBeforeInput::DeleteMany { query, snapshots },
+                    ))
+                }
+            }),
+            PluginDatabaseHook::after_delete_many("after-delete-many", {
+                let hook_ran = Arc::clone(&hook_ran);
+                move |_context, _query, _snapshots, _result| {
+                    *hook_ran.lock().unwrap() = true;
+                    Ok(())
+                }
+            }),
+        ],
+    );
+
+    let result = adapter.delete_many(DeleteMany::new("user")).await;
+
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::Adapter(message))
+            if message == "find_many failed during delete snapshot preload"
+    ));
+    assert!(!*hook_ran.lock().unwrap());
+    assert!(inner.delete_many.lock().await.is_none());
 }
 
 #[tokio::test]

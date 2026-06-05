@@ -195,7 +195,7 @@ where
             query.where_clauses.clone(),
             Some(1),
         )
-        .await;
+        .await?;
         let (query, snapshots) = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::Delete { query, snapshots },
@@ -242,7 +242,7 @@ where
             query.where_clauses.clone(),
             None,
         )
-        .await;
+        .await?;
         let (query, snapshots) = match run_before_hooks(
             hooks.as_slice(),
             PluginDatabaseBeforeInput::DeleteMany { query, snapshots },
@@ -281,14 +281,14 @@ async fn load_delete_snapshots<A>(
     model: String,
     where_clauses: Vec<super::super::Where>,
     limit: Option<usize>,
-) -> Vec<DbRecord>
+) -> Result<Vec<DbRecord>, OpenAuthError>
 where
     A: DbAdapter,
 {
     let mut query = FindMany::new(model);
     query.where_clauses = where_clauses;
     query.limit = limit;
-    inner.find_many(query).await.unwrap_or_default()
+    inner.find_many(query).await
 }
 
 async fn run_before_hooks<A>(
