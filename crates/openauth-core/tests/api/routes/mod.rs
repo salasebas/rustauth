@@ -79,6 +79,8 @@ mod update_session;
 mod update_user;
 mod verify_password;
 
+use crate::common::with_test_defaults;
+
 fn router(adapter: Arc<RouteAdapter>) -> Result<AuthRouter, OpenAuthError> {
     router_with_options(adapter, OpenAuthOptions::default())
 }
@@ -88,7 +90,7 @@ fn router_with_options(
     options: OpenAuthOptions,
 ) -> Result<AuthRouter, OpenAuthError> {
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             secret: Some(secret().to_owned()),
             advanced: AdvancedOptions {
                 disable_csrf_check: true,
@@ -96,7 +98,7 @@ fn router_with_options(
                 ..AdvancedOptions::default()
             },
             ..options
-        },
+        }),
         adapter.clone(),
     )?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
@@ -112,11 +114,11 @@ fn router_with_advanced(
     advanced.disable_csrf_check = true;
     advanced.disable_origin_check = true;
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             secret: Some(secret().to_owned()),
             advanced,
             ..options
-        },
+        }),
         adapter.clone(),
     )?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
@@ -145,10 +147,10 @@ fn secret() -> &'static str {
 }
 
 fn signed_session_cookie(token: &str) -> Result<String, OpenAuthError> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let cookies = openauth_core::cookies::set_session_cookie(
         &context.auth_cookies,
         &context.secret,
@@ -162,10 +164,10 @@ fn signed_session_cookie(token: &str) -> Result<String, OpenAuthError> {
 /// including the signed `dont_remember` marker cookie that drives browser
 /// session behavior.
 fn signed_dont_remember_session_cookie(token: &str) -> Result<String, OpenAuthError> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let cookies = openauth_core::cookies::set_session_cookie(
         &context.auth_cookies,
         &context.secret,

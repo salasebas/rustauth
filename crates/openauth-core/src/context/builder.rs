@@ -9,7 +9,7 @@ use crate::crypto::password::{hash_password, verify_password};
 use crate::crypto::{build_secret_config, parse_secrets_env};
 use crate::db::RateLimitStorage as DbRateLimitStorage;
 use crate::db::{auth_schema, AuthSchemaOptions, DbAdapter, DbField, HookedAdapter};
-use crate::env::is_production;
+use crate::env::is_production_posture;
 use crate::env::logger::create_logger;
 use crate::error::OpenAuthError;
 use crate::options::hooks::{plugin_after_hooks, plugin_before_hooks};
@@ -56,7 +56,7 @@ pub fn create_auth_context_with_environment_and_adapter(
     adapter: Option<Arc<dyn DbAdapter>>,
 ) -> Result<AuthContext, OpenAuthError> {
     let logger = create_logger(options.logger.clone());
-    let production = options.production || is_production();
+    let production_posture = is_production_posture(&options);
     let env_secrets = parse_secrets_env(environment.openauth_secrets.as_deref())?;
     let secrets = if options.secrets.is_empty() {
         env_secrets.unwrap_or_default()
@@ -67,7 +67,7 @@ pub fn create_auth_context_with_environment_and_adapter(
 
     let (secret, secret_config) = if secrets.is_empty() {
         let secret = legacy_secret.unwrap_or_else(|| DEFAULT_SECRET.to_owned());
-        validate_secret(&secret, production)?;
+        validate_secret(&secret, &options)?;
         (secret.clone(), SecretMaterial::Single(secret))
     } else {
         let config = build_secret_config(&secrets, legacy_secret.as_deref().unwrap_or(""))?;
@@ -109,7 +109,7 @@ pub fn create_auth_context_with_environment_and_adapter(
     };
     validate_rate_limit_storage(&options)?;
     let rate_limit = RateLimitContext {
-        enabled: options.rate_limit.enabled.unwrap_or(production),
+        enabled: options.rate_limit.enabled.unwrap_or(production_posture),
         window: options.rate_limit.window,
         max: options.rate_limit.max,
         storage: options.rate_limit.storage,

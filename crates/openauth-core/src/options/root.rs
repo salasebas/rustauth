@@ -101,6 +101,9 @@ pub struct OpenAuthOptions {
     #[cfg(feature = "oauth")]
     pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
     pub production: bool,
+    /// Explicitly allow development-oriented security defaults (for example the
+    /// built-in default secret and localhost IP fallback).
+    pub development: bool,
     pub telemetry: TelemetryOptions,
     pub experimental: ExperimentalOptions,
 }
@@ -286,6 +289,12 @@ impl OpenAuthOptions {
     }
 
     #[must_use]
+    pub fn development(mut self, development: bool) -> Self {
+        self.development = development;
+        self
+    }
+
+    #[must_use]
     pub fn telemetry(mut self, telemetry: TelemetryOptions) -> Self {
         self.telemetry = telemetry;
         self
@@ -335,6 +344,7 @@ impl fmt::Debug for OpenAuthOptions {
             .field("plugins", &self.plugins)
             .field("social_providers", &debug_social_providers(self))
             .field("production", &self.production)
+            .field("development", &self.development)
             .field("telemetry", &self.telemetry)
             .field("experimental", &self.experimental)
             .finish()

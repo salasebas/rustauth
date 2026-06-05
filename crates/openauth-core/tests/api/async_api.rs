@@ -1,3 +1,4 @@
+use crate::common::with_test_defaults;
 use http::{Method, Request, StatusCode};
 use openauth_core::api::{response, ApiRequest, AsyncAuthEndpoint, AuthEndpoint, AuthRouter};
 use openauth_core::context::{create_auth_context, AuthContext};
@@ -26,10 +27,10 @@ fn async_endpoint(path: &str) -> AsyncAuthEndpoint {
 
 #[tokio::test]
 async fn handle_async_runs_async_endpoint() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router =
         AuthRouter::with_async_endpoints(context, Vec::new(), vec![async_endpoint("/async")])?;
 
@@ -49,10 +50,10 @@ async fn handle_async_runs_async_endpoint() -> Result<(), Box<dyn std::error::Er
 
 #[tokio::test]
 async fn handle_async_can_run_existing_sync_endpoints() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, vec![sync_endpoint()], Vec::new())?;
 
     let response = router
@@ -71,10 +72,10 @@ async fn handle_async_can_run_existing_sync_endpoints() -> Result<(), Box<dyn st
 
 #[test]
 fn sync_handle_rejects_async_only_endpoint() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router =
         AuthRouter::with_async_endpoints(context, Vec::new(), vec![async_endpoint("/async")])?;
 
@@ -97,10 +98,10 @@ fn sync_handle_rejects_async_only_endpoint() -> Result<(), Box<dyn std::error::E
 
 #[test]
 fn async_endpoint_conflicts_with_sync_endpoint() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     let result = AuthRouter::with_async_endpoints(
         context,

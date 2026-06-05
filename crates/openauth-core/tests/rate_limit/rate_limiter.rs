@@ -48,7 +48,7 @@ fn assert_error_body(
 
 #[tokio::test]
 async fn rate_limiter_uses_special_sign_in_rule() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -57,7 +57,7 @@ async fn rate_limiter_uses_special_sign_in_rule() -> Result<(), Box<dyn std::err
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/sign-in/email", Method::POST)]);
 
     for attempt in 0..4 {
@@ -94,7 +94,7 @@ async fn rate_limiter_uses_special_sign_in_rule() -> Result<(), Box<dyn std::err
 #[tokio::test]
 async fn rate_limiter_keys_by_normalized_path_without_query(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -103,7 +103,7 @@ async fn rate_limiter_keys_by_normalized_path_without_query(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     for attempt in 0..3 {
@@ -127,7 +127,7 @@ async fn rate_limiter_keys_by_normalized_path_without_query(
 
 #[tokio::test]
 async fn memory_rate_limiter_ceil_retry_after_seconds() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 1,
@@ -136,7 +136,7 @@ async fn memory_rate_limiter_ceil_retry_after_seconds() -> Result<(), Box<dyn st
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     for _ in 0..2 {
@@ -207,7 +207,7 @@ async fn governor_memory_rate_limiter_reports_remaining_capacity(
 #[tokio::test]
 async fn runtime_external_rate_limit_storage_without_store_returns_clear_error(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut context = create_auth_context(OpenAuthOptions {
+    let mut context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -216,7 +216,7 @@ async fn runtime_external_rate_limit_storage_without_store_returns_clear_error(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     context.rate_limit.storage = RateLimitStorageOption::Database;
     context.rate_limit.custom_store = None;
 
@@ -240,7 +240,7 @@ async fn runtime_external_rate_limit_storage_without_store_returns_clear_error(
 
 #[tokio::test]
 async fn rate_limiter_keeps_client_ips_separate() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -249,7 +249,7 @@ async fn rate_limiter_keeps_client_ips_separate() -> Result<(), Box<dyn std::err
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let first_ip = request_for_client_ip("192.0.2.1")?;
@@ -276,7 +276,7 @@ async fn rate_limiter_keeps_client_ips_separate() -> Result<(), Box<dyn std::err
 #[tokio::test]
 async fn rate_limiter_ignores_unconfigured_forwarded_headers(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -286,7 +286,7 @@ async fn rate_limiter_ignores_unconfigured_forwarded_headers(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let first = request_for_client_ip_with_header("192.0.2.10", "203.0.113.1")?;
@@ -303,7 +303,7 @@ async fn rate_limiter_ignores_unconfigured_forwarded_headers(
 
 #[tokio::test]
 async fn rate_limiter_uses_request_client_ip_extension() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -313,7 +313,7 @@ async fn rate_limiter_uses_request_client_ip_extension() -> Result<(), Box<dyn s
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     assert_eq!(
@@ -344,7 +344,7 @@ async fn rate_limiter_uses_request_client_ip_extension() -> Result<(), Box<dyn s
 #[tokio::test]
 async fn rate_limiter_uses_explicit_forwarded_header_configuration(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         advanced: AdvancedOptions::new()
             .ip_address(IpAddressOptions::new().headers(["x-forwarded-for"])),
@@ -356,7 +356,7 @@ async fn rate_limiter_uses_explicit_forwarded_header_configuration(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     assert_eq!(
@@ -387,7 +387,7 @@ async fn rate_limiter_uses_explicit_forwarded_header_configuration(
 #[tokio::test]
 async fn rate_limiter_falls_back_to_client_ip_when_configured_header_is_invalid(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         advanced: AdvancedOptions::new()
             .ip_address(IpAddressOptions::new().headers(["x-forwarded-for"])),
@@ -399,7 +399,7 @@ async fn rate_limiter_falls_back_to_client_ip_when_configured_header_is_invalid(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let first = request_for_client_ip_with_header("192.0.2.40", "not an ip")?;
@@ -416,7 +416,7 @@ async fn rate_limiter_falls_back_to_client_ip_when_configured_header_is_invalid(
 
 #[tokio::test]
 async fn rate_limiter_supports_custom_wildcard_rules() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             custom_rules: vec![RateLimitPathRule {
@@ -427,7 +427,7 @@ async fn rate_limiter_supports_custom_wildcard_rules() -> Result<(), Box<dyn std
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/sign-in/email", Method::POST)]);
 
     for attempt in 0..3 {
@@ -451,7 +451,7 @@ async fn rate_limiter_supports_custom_wildcard_rules() -> Result<(), Box<dyn std
 
 #[tokio::test]
 async fn rate_limiter_can_disable_a_custom_path() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -464,7 +464,7 @@ async fn rate_limiter_can_disable_a_custom_path() -> Result<(), Box<dyn std::err
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/get-session", Method::GET)]);
 
     for _ in 0..5 {
@@ -485,7 +485,7 @@ async fn rate_limiter_can_disable_a_custom_path() -> Result<(), Box<dyn std::err
 #[tokio::test]
 async fn rate_limiter_supports_dynamic_request_aware_rules(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             dynamic_rules: vec![DynamicRateLimitPathRule::new(
@@ -506,7 +506,7 @@ async fn rate_limiter_supports_dynamic_request_aware_rules(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let first = router
@@ -537,7 +537,7 @@ async fn rate_limiter_supports_dynamic_request_aware_rules(
 #[test]
 fn disabled_paths_do_not_touch_rate_limit_storage() -> Result<(), Box<dyn std::error::Error>> {
     let storage = Arc::new(TestStorage::default());
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         disabled_paths: vec!["/limited".to_owned()],
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -548,7 +548,7 @@ fn disabled_paths_do_not_touch_rate_limit_storage() -> Result<(), Box<dyn std::e
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/limited", Method::GET)]);
 
     for _ in 0..2 {
@@ -568,7 +568,7 @@ fn disabled_paths_do_not_touch_rate_limit_storage() -> Result<(), Box<dyn std::e
 #[test]
 fn production_requests_without_ip_are_denied_by_default() -> Result<(), Box<dyn std::error::Error>>
 {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -578,7 +578,7 @@ fn production_requests_without_ip_are_denied_by_default() -> Result<(), Box<dyn 
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     // Fail closed: an enabled rate limit with an unresolvable client IP must
@@ -599,7 +599,7 @@ fn production_requests_without_ip_are_denied_by_default() -> Result<(), Box<dyn 
 #[tokio::test]
 async fn production_sign_in_without_ip_cannot_bypass_special_limit(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -609,7 +609,7 @@ async fn production_sign_in_without_ip_cannot_bypass_special_limit(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/sign-in/email", Method::POST)]);
 
     // Without RequestClientIp in production the default policy denies every
@@ -632,7 +632,7 @@ async fn production_sign_in_without_ip_cannot_bypass_special_limit(
 #[test]
 fn production_requests_without_ip_allow_policy_skips_rate_limit(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -643,7 +643,7 @@ fn production_requests_without_ip_allow_policy_skips_rate_limit(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     for _ in 0..3 {
@@ -662,7 +662,7 @@ fn production_requests_without_ip_allow_policy_skips_rate_limit(
 #[tokio::test]
 async fn production_sign_in_without_ip_shared_bucket_enforces_limit(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -673,7 +673,7 @@ async fn production_sign_in_without_ip_shared_bucket_enforces_limit(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/sign-in/email", Method::POST)]);
 
     // IP-less requests share one bucket and still honor the special /sign-in
@@ -699,7 +699,7 @@ async fn production_sign_in_without_ip_shared_bucket_enforces_limit(
 
 #[test]
 fn production_disabled_ip_tracking_skips_rate_limit() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         advanced: AdvancedOptions::new()
             .ip_address(IpAddressOptions::new().disable_ip_tracking(true)),
@@ -711,7 +711,7 @@ fn production_disabled_ip_tracking_skips_rate_limit() -> Result<(), Box<dyn std:
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     // Disabling IP tracking is an explicit opt-out: the fail-closed policy must
@@ -732,7 +732,7 @@ fn production_disabled_ip_tracking_skips_rate_limit() -> Result<(), Box<dyn std:
 #[test]
 fn sync_handler_returns_clear_error_when_rate_limit_must_consume(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -741,7 +741,7 @@ fn sync_handler_returns_clear_error_when_rate_limit_must_consume(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let error = match router.handle(
@@ -767,7 +767,7 @@ fn sync_handler_returns_clear_error_when_rate_limit_must_consume(
 #[tokio::test]
 async fn hybrid_local_denial_stops_before_global_store() -> Result<(), Box<dyn std::error::Error>> {
     let global = Arc::new(DecisionStore::permitted());
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -781,7 +781,7 @@ async fn hybrid_local_denial_stops_before_global_store() -> Result<(), Box<dyn s
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     assert_eq!(
@@ -806,7 +806,7 @@ async fn hybrid_local_denial_stops_before_global_store() -> Result<(), Box<dyn s
 async fn hybrid_returns_global_denial_when_local_permits() -> Result<(), Box<dyn std::error::Error>>
 {
     let global = Arc::new(DecisionStore::denied(42));
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -820,7 +820,7 @@ async fn hybrid_returns_global_denial_when_local_permits() -> Result<(), Box<dyn
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let response = router
@@ -843,7 +843,7 @@ async fn hybrid_returns_global_denial_when_local_permits() -> Result<(), Box<dyn
 async fn hybrid_disabled_uses_distributed_store_directly() -> Result<(), Box<dyn std::error::Error>>
 {
     let global = Arc::new(DecisionStore::denied(7));
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             custom_store: Some(global.clone()),
@@ -851,7 +851,7 @@ async fn hybrid_disabled_uses_distributed_store_directly() -> Result<(), Box<dyn
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let response = router
@@ -867,7 +867,7 @@ async fn hybrid_disabled_uses_distributed_store_directly() -> Result<(), Box<dyn
 async fn custom_store_decision_is_used_with_one_consume_call(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(DecisionStore::denied(13));
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             custom_store: Some(store.clone()),
@@ -875,7 +875,7 @@ async fn custom_store_decision_is_used_with_one_consume_call(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", Method::GET)]);
 
     let response = router
@@ -1000,7 +1000,7 @@ fn create_rate_limit_key_with_suffix_extends_ip_path_key() {
 #[tokio::test]
 async fn consume_scoped_rate_limit_uses_independent_buckets_per_scope(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         rate_limit: RateLimitOptions {
             enabled: Some(true),
             window: 10,
@@ -1009,7 +1009,7 @@ async fn consume_scoped_rate_limit_uses_independent_buckets_per_scope(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let path = "/passkey/verify-authentication";
     let rule = RateLimitRule { window: 60, max: 2 };
     let request = || {

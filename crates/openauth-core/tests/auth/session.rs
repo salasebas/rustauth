@@ -340,7 +340,7 @@ async fn sign_out_propagates_delete_failure_and_retains_session(
 }
 
 fn context() -> Result<AuthContext, OpenAuthError> {
-    create_auth_context(OpenAuthOptions {
+    create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("test-secret-123456789012345678901234".to_owned()),
         session: SessionOptions {
             expires_in: Some(60 * 60),
@@ -353,7 +353,7 @@ fn context() -> Result<AuthContext, OpenAuthError> {
             ..SessionOptions::default()
         },
         ..OpenAuthOptions::default()
-    })
+    }))
 }
 
 fn session_cookie_header(

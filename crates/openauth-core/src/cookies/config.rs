@@ -1,4 +1,4 @@
-use crate::env::is_production;
+use crate::env::is_production_posture;
 use crate::error::OpenAuthError;
 use crate::options::{CookieAttributesOverride, OpenAuthOptions};
 
@@ -62,7 +62,7 @@ fn resolve_secure(options: &OpenAuthOptions) -> bool {
     if let Some(base_url) = &options.base_url {
         return base_url.starts_with("https://");
     }
-    options.production || is_production()
+    is_production_posture(options)
 }
 
 fn resolve_domain(options: &OpenAuthOptions) -> Result<Option<String>, OpenAuthError> {

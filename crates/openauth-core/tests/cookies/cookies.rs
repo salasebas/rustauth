@@ -4,9 +4,13 @@ use openauth_core::cookies::{
 };
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 
+fn dev_options() -> OpenAuthOptions {
+    crate::common::with_test_defaults(OpenAuthOptions::default())
+}
+
 #[test]
 fn get_cookies_uses_default_names_and_attributes() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
 
     assert_eq!(cookies.session_token.name, "open-auth.session_token");
     assert_eq!(cookies.session_token.attributes.path.as_deref(), Some("/"));
@@ -195,7 +199,7 @@ fn delete_session_cookie_expires_unprefixed_fallback_in_secure_mode(
 #[test]
 fn delete_session_cookie_skips_unprefixed_fallback_in_plain_mode(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
 
     let expired = delete_session_cookie(&cookies, "open-auth.session_token=token", false);
 

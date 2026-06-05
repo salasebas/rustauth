@@ -1,7 +1,7 @@
 //! Router-level rate limiting.
 
 use crate::context::AuthContext;
-use crate::env::is_production;
+use crate::env::allows_development_defaults;
 use crate::error::OpenAuthError;
 use crate::options::{
     MissingIpPolicy, RateLimitConsumeInput, RateLimitDecision, RateLimitFuture, RateLimitRecord,
@@ -514,7 +514,7 @@ pub fn resolve_client_ip(context: &AuthContext, request: &Request<Body>) -> Opti
         ));
     }
 
-    if !context.options.production && !is_production() {
+    if allows_development_defaults(&context.options) {
         return Some("127.0.0.1".to_owned());
     }
 

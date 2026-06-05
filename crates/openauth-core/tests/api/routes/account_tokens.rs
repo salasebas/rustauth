@@ -530,14 +530,14 @@ fn encrypting_token_router(adapter: Arc<RouteAdapter>) -> Result<AuthRouter, Ope
 }
 
 fn encryption_context() -> Result<openauth_core::context::AuthContext, OpenAuthError> {
-    create_auth_context(OpenAuthOptions {
+    create_auth_context(super::with_test_defaults(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         account: openauth_core::options::AccountOptions {
             encrypt_oauth_tokens: true,
             ..openauth_core::options::AccountOptions::default()
         },
         ..OpenAuthOptions::default()
-    })
+    }))
 }
 
 fn encrypt_token(value: &str) -> Result<String, OpenAuthError> {

@@ -1,3 +1,4 @@
+use crate::common::with_test_defaults;
 use http::{Method, Request, StatusCode};
 use openauth_core::api::{
     core_endpoints, response, ApiErrorResponse, ApiRequest, ApiResponse, AuthEndpoint, AuthRouter,
@@ -58,11 +59,11 @@ fn assert_error_body(
 
 #[test]
 fn auth_router_returns_not_found_for_disabled_path() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         disabled_paths: vec!["/sign-in/email".to_owned()],
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, core_endpoints());
     let request = Request::builder()
         .method(Method::POST)
@@ -78,10 +79,10 @@ fn auth_router_returns_not_found_for_disabled_path() -> Result<(), Box<dyn std::
 
 #[test]
 fn auth_router_exposes_ok_endpoint() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, core_endpoints());
     let request = Request::builder()
         .method(Method::GET)
@@ -98,10 +99,10 @@ fn auth_router_exposes_ok_endpoint() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn auth_router_matches_parameterized_path_and_exposes_params(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::try_new(
         context,
         vec![AuthEndpoint {
@@ -124,10 +125,10 @@ fn auth_router_matches_parameterized_path_and_exposes_params(
 
 #[test]
 fn auth_router_rejects_conflicting_parameterized_paths() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     let result = AuthRouter::try_new(
         context,
@@ -154,10 +155,10 @@ fn auth_router_rejects_conflicting_parameterized_paths() -> Result<(), Box<dyn s
 
 #[test]
 fn auth_router_rejects_trailing_slash_by_default() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, core_endpoints());
     let request = Request::builder()
         .method(Method::GET)
@@ -173,14 +174,14 @@ fn auth_router_rejects_trailing_slash_by_default() -> Result<(), Box<dyn std::er
 
 #[test]
 fn auth_router_can_skip_trailing_slashes() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         advanced: AdvancedOptions {
             skip_trailing_slashes: true,
             ..AdvancedOptions::default()
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, core_endpoints());
     let request = Request::builder()
         .method(Method::GET)
@@ -196,11 +197,11 @@ fn auth_router_can_skip_trailing_slashes() -> Result<(), Box<dyn std::error::Err
 #[test]
 fn auth_router_blocks_cookie_post_with_untrusted_origin() -> Result<(), Box<dyn std::error::Error>>
 {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -218,11 +219,11 @@ fn auth_router_blocks_cookie_post_with_untrusted_origin() -> Result<(), Box<dyn 
 
 #[test]
 fn auth_router_allows_cookie_post_with_trusted_origin() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -241,7 +242,7 @@ fn auth_router_allows_cookie_post_with_trusted_origin() -> Result<(), Box<dyn st
 #[test]
 fn auth_router_allows_cookie_post_with_dynamic_trusted_origin(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::dynamic(
             |request: Option<&Request<Vec<u8>>>| -> Result<Vec<String>, OpenAuthError> {
                 let Some(request) = request else {
@@ -257,7 +258,7 @@ fn auth_router_allows_cookie_post_with_dynamic_trusted_origin(
         ),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -276,11 +277,11 @@ fn auth_router_allows_cookie_post_with_dynamic_trusted_origin(
 
 #[test]
 fn auth_router_rejects_untrusted_callback_url() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -296,7 +297,7 @@ fn auth_router_rejects_untrusted_callback_url() -> Result<(), Box<dyn std::error
 
 #[test]
 fn auth_router_allows_dynamic_trusted_callback_url() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::dynamic(
             |request: Option<&Request<Vec<u8>>>| -> Result<Vec<String>, OpenAuthError> {
                 let Some(request) = request else {
@@ -312,7 +313,7 @@ fn auth_router_allows_dynamic_trusted_callback_url() -> Result<(), Box<dyn std::
         ),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -328,11 +329,11 @@ fn auth_router_allows_dynamic_trusted_callback_url() -> Result<(), Box<dyn std::
 
 #[test]
 fn auth_router_allows_relative_callback_url() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -348,11 +349,11 @@ fn auth_router_allows_relative_callback_url() -> Result<(), Box<dyn std::error::
 #[test]
 fn auth_router_allows_percent_encoded_trusted_callback_url(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -368,11 +369,11 @@ fn auth_router_allows_percent_encoded_trusted_callback_url(
 #[test]
 fn auth_router_rejects_percent_encoded_unsafe_relative_callback_url(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -388,7 +389,7 @@ fn auth_router_rejects_percent_encoded_unsafe_relative_callback_url(
 
 #[test]
 fn auth_router_skips_csrf_when_disabled() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         advanced: AdvancedOptions {
             disable_csrf_check: true,
@@ -396,7 +397,7 @@ fn auth_router_skips_csrf_when_disabled() -> Result<(), Box<dyn std::error::Erro
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -414,11 +415,11 @@ fn auth_router_skips_csrf_when_disabled() -> Result<(), Box<dyn std::error::Erro
 #[test]
 fn auth_router_blocks_cross_site_navigation_without_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -441,11 +442,11 @@ fn auth_router_blocks_cross_site_navigation_without_cookie(
 #[test]
 fn auth_router_requires_origin_when_fetch_metadata_is_present(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://app.example.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![post_ok_endpoint()]);
     let request = Request::builder()
         .method(Method::POST)
@@ -497,11 +498,11 @@ impl openauth_core::options::OnApiErrorHandler for TeapotOnError {
 #[test]
 fn auth_router_on_api_error_handler_can_replace_unhandled_errors(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         on_api_error: OnApiErrorOptions::new().on_error(TeapotOnError),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![failing_endpoint()]);
     let request = Request::builder()
         .method(Method::GET)
@@ -517,11 +518,11 @@ fn auth_router_on_api_error_handler_can_replace_unhandled_errors(
 
 #[test]
 fn auth_router_on_api_error_throw_propagates_errors() -> Result<(), Box<dyn std::error::Error>> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         on_api_error: OnApiErrorOptions::new().throw(true),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![failing_endpoint()]);
     let request = Request::builder()
         .method(Method::GET)
@@ -549,11 +550,11 @@ async fn auth_router_runs_on_response_plugins_for_async_not_found(
             );
             Ok(response)
         });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         plugins: vec![plugin],
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
     let request = Request::builder()
         .method(Method::GET)

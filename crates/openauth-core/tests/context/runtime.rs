@@ -20,10 +20,10 @@ use url::Url;
 
 #[test]
 fn create_auth_context_resolves_defaults() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert_eq!(ctx.base_path, "/api/auth");
     assert_eq!(ctx.session_config.expires_in, 60 * 60 * 24 * 7);
@@ -34,7 +34,7 @@ fn create_auth_context_resolves_defaults() -> Result<(), Box<dyn std::error::Err
 #[test]
 fn create_auth_context_applies_session_and_password_options(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         session: SessionOptions {
             expires_in: Some(120),
@@ -48,7 +48,7 @@ fn create_auth_context_applies_session_and_password_options(
             ..PasswordOptions::default()
         },
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert_eq!(ctx.session_config.expires_in, 120);
     assert_eq!(ctx.session_config.update_age, 30);
@@ -58,10 +58,10 @@ fn create_auth_context_applies_session_and_password_options(
 
 #[test]
 fn create_auth_context_rejects_missing_secret_in_production() {
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         production: true,
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(result.is_err());
 }
@@ -123,7 +123,7 @@ fn create_auth_context_builds_secret_config_from_environment_secrets(
 
 #[test]
 fn create_auth_context_rejects_external_rate_limit_storage_without_storage_contract() {
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -131,7 +131,7 @@ fn create_auth_context_rejects_external_rate_limit_storage_without_storage_contr
             ..RateLimitOptions::default()
         },
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(matches!(
         result,
@@ -144,11 +144,11 @@ fn create_auth_context_rejects_external_rate_limit_storage_without_storage_contr
 #[cfg(feature = "oauth")]
 fn create_auth_context_resolves_unique_social_provider_registry(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         social_providers: vec![Arc::new(TestProvider::new("github"))],
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert!(ctx.social_provider("github").is_some());
     Ok(())
@@ -157,14 +157,14 @@ fn create_auth_context_resolves_unique_social_provider_registry(
 #[test]
 #[cfg(feature = "oauth")]
 fn create_auth_context_rejects_duplicate_social_provider_ids() {
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         social_providers: vec![
             Arc::new(TestProvider::new("github")),
             Arc::new(TestProvider::new("github")),
         ],
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(matches!(
         result,
@@ -178,11 +178,11 @@ fn create_auth_context_accepts_plugin_social_provider() -> Result<(), Box<dyn st
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("plugin-provider"));
     let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
 
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         plugins: vec![plugin],
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert!(ctx.social_provider("plugin-provider").is_some());
     Ok(())
@@ -197,11 +197,11 @@ fn create_auth_context_accepts_plugin_init_social_provider(
         Ok(PluginInitOutput::new().social_provider(provider))
     });
 
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         plugins: vec![plugin],
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert!(ctx.social_provider("init-provider").is_some());
     Ok(())
@@ -218,11 +218,11 @@ fn plugin_init_sees_social_providers_registered_by_previous_plugin(
         Ok(PluginInitOutput::new())
     });
 
-    create_auth_context(OpenAuthOptions {
+    create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         plugins: vec![first, second],
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     Ok(())
 }
@@ -233,12 +233,12 @@ fn create_auth_context_rejects_duplicate_social_provider_from_plugin() {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new("github"));
     let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
 
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         social_providers: vec![Arc::new(TestProvider::new("github"))],
         plugins: vec![plugin],
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(matches!(
         result,
@@ -257,11 +257,11 @@ fn create_auth_context_rejects_duplicate_social_provider_from_plugin_init() {
             Ok(PluginInitOutput::new().social_provider(provider))
         });
 
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         plugins: vec![plugin],
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(matches!(
         result,
@@ -275,11 +275,11 @@ fn create_auth_context_rejects_empty_social_provider_id_from_plugin() {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(TestProvider::new(""));
     let plugin = AuthPlugin::new("social-plugin").with_social_provider(provider);
 
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         plugins: vec![plugin],
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(matches!(
         result,
