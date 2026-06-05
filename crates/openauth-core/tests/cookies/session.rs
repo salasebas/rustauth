@@ -8,12 +8,13 @@ use openauth_core::cookies::{
 use openauth_core::crypto::SecretConfig;
 use openauth_core::options::{CookieCacheOptions, OpenAuthOptions, SessionOptions};
 
+fn dev_options() -> OpenAuthOptions {
+    crate::common::with_test_defaults(OpenAuthOptions::default())
+}
+
 #[test]
 fn set_session_cookie_signs_session_token() -> Result<(), Box<dyn std::error::Error>> {
-    let options = OpenAuthOptions {
-        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-        ..OpenAuthOptions::default()
-    };
+    let options = dev_options().secret("secret-a-at-least-32-chars-long!!".to_owned());
     let cookies = get_cookies(&options)?;
 
     let set = set_session_cookie(
@@ -32,7 +33,7 @@ fn set_session_cookie_signs_session_token() -> Result<(), Box<dyn std::error::Er
 #[test]
 fn set_session_cookie_omits_max_age_when_dont_remember_is_true(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
 
     let set = set_session_cookie(
         &cookies,
@@ -61,7 +62,7 @@ fn set_session_cookie_omits_max_age_when_dont_remember_is_true(
 #[test]
 fn delete_session_cookie_expires_session_cookies_and_chunks(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
 
     let expired = delete_session_cookie(
         &cookies,
@@ -152,7 +153,7 @@ fn compact_cookie_cache_round_trips_with_valid_signature() -> Result<(), Box<dyn
 
 #[test]
 fn compact_cookie_cache_rejects_tampered_payload() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
     let payload = CookieCachePayload {
         session: TestSession {
             token: "session-token".to_owned(),
@@ -188,7 +189,7 @@ fn compact_cookie_cache_rejects_tampered_payload() -> Result<(), Box<dyn std::er
 
 #[test]
 fn jwt_cookie_cache_round_trips_with_valid_signature() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
     let payload = CookieCachePayload {
         session: TestSession {
             token: "session-token".to_owned(),
@@ -222,7 +223,7 @@ fn jwt_cookie_cache_round_trips_with_valid_signature() -> Result<(), Box<dyn std
 
 #[test]
 fn jwt_cookie_cache_rejects_wrong_secret() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
     let payload = CookieCachePayload {
         session: TestSession {
             token: "session-token".to_owned(),
@@ -256,7 +257,7 @@ fn jwt_cookie_cache_rejects_wrong_secret() -> Result<(), Box<dyn std::error::Err
 
 #[test]
 fn jwt_cookie_cache_rejects_version_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
     let payload = CookieCachePayload {
         session: TestSession {
             token: "session-token".to_owned(),
@@ -291,7 +292,7 @@ fn jwt_cookie_cache_rejects_version_mismatch() -> Result<(), Box<dyn std::error:
 #[test]
 #[cfg(feature = "jose")]
 fn jwe_cookie_cache_round_trips_with_valid_secret() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
     let payload = CookieCachePayload {
         session: TestSession {
             token: "session-token".to_owned(),
@@ -326,7 +327,7 @@ fn jwe_cookie_cache_round_trips_with_valid_secret() -> Result<(), Box<dyn std::e
 #[test]
 #[cfg(feature = "jose")]
 fn jwe_cookie_cache_rejects_wrong_secret() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
     let payload = CookieCachePayload {
         session: TestSession {
             token: "session-token".to_owned(),
@@ -361,7 +362,7 @@ fn jwe_cookie_cache_rejects_wrong_secret() -> Result<(), Box<dyn std::error::Err
 #[test]
 #[cfg(feature = "jose")]
 fn jwe_cookie_cache_decodes_with_rotated_secret_config() -> Result<(), Box<dyn std::error::Error>> {
-    let cookies = get_cookies(&OpenAuthOptions::default())?;
+    let cookies = get_cookies(&dev_options())?;
     let payload = CookieCachePayload {
         session: TestSession {
             token: "session-token".to_owned(),

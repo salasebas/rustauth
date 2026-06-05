@@ -7,11 +7,11 @@ use openauth_core::options::{OpenAuthOptions, TrustedOriginOptions};
 
 #[test]
 fn context_trusts_configured_base_origin() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         base_url: Some("https://app.example.com/api/auth".to_owned()),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert!(ctx.is_trusted_origin("https://app.example.com/dashboard", None));
     Ok(())
@@ -19,11 +19,11 @@ fn context_trusts_configured_base_origin() -> Result<(), Box<dyn std::error::Err
 
 #[test]
 fn context_rejects_origin_prefix_confusion() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::Static(vec!["https://trusted.com".to_owned()]),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert!(!ctx.is_trusted_origin("https://trusted.com.malicious.com", None));
     Ok(())
@@ -31,7 +31,7 @@ fn context_rejects_origin_prefix_confusion() -> Result<(), Box<dyn std::error::E
 
 #[test]
 fn context_merges_request_aware_trusted_origins() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         trusted_origins: TrustedOriginOptions::dynamic_with_static(
             vec!["https://static.example.com".to_owned()],
             |request: Option<&Request<Vec<u8>>>| -> Result<Vec<String>, OpenAuthError> {
@@ -48,7 +48,7 @@ fn context_merges_request_aware_trusted_origins() -> Result<(), Box<dyn std::err
         ),
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let request = Request::builder()
         .uri("http://localhost:3000/api/auth/ok")
         .header("x-tenant-origin", "https://tenant.example.com")
@@ -66,10 +66,10 @@ fn context_merges_request_aware_trusted_origins() -> Result<(), Box<dyn std::err
 
 #[test]
 fn context_does_not_trust_request_base_url_extension() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = create_auth_context(OpenAuthOptions {
+    let ctx = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let mut request = Request::builder()
         .uri("http://localhost:3000/api/auth/ok")
         .body(Vec::new())?;

@@ -1,6 +1,8 @@
 mod adapter_contract;
 mod adapter_factory;
 mod adapter_transform;
+#[path = "../common/mod.rs"]
+mod common;
 mod id_policy;
 mod memory_adapter;
 mod output;

@@ -3,6 +3,8 @@ use std::sync::{
     Arc, Mutex,
 };
 
+use crate::common::with_test_defaults;
+
 use http::{Method, Request, Response, StatusCode};
 use openauth_core::api::{
     create_auth_endpoint, response, ApiRequest, ApiResponse, AuthEndpoint, AuthEndpointOptions,
@@ -55,11 +57,11 @@ fn on_request_plugin_can_replace_request() -> Result<(), Box<dyn std::error::Err
             .insert("x-plugin", http::HeaderValue::from_static("1"));
         Ok(PluginRequestAction::Continue(request))
     });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", header_handler)]);
 
     let response = router.handle(
@@ -80,11 +82,11 @@ fn on_request_plugin_can_short_circuit_response() -> Result<(), Box<dyn std::err
         let response = response(StatusCode::ACCEPTED, b"PLUGIN RESPONSE".to_vec())?;
         Ok(PluginRequestAction::Respond(response))
     });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", ok_handler)]);
 
     let response = router.handle(
@@ -104,11 +106,11 @@ fn middleware_matches_path_and_can_block_endpoint() -> Result<(), Box<dyn std::e
     let plugin = AuthPlugin::new("middleware").with_middleware("/admin/*", |_context, _request| {
         response(StatusCode::FORBIDDEN, b"BLOCKED".to_vec()).map(Some)
     });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/admin/list", ok_handler)]);
 
     let response = router.handle(
@@ -132,11 +134,11 @@ async fn async_middleware_matches_path_and_can_block_async_endpoint(
             Box::pin(async { response(StatusCode::FORBIDDEN, b"BLOCKED".to_vec()).map(Some) })
         },
     );
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let async_endpoint = create_auth_endpoint(
         "/admin/list",
         Method::GET,
@@ -173,11 +175,11 @@ async fn async_middleware_ignores_non_matching_paths() -> Result<(), Box<dyn std
             })
         },
     );
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let async_endpoint = create_auth_endpoint(
         "/account/list",
         Method::GET,
@@ -216,11 +218,11 @@ async fn async_middleware_runs_before_endpoint_middleware() -> Result<(), Box<dy
             })
         },
     );
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let async_endpoint = create_auth_endpoint(
         "/protected",
         Method::GET,
@@ -260,11 +262,11 @@ fn on_response_plugin_can_replace_response() -> Result<(), Box<dyn std::error::E
                 .insert("x-plugin-response", http::HeaderValue::from_static("1"));
             Ok(response)
         });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/ok", ok_handler)]);
 
     let response = router.handle(
@@ -287,10 +289,10 @@ fn on_response_plugin_can_replace_response() -> Result<(), Box<dyn std::error::E
 #[test]
 fn try_new_rejects_conflicting_endpoint_method_and_path() -> Result<(), Box<dyn std::error::Error>>
 {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let result = AuthRouter::try_new(
         context,
         vec![endpoint("/ok", ok_handler), endpoint("/ok", ok_handler)],
@@ -309,11 +311,11 @@ async fn plugin_endpoint_is_registered_and_handled() -> Result<(), Box<dyn std::
         |_context, _request| Box::pin(async { response(StatusCode::OK, b"HELLO".to_vec()) }),
     );
     let plugin = AuthPlugin::new("endpoint-plugin").with_endpoint(plugin_endpoint);
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     let registry = router.endpoint_registry();
@@ -347,11 +349,11 @@ async fn server_only_plugin_endpoint_is_hidden_and_returns_not_found(
         |_context, _request| Box::pin(async { response(StatusCode::OK, b"HIDDEN".to_vec()) }),
     );
     let plugin = AuthPlugin::new("server-only-plugin").with_endpoint(plugin_endpoint);
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     assert!(!router
@@ -386,11 +388,11 @@ async fn server_only_plugin_endpoint_is_reachable_through_handle_async_server(
         |_context, _request| Box::pin(async { response(StatusCode::OK, b"SERVER".to_vec()) }),
     );
     let plugin = AuthPlugin::new("server-only-plugin").with_endpoint(plugin_endpoint);
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     let request = || {
@@ -417,11 +419,11 @@ fn plugin_endpoint_conflicts_with_core_endpoint() -> Result<(), Box<dyn std::err
         |_context, _request| Box::pin(async { response(StatusCode::OK, b"PLUGIN".to_vec()) }),
     );
     let plugin = AuthPlugin::new("endpoint-plugin").with_endpoint(plugin_endpoint);
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     let result = AuthRouter::try_new(context, vec![endpoint("/ok", ok_handler)]);
 
@@ -445,11 +447,11 @@ fn plugin_init_contributions_are_applied_in_order() -> Result<(), Box<dyn std::e
         Ok(PluginInitOutput::new().trusted_origin("https://second.example"))
     });
 
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![first, second],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert!(context.is_trusted_origin("https://second.example", None));
     Ok(())
@@ -463,11 +465,11 @@ fn plugin_schema_contribution_adds_core_table_field() -> Result<(), Box<dyn std:
         DbField::new("tenant_id", DbFieldType::String).optional(),
     ));
 
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     let field = context.db_schema.field("user", "tenant_id")?;
     assert_eq!(field.name, "tenant_id");
@@ -492,11 +494,11 @@ fn plugin_additional_fields_update_runtime_options_and_schema(
             ))
     });
 
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert!(context.options.user.additional_fields.contains_key("role"));
     assert!(context
@@ -521,11 +523,11 @@ fn plugin_schema_rejects_conflicting_field() -> Result<(), Box<dyn std::error::E
         DbField::new("email", DbFieldType::Number),
     ));
 
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(matches!(result, Err(OpenAuthError::InvalidConfig(_))));
     Ok(())
@@ -561,11 +563,11 @@ async fn before_and_after_hooks_wrap_plugin_endpoint() -> Result<(), Box<dyn std
                 .insert("x-after", http::HeaderValue::from_static("1"));
             Ok(PluginAfterHookAction::Continue(response))
         });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     let response = router
@@ -624,11 +626,11 @@ async fn async_before_and_after_hooks_wrap_plugin_endpoint(
                 Ok(PluginAfterHookAction::Continue(response))
             })
         });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     let response = router
@@ -669,11 +671,11 @@ async fn async_after_hook_can_replace_plugin_endpoint_response(
                     .map(PluginAfterHookAction::Continue)
             })
         });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     let response = router
@@ -719,11 +721,11 @@ async fn async_after_hook_preserves_headers() -> Result<(), Box<dyn std::error::
                 )))
             })
         });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     let response = router
@@ -782,11 +784,11 @@ async fn sync_after_hook_runs_before_async_after_hook() -> Result<(), Box<dyn st
                 }
             })
         });
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
 
     let response = router
@@ -854,11 +856,11 @@ async fn database_hook_context_receives_async_request_path(
             }
         }));
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             plugins: vec![plugin],
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             ..OpenAuthOptions::default()
-        },
+        }),
         Arc::new(MemoryAdapter::new()),
     )?;
     let router = AuthRouter::with_async_endpoints(context, Vec::new(), Vec::new())?;
@@ -887,11 +889,11 @@ async fn database_hook_context_receives_async_request_path(
 fn plugin_error_codes_are_registered_and_validated() -> Result<(), Box<dyn std::error::Error>> {
     let plugin = AuthPlugin::new("errors")
         .with_error_code(PluginErrorCode::new("PLUGIN_FAILURE", "Plugin failure"));
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert_eq!(
         context
@@ -903,11 +905,11 @@ fn plugin_error_codes_are_registered_and_validated() -> Result<(), Box<dyn std::
 
     let invalid = AuthPlugin::new("bad-errors")
         .with_error_code(PluginErrorCode::new("plugin_failure", "Invalid"));
-    let result = create_auth_context(OpenAuthOptions {
+    let result = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![invalid],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    });
+    }));
 
     assert!(matches!(result, Err(OpenAuthError::InvalidConfig(_))));
     Ok(())
@@ -920,7 +922,7 @@ async fn plugin_rate_limit_rules_apply_before_user_custom_overrides(
         "/plugin/limited",
         RateLimitRule { window: 30, max: 1 },
     ));
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         plugins: vec![plugin],
         rate_limit: RateLimitOptions {
             enabled: Some(true),
@@ -932,7 +934,7 @@ async fn plugin_rate_limit_rules_apply_before_user_custom_overrides(
         },
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     let router = AuthRouter::new(context, vec![endpoint("/plugin/limited", ok_handler)]);
 
     for attempt in 0..4 {

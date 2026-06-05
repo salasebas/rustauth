@@ -285,10 +285,10 @@ async fn get_session_route_disable_cookie_cache_forces_database_read(
         },
         ..OpenAuthOptions::default()
     };
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(super::with_test_defaults(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..options.clone()
-    })?;
+    }))?;
     let cache_cookies = set_cookie_cache(
         &context.auth_cookies,
         &context.secret,
@@ -349,10 +349,10 @@ async fn get_session_route_cookie_cache_requires_authoritative_session(
         },
         ..OpenAuthOptions::default()
     };
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(super::with_test_defaults(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..options.clone()
-    })?;
+    }))?;
     let cache_cookies = set_cookie_cache(
         &context.auth_cookies,
         &context.secret,

@@ -880,12 +880,12 @@ async fn callback_oauth_post_allows_cross_site_form_post_navigation(
     // disables them) so we exercise the real `form_post` navigation path.
     let adapter = Arc::new(RouteAdapter::default());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        super::with_test_defaults(OpenAuthOptions {
             secret: Some(secret().to_owned()),
             base_url: Some("http://localhost:3000/api/auth".to_owned()),
             social_providers: vec![Arc::new(FakeProvider::new("apple"))],
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let router =

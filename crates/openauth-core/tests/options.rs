@@ -1,6 +1,6 @@
 use openauth_core::context::{AuthEnvironment, SecretMaterial};
 use openauth_core::crypto::{SecretConfig, SecretEntry};
-use openauth_core::env::is_production;
+use openauth_core::env::{allows_development_defaults, is_production, is_production_posture};
 use openauth_core::options::{ExperimentalOptions, OpenAuthOptions};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -128,13 +128,45 @@ fn is_production_is_false_when_rust_env_is_unset() {
 #[test]
 fn is_production_only_accepts_exact_production_rust_env() {
     let _guard = lock_env();
-    let _restore = EnvRestore::unset(&["RUST_ENV"]);
+    let _restore = EnvRestore::unset(&["RUST_ENV", "RUST_TEST_THREADS", "TEST", "NEXTEST"]);
 
     std::env::set_var("RUST_ENV", "development");
     assert!(!is_production());
 
     std::env::set_var("RUST_ENV", "production");
     assert!(is_production());
+}
+
+#[test]
+fn ambiguous_deployment_fails_closed_without_explicit_development() {
+    let _guard = lock_env();
+    let _restore = EnvRestore::unset(&["RUST_ENV", "RUST_TEST_THREADS", "TEST", "NEXTEST"]);
+
+    let options = OpenAuthOptions::default();
+    assert!(is_production_posture(&options));
+    assert!(!allows_development_defaults(&options));
+}
+
+#[test]
+fn explicit_development_option_allows_development_defaults() {
+    let _guard = lock_env();
+    let _restore = EnvRestore::unset(&["RUST_ENV", "RUST_TEST_THREADS", "TEST", "NEXTEST"]);
+
+    let options = OpenAuthOptions::default().development(true);
+    assert!(!is_production_posture(&options));
+    assert!(allows_development_defaults(&options));
+}
+
+#[test]
+fn production_option_overrides_development_flag() {
+    let _guard = lock_env();
+    let _restore = EnvRestore::unset(&["RUST_ENV", "RUST_TEST_THREADS", "TEST", "NEXTEST"]);
+
+    let options = OpenAuthOptions::default()
+        .development(true)
+        .production(true);
+    assert!(is_production_posture(&options));
+    assert!(!allows_development_defaults(&options));
 }
 
 #[test]

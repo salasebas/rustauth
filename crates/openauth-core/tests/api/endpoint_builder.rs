@@ -1,3 +1,4 @@
+use crate::common::with_test_defaults;
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{
     create_auth_endpoint, empty_openapi_response, path_param, query_param,
@@ -324,10 +325,10 @@ async fn create_auth_endpoint_runs_endpoint_middleware_before_handler(
 fn router(
     endpoints: Vec<openauth_core::api::AsyncAuthEndpoint>,
 ) -> Result<AuthRouter, OpenAuthError> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
     AuthRouter::with_async_endpoints(context, Vec::new(), endpoints)
 }
 

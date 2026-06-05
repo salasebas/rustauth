@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::crypto::{JweSecretSource, SecretConfig, SecretSource};
+use crate::env::is_production_posture;
 use crate::error::OpenAuthError;
 use crate::options::OpenAuthOptions;
 
@@ -68,13 +69,16 @@ pub(super) fn resolve_legacy_secret(
         .or_else(|| environment.openauth_secret.clone())
 }
 
-pub(super) fn validate_secret(secret: &str, production: bool) -> Result<(), OpenAuthError> {
+pub(super) fn validate_secret(
+    secret: &str,
+    options: &OpenAuthOptions,
+) -> Result<(), OpenAuthError> {
     if secret.is_empty() {
         return Err(OpenAuthError::InvalidConfig(
             "OpenAuth secret is missing".to_owned(),
         ));
     }
-    if production && secret == DEFAULT_SECRET {
+    if is_production_posture(options) && secret == DEFAULT_SECRET {
         return Err(OpenAuthError::InvalidConfig(
             "default secret cannot be used in production".to_owned(),
         ));

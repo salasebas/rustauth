@@ -18,18 +18,19 @@ use time::{Duration, OffsetDateTime};
 #[test]
 fn oauth_token_utils_encrypt_decrypt_and_tolerate_legacy_plain_tokens(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let encrypted_context = create_auth_context(OpenAuthOptions {
+    let encrypted_context =
+        create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
+            secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            account: AccountOptions {
+                encrypt_oauth_tokens: true,
+                ..AccountOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        }))?;
+    let plain_context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-        account: AccountOptions {
-            encrypt_oauth_tokens: true,
-            ..AccountOptions::default()
-        },
         ..OpenAuthOptions::default()
-    })?;
-    let plain_context = create_auth_context(OpenAuthOptions {
-        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-        ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     assert_eq!(set_token_util(None, &encrypted_context)?, None);
     assert_eq!(decrypt_oauth_token("", &encrypted_context)?, "");
@@ -56,7 +57,7 @@ fn oauth_token_utils_encrypt_decrypt_and_tolerate_legacy_plain_tokens(
 async fn handle_oauth_user_info_encrypts_all_stored_tokens_exactly_once(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = MemoryAdapter::new();
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         base_url: Some("https://app.example.com".to_owned()),
         account: AccountOptions {
@@ -64,7 +65,7 @@ async fn handle_oauth_user_info_encrypts_all_stored_tokens_exactly_once(
             ..AccountOptions::default()
         },
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     let result = handle_oauth_user_info(
         &context,
@@ -141,11 +142,11 @@ async fn oauth_state_cookie_strategy_round_trips_without_database(
 async fn parse_oauth_state_rejects_cookie_state_with_wrong_secret(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let context = test_context(AccountOptions::default())?;
-    let other_context = create_auth_context(OpenAuthOptions {
+    let other_context = create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("different-secret-at-least-32-chars!".to_owned()),
         base_url: Some("https://app.example.com".to_owned()),
         ..OpenAuthOptions::default()
-    })?;
+    }))?;
 
     let state = generate_oauth_state(
         &context,
@@ -828,12 +829,12 @@ fn missing_email_log_message_matches_upstream_guidance() {
 fn test_context(
     account: AccountOptions,
 ) -> Result<openauth_core::context::AuthContext, openauth_core::error::OpenAuthError> {
-    create_auth_context(OpenAuthOptions {
+    create_auth_context(crate::common::with_test_defaults(OpenAuthOptions {
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         base_url: Some("https://app.example.com".to_owned()),
         account,
         ..OpenAuthOptions::default()
-    })
+    }))
 }
 
 fn oauth_user(id: &str, email: &str, email_verified: bool) -> OAuthUserInfo {

@@ -73,10 +73,10 @@ async fn change_password_route_ignores_cookie_cache_for_sensitive_session(
         },
         ..OpenAuthOptions::default()
     };
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(super::with_test_defaults(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..options.clone()
-    })?;
+    }))?;
     let cache_cookies = set_cookie_cache(
         &context.auth_cookies,
         &context.secret,

@@ -1,4 +1,6 @@
 mod buffer;
+#[path = "../common/mod.rs"]
+mod common;
 #[cfg(feature = "jose")]
 mod jwe;
 mod jwt;
