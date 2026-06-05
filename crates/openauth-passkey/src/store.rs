@@ -140,12 +140,16 @@ impl<'a> PasskeyStore<'a> {
     pub async fn update_after_authentication(
         &self,
         id: &str,
+        expected_counter: i64,
         verification: crate::webauthn::VerifiedAuthentication,
     ) -> Result<Option<Passkey>, OpenAuthError> {
-        let mut update = Update::new("passkey").where_clause(id_where(id)).data(
-            "counter",
-            DbValue::Number(i64::from(verification.new_counter)),
-        );
+        let mut update = Update::new("passkey")
+            .where_clause(id_where(id))
+            .where_clause(Where::new("counter", DbValue::Number(expected_counter)))
+            .data(
+                "counter",
+                DbValue::Number(i64::from(verification.new_counter)),
+            );
         if let Some(credential) = verification.credential {
             update = update.data("webauthn_credential", DbValue::Json(credential));
         }

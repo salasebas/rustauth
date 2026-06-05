@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use http::{HeaderValue, Method, StatusCode};
-use openauth_core::db::{DbAdapter, DbValue, Delete, FindMany, Where};
+use openauth_core::db::{DbAdapter, DbValue, Delete, FindMany, FindOne, Where};
 use openauth_core::options::{AdvancedOptions, IpAddressOptions};
 use openauth_passkey::{
     PasskeyAuthenticationOptions, PasskeyOptions, PasskeyWebAuthnBackend,
@@ -12,9 +12,10 @@ use serde_json::{json, Value};
 
 use crate::support::{
     cookie_header_from_response, empty_request, join_cookies, json_request,
-    json_request_with_origin, passkey_challenge_cookie_name, seed_passkey, seed_user_two,
-    seeded_router, seeded_router_with_advanced, set_cookie_values, sign_in_cookie,
-    signed_passkey_challenge_cookie, single_verification_expires_at,
+    json_request_with_origin, passkey_challenge_cookie_name, router_with_adapter, seed_passkey,
+    seed_user, seed_user_two, seeded_router, seeded_router_with_advanced, set_cookie_values,
+    sign_in_cookie, signed_passkey_challenge_cookie, single_verification_expires_at,
+    RevokedOnAuthUpdateAdapter,
 };
 
 #[tokio::test]
@@ -258,6 +259,107 @@ fn real_webauthn_backend_authentication_advertised_policy_matches_verified_state
         credential_flow.state["Passkey"]["policy"].as_str(),
         Some("preferred")
     );
+    Ok(())
+}
+
+/// If the credential row disappears after lookup but before the counter update,
+/// authentication must fail and must not mint a session (OPE-128).
+#[tokio::test]
+async fn verify_authentication_rejects_revoked_passkey_before_counter_update(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RevokedOnAuthUpdateAdapter::new());
+    seed_user(adapter.inner()).await?;
+    seed_passkey(
+        adapter.inner(),
+        "passkey_1",
+        "user_1",
+        "Laptop",
+        "credential-id",
+    )
+    .await?;
+    let (router, _backend) =
+        router_with_adapter(adapter.clone(), PasskeyOptions::default()).await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+
+    let response = router
+        .handle_async(json_request_with_origin(
+            Method::POST,
+            "/api/auth/passkey/verify-authentication",
+            r#"{"response":{"id":"credential-id"}}"#,
+            Some(&passkey_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "AUTHENTICATION_FAILED");
+    assert!(
+        !set_cookie_values(&response)
+            .iter()
+            .any(|cookie| cookie.contains("session_token")),
+        "revoked passkey must not set a session cookie"
+    );
+    let sessions = adapter.inner().find_many(FindMany::new("session")).await?;
+    assert!(
+        sessions.is_empty(),
+        "revoked passkey must not create a session row"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_authentication_creates_session_and_updates_counter_on_success(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router, _backend) = seeded_router(PasskeyOptions::default()).await?;
+    seed_passkey(
+        adapter.as_ref(),
+        "passkey_1",
+        "user_1",
+        "Laptop",
+        "credential-id",
+    )
+    .await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+
+    let response = router
+        .handle_async(json_request_with_origin(
+            Method::POST,
+            "/api/auth/passkey/verify-authentication",
+            r#"{"response":{"id":"credential-id"}}"#,
+            Some(&passkey_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let passkey = adapter
+        .find_one(
+            FindOne::new("passkey")
+                .where_clause(Where::new("id", DbValue::String("passkey_1".to_owned()))),
+        )
+        .await?
+        .ok_or("passkey row missing after successful authentication")?;
+    assert_eq!(
+        passkey.get("counter"),
+        Some(&DbValue::Number(1)),
+        "counter update must succeed before session creation"
+    );
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.contains("session_token")));
     Ok(())
 }
 

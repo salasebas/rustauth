@@ -10,7 +10,7 @@ use openauth_core::crypto::password::hash_password;
 use openauth_core::db::{
     AdapterCapabilities, AdapterFuture, Count, Create, DbAdapter, DbRecord, DbSchema, DbValue,
     Delete, DeleteMany, FindMany, FindOne, MemoryAdapter, SchemaCreation, TransactionCallback,
-    Update, UpdateMany,
+    Update, UpdateMany, Where,
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
@@ -242,6 +242,101 @@ impl RaceDuplicateAdapter {
     pub fn inner(&self) -> &MemoryAdapter {
         &self.inner
     }
+}
+
+/// Simulates passkey revocation between lookup and counter update by deleting
+/// the credential row when `update_after_authentication` runs (OPE-128).
+#[derive(Debug, Clone)]
+pub struct RevokedOnAuthUpdateAdapter {
+    inner: MemoryAdapter,
+}
+
+impl RevokedOnAuthUpdateAdapter {
+    pub fn new() -> Self {
+        Self {
+            inner: MemoryAdapter::new(),
+        }
+    }
+
+    pub fn inner(&self) -> &MemoryAdapter {
+        &self.inner
+    }
+}
+
+impl DbAdapter for RevokedOnAuthUpdateAdapter {
+    fn id(&self) -> &str {
+        "revoked-on-auth-update-memory"
+    }
+
+    fn capabilities(&self) -> AdapterCapabilities {
+        self.inner.capabilities()
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        self.inner.create(query)
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        self.inner.find_one(query)
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        self.inner.find_many(query)
+    }
+
+    fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {
+        self.inner.count(query)
+    }
+
+    fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        if query.model != "passkey" {
+            return self.inner.update(query);
+        }
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            if let Some(id) = passkey_id_from_update(&query) {
+                inner
+                    .delete(
+                        Delete::new("passkey").where_clause(Where::new("id", DbValue::String(id))),
+                    )
+                    .await?;
+            }
+            Ok(None)
+        })
+    }
+
+    fn update_many<'a>(&'a self, query: UpdateMany) -> AdapterFuture<'a, u64> {
+        self.inner.update_many(query)
+    }
+
+    fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
+        self.inner.delete(query)
+    }
+
+    fn delete_many<'a>(&'a self, query: DeleteMany) -> AdapterFuture<'a, u64> {
+        self.inner.delete_many(query)
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        self.inner.transaction(callback)
+    }
+
+    fn create_schema<'a>(
+        &'a self,
+        schema: &'a DbSchema,
+        file: Option<&'a str>,
+    ) -> AdapterFuture<'a, Option<SchemaCreation>> {
+        self.inner.create_schema(schema, file)
+    }
+}
+
+fn passkey_id_from_update(query: &Update) -> Option<String> {
+    query.where_clauses.iter().find_map(|clause| {
+        (clause.field == "id").then(|| match &clause.value {
+            DbValue::String(id) => Some(id.clone()),
+            _ => None,
+        })?
+    })
 }
 
 impl DbAdapter for RaceDuplicateAdapter {

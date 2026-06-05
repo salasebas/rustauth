@@ -216,9 +216,13 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                     })
                     .await;
                 }
-                let _ = store
-                    .update_after_authentication(&passkey.id, verified)
-                    .await?;
+                if store
+                    .update_after_authentication(&passkey.id, passkey.counter, verified)
+                    .await?
+                    .is_none()
+                {
+                    return authentication_failed();
+                }
                 let Some(user) = DbUserStore::new(adapter.as_ref())
                     .find_user_by_id(&passkey.user_id)
                     .await?
