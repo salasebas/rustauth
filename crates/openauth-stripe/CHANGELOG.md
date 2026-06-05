@@ -15,6 +15,10 @@ All notable changes to `openauth-stripe` are documented in this file.
 
 ### Fixed
 
+- Subscription state reconciliation paginates Stripe list calls instead of
+  loading only the first page.
+- Releases orphaned subscription schedules when a period-end update fails after
+  the schedule was created.
 - Fixed `customer.subscription.updated` handling so the customer-id fallback no
   longer overwrites an unrelated local subscription (OPE-81). When the event
   has no trusted mapping (matching `id`, `stripe_subscription_id`, or plugin

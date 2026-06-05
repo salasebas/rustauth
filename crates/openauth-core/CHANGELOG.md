@@ -21,6 +21,13 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Fixed
 
+- Ambiguous deployments fail closed unless `OpenAuthOptions::development` or
+  `RUST_ENV=development|test` (including `cargo-nextest`, which sets `NEXTEST`)
+  is set; production posture rejects the default secret and enables rate limits.
+- OAuth authorization `state` is atomically consumed on parse.
+- User-delete database hooks fail closed when delete snapshot preload errors.
+- Delete-account verification rejects expired tokens.
+- Secondary-storage user→session index entries expire with the backing session.
 - Fixed secure-cookie session resolution so `get_session_cookie` only accepts
   the `__Secure-` prefixed name (and its legacy alias) when secure cookies are
   configured, instead of preferring the unprefixed `open-auth.session_token`

@@ -6,6 +6,8 @@ All notable changes to `openauth-oauth` are documented in this file.
 
 ### Fixed
 
+- Token exchange requires `code_verifier` when the authorization request used PKCE.
+- Local ID token verification rejects non-integer `exp` / `iat` / `nbf` claims.
 - Fixed the default OAuth HTTP client to block GET/POST requests whose URLs
   use literal private, loopback, or link-local IP addresses (SSRF hardening).
 - Fixed HTTP Basic client authentication to form-encode `client_id` and

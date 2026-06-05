@@ -6,6 +6,10 @@ All notable changes to `openauth-passkey` are documented in this file.
 
 ### Fixed
 
+- WebAuthn registration/authentication now returns `InvalidConfig` when origin,
+  `rp_id`, or derivations are missing instead of defaulting to localhost.
+- Passkey management mutations require a fresh session; authentication rejects
+  updates when the credential row is missing (revoked passkeys cannot sign in).
 - Align passkey registration stale-session responses with Better Auth (`403` +
   `SESSION_NOT_FRESH`).
 - Align passkey verification HTTP status with Better Auth for failed

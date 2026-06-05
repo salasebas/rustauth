@@ -2,6 +2,15 @@
 
 All notable changes to `openauth` are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- SQL/memory/Postgres adapter constructors apply `database_hooks` once instead of
+  wrapping the inner adapter on every `new`.
+- `open_auth_async` / `OpenAuth::new_async` build without requiring the
+  `telemetry` feature.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added
@@ -20,4 +29,3 @@ All notable changes to `openauth` are documented in this file.
 ### Added
 
 - Published the beta umbrella crate release line.
-

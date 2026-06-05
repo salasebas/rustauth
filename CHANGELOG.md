@@ -18,6 +18,21 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- Ambiguous deployments (neither explicit `production` nor `development`) now
+  fail closed: default secrets are rejected, rate limiting defaults on, and
+  secure cookies apply without inferring localhost origins.
+- OAuth `state` is consumed atomically when parsed; token exchange requires a
+  PKCE `code_verifier` when the authorization step used PKCE.
+- Delete-account verification rejects expired tokens; user-delete database
+  hooks fail closed when delete snapshot preload errors.
+- SQL adapter constructors apply configured database hooks once (no
+  double-wrapping). Secondary-storage user→session indexes honor session TTL.
+- Passkey WebAuthn setup no longer falls back to localhost when origin/rp_id are
+  missing; management routes require a fresh session; authentication rejects
+  credential counter updates that miss the stored row.
+- Stripe subscription reconciliation paginates list results and releases
+  orphaned schedules after failed period-end updates.
+- `SecondaryStorage::take` on Fred/Redis uses atomic `GETDEL`.
 - Fixed `/sso/update-provider` so domain verification is revoked when nested
   OIDC or SAML configuration changes alter the effective IdP trust boundary (not
   only top-level `issuer` or `domain`). Safe SP-only metadata such as OIDC

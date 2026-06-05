@@ -18,6 +18,7 @@ All notable changes to `openauth-cli` are documented in this file.
 
 ### Changed
 
+- Loads `.env` from the directory of a custom `--config` path, not only the cwd.
 - `db generate`, `db migrate`, `init`, and `plugins` commands now require
   `--yes` when stdin is not a TTY instead of auto-confirming.
 - `init` now creates or updates `.env` alongside `.env.example` (without

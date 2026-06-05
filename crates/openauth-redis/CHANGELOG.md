@@ -15,6 +15,10 @@ All notable changes to `openauth-redis` are documented in this file.
 - `connect_with_options`, `connect_redis`, and `connect_valkey` on both stores.
 - `scan_count` on `RedisSecondaryStorageOptions`.
 
+### Fixed
+
+- `RedisSecondaryStorage::take` uses `GETDEL` for atomic read-delete.
+
 ### Changed
 
 - `set` and `set_if_not_exists` with `Some(0)` delete the key instead of

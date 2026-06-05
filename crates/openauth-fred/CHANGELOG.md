@@ -13,6 +13,8 @@ All notable changes to `openauth-fred` are documented in this file.
 
 ### Fixed
 
+- `FredSecondaryStorage::take` uses Redis `GETDEL` for atomic read-delete parity
+  with `openauth-redis`.
 - `FredRateLimitStore` rejects an empty `key_prefix` before calling Redis.
 - Aligned secondary storage with `openauth-redis` by storing keys under the
   explicit `secondary:` namespace (`{key_prefix}secondary:{key}`) instead of

@@ -6,6 +6,7 @@ All notable changes to `openauth-plugins` are documented in this file.
 
 ### Fixed
 
+- Device authorization token exchange atomically consumes approved device codes.
 - Fixed magic-link verify creating sessions with IP metadata read directly from
   raw `x-forwarded-for` / `x-real-ip` headers instead of the configured
   `advanced.ip_address` resolver, which let clients spoof stored session IPs when
