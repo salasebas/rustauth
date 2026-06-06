@@ -2,7 +2,7 @@ use http::{header, StatusCode};
 use openauth_core::api::{ApiRequest, ApiResponse};
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::context::{AuthContext, SecretMaterial};
-use openauth_core::db::{DbAdapter, DbValue, User, Verification};
+use openauth_core::db::{DbAdapter, DbValue, User};
 use openauth_core::error::OpenAuthError;
 use openauth_core::session::{CreateSessionInput, SessionStore};
 use openauth_core::verification::{
@@ -66,15 +66,36 @@ pub(super) async fn verify_otp(
     consume: bool,
 ) -> Result<Option<ApiResponse>, OpenAuthError> {
     let store = DbVerificationStore::new(adapter);
-    let Some(verification) = store.find_verification(identifier).await? else {
-        return response::error(StatusCode::BAD_REQUEST, "INVALID_OTP", "Invalid OTP").map(Some);
+    let verification = if consume {
+        match store.take_verification(identifier).await? {
+            Some(verification) => verification,
+            None => {
+                return response::error(StatusCode::BAD_REQUEST, "INVALID_OTP", "Invalid OTP")
+                    .map(Some);
+            }
+        }
+    } else {
+        match store.find_verification(identifier).await? {
+            Some(verification) => verification,
+            None => {
+                return response::error(StatusCode::BAD_REQUEST, "INVALID_OTP", "Invalid OTP")
+                    .map(Some);
+            }
+        }
     };
-    if let Some(response) = reject_if_expired(&store, &verification).await? {
-        return Ok(Some(response));
+
+    if verification.expires_at <= OffsetDateTime::now_utc() {
+        if !consume {
+            store.delete_verification(identifier).await?;
+        }
+        return response::error(StatusCode::BAD_REQUEST, "OTP_EXPIRED", "OTP expired").map(Some);
     }
+
     let parts = otp::split_value(&verification.value);
     if parts.attempts >= options.allowed_attempts {
-        store.delete_verification(identifier).await?;
+        if !consume {
+            store.delete_verification(identifier).await?;
+        }
         return response::error(
             StatusCode::FORBIDDEN,
             "TOO_MANY_ATTEMPTS",
@@ -82,20 +103,21 @@ pub(super) async fn verify_otp(
         )
         .map(Some);
     }
-    if consume {
-        store.delete_verification(identifier).await?;
-    }
+
     if !otp::verify(options, secret, &parts.value, provided)? {
         let attempts = parts.attempts.saturating_add(1);
         if attempts >= options.allowed_attempts {
-            store.delete_verification(identifier).await?;
+            if !consume {
+                store.delete_verification(identifier).await?;
+            }
             return response::error(
                 StatusCode::FORBIDDEN,
                 "TOO_MANY_ATTEMPTS",
                 "Too many attempts",
             )
             .map(Some);
-        } else if consume {
+        }
+        if consume {
             store
                 .create_verification(CreateVerificationInput::new(
                     identifier,
@@ -220,15 +242,4 @@ pub(super) fn parse_type(value: &str) -> Result<Result<EmailOtpType, ApiResponse
 
 fn expires_at(options: &EmailOtpOptions) -> Result<OffsetDateTime, OpenAuthError> {
     Ok(OffsetDateTime::now_utc() + otp::seconds_to_duration(options.expires_in)?)
-}
-
-async fn reject_if_expired(
-    store: &DbVerificationStore<'_>,
-    verification: &Verification,
-) -> Result<Option<ApiResponse>, OpenAuthError> {
-    if verification.expires_at <= OffsetDateTime::now_utc() {
-        store.delete_verification(&verification.identifier).await?;
-        return response::error(StatusCode::BAD_REQUEST, "OTP_EXPIRED", "OTP expired").map(Some);
-    }
-    Ok(None)
 }
