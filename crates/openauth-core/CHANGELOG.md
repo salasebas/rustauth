@@ -21,6 +21,9 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Fixed
 
+- Fixed `/sign-in/email` so a successful sign-in with a trusted `callbackURL`
+  returns `redirect: true`, the callback URL in the JSON `url` field, and a
+  matching `Location` header instead of always reporting `redirect: false`.
 - Ambiguous deployments fail closed unless `OpenAuthOptions::development` or
   `RUST_ENV=development|test` (including `cargo-nextest`, which sets `NEXTEST`)
   is set; production posture rejects the default secret and enables rate limits.

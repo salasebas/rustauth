@@ -283,7 +283,6 @@ pub(super) fn sign_in_email_openapi_response() -> Value {
             "properties": {
                 "redirect": {
                     "type": "boolean",
-                    "enum": [false],
                 },
                 "token": {
                     "type": "string",
