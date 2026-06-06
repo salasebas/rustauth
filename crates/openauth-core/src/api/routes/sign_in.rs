@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use http::{Method, StatusCode};
+use http::{header, HeaderValue, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -63,17 +63,22 @@ pub(super) fn sign_in_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
                     );
                 }
 
-                let body: SignInEmailBody = parse_request_body(&request)?;
+                let SignInEmailBody {
+                    email,
+                    password,
+                    remember_me,
+                    callback_url,
+                } = parse_request_body(&request)?;
                 let additional_session_fields = additional_session_create_values(context);
                 let result = match email_password_service::sign_in_email(
                     adapter.as_ref(),
                     context,
                     &request,
                     SignInEmailInput {
-                        email: body.email,
-                        password: body.password,
-                        remember_me: body.remember_me.unwrap_or(true),
-                        callback_url: body.callback_url,
+                        email,
+                        password,
+                        remember_me: remember_me.unwrap_or(true),
+                        callback_url: callback_url.clone(),
                         additional_session_fields,
                     },
                 )
@@ -82,7 +87,7 @@ pub(super) fn sign_in_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEn
                     Ok(result) => result,
                     Err(error) => return email_password_service_error_response(error),
                 };
-                email_sign_in_response(adapter.as_ref(), context, result).await
+                email_sign_in_response(adapter.as_ref(), context, result, callback_url).await
             })
         },
     )
@@ -92,6 +97,7 @@ async fn email_sign_in_response(
     adapter: &dyn DbAdapter,
     context: &crate::context::AuthContext,
     result: EmailAuthResult,
+    callback_url: Option<String>,
 ) -> Result<crate::api::ApiResponse, OpenAuthError> {
     let Some(session) = result.session else {
         return Err(OpenAuthError::Api(
@@ -100,16 +106,27 @@ async fn email_sign_in_response(
     };
     record_new_session(&session, &result.user)?;
     let cookies = auth_session_cookies(context, &session, &result.user, !result.remember_me)?;
-    json_response(
+    let redirect = callback_url.is_some();
+    let mut response = json_response(
         StatusCode::OK,
         &AuthTokenUserBody {
-            redirect: false,
+            redirect,
             token: session.token,
-            url: None,
+            url: callback_url.clone(),
             user: user_response_value(adapter, context, &result.user).await?,
         },
         cookies,
-    )
+    )?;
+    if let Some(url) = callback_url {
+        response.headers_mut().insert(
+            header::LOCATION,
+            HeaderValue::from_str(&url).map_err(|error| OpenAuthError::Serialization {
+                context: "building email sign-in redirect headers",
+                message: error.to_string(),
+            })?,
+        );
+    }
+    Ok(response)
 }
 
 fn email_password_service_error_response(

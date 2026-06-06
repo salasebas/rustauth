@@ -65,6 +65,54 @@ async fn sign_in_email_route_returns_token_user_and_sets_cookie(
         .as_str()
         .is_some_and(|token| !token.is_empty()));
     assert_eq!(body["user"]["id"], "user_1");
+    assert_eq!(body["redirect"], false);
+    assert!(body["url"].is_null());
+    assert_eq!(adapter.len("session").await, 1);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_in_email_route_returns_redirect_url_when_callback_url_is_provided(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    let router = router(adapter.clone())?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123","callbackURL":"/dashboard"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["redirect"], true);
+    assert_eq!(body["url"], "/dashboard");
+    assert_eq!(
+        response
+            .headers()
+            .get(http::header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/dashboard")
+    );
+    assert!(body["token"]
+        .as_str()
+        .is_some_and(|token| !token.is_empty()));
+    assert_eq!(body["user"]["id"], "user_1");
     assert_eq!(adapter.len("session").await, 1);
     assert!(set_cookie_values(&response)
         .iter()
