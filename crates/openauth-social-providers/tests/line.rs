@@ -214,6 +214,22 @@ fn verify_id_token_payload_accepts_matching_audience_and_nonce() {
 }
 
 #[test]
+fn verify_id_token_payload_rejects_missing_expected_nonce() {
+    let provider = provider_with_client_id("line-client", false);
+
+    assert!(
+        !provider.validate_id_token_payload(&verify_payload("line-client", None), Some("nonce"))
+    );
+}
+
+#[test]
+fn verify_id_token_payload_accepts_missing_nonce_when_not_expected() {
+    let provider = provider_with_client_id("line-client", false);
+
+    assert!(provider.validate_id_token_payload(&verify_payload("line-client", None), None));
+}
+
+#[test]
 fn verify_id_token_payload_rejects_wrong_audience_wrong_nonce_and_disabled_sign_in() {
     let provider = provider_with_client_id("line-client", false);
 

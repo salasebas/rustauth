@@ -270,12 +270,10 @@ impl LineProvider {
         if payload.aud != client_id {
             return false;
         }
-        if payload
-            .nonce
-            .as_deref()
-            .is_some_and(|actual| Some(actual) != nonce)
-        {
-            return false;
+        if let Some(expected_nonce) = nonce {
+            if payload.nonce.as_deref() != Some(expected_nonce) {
+                return false;
+            }
         }
         true
     }
