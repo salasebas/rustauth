@@ -33,10 +33,15 @@ Without a config, `doctor` reports what is missing (including the absent
 useful before any project setup.
 
 To create a project and unlock the config-bound workflow, run `openauth init`
-first. It writes `openauth.toml`; the following commands read it:
+first. It writes `openauth.toml`, syncs `.env.example`, and creates or updates
+`.env` in the current directory. Missing keys are merged in without overwriting
+values that are already present; a new `.env` is copied from `.env.example` and
+uses placeholder secrets unless you pass `--seed-secrets` to generate a signing
+secret for local development. The following commands read `openauth.toml`:
 
 ```sh
-openauth init                # write openauth.toml and .env.example
+openauth init                # openauth.toml + .env.example + .env
+openauth init --seed-secrets # same, but a new .env gets a generated OPENAUTH_SECRET
 openauth doctor --production # config-aware production readiness checks
 openauth db generate         # generate a migration from the configured schema
 openauth db migrate          # apply pending migrations

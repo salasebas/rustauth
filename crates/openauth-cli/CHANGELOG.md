@@ -16,6 +16,11 @@ All notable changes to `openauth-cli` are documented in this file.
 - Friendly migration guidance and exit code `0` for known non-sqlx adapters
   (Prisma, Drizzle, Kysely, memory, MongoDB) on `db generate` / `db migrate`.
 
+### Fixed
+
+- README quick start now documents that `init` syncs `.env.example` and creates
+  or updates `.env`, including merge behavior and `--seed-secrets`.
+
 ### Changed
 
 - Loads `.env` from the directory of a custom `--config` path, not only the cwd.

@@ -225,6 +225,33 @@ fn init_force_overwrites_existing_config() {
 }
 
 #[test]
+fn init_merges_missing_keys_into_existing_env_without_overwriting() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        temp.path().join(".env"),
+        "OPENAUTH_SECRET=existing-secret\nCUSTOM_VAR=keep-me\n",
+    )
+    .expect("write env");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "init",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Synced .env.example and .env"));
+
+    let env = fs::read_to_string(temp.path().join(".env")).expect(".env");
+    assert!(env.contains("OPENAUTH_SECRET=existing-secret"));
+    assert!(env.contains("CUSTOM_VAR=keep-me"));
+    assert!(env.contains("DATABASE_URL="));
+}
+
+#[test]
 fn init_creates_env_when_missing() {
     let temp = tempfile::tempdir().expect("tempdir");
 

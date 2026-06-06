@@ -6,6 +6,7 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::fs;
 
 const STRONG_SECRET: &str = "Str0ng-Secret-Value-For-Tests-1234567890";
 
@@ -50,6 +51,26 @@ fn doctor_degrades_without_config_instead_of_hard_erroring() {
         .success()
         .stdout(predicate::str::contains("config.missing"))
         .stdout(predicate::str::contains("No OpenAuth CLI config found").not());
+}
+
+#[test]
+fn readme_documents_init_env_side_effects() {
+    let readme =
+        fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).expect("readme");
+
+    for phrase in [
+        "syncs `.env.example`",
+        "creates or updates",
+        "`.env` in the current directory",
+        "Missing keys are merged in without overwriting",
+        "--seed-secrets",
+        "openauth init                # openauth.toml + .env.example + .env",
+    ] {
+        assert!(
+            readme.contains(phrase),
+            "README quick start should document init env side effects; missing `{phrase}`"
+        );
+    }
 }
 
 #[test]
