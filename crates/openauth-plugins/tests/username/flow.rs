@@ -114,10 +114,9 @@ async fn sign_in_username_rejects_wrong_password_before_unverified_email_state(
         OpenAuthOptions {
             plugins: vec![openauth_plugins::username::username()],
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-            email_password: EmailPasswordOptions {
-                require_email_verification: true,
-                ..EmailPasswordOptions::default()
-            },
+            email_password: EmailPasswordOptions::new()
+                .enabled(true)
+                .require_email_verification(true),
             advanced: test_advanced_options(),
             ..OpenAuthOptions::default()
         },
@@ -147,10 +146,9 @@ async fn sign_in_username_requires_verified_email_after_password_is_valid(
         OpenAuthOptions {
             plugins: vec![openauth_plugins::username::username()],
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-            email_password: EmailPasswordOptions {
-                require_email_verification: true,
-                ..EmailPasswordOptions::default()
-            },
+            email_password: EmailPasswordOptions::new()
+                .enabled(true)
+                .require_email_verification(true),
             advanced: test_advanced_options(),
             ..OpenAuthOptions::default()
         },
@@ -182,10 +180,9 @@ async fn sign_in_username_sends_verification_email_when_configured(
         OpenAuthOptions {
             plugins: vec![openauth_plugins::username::username()],
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-            email_password: EmailPasswordOptions {
-                require_email_verification: true,
-                ..EmailPasswordOptions::default()
-            },
+            email_password: EmailPasswordOptions::new()
+                .enabled(true)
+                .require_email_verification(true),
             email_verification: EmailVerificationOptions::builder()
                 .send_on_sign_in(true)
                 .send_verification_email(

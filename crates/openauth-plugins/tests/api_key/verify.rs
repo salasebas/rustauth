@@ -13,7 +13,8 @@ use openauth_plugins::api_key::{
 use serde_json::json;
 
 use super::helpers::{
-    request_json, server_request_json, sign_up, CountingBackgroundRunner, DelayedUpdateAdapter,
+    request_json, server_request_json, sign_up, with_test_defaults, CountingBackgroundRunner,
+    DelayedUpdateAdapter,
 };
 
 #[tokio::test]
@@ -289,7 +290,7 @@ async fn deferred_updates_use_background_runner_when_configured(
     let runner = Arc::new(CountingBackgroundRunner::default());
     let runner_for_options: Arc<dyn BackgroundTaskRunner> = runner.clone();
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             plugins: vec![api_key_with_options(ApiKeyOptions {
                 configuration: ApiKeyConfiguration {
                     defer_updates: true,
@@ -300,7 +301,7 @@ async fn deferred_updates_use_background_runner_when_configured(
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let adapter_dyn: Arc<dyn DbAdapter> = adapter;

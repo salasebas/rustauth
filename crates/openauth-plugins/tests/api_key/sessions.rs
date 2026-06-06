@@ -5,9 +5,7 @@ use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{Create, DbAdapter, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{
-    AdvancedOptions, EmailPasswordOptions, IpAddressOptions, OpenAuthOptions, SessionOptions,
-};
+use openauth_core::options::{AdvancedOptions, IpAddressOptions, OpenAuthOptions, SessionOptions};
 use openauth_plugins::api_key::{
     api_key_with_options, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions, ApiKeyReference,
     API_KEY_MODEL, INVALID_API_KEY, INVALID_REFERENCE_ID_FROM_API_KEY,
@@ -15,7 +13,9 @@ use openauth_plugins::api_key::{
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 
-use super::helpers::{request_json, request_json_with_headers, sign_up, test_router};
+use super::helpers::{
+    request_json, request_json_with_headers, sign_up, test_router, with_test_defaults,
+};
 
 #[tokio::test]
 async fn api_key_can_mock_get_session_when_enabled() -> Result<(), Box<dyn std::error::Error>> {
@@ -253,8 +253,6 @@ async fn api_key_session_hook_records_trusted_request_ip() -> Result<(), Box<dyn
             secret: Some("test-secret-at-least-32-chars-long!".to_owned()),
             advanced: AdvancedOptions::default()
                 .ip_address(IpAddressOptions::new().headers(["x-forwarded-for"])),
-            email_password: EmailPasswordOptions::new().enabled(true),
-            development: true,
             ..OpenAuthOptions::default()
         },
     )?;
@@ -356,6 +354,6 @@ fn test_router_with_options(
     options: OpenAuthOptions,
 ) -> Result<AuthRouter, OpenAuthError> {
     let adapter: Arc<dyn DbAdapter> = adapter;
-    let context = create_auth_context_with_adapter(options, adapter.clone())?;
+    let context = create_auth_context_with_adapter(with_test_defaults(options), adapter.clone())?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
 }

@@ -10,7 +10,7 @@ use openauth_core::db::{
     Create, DbAdapter, DbRecord, DbValue, Delete, FindOne, MemoryAdapter, Where,
 };
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
 use openauth_plugins::two_factor::{totp_code, two_factor, TwoFactorOptions};
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -90,6 +90,8 @@ pub(super) fn options_with_two_factor(two_factor_options: TwoFactorOptions) -> O
             ..AdvancedOptions::default()
         },
         plugins: vec![two_factor(two_factor_options)],
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     }
 }
