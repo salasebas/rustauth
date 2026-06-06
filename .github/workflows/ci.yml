@@ -120,6 +120,10 @@ jobs:
       - name: Test with nextest
         run: cargo nextest run -p ${{ matrix.package }} --all-features
 
+      - name: Test openauth-telemetry default features
+        if: matrix.package == 'openauth-telemetry'
+        run: cargo nextest run -p openauth-telemetry
+
       - name: Test doctests
         if: matrix.doc_tests
         run: cargo test -p ${{ matrix.package }} --doc --all-features

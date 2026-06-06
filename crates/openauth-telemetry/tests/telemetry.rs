@@ -393,6 +393,21 @@ impl openauth_core::options::SecondaryStorage for TestSecondaryStorage {
     }
 }
 
+#[cfg(not(feature = "oauth"))]
+#[test]
+fn auth_config_snapshot_omits_social_providers_without_oauth_feature() {
+    let config = openauth_telemetry::get_telemetry_auth_config(
+        &OpenAuthOptions::default(),
+        &TelemetryContext::default(),
+    );
+
+    assert_eq!(
+        config["socialProviders"],
+        serde_json::json!([]),
+        "direct openauth-telemetry users must enable the oauth feature for social-provider snapshots"
+    );
+}
+
 #[cfg(feature = "oauth")]
 struct TestSocialProvider {
     options: ProviderOptions,

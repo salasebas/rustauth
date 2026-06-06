@@ -36,6 +36,10 @@
 //! - **Runtime** is reported as `rust` (not Node/Bun/Deno).
 //! - **System metrics** `cpuModel`, `cpuSpeed`, and `memory` stay `null` without a platform sysinfo dependency.
 //! - **HTTP**: JSON POST uses `reqwest` when the `http` feature is enabled (default).
+//! - **OAuth/social providers**: `socialProviders` in the auth-config snapshot requires
+//!   the `oauth` feature on this crate. Without it, the field is always an empty array.
+//!   The umbrella `openauth` crate enables `openauth-telemetry/oauth` automatically
+//!   when its `telemetry` feature is on.
 //!
 //! Parity summary: [`UPSTREAM.md`](../UPSTREAM.md).
 
