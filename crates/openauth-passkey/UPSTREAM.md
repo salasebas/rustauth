@@ -58,7 +58,7 @@ verification state, rate limits, and multi-instance storage expectations.
 | PK-1 | `options.schema` / `mergeSchema` field renames are not ported. | Low | Use `PasskeyOptions::passkey_table` and OpenAuth schema contributions instead. |
 | PK-2 | Multi-origin/proxy configuration can break WebAuthn if misconfigured. | Medium | Set stable public `base_url`, `origin`, and `rp_id`; tests cover missing-origin/RP-ID fail-closed paths. |
 | PK-3 | In-memory storage is not safe for multi-instance production. | Medium | Share adapter or secondary storage for verification records, challenge limits, and sessions. |
-| PK-4 | Legacy `publicKey`-only authentication records need the hidden credential JSON for full `webauthn-rs` verification. | Medium | OpenAuth can advertise legacy credential IDs in options, but production migrations should backfill or re-register credentials to avoid stale records. |
+| PK-4 | Legacy `publicKey`-only rows with invalid or unsupported COSE keys cannot authenticate until re-registered. | Low | Valid legacy rows are reconstructed at authentication time and backfilled after success; corrupt rows are omitted from `allowCredentials`. |
 
 ## Hardening
 

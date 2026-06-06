@@ -36,6 +36,17 @@ use openauth_passkey::{
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 
+pub fn allow_credentials_contains_id(allowed: &[Value], credential_id: &str) -> bool {
+    allowed.iter().any(|entry| {
+        entry["id"].as_str() == Some(credential_id)
+            || entry
+                .get("cred")
+                .and_then(|cred| cred.get("cred_id"))
+                .and_then(Value::as_str)
+                == Some(credential_id)
+    })
+}
+
 pub async fn seeded_router(
     options: PasskeyOptions,
 ) -> Result<(Arc<MemoryAdapter>, AuthRouter, Arc<FakeWebAuthnBackend>), Box<dyn std::error::Error>>
@@ -769,6 +780,40 @@ pub async fn seed_user_two(adapter: &MemoryAdapter) -> Result<(), Box<dyn std::e
                 .data("image", DbValue::Null)
                 .data("created_at", DbValue::Timestamp(now))
                 .data("updated_at", DbValue::Timestamp(now))
+                .force_allow_id(),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Valid base64 COSE public key (ES256 / P-256) used for legacy passkey rows in tests.
+pub const LEGACY_TEST_COSE_PUBLIC_KEY: &str = "pQECAyYgASFYIGXtpaEld8K66ClDf+M4cBoQqqN14btbXeEI3kOcCFUdIlggHlLtdXARY/f55A3fnzQbPcm6hgr34Mp8p+nuzQCE0Zw=";
+
+pub async fn seed_legacy_passkey(
+    adapter: &MemoryAdapter,
+    id: &str,
+    user_id: &str,
+    name: &str,
+    credential_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    adapter
+        .create(
+            Create::new("passkey")
+                .data("id", DbValue::String(id.to_owned()))
+                .data("name", DbValue::String(name.to_owned()))
+                .data(
+                    "public_key",
+                    DbValue::String(LEGACY_TEST_COSE_PUBLIC_KEY.to_owned()),
+                )
+                .data("user_id", DbValue::String(user_id.to_owned()))
+                .data("credential_id", DbValue::String(credential_id.to_owned()))
+                .data("counter", DbValue::Number(0))
+                .data("device_type", DbValue::String("singleDevice".to_owned()))
+                .data("backed_up", DbValue::Boolean(false))
+                .data("transports", DbValue::String("internal".to_owned()))
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .data("aaguid", DbValue::Null)
+                .data("webauthn_credential", DbValue::Null)
                 .force_allow_id(),
         )
         .await?;

@@ -3,17 +3,20 @@ use openauth_core::error::OpenAuthError;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::str::FromStr;
 use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
+
 use webauthn_rs::prelude::{
-    AttestationMetadata, COSEAlgorithm, COSEKey, COSEKeyType, CreationChallengeResponse,
-    Credential, CredentialID, ECDSACurve, EDDSACurve, Passkey, PublicKeyCredential,
-    RegisterPublicKeyCredential, RequestChallengeResponse,
+    AttestationFormat, AttestationMetadata, COSEAlgorithm, COSEKey, COSEKeyType,
+    CreationChallengeResponse, Credential, CredentialID, ECDSACurve, EDDSACurve, ParsedAttestation,
+    Passkey, PublicKeyCredential, RegisterPublicKeyCredential, RequestChallengeResponse,
 };
 use webauthn_rs_core::proto::{
-    AttestationConveyancePreference, AuthenticationState, RegistrationState,
-    RequestAuthenticationExtensions, RequestRegistrationExtensions, UserVerificationPolicy,
+    AttestationConveyancePreference, AuthenticationState, AuthenticatorTransport,
+    RegisteredExtensions, RegistrationState, RequestAuthenticationExtensions,
+    RequestRegistrationExtensions, UserVerificationPolicy,
 };
 use webauthn_rs_core::WebauthnCore;
 
@@ -375,29 +378,67 @@ fn parse_exclude_credential_id(value: Value) -> Result<CredentialID, OpenAuthErr
     serde_json::from_value(json!(id)).map_err(json_error)
 }
 
-/// Merge legacy passkey ids into `allowCredentials` when full credential state is unavailable.
-pub(crate) fn merge_legacy_allow_credentials(
-    options: &mut Value,
-    legacy_credential_ids: &[String],
-) {
-    if legacy_credential_ids.is_empty() {
-        return;
-    }
-    let Some(options) = options.as_object_mut() else {
-        return;
+/// Reconstruct `webauthn-rs` credential state from legacy passkey columns.
+///
+/// Rows created before OpenAuth stored hidden `webauthn_credential` JSON only
+/// persisted the base64 COSE public key and passkey metadata. Authentication
+/// must rebuild enough state for verification and counter updates.
+pub(crate) fn legacy_passkey_credential_value(
+    credential_id: &str,
+    public_key: &str,
+    counter: i64,
+    device_type: &str,
+    backed_up: bool,
+    transports: Option<&str>,
+) -> Result<Value, OpenAuthError> {
+    let cose_bytes = decode_stored_public_key(public_key)?;
+    let cbor = serde_cbor_2::from_slice::<serde_cbor_2::Value>(&cose_bytes)
+        .map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let cose_key =
+        COSEKey::try_from(&cbor).map_err(|error| OpenAuthError::Api(error.to_string()))?;
+    let cred_id: CredentialID = serde_json::from_value(json!(credential_id)).map_err(json_error)?;
+    let transports = transports.map(parse_stored_transports).transpose()?;
+    let counter = u32::try_from(counter)
+        .map_err(|_| OpenAuthError::Api("passkey counter exceeds u32 range".to_owned()))?;
+    let credential = Credential {
+        cred_id,
+        cred: cose_key,
+        counter,
+        transports,
+        user_verified: false,
+        backup_eligible: device_type == "multiDevice",
+        backup_state: backed_up,
+        registration_policy: UserVerificationPolicy::Preferred,
+        extensions: RegisteredExtensions::none(),
+        attestation: ParsedAttestation::default(),
+        attestation_format: AttestationFormat::None,
     };
-    let allow = options
-        .entry("allowCredentials")
-        .or_insert_with(|| json!([]));
-    let Some(items) = allow.as_array_mut() else {
-        return;
-    };
-    for id in legacy_credential_ids {
-        items.push(json!({
-            "type": "public-key",
-            "id": id,
-        }));
+    serde_json::to_value(Passkey::from(credential)).map_err(json_error)
+}
+
+fn decode_stored_public_key(public_key: &str) -> Result<Vec<u8>, OpenAuthError> {
+    use base64::Engine;
+    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(public_key) {
+        return Ok(bytes);
     }
+    if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE.decode(public_key) {
+        return Ok(bytes);
+    }
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(public_key)
+        .map_err(|error| OpenAuthError::Api(error.to_string()))
+}
+
+fn parse_stored_transports(value: &str) -> Result<Vec<AuthenticatorTransport>, OpenAuthError> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            AuthenticatorTransport::from_str(part)
+                .map_err(|_| OpenAuthError::Api(format!("unsupported passkey transport `{part}`")))
+        })
+        .collect()
 }
 
 fn credential_output(passkey: Passkey) -> Result<VerifiedPasskeyCredential, OpenAuthError> {
@@ -697,5 +738,63 @@ mod tests {
             Some(&CborValue::Bytes(vec![2; 32]))
         );
         Ok(())
+    }
+
+    fn sample_test_credential() -> Result<Credential, Box<dyn std::error::Error>> {
+        Ok(serde_json::from_value(serde_json::json!({
+            "cred_id": "AQID",
+            "cred": {
+                "type_": "ES256",
+                "key": { "EC_EC2": {
+                    "curve": "SECP256R1",
+                    "x": [
+                        101, 237, 165, 161, 37, 119, 194, 186, 232, 41, 67, 127, 227, 56, 112, 26,
+                        16, 170, 163, 117, 225, 187, 91, 93, 225, 8, 222, 67, 156, 8, 85, 29
+                    ],
+                    "y": [
+                        30, 82, 237, 117, 112, 17, 99, 247, 249, 228, 13, 223, 159, 52, 27, 61,
+                        201, 186, 134, 10, 247, 224, 202, 124, 167, 233, 238, 205, 0, 132, 209, 156
+                    ]
+                } }
+            },
+            "counter": 0,
+            "transports": null,
+            "user_verified": false,
+            "backup_eligible": false,
+            "backup_state": false,
+            "registration_policy": "preferred",
+            "extensions": { "cred_protect": "NotRequested", "hmac_create_secret": "NotRequested" },
+            "attestation": { "data": "None", "metadata": "None" },
+            "attestation_format": "none"
+        }))?)
+    }
+
+    #[test]
+    fn legacy_passkey_credential_value_reconstructs_from_stored_public_key(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let output = credential_output(sample_test_credential()?.into())?;
+        let reconstructed = legacy_passkey_credential_value(
+            &output.credential_id,
+            &output.public_key,
+            i64::from(output.counter),
+            &output.device_type,
+            output.backed_up,
+            output.transports.as_deref(),
+        )?;
+        credential_value_to_passkey(reconstructed)?;
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_passkey_credential_value_rejects_invalid_public_key() {
+        let result = legacy_passkey_credential_value(
+            "AQID",
+            "not-valid-cose",
+            0,
+            "singleDevice",
+            false,
+            None,
+        );
+        assert!(result.is_err());
     }
 }

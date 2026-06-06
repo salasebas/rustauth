@@ -28,7 +28,6 @@ use crate::routes::{
 };
 use crate::session::{create_session_for_user, current_session};
 use crate::store::PasskeyStore;
-use crate::webauthn::merge_legacy_allow_credentials;
 
 pub(super) fn generate_authenticate_options_endpoint(
     options: Arc<PasskeyOptions>,
@@ -52,25 +51,21 @@ pub(super) fn generate_authenticate_options_endpoint(
             Box::pin(async move {
                 let adapter = adapter(context)?;
                 let session = current_session(context, &request).await?;
-                let (credentials, legacy_credential_ids) = if let Some((_, user, _)) = &session {
+                let credentials = if let Some((_, user, _)) = &session {
                     let passkeys = PasskeyStore::new(adapter.as_ref())
                         .list_by_user(&user.id)
                         .await?;
-                    let legacy_credential_ids = passkeys
-                        .iter()
-                        .filter(|passkey| passkey.webauthn_credential.is_null())
-                        .map(|passkey| passkey.credential_id.clone())
-                        .collect::<Vec<_>>();
-                    let credentials = passkeys
+                    passkeys
                         .into_iter()
-                        .filter_map(|passkey| passkey.authentication_credential_value())
-                        .collect();
-                    (credentials, legacy_credential_ids)
+                        .filter_map(|passkey| {
+                            passkey.authentication_credential_value().ok().flatten()
+                        })
+                        .collect()
                 } else {
-                    (Vec::new(), Vec::new())
+                    Vec::new()
                 };
                 let session_user_id = session.as_ref().map(|(_, user, _)| user.id.clone());
-                let mut start = options.backend.start_authentication(
+                let start = options.backend.start_authentication(
                     webauthn_config(context, &options, &request)?,
                     credentials,
                     resolve_extensions(
@@ -82,7 +77,6 @@ pub(super) fn generate_authenticate_options_endpoint(
                     )
                     .await,
                 )?;
-                merge_legacy_allow_credentials(&mut start.options, &legacy_credential_ids);
                 let token = create_challenge(
                     adapter.as_ref(),
                     context,
@@ -200,11 +194,15 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                         "origin missing",
                     );
                 };
+                let credential = match passkey.authentication_credential_value() {
+                    Ok(Some(credential)) => credential,
+                    Ok(None) | Err(_) => return authentication_failed(),
+                };
                 let verified = match options.backend.finish_authentication(
                     config,
                     body.response.clone(),
                     challenge.state,
-                    Some(passkey.webauthn_credential.clone()),
+                    Some(credential),
                 ) {
                     Ok(verified) => verified,
                     Err(_) => return authentication_failed(),

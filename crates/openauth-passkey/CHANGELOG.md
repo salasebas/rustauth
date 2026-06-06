@@ -13,6 +13,11 @@ All notable changes to `openauth-passkey` are documented in this file.
 
 ### Fixed
 
+- Legacy passkey rows stored with only `public_key` metadata (no
+  `webauthn_credential` JSON) are now reconstructed for WebAuthn verification
+  instead of being advertised in `allowCredentials` but failing at verify time.
+  Successful authentication backfills `webauthn_credential` via the existing
+  counter update path.
 - WebAuthn registration/authentication now returns `InvalidConfig` when origin,
   `rp_id`, or derivations are missing instead of defaulting to localhost.
 - Passkey management mutations require a fresh session; authentication rejects

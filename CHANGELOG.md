@@ -62,6 +62,9 @@ Versioning while the API is still pre-1.0.
 - Passkey WebAuthn setup no longer falls back to localhost when origin/rp_id are
   missing; management routes require a fresh session; authentication rejects
   credential counter updates that miss the stored row.
+- Legacy passkey rows without `webauthn_credential` JSON can authenticate again:
+  OpenAuth reconstructs `webauthn-rs` credential state from the stored COSE
+  public key and backfills the hidden JSON after successful verification.
 - Stripe subscription reconciliation paginates list results and releases
   orphaned schedules after failed period-end updates.
 - `SecondaryStorage::take` on Fred/Redis uses atomic `GETDEL`.

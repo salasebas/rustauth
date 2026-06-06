@@ -45,9 +45,23 @@ impl Passkey {
         }
     }
 
-    /// Stored WebAuthn credential state for authentication ceremonies, when available.
-    pub(crate) fn authentication_credential_value(&self) -> Option<Value> {
-        (!self.webauthn_credential.is_null()).then(|| self.webauthn_credential.clone())
+    /// Stored WebAuthn credential state for authentication ceremonies.
+    ///
+    /// Legacy rows without `webauthn_credential` JSON are rebuilt from the
+    /// stored COSE public key and passkey metadata.
+    pub(crate) fn authentication_credential_value(&self) -> Result<Option<Value>, OpenAuthError> {
+        if !self.webauthn_credential.is_null() {
+            return Ok(Some(self.webauthn_credential.clone()));
+        }
+        crate::webauthn::legacy_passkey_credential_value(
+            &self.credential_id,
+            &self.public_key,
+            self.counter,
+            &self.device_type,
+            self.backed_up,
+            self.transports.as_deref(),
+        )
+        .map(Some)
     }
 }
 
