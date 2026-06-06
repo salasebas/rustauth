@@ -3,20 +3,24 @@ use std::sync::Arc;
 use http::{header, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use time::Duration;
+use time::{Duration, OffsetDateTime};
 
 use super::shared::{
-    current_session, error_response, json_response, percent_encode, query_param,
+    additional_session_create_values, auth_session_cookies, current_session, error_response,
+    json_response, percent_encode, query_param, record_new_session, request_dont_remember,
     status_openapi_response,
 };
+use crate::api::response_helpers::redirect_response;
 use crate::api::{
     create_auth_endpoint, parse_request_body, request_base_url, AsyncAuthEndpoint,
     AuthEndpointOptions, BodyField, BodySchema, JsonSchemaType, OpenApiOperation,
 };
 use crate::auth::trusted_origins::OriginMatchSettings;
+use crate::cookies::Cookie;
 use crate::crypto::jwt::{sign_jwt, verify_jwt};
 use crate::db::{DbAdapter, User};
 use crate::options::{EmailVerificationCallbackPayload, VerificationEmail};
+use crate::session::{CreateSessionInput, SessionStore};
 use crate::user::DbUserStore;
 
 #[derive(Debug, Deserialize)]
@@ -236,6 +240,7 @@ pub(super) fn verify_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                             status: true,
                             user: Some(updated),
                         },
+                        Vec::new(),
                     );
                 }
 
@@ -247,7 +252,8 @@ pub(super) fn verify_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                         Some(&request),
                     )?;
                 }
-                let updated = if !user.email_verified {
+                let was_unverified = !user.email_verified;
+                let updated = if was_unverified {
                     users
                         .update_user_email_verified(&user.id, true)
                         .await?
@@ -258,16 +264,36 @@ pub(super) fn verify_email_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEnd
                 if let Some(callback) = &context.options.email_verification.after_email_verification
                 {
                     callback.after_email_verification(
-                        EmailVerificationCallbackPayload { user: updated },
+                        EmailVerificationCallbackPayload {
+                            user: updated.clone(),
+                        },
                         Some(&request),
                     )?;
                 }
+                let cookies = if context
+                    .options
+                    .email_verification
+                    .auto_sign_in_after_verification
+                    && was_unverified
+                {
+                    auto_sign_in_after_verification_cookies(
+                        adapter.as_ref(),
+                        context,
+                        &request,
+                        &updated,
+                        &claims.email,
+                    )
+                    .await?
+                } else {
+                    Vec::new()
+                };
                 verify_success_response(
                     callback_url.as_deref(),
                     &VerifyEmailResponse {
                         status: true,
                         user: None,
                     },
+                    cookies,
                 )
             })
         },
@@ -303,14 +329,47 @@ fn simulate_verification_token(
     create_email_verification_token(context, email, None, None).map(|_| ())
 }
 
+async fn auto_sign_in_after_verification_cookies(
+    adapter: &dyn DbAdapter,
+    context: &crate::context::AuthContext,
+    request: &crate::api::ApiRequest,
+    user: &User,
+    verified_email: &str,
+) -> Result<Vec<Cookie>, crate::error::OpenAuthError> {
+    if let Some((session, session_user, _)) = current_session(adapter, context, request).await? {
+        if session_user.email == verified_email {
+            let dont_remember = request_dont_remember(context, request)?;
+            return auth_session_cookies(context, &session, user, dont_remember);
+        }
+    }
+
+    let expires_at =
+        OffsetDateTime::now_utc() + Duration::seconds(context.session_config.expires_in as i64);
+    let mut input = CreateSessionInput::new(&user.id, expires_at)
+        .additional_fields(additional_session_create_values(context));
+    if let Some(user_agent) = request
+        .headers()
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+    {
+        input = input.user_agent(user_agent);
+    }
+    let session = SessionStore::new(adapter, context)
+        .create_session(input)
+        .await?;
+    record_new_session(&session, user)?;
+    auth_session_cookies(context, &session, user, false)
+}
+
 fn verify_success_response(
     callback_url: Option<&str>,
     body: &VerifyEmailResponse,
+    cookies: Vec<Cookie>,
 ) -> Result<crate::api::ApiResponse, crate::error::OpenAuthError> {
     if let Some(url) = callback_url {
-        return redirect(url);
+        return redirect_response(url, cookies);
     }
-    json_response(StatusCode::OK, body, Vec::new())
+    json_response(StatusCode::OK, body, cookies)
 }
 
 fn verification_error_response(

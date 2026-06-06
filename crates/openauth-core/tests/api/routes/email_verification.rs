@@ -201,6 +201,185 @@ async fn send_verification_email_route_does_not_reveal_missing_user(
 }
 
 #[tokio::test]
+async fn verify_email_auto_sign_in_creates_session_without_current_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .insert_user(User {
+            email_verified: false,
+            ..user(now)
+        })
+        .await;
+    let token = sign_jwt(&json!({ "email": "ada@example.com" }), secret(), 3600)?;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            email_verification: EmailVerificationOptions::default()
+                .auto_sign_in_after_verification(true),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/verify-email?token={token}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["status"], true);
+    assert!(body["user"].is_null());
+    assert_eq!(adapter.len("session").await, 1);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_email_auto_sign_in_reuses_matching_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .insert_user(User {
+            email_verified: false,
+            ..user(now)
+        })
+        .await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let token = sign_jwt(&json!({ "email": "ada@example.com" }), secret(), 3600)?;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            email_verification: EmailVerificationOptions::default()
+                .auto_sign_in_after_verification(true),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/verify-email?token={token}"),
+            "",
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["status"], true);
+    assert!(body["user"].is_null());
+    assert_eq!(adapter.len("session").await, 1);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.starts_with("open-auth.session_token=")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_email_change_email_does_not_auto_sign_in() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .insert_user(User {
+            email_verified: true,
+            ..user(now)
+        })
+        .await;
+    let token = sign_jwt(
+        &json!({
+            "email": "ada@example.com",
+            "updateTo": "new@example.com",
+            "requestType": "change-email-verification"
+        }),
+        secret(),
+        3600,
+    )?;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            email_verification: EmailVerificationOptions::default()
+                .auto_sign_in_after_verification(true),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/verify-email?token={token}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["status"], true);
+    assert_eq!(body["user"]["email"], "new@example.com");
+    assert!(adapter.is_empty("session").await);
+    assert!(set_cookie_values(&response).is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_email_auto_sign_in_sets_cookie_on_callback_redirect(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .insert_user(User {
+            email_verified: false,
+            ..user(now)
+        })
+        .await;
+    let token = sign_jwt(&json!({ "email": "ada@example.com" }), secret(), 3600)?;
+    let router = router_with_options(
+        adapter.clone(),
+        OpenAuthOptions {
+            base_url: Some("https://app.example.com/api/auth".to_owned()),
+            email_verification: EmailVerificationOptions::default()
+                .auto_sign_in_after_verification(true),
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/api/auth/verify-email?token={token}&callbackURL=/callback"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/callback")
+    );
+    assert_eq!(adapter.len("session").await, 1);
+    assert!(set_cookie_values(&response)
+        .iter()
+        .any(|cookie| cookie.contains("session_token=")));
+    Ok(())
+}
+
+#[tokio::test]
 async fn verify_email_route_marks_user_verified() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
     let now = OffsetDateTime::now_utc();
