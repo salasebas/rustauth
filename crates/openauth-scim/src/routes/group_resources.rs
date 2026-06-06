@@ -272,7 +272,7 @@ pub(super) async fn group_resource_from_team(
         return Ok(None);
     }
     let profile = scim_group_profile(adapter, provider_id, &team.id).await?;
-    let members = group_members(adapter, base_url, &team.id).await?;
+    let members = group_members(adapter, base_url, provider_id, organization_id, &team.id).await?;
     Ok(Some(group_resource(
         base_url,
         &team.id,
@@ -289,18 +289,50 @@ pub(super) async fn team_is_scim_managed(
     organization_id: &str,
     team_id: &str,
 ) -> Result<bool, OpenAuthError> {
-    Ok(adapter
-        .find_one(
-            FindOne::new("scimGroupProfile")
+    Ok(
+        scim_managed_team_ids(adapter, organization_id, &[team_id.to_owned()])
+            .await?
+            .contains(team_id),
+    )
+}
+
+pub(super) async fn scim_managed_team_ids(
+    adapter: &dyn DbAdapter,
+    organization_id: &str,
+    team_ids: &[String],
+) -> Result<std::collections::BTreeSet<String>, OpenAuthError> {
+    if team_ids.is_empty() {
+        return Ok(std::collections::BTreeSet::new());
+    }
+    let profiles = match adapter
+        .find_many(
+            FindMany::new("scimGroupProfile")
                 .where_clause(Where::new(
                     "organizationId",
                     DbValue::String(organization_id.to_owned()),
                 ))
-                .where_clause(Where::new("teamId", DbValue::String(team_id.to_owned())))
-                .select(["id"]),
+                .where_clause(
+                    Where::new("teamId", DbValue::StringArray(team_ids.to_vec()))
+                        .operator(WhereOperator::In),
+                )
+                .select(["teamId"]),
         )
-        .await?
-        .is_some())
+        .await
+    {
+        Ok(profiles) => profiles,
+        Err(OpenAuthError::TableNotFound { table }) if table == "scimGroupProfile" => {
+            return Ok(std::collections::BTreeSet::new());
+        }
+        Err(error) => return Err(error),
+    };
+    let mut managed = std::collections::BTreeSet::new();
+    for profile in profiles {
+        let Some(team_id) = optional_string(&profile, "teamId")? else {
+            continue;
+        };
+        managed.insert(team_id);
+    }
+    Ok(managed)
 }
 
 pub(super) async fn replace_group(
@@ -726,6 +758,8 @@ pub(super) async fn scim_group_profile(
 pub(super) async fn group_members(
     adapter: &dyn DbAdapter,
     base_url: &str,
+    provider_id: &str,
+    organization_id: &str,
     team_id: &str,
 ) -> Result<Vec<crate::resources::ScimGroupResourceMember>, OpenAuthError> {
     let user_ids = adapter
@@ -744,28 +778,14 @@ pub(super) async fn group_members(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let users = adapter
-        .find_many(
-            FindMany::new("user")
-                .where_clause(
-                    Where::new("id", DbValue::StringArray(user_ids)).operator(WhereOperator::In),
-                )
-                .select([
-                    "id",
-                    "name",
-                    "email",
-                    "email_verified",
-                    "image",
-                    "created_at",
-                    "updated_at",
-                ]),
-        )
-        .await?
-        .into_iter()
-        .map(user_from_record)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(users
-        .into_iter()
-        .map(|user| group_member_resource(base_url, &user.id, Some(user.name)))
-        .collect())
+    let mut members = Vec::new();
+    for user_id in user_ids {
+        let Some((user, _account)) =
+            find_scim_user(adapter, &user_id, provider_id, Some(organization_id)).await?
+        else {
+            continue;
+        };
+        members.push(group_member_resource(base_url, &user.id, Some(user.name)));
+    }
+    Ok(members)
 }

@@ -367,6 +367,14 @@ async fn scim_user_groups_by_user(
     }
     team_ids.sort();
     team_ids.dedup();
+    let scim_team_ids = scim_managed_team_ids(adapter, organization_id, &team_ids).await?;
+    let team_ids = team_ids
+        .into_iter()
+        .filter(|team_id| scim_team_ids.contains(team_id))
+        .collect::<Vec<_>>();
+    if team_ids.is_empty() {
+        return Ok(std::collections::BTreeMap::new());
+    }
     let teams = match adapter
         .find_many(
             FindMany::new("team")
@@ -443,6 +451,14 @@ pub(super) async fn merge_scim_user_groups(
             Some(DbValue::String(team_id)) => Some(team_id.to_owned()),
             _ => None,
         })
+        .collect::<Vec<_>>();
+    if team_ids.is_empty() {
+        return Ok(());
+    }
+    let scim_team_ids = scim_managed_team_ids(adapter, organization_id, &team_ids).await?;
+    let team_ids = team_ids
+        .into_iter()
+        .filter(|team_id| scim_team_ids.contains(team_id))
         .collect::<Vec<_>>();
     if team_ids.is_empty() {
         return Ok(());

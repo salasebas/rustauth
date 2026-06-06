@@ -3,7 +3,7 @@ use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::{create_auth_context, create_auth_context_with_adapter};
 use openauth_core::cookies::{set_session_cookie, SessionCookieOptions};
 use openauth_core::db::{Create, DbAdapter, DbValue, FindMany, FindOne, Where, WhereOperator};
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, OpenAuthOptions, RateLimitOptions};
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::user::{CreateOAuthAccountInput, CreateUserInput, DbUserStore};
 use openauth_deadpool_postgres::DeadpoolPostgresAdapter;
@@ -173,6 +173,7 @@ async fn sqlite_atomic_bulk_rolls_back_when_a_later_operation_fails(
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        rate_limit: test_rate_limit_options(),
         ..OpenAuthOptions::default()
     };
     let context = create_auth_context(options.clone())?;
@@ -414,6 +415,13 @@ fn scim_context_with_adapter(
     create_auth_context_with_adapter(scim_options(), adapter)
 }
 
+fn test_rate_limit_options() -> RateLimitOptions {
+    RateLimitOptions {
+        enabled: Some(false),
+        ..RateLimitOptions::default()
+    }
+}
+
 fn scim_options() -> OpenAuthOptions {
     OpenAuthOptions {
         base_url: Some("https://app.example.com".to_owned()),
@@ -427,6 +435,7 @@ fn scim_options() -> OpenAuthOptions {
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        rate_limit: test_rate_limit_options(),
         ..OpenAuthOptions::default()
     }
 }
@@ -441,6 +450,7 @@ fn scim_only_options() -> OpenAuthOptions {
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        rate_limit: test_rate_limit_options(),
         ..OpenAuthOptions::default()
     }
 }
@@ -454,6 +464,7 @@ fn base_options() -> OpenAuthOptions {
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        rate_limit: test_rate_limit_options(),
         ..OpenAuthOptions::default()
     }
 }

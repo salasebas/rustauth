@@ -27,6 +27,10 @@ All notable changes to `openauth-scim` are documented in this file.
   teams are no longer listed, readable, or mutable via `GET/PUT/PATCH/DELETE
   /Groups` and the equivalent bulk operations. Cross-provider visibility of
   SCIM-managed groups within the same organization is preserved.
+- Filter `User.groups` and `Group.members` projections to the same SCIM
+  boundary: user reads omit native organization teams from group memberships,
+  and group reads omit organization members who are not provider-scoped SCIM
+  users for the current token.
 - Reject provisioning when `userName` or resolved `emails` are not valid email
   addresses, including PATCH `userName` updates.
 - Reject PUT and bulk PUT when `externalId` / `userName` would duplicate another

@@ -1,5 +1,23 @@
 use super::*;
 
+fn test_openauth_options(plugins: Vec<openauth_core::plugin::AuthPlugin>) -> OpenAuthOptions {
+    OpenAuthOptions {
+        base_url: Some("https://app.example.com".to_owned()),
+        secret: Some(SECRET.to_owned()),
+        plugins,
+        advanced: AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
+        },
+        rate_limit: RateLimitOptions {
+            enabled: Some(false),
+            ..RateLimitOptions::default()
+        },
+        ..OpenAuthOptions::default()
+    }
+}
+
 pub(super) fn router() -> Result<AuthRouter, openauth_core::error::OpenAuthError> {
     router_with_adapter().map(|(_adapter, router)| router)
 }
@@ -22,17 +40,7 @@ pub(super) fn router_with_context(
 > {
     let adapter = Arc::new(MemoryAdapter::new());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
-            base_url: Some("https://app.example.com".to_owned()),
-            secret: Some(SECRET.to_owned()),
-            plugins: vec![scim(options)],
-            advanced: AdvancedOptions {
-                disable_csrf_check: true,
-                disable_origin_check: true,
-                ..AdvancedOptions::default()
-            },
-            ..OpenAuthOptions::default()
-        },
+        test_openauth_options(vec![scim(options)]),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(
@@ -69,20 +77,10 @@ pub(super) fn router_with_context_and_organization_options(
 > {
     let adapter = Arc::new(MemoryAdapter::new());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
-            base_url: Some("https://app.example.com".to_owned()),
-            secret: Some(SECRET.to_owned()),
-            plugins: vec![
-                organization_with_options(organization_options),
-                scim(options),
-            ],
-            advanced: AdvancedOptions {
-                disable_csrf_check: true,
-                disable_origin_check: true,
-                ..AdvancedOptions::default()
-            },
-            ..OpenAuthOptions::default()
-        },
+        test_openauth_options(vec![
+            organization_with_options(organization_options),
+            scim(options),
+        ]),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(
