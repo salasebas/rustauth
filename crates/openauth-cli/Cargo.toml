@@ -8,6 +8,7 @@ homepage.workspace = true
 documentation = "https://docs.rs/openauth-cli"
 readme = "README.md"
 description = "Command-line tools for OpenAuth."
+default-run = "openauth"
 keywords.workspace = true
 categories.workspace = true
 publish = true
