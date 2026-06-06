@@ -76,6 +76,15 @@ impl DbBackend {
             Self::Mysql => "mysql://user:password@127.0.0.1:3306/openauth".to_owned(),
         }
     }
+
+    fn per_backend_database_url_env(self) -> Option<&'static str> {
+        match self {
+            Self::Memory => None,
+            Self::Sqlite => Some("OPENAUTH_EXAMPLE_SQLITE_DATABASE_URL"),
+            Self::Postgres => Some("OPENAUTH_EXAMPLE_POSTGRES_DATABASE_URL"),
+            Self::Mysql => Some("OPENAUTH_EXAMPLE_MYSQL_DATABASE_URL"),
+        }
+    }
 }
 
 impl FromStr for DbBackend {
@@ -154,6 +163,12 @@ pub struct ExampleConfig {
     pub rate_limit_window: u64,
     pub rate_limit_max: u64,
     pub database_url: String,
+    /// Explicit URLs keyed by SQL backend. Populated from `DATABASE_URL` (startup
+    /// backend) and optional `OPENAUTH_EXAMPLE_*_DATABASE_URL` overrides.
+    database_urls: HashMap<DbBackend, String>,
+    /// When false, alternate backend selection fails unless that backend has an
+    /// entry in [`Self::database_urls`].
+    allow_default_database_urls: bool,
     pub redis_url: String,
     pub valkey_url: String,
     /// Enables the example's privileged control plane (database viewer, schema
@@ -198,7 +213,7 @@ impl ExampleConfig {
                     "OPENAUTH_EXAMPLE_RATE_LIMIT_MAX is invalid: {error}"
                 ))
             })?;
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| db.default_database_url());
+        let (database_url, database_urls, allow_default_database_urls) = load_database_urls(db)?;
         let redis_url = env_or("REDIS_URL", "redis://127.0.0.1:6379");
         let valkey_url = env_or("VALKEY_URL", "valkey://127.0.0.1:6380");
         let dev_controls = match env::var("OPENAUTH_EXAMPLE_DEV_CONTROLS") {
@@ -221,10 +236,33 @@ impl ExampleConfig {
             rate_limit_window,
             rate_limit_max,
             database_url,
+            database_urls,
+            allow_default_database_urls,
             redis_url,
             valkey_url,
             dev_controls,
         })
+    }
+
+    pub fn database_url_for(&self, db: DbBackend) -> Result<String, ExampleError> {
+        match db {
+            DbBackend::Memory => Ok(String::new()),
+            db => {
+                if let Some(url) = self.database_urls.get(&db) {
+                    return Ok(url.clone());
+                }
+                if self.allow_default_database_urls {
+                    Ok(db.default_database_url())
+                } else {
+                    Err(ExampleError::InvalidConfig(format!(
+                        "no database URL configured for backend `{}`; set DATABASE_URL when it is the startup backend (`OPENAUTH_EXAMPLE_DB`) or `{}`",
+                        db.as_str(),
+                        db.per_backend_database_url_env()
+                            .unwrap_or("OPENAUTH_EXAMPLE_DATABASE_URL"),
+                    )))
+                }
+            }
+        }
     }
 
     pub fn socket_addr(&self) -> Result<SocketAddr, ExampleError> {
@@ -727,6 +765,8 @@ fn static_app(runtime: RuntimeInfo, dev_controls: bool) -> Router {
             rate_limit_window: 60,
             rate_limit_max: 120,
             database_url: DbBackend::Sqlite.default_database_url(),
+            database_urls: HashMap::new(),
+            allow_default_database_urls: true,
             redis_url: "redis://127.0.0.1:6379".to_owned(),
             valkey_url: "valkey://127.0.0.1:6380".to_owned(),
             dev_controls,
@@ -992,14 +1032,9 @@ async fn build_profile_auth(
     memory_adapter: openauth::MemoryAdapter,
     memory_rate_limit_store: Arc<GovernorMemoryRateLimitStore>,
 ) -> Result<OpenAuth, ExampleError> {
-    let configured_db = config.db;
     config.db = db;
     config.rate_limit = rate_limit;
-    config.database_url = if db == configured_db {
-        config.database_url
-    } else {
-        db.default_database_url()
-    };
+    config.database_url = config.database_url_for(db)?;
     ensure_sqlite_parent(&config)?;
 
     match db {
@@ -1090,9 +1125,7 @@ async fn table_rows_for_db(
 ) -> Result<TableRowsView, ExampleError> {
     let mut config = state.config.clone();
     config.db = db;
-    if db != state.config.db {
-        config.database_url = db.default_database_url();
-    }
+    config.database_url = config.database_url_for(db)?;
     ensure_sqlite_parent(&config)?;
 
     match db {
@@ -1113,9 +1146,7 @@ async fn drop_database_for_db(
 ) -> Result<serde_json::Value, ExampleError> {
     let mut config = state.config.clone();
     config.db = db;
-    if db != state.config.db {
-        config.database_url = db.default_database_url();
-    }
+    config.database_url = config.database_url_for(db)?;
     ensure_sqlite_parent(&config)?;
 
     match db {
@@ -1956,6 +1987,37 @@ fn redact_password(url: &str) -> String {
 
 fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+fn load_database_urls(
+    startup_db: DbBackend,
+) -> Result<(String, HashMap<DbBackend, String>, bool), ExampleError> {
+    let explicit_primary = env::var("DATABASE_URL").ok();
+    let mut database_urls = HashMap::new();
+    let mut any_explicit = false;
+
+    for db in [DbBackend::Sqlite, DbBackend::Postgres, DbBackend::Mysql] {
+        if let Some(env_name) = db.per_backend_database_url_env() {
+            if let Ok(url) = env::var(env_name) {
+                database_urls.insert(db, url);
+                any_explicit = true;
+            }
+        }
+    }
+
+    let database_url = match explicit_primary {
+        Some(url) => {
+            database_urls.insert(startup_db, url.clone());
+            any_explicit = true;
+            url
+        }
+        None => database_urls
+            .get(&startup_db)
+            .cloned()
+            .unwrap_or_else(|| startup_db.default_database_url()),
+    };
+
+    Ok((database_url, database_urls, !any_explicit))
 }
 
 fn is_loopback_host(host: &str) -> bool {
@@ -3006,6 +3068,8 @@ mod tests {
             rate_limit_window: 60,
             rate_limit_max: 120,
             database_url: String::new(),
+            database_urls: HashMap::new(),
+            allow_default_database_urls: true,
             redis_url: "redis://127.0.0.1:6379".to_owned(),
             valkey_url: "valkey://127.0.0.1:6380".to_owned(),
             dev_controls: true,
@@ -3041,6 +3105,8 @@ mod tests {
             rate_limit_window: 60,
             rate_limit_max: 120,
             database_url: String::new(),
+            database_urls: HashMap::new(),
+            allow_default_database_urls: true,
             redis_url: "redis://127.0.0.1:6379".to_owned(),
             valkey_url: "valkey://127.0.0.1:6380".to_owned(),
             dev_controls: true,
@@ -3091,25 +3157,231 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn dynamic_profile_cache_reuses_auth_instances() -> Result<(), ExampleError> {
-        let cache = ProfileCache::default();
-        let memory_rate_limit_store = Arc::new(GovernorMemoryRateLimitStore::new());
-        let config = ExampleConfig {
+    fn test_example_config(db: DbBackend, database_url: impl Into<String>) -> ExampleConfig {
+        let database_url = database_url.into();
+        let (database_urls, allow_default_database_urls) =
+            explicit_database_state(db, &database_url);
+        ExampleConfig {
             host: "127.0.0.1".to_owned(),
             port: 3000,
             base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
             secret: DEFAULT_SECRET.to_owned(),
-            db: DbBackend::Memory,
+            db,
             rate_limit: RateLimitBackend::Memory,
             rate_limit_enabled: true,
             rate_limit_window: 60,
             rate_limit_max: 120,
-            database_url: String::new(),
+            database_url,
+            database_urls,
+            allow_default_database_urls,
             redis_url: "redis://127.0.0.1:6379".to_owned(),
             valkey_url: "valkey://127.0.0.1:6380".to_owned(),
             dev_controls: true,
-        };
+        }
+    }
+
+    fn explicit_database_state(
+        db: DbBackend,
+        database_url: &str,
+    ) -> (HashMap<DbBackend, String>, bool) {
+        let mut database_urls = HashMap::new();
+        if db != DbBackend::Memory && !database_url.is_empty() {
+            database_urls.insert(db, database_url.to_owned());
+            (database_urls, false)
+        } else {
+            (database_urls, true)
+        }
+    }
+
+    fn test_app_state(config: ExampleConfig) -> AppState {
+        AppState {
+            runtime: RuntimeInfo {
+                openauth_version: openauth::VERSION.to_owned(),
+                framework: "axum".to_owned(),
+                auth_base_path: AUTH_BASE_PATH.to_owned(),
+                db_backend: config.db.as_str().to_owned(),
+                rate_limit_backend: config.rate_limit.as_str().to_owned(),
+                rate_limit_enabled: config.rate_limit_enabled,
+                rate_limit_window: config.rate_limit_window,
+                rate_limit_max: config.rate_limit_max,
+                base_url: config.base_url.clone(),
+                database_url: display_database_url(&config),
+                redis_url: config.redis_url.clone(),
+                valkey_url: config.valkey_url.clone(),
+            },
+            dev_controls: config.dev_controls,
+            endpoints: Vec::new(),
+            openapi: serde_json::json!({}),
+            services: Vec::new(),
+            memory_adapter: openauth::MemoryAdapter::new(),
+            memory_rate_limit_store: Arc::new(GovernorMemoryRateLimitStore::new()),
+            profile_cache: Arc::new(ProfileCache::default()),
+            viewer_adapter_cache: Arc::new(ViewerAdapterCache::default()),
+            config,
+        }
+    }
+
+    #[test]
+    fn demo_defaults_allow_unconfigured_alternate_backends() -> Result<(), ExampleError> {
+        let mut config = test_example_config(DbBackend::Sqlite, String::new());
+        config.database_url = DbBackend::Sqlite.default_database_url();
+        config.allow_default_database_urls = true;
+        assert_eq!(
+            config.database_url_for(DbBackend::Postgres)?,
+            DbBackend::Postgres.default_database_url()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dynamic_profiles_do_not_replace_configured_database_urls(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let sqlite_path = std::env::temp_dir().join(format!(
+            "openauth-ope150-profile-{}-{nanos}.sqlite",
+            std::process::id()
+        ));
+        let custom_sqlite = format!("sqlite://{}", sqlite_path.display());
+        let custom_postgres = "postgres://custom:pass@127.0.0.1:5432/custom_openauth".to_owned();
+        ensure_sqlite_parent(&test_example_config(
+            DbBackend::Sqlite,
+            custom_sqlite.clone(),
+        ))?;
+
+        let mut config = test_example_config(DbBackend::Postgres, custom_postgres.clone());
+        config
+            .database_urls
+            .insert(DbBackend::Sqlite, custom_sqlite.clone());
+
+        assert_eq!(
+            config.database_url_for(DbBackend::Postgres)?,
+            custom_postgres
+        );
+        assert_eq!(config.database_url_for(DbBackend::Sqlite)?, custom_sqlite);
+        assert_ne!(
+            config.database_url_for(DbBackend::Sqlite)?,
+            DbBackend::Sqlite.default_database_url()
+        );
+
+        let auth = build_profile_auth(
+            config.clone(),
+            DbBackend::Sqlite,
+            RateLimitBackend::Memory,
+            profile_base_path(DbBackend::Sqlite, RateLimitBackend::Memory),
+            openauth::MemoryAdapter::new(),
+            Arc::new(GovernorMemoryRateLimitStore::new()),
+        )
+        .await?;
+        drop(auth);
+
+        assert!(matches!(
+            config.database_url_for(DbBackend::Mysql),
+            Err(ExampleError::InvalidConfig(_))
+        ));
+
+        let _ = std::fs::remove_file(sqlite_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn viewer_routes_reuse_selected_backend_config_without_default_fallback(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let sqlite_path = std::env::temp_dir().join(format!(
+            "openauth-ope150-viewer-{}-{nanos}.sqlite",
+            std::process::id()
+        ));
+        let custom_sqlite = format!("sqlite://{}", sqlite_path.display());
+        ensure_sqlite_parent(&test_example_config(
+            DbBackend::Sqlite,
+            custom_sqlite.clone(),
+        ))?;
+
+        let custom_postgres = "postgres://custom:pass@127.0.0.1:5432/custom_openauth".to_owned();
+        let mut config = test_example_config(DbBackend::Postgres, custom_postgres);
+        config
+            .database_urls
+            .insert(DbBackend::Sqlite, custom_sqlite.clone());
+        ensure_sqlite_parent(&config)?;
+
+        let adapter = SqliteAdapter::connect(&custom_sqlite).await?;
+        let auth = build_auth(
+            config.clone(),
+            profile_base_path(DbBackend::Sqlite, RateLimitBackend::Memory),
+            adapter,
+            None,
+            Arc::new(GovernorMemoryRateLimitStore::new()),
+        )
+        .await?;
+        auth.run_migrations().await?;
+        drop(auth);
+
+        let state = test_app_state(config);
+
+        assert_ne!(
+            state.config.database_url_for(DbBackend::Sqlite)?,
+            DbBackend::Sqlite.default_database_url()
+        );
+
+        table_rows_for_db(
+            &state,
+            DbBackend::Sqlite,
+            TableQuery {
+                db: Some("sqlite".to_owned()),
+                table: Some("user".to_owned()),
+                page: None,
+                page_size: None,
+                columns: None,
+                q: None,
+            },
+        )
+        .await?;
+
+        assert!(matches!(
+            table_rows_for_db(
+                &state,
+                DbBackend::Mysql,
+                TableQuery {
+                    db: Some("mysql".to_owned()),
+                    table: Some("user".to_owned()),
+                    page: None,
+                    page_size: None,
+                    columns: None,
+                    q: None,
+                },
+            )
+            .await,
+            Err(ExampleError::InvalidConfig(_))
+        ));
+
+        let _ = std::fs::remove_file(sqlite_path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn schema_reset_rejects_unconfigured_alternate_backend() -> Result<(), ExampleError> {
+        let config = test_example_config(
+            DbBackend::Postgres,
+            "postgres://custom:pass@127.0.0.1:5432/custom_openauth".to_owned(),
+        );
+        let state = test_app_state(config);
+
+        assert!(matches!(
+            drop_database_for_db(&state, DbBackend::Mysql).await,
+            Err(ExampleError::InvalidConfig(_))
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dynamic_profile_cache_reuses_auth_instances() -> Result<(), ExampleError> {
+        let cache = ProfileCache::default();
+        let memory_rate_limit_store = Arc::new(GovernorMemoryRateLimitStore::new());
+        let config = test_example_config(DbBackend::Memory, String::new());
         let key = ProfileKey {
             db: DbBackend::Memory,
             rate_limit: RateLimitBackend::Memory,
@@ -3149,21 +3421,7 @@ mod tests {
     async fn dynamic_profile_cache_invalidates_after_database_drop() -> Result<(), ExampleError> {
         let cache = ProfileCache::default();
         let memory_rate_limit_store = Arc::new(GovernorMemoryRateLimitStore::new());
-        let config = ExampleConfig {
-            host: "127.0.0.1".to_owned(),
-            port: 3000,
-            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
-            secret: DEFAULT_SECRET.to_owned(),
-            db: DbBackend::Memory,
-            rate_limit: RateLimitBackend::Memory,
-            rate_limit_enabled: true,
-            rate_limit_window: 60,
-            rate_limit_max: 120,
-            database_url: String::new(),
-            redis_url: "redis://127.0.0.1:6379".to_owned(),
-            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
-            dev_controls: true,
-        };
+        let config = test_example_config(DbBackend::Memory, String::new());
         let key = ProfileKey {
             db: DbBackend::Memory,
             rate_limit: RateLimitBackend::Memory,
@@ -3224,21 +3482,10 @@ mod tests {
             std::process::id()
         ));
         let database_url = format!("sqlite://{}", path.display());
-        ensure_sqlite_parent(&ExampleConfig {
-            host: "127.0.0.1".to_owned(),
-            port: 3000,
-            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
-            secret: DEFAULT_SECRET.to_owned(),
-            db: DbBackend::Sqlite,
-            rate_limit: RateLimitBackend::Memory,
-            rate_limit_enabled: true,
-            rate_limit_window: 60,
-            rate_limit_max: 120,
-            database_url: database_url.clone(),
-            redis_url: "redis://127.0.0.1:6379".to_owned(),
-            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
-            dev_controls: true,
-        })?;
+        ensure_sqlite_parent(&test_example_config(
+            DbBackend::Sqlite,
+            database_url.clone(),
+        ))?;
         let cache = ViewerAdapterCache::default();
 
         for _ in 0..5 {
@@ -3278,21 +3525,9 @@ mod tests {
             std::process::id()
         ));
         let database_url = format!("sqlite://{}", path.display());
-        let config = ExampleConfig {
-            host: "127.0.0.1".to_owned(),
-            port: 3000,
-            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
-            secret: DEFAULT_SECRET.to_owned(),
-            db: DbBackend::Sqlite,
-            rate_limit: RateLimitBackend::Database,
-            rate_limit_enabled: true,
-            rate_limit_window: 60,
-            rate_limit_max: 120,
-            database_url: database_url.clone(),
-            redis_url: "redis://127.0.0.1:6379".to_owned(),
-            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
-            dev_controls: true,
-        };
+        let config = test_example_config(DbBackend::Sqlite, database_url.clone());
+        let mut config = config;
+        config.rate_limit = RateLimitBackend::Database;
 
         let auth = build_profile_auth(
             config,

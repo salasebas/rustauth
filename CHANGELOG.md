@@ -55,6 +55,9 @@ Versioning while the API is still pre-1.0.
 - Fixed the full-app example so `OPENAUTH_EXAMPLE_BASE_URL` preserves reverse-proxy
   path prefixes when rebuilding static and dynamic auth URLs, and malformed values
   now fail fast with `InvalidConfig` instead of silently falling back to localhost.
+- Full-app example alternate backend selection no longer silently replaces
+  operator-supplied database URLs with hard-coded defaults; unconfigured backends
+  fail closed when explicit URL configuration is present.
 - Ambiguous deployments (neither explicit `production` nor `development`) now
   fail closed: default secrets are rejected, rate limiting defaults on, and
   secure cookies apply without inferring localhost origins.
