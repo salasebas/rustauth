@@ -102,7 +102,10 @@ cargo run -p openauth-example-full-app
 | `OPENAUTH_EXAMPLE_BASE_URL` | `http://127.0.0.1:3000/api/axum/auth` |
 | `OPENAUTH_SECRET` | development-only secret |
 | `OPENAUTH_EXAMPLE_DB` | `sqlite` |
-| `DATABASE_URL` | backend-specific local URL |
+| `DATABASE_URL` | backend-specific local URL for the startup backend |
+| `OPENAUTH_EXAMPLE_SQLITE_DATABASE_URL` | optional explicit SQLite URL for alternate backend selection |
+| `OPENAUTH_EXAMPLE_POSTGRES_DATABASE_URL` | optional explicit Postgres URL for alternate backend selection |
+| `OPENAUTH_EXAMPLE_MYSQL_DATABASE_URL` | optional explicit MySQL URL for alternate backend selection |
 | `OPENAUTH_EXAMPLE_RATE_LIMIT` | `memory` |
 | `OPENAUTH_EXAMPLE_RATE_LIMIT_ENABLED` | `true` |
 | `OPENAUTH_EXAMPLE_RATE_LIMIT_WINDOW` | `60` (seconds) |
@@ -150,7 +153,10 @@ The configured backend is migrated once at startup, and re-initialization is
 only available through the gated schema-reset action. Dynamic profile routes
 cache their `OpenAuth` instances (including database adapters) by profile key,
 the database viewer reuses cached SQL adapters the same way, and both caches
-invalidate when a schema reset runs.
+invalidate when a schema reset runs. When any database URL is configured
+explicitly (`DATABASE_URL` or `OPENAUTH_EXAMPLE_*_DATABASE_URL`), alternate
+backend selection reuses only configured URLs and fails closed for backends
+without one; unset env vars still allow the local demo defaults.
 
 Override the automatic behavior with `OPENAUTH_EXAMPLE_DEV_CONTROLS`:
 
