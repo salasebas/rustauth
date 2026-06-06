@@ -16,6 +16,12 @@ Versioning while the API is still pre-1.0.
   `db generate -y` confirmation flow, global `-c` for `--cwd`, `init --seed-secrets`,
   and parity docs under `docs/parity/openauth-cli/09-parity-closure.md`.
 
+### Changed
+
+- Passkey authentication `after_verification` callbacks can now reject login
+  after WebAuthn proof verification, matching Better Auth's throw/reject
+  semantics and preventing counter updates or session minting on policy failure.
+
 ### Fixed
 
 - Ambiguous deployments (neither explicit `production` nor `development`) now

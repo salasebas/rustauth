@@ -4,6 +4,13 @@ All notable changes to `openauth-passkey` are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Authentication `after_verification` callbacks now return
+  `Result<(), PasskeyAuthenticationRejected>` so policy hooks can abort login
+  after WebAuthn proof verification without updating the passkey counter or
+  minting a session.
+
 ### Fixed
 
 - WebAuthn registration/authentication now returns `InvalidConfig` when origin,

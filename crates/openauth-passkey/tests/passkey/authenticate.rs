@@ -5,8 +5,8 @@ use http::{HeaderValue, Method, StatusCode};
 use openauth_core::db::{DbAdapter, DbValue, Delete, FindMany, FindOne, Where};
 use openauth_core::options::{AdvancedOptions, IpAddressOptions};
 use openauth_passkey::{
-    PasskeyAuthenticationOptions, PasskeyOptions, PasskeyWebAuthnBackend,
-    RealPasskeyWebAuthnBackend, WebAuthnConfig,
+    PasskeyAuthenticationOptions, PasskeyAuthenticationRejected, PasskeyOptions,
+    PasskeyWebAuthnBackend, RealPasskeyWebAuthnBackend, WebAuthnConfig,
 };
 use serde_json::{json, Value};
 
@@ -453,6 +453,7 @@ async fn verify_authentication_runs_async_after_verification(
                 if let Ok(mut seen) = callback_seen.lock() {
                     seen.push(input.credential_id);
                 }
+                Ok(())
             })
         }),
     );
@@ -486,6 +487,71 @@ async fn verify_authentication_runs_async_after_verification(
     assert_eq!(response.status(), StatusCode::OK);
     let seen = seen.lock().map_err(|_| "callback mutex poisoned")?;
     assert_eq!(seen.as_slice(), &["credential-id"]);
+    Ok(())
+}
+
+/// Authentication `after_verification` hooks may veto login after WebAuthn proof
+/// verification without updating the passkey counter or minting a session (OPE-137).
+#[tokio::test]
+async fn verify_authentication_rejects_when_after_verification_aborts(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = PasskeyOptions::default().authentication(
+        PasskeyAuthenticationOptions::new()
+            .after_verification_async(|_| Box::pin(async { Err(PasskeyAuthenticationRejected) })),
+    );
+    let (adapter, router, _backend) = seeded_router(options).await?;
+    seed_passkey(
+        adapter.as_ref(),
+        "passkey_1",
+        "user_1",
+        "Laptop",
+        "credential-id",
+    )
+    .await?;
+    let options_response = router
+        .handle_async(empty_request(
+            Method::GET,
+            "/api/auth/passkey/generate-authenticate-options",
+            None,
+        )?)
+        .await?;
+    let passkey_cookie = cookie_header_from_response(&options_response);
+
+    let response = router
+        .handle_async(json_request_with_origin(
+            Method::POST,
+            "/api/auth/passkey/verify-authentication",
+            r#"{"response":{"id":"credential-id"}}"#,
+            Some(&passkey_cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "AUTHENTICATION_FAILED");
+    assert!(
+        !set_cookie_values(&response)
+            .iter()
+            .any(|cookie| cookie.contains("session_token")),
+        "rejected after_verification must not set a session cookie"
+    );
+    let sessions = adapter.find_many(FindMany::new("session")).await?;
+    assert!(
+        sessions.is_empty(),
+        "rejected after_verification must not create a session row"
+    );
+    let passkey = adapter
+        .find_one(
+            FindOne::new("passkey")
+                .where_clause(Where::new("id", DbValue::String("passkey_1".to_owned()))),
+        )
+        .await?
+        .ok_or("passkey row missing after rejected authentication")?;
+    assert_eq!(
+        passkey.get("counter"),
+        Some(&DbValue::Number(0)),
+        "rejected after_verification must not update the passkey counter"
+    );
     Ok(())
 }
 

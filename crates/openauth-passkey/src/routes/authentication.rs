@@ -210,11 +210,15 @@ pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> As
                     Err(_) => return authentication_failed(),
                 };
                 if let Some(callback) = &options.authentication.after_verification {
-                    callback(AfterAuthenticationVerificationInput {
+                    if callback(AfterAuthenticationVerificationInput {
                         credential_id: passkey.credential_id.clone(),
                         client_data: body.response,
                     })
-                    .await;
+                    .await
+                    .is_err()
+                    {
+                        return authentication_failed();
+                    }
                 }
                 if store
                     .update_after_authentication(&passkey.id, passkey.counter, verified)

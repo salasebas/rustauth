@@ -437,8 +437,19 @@ pub type AfterRegistrationVerification = Arc<
     dyn Fn(AfterRegistrationVerificationInput) -> PasskeyBoxFuture<Option<String>> + Send + Sync,
 >;
 
-pub type AfterAuthenticationVerification =
-    Arc<dyn Fn(AfterAuthenticationVerificationInput) -> PasskeyBoxFuture<()> + Send + Sync>;
+/// Rejection returned by authentication `after_verification` hooks to abort login
+/// after WebAuthn proof verification without updating the passkey counter or
+/// minting a session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PasskeyAuthenticationRejected;
+
+pub type AfterAuthenticationVerification = Arc<
+    dyn Fn(
+            AfterAuthenticationVerificationInput,
+        ) -> PasskeyBoxFuture<Result<(), PasskeyAuthenticationRejected>>
+        + Send
+        + Sync,
+>;
 
 pub type PasskeyExtensionsResolver =
     Arc<dyn Fn(PasskeyExtensionsInput) -> PasskeyBoxFuture<Option<Value>> + Send + Sync>;
@@ -549,7 +560,7 @@ impl PasskeyAuthenticationOptions {
     {
         self.after_verification = Some(Arc::new(move |input| {
             callback(input);
-            Box::pin(ready(()))
+            Box::pin(ready(Ok(())))
         }));
         self
     }
@@ -558,7 +569,7 @@ impl PasskeyAuthenticationOptions {
     pub fn after_verification_async<F, Fut>(mut self, callback: F) -> Self
     where
         F: Fn(AfterAuthenticationVerificationInput) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = Result<(), PasskeyAuthenticationRejected>> + Send + 'static,
     {
         self.after_verification = Some(Arc::new(move |input| Box::pin(callback(input))));
         self

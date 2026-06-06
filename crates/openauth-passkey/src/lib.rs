@@ -36,10 +36,10 @@ pub use errors::PASSKEY_ERROR_CODES;
 pub use options::{
     AfterAuthenticationVerificationInput, AfterRegistrationVerificationInput,
     AuthenticatorAttachment, AuthenticatorSelection, PasskeyAdvancedOptions,
-    PasskeyAuthenticationOptions, PasskeyChallengeRateLimit, PasskeyExtensionsInput,
-    PasskeyManagementOptions, PasskeyOptions, PasskeyRateLimit, PasskeyRegistrationOptions,
-    PasskeyRegistrationUser, RegistrationWebAuthnOptions, ResidentKeyRequirement,
-    ResolveRegistrationUserInput, UserVerificationRequirement,
+    PasskeyAuthenticationOptions, PasskeyAuthenticationRejected, PasskeyChallengeRateLimit,
+    PasskeyExtensionsInput, PasskeyManagementOptions, PasskeyOptions, PasskeyRateLimit,
+    PasskeyRegistrationOptions, PasskeyRegistrationUser, RegistrationWebAuthnOptions,
+    ResidentKeyRequirement, ResolveRegistrationUserInput, UserVerificationRequirement,
 };
 pub use store::Passkey;
 pub use webauthn::{
