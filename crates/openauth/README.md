@@ -60,8 +60,10 @@ auth.run_migrations().await?;
   `get_telemetry_auth_config`, `TelemetryContext`, `TelemetryEvent`,
   `TelemetryPublisher`, `TelemetryTestHooks`, `CustomTrackFn`) and wire the
   publisher during async initialization (`OpenAuthBuilder::build_async`,
-  `open_auth_*_async`). Async constructors are available without this feature;
-  see the linked crate docs for sink setup and enablement precedence.
+  `open_auth_*_async`). This feature also enables `openauth-telemetry/oauth` so
+  social-provider config snapshots match Better Auth parity. Async constructors
+  are available without this feature; see the linked crate docs for sink setup
+  and enablement precedence.
 - `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`: SQLx adapters.
 - `tokio-postgres` and `deadpool-postgres`: Postgres adapters.
 

@@ -36,6 +36,9 @@
 //! - **Runtime** is reported as `rust` (not Node/Bun/Deno).
 //! - **System metrics** `cpuModel`, `cpuSpeed`, and `memory` stay `null` without a platform sysinfo dependency.
 //! - **HTTP**: JSON POST uses `reqwest` when the `http` feature is enabled (default).
+//! - **OAuth/social providers**: the `socialProviders` config branch is populated only
+//!   when the `oauth` feature is enabled (direct consumers must pass
+//!   `features = ["oauth"]`; the umbrella `openauth` `telemetry` feature enables it).
 //!
 //! Parity summary: [`UPSTREAM.md`](../UPSTREAM.md).
 

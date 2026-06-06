@@ -15,7 +15,28 @@ the process.
 - Anonymous project ID resolution.
 - Runtime and environment detection hooks.
 - Optional HTTP transport through the default `http` feature.
+- OAuth/social-provider config snapshots when the `oauth` feature is enabled.
 - Test hooks for deterministic telemetry assertions.
+
+## Feature Flags
+
+Default features preserve HTTP transport:
+
+- `http` (default): JSON POST transport through `reqwest`.
+- `oauth`: serializes configured social providers into the `socialProviders`
+  branch of [`get_telemetry_auth_config`](https://docs.rs/openauth-telemetry/latest/openauth_telemetry/fn.get_telemetry_auth_config.html).
+  Without this feature, `socialProviders` is always `[]` even when
+  `OpenAuthOptions` carries social providers.
+
+Direct consumers must opt in explicitly:
+
+```toml
+openauth-telemetry = { version = "0.0.6", features = ["oauth"] }
+```
+
+The umbrella [`openauth`](../openauth/README.md) `telemetry` feature already
+enables `openauth-telemetry/oauth` for you, so application code that depends on
+`openauth` with `features = ["telemetry"]` does not need a separate flag.
 
 ## Quick Start
 
@@ -71,8 +92,14 @@ and transport hooks may change before stable release.
 Server-side telemetry publisher and payload compatibility. Aligned with Better
 Auth 1.6.9 where it matters; OpenAuth is not a line-by-line port.
 
+Upstream `@better-auth/telemetry` ships OAuth/social-provider snapshots in the
+same package. OpenAuth splits that behind the `oauth` feature so direct crate
+users can keep a smaller dependency graph; enable `oauth` (or use the `openauth`
+`telemetry` feature) for social-provider parity.
+
 For route-level parity, test counts, differences, and gaps, see
-[UPSTREAM.md](./UPSTREAM.md).
+[UPSTREAM.md](./UPSTREAM.md). Run OAuth snapshot coverage with
+`cargo test -p openauth-telemetry --features oauth`.
 
 ## Links
 
