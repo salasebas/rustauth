@@ -37,7 +37,7 @@
 //! - **System metrics** `cpuModel`, `cpuSpeed`, and `memory` stay `null` without a platform sysinfo dependency.
 //! - **HTTP**: JSON POST uses `reqwest` when the `http` feature is enabled (default).
 //!
-//! Parity summary: [`README.md#upstream-parity-better-auth-169`](../../README.md#upstream-parity-better-auth-169).
+//! Parity summary: [`UPSTREAM.md`](../UPSTREAM.md).
 
 mod auth_config;
 mod detectors;

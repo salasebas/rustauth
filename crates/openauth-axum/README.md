@@ -80,34 +80,13 @@ serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 Experimental beta. Router composition, request extraction, and adapter options
 may change before stable release.
 
-## Upstream parity (Better Auth 1.6.9)
+## Better Auth compatibility
 
-Parity pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-There is no `@better-auth/axum` package. This crate maps to Better Auth HTTP
-integrations (`better-auth/next-js`, `better-auth/node` via `better-call/node`) and
-the fetch-style `auth.handler(Request)` pattern (closest to Hono). Auth logic lives
-in `openauth` / `openauth-core`; this crate only mounts and translates HTTP.
+Server-side Axum HTTP adapter for mounting OpenAuth routes. Aligned with Better
+Auth **1.6.9** where it matters for this crate; OpenAuth is not a line-by-line port.
 
-| Area | Parity | Notes |
-| --- | --- | --- |
-| Catch-all mount under `base_path` | High | Axum `nest` + `any()` vs upstream router delegation |
-| Headers / status / body preservation | High | Web API ↔ `ApiRequest` / `ApiResponse` |
-| Request body limit | Superset | 10 MiB default + JSON `413`; host-dependent upstream |
-| Client IP (rate limiting) | Equivalent | `ConnectInfo<SocketAddr>` vs Node socket / headers |
-| `base_url` inference | Equivalent (opt-in) | Explicit adapter flags vs implicit handler inference |
-| Framework cookie plugins (Next, Svelte, …) | N/A | Server-only `Set-Cookie` responses |
-| `toNextJsHandler` / RSC | N/A | TypeScript-only |
-| Package tests | Superset | 72 Rust tests vs 5 Vitest in `integrations/` |
-
-Verify: `cargo nextest run -p openauth-axum`.
-
-### Upstream lookup
-
-1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-2. Core HTTP handler: `reference/upstream-src/<version>/repository/packages/better-auth/src/` (`auth.handler`, route mounting).
-3. Framework adapters: `packages/better-auth/src/integrations/` (Next.js, Node, Hono).
-4. Map `crates/openauth-axum/src/` to fetch-style `Request`/`Response` bridging.
-5. Verify: `cargo nextest run -p openauth-axum`.
+For route-level parity, test counts, intentional differences, and known gaps, see
+[UPSTREAM.md](./UPSTREAM.md).
 
 ## Links
 

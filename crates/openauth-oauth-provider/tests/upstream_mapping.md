@@ -1,6 +1,6 @@
 # OAuth Provider Upstream Test Mapping
 
-> Parity notes: [`crates/openauth-oauth-provider/README.md`](../README.md#upstream-parity-better-auth-169) — server closeout June 2026.
+> Parity notes: [`crates/openauth-oauth-provider/UPSTREAM.md`](../UPSTREAM.md) — server closeout June 2026.
 
 Reference: `reference/upstream-src/1.6.9/repository/packages/oauth-provider`.
 
@@ -33,6 +33,4 @@ Reference: `reference/upstream-src/1.6.9/repository/packages/oauth-provider`.
 | MCP server-side helpers | `mcp_helpers_return_metadata_challenge_and_validate_bearer_tokens` | Covers metadata, challenge header value, active bearer validation, and inactive invalid tokens. |
 | Query serialization | `authorize_prompt_none_returns_login_required_without_session`, `authorize_prompt_none_returns_consent_required_without_grant`, `consent_endpoint_accepts_rejects_and_continue_without_flag_is_rejected`, `continue_requires_matching_prompt_flag_and_rechecks_consent` | Rust tests assert state preservation through redirects and stored verification state rather than porting TS `URLSearchParams` helper directly. |
 | Timestamps | `authorization_code_flow_issues_access_and_refresh_tokens`, `refresh_token_grant_rotates_and_revokes_previous_refresh_token`, `consent_helpers_persist_update_delete_and_match_scopes` | Covers expiry/revocation/update timestamps through observable DB records. |
-| Browser client plugin | Not applicable | `client.ts` and `oauthProviderClient` are intentionally out of scope for Rust server-only core. |
-| Browser fetch redirect JSON behavior | Not applicable to core helper tests | OpenAuth Rust core exposes HTTP responses directly; browser SDK behavior should live in a future thin client. |
-| TypeScript-only zod schemas | Covered by Rust types and endpoint parsing | Public payload names preserve OAuth JSON names where relevant; Rust structs remain idiomatic snake_case. |
+| Runtime URL and verification validation | `dynamic_registration_rejects_unsafe_redirect_urls`, `dynamic_registration_allows_https_loopback_and_custom_scheme_redirects`, `authorization_code_flow_requires_active_session_and_user_before_tokens` | Covers server-side URL safety and stored authorization-code verification behavior through endpoint contracts. |

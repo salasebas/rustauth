@@ -59,47 +59,16 @@ configure social providers through `openauth-social-providers`.
   `kid`.
 - Provider errors avoid returning access, refresh, ID, or revocation tokens.
 
-## Upstream parity (Better Auth 1.6.9)
-
-Reference: `@better-auth/core@1.6.9` → `packages/core/src/oauth2/`. Parity pin:
-[`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-
-**Scope:** OAuth 2.0 / OIDC **client primitives** toward external IdPs — authorize
-URL, token grants, PKCE, JWT/JWKS verification. Not an authorization server; use
-`openauth-oauth-provider`. State, account linking, and token encryption at rest
-live in `openauth-core/src/auth/oauth/`; per-provider implementations in
-`openauth-social-providers`.
-
-| Area | Parity | Notes |
-| --- | --- | --- |
-| Authorization URL + PKCE | High | Rust hardens protected params |
-| Code / refresh / client-credentials grants | High | `resource`, `device_id`, TikTok `client_key` |
-| Token parsing | High | Validates types/expiry; preserves `raw` |
-| `validate_token` / JWKS | High | Shared JWKS cache (per URL + TTL) |
-| `verify_access_token` + introspection | High | Optional `aud`; JWS → remote fallback |
-| Protected params / SSRF | Extra (Rust) | Not in upstream `core/oauth2` |
-| `OAuthProvider` trait | Partial | Async `SocialOAuthProvider` vs sync TS |
-
-**Out of scope:** `@better-auth/oauth-provider`, `oauth-proxy` plugin, browser
-client SDK. June 2026 closeout closed introspection `aud`, JWKS cache sharing,
-and generic-oauth `additional_params` gaps. **57** Rust tests vs **15** upstream
-`it` in `core/oauth2/`.
-
-```bash
-cargo nextest run -p openauth-oauth
-```
-
-### Upstream lookup
-
-1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-2. Client OAuth2 primitives: `reference/upstream-src/<version>/repository/packages/core/src/oauth2/`.
-3. Account linking and token storage: `packages/better-auth/src/` (integrated in `openauth-core`, not this crate).
-4. Tests: `packages/core/src/oauth2/*.test.ts` → `cargo nextest run -p openauth-oauth`.
-
 ## Status
 
 Experimental beta. Helper APIs, request builders, and validation behavior may
 change before stable release.
+
+## Better Auth compatibility
+
+Server-side OAuth/OIDC client primitives only. Aligned with Better Auth 1.6.9
+where it matters; OpenAuth is not a line-by-line port. For route-level parity,
+test counts, differences, and gaps, see [UPSTREAM.md](./UPSTREAM.md).
 
 ## Links
 

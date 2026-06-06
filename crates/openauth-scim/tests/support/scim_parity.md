@@ -4,7 +4,7 @@ This file maps OpenAuth SCIM test modules to the upstream Better Auth SCIM test
 areas inspected during implementation.
 
 For parity status, design differences, and upstream references, see
-[README — Upstream parity](../../README.md#upstream-parity-better-auth-169).
+[`UPSTREAM.md`](../../UPSTREAM.md).
 
 | OpenAuth test module | Upstream reference | Covered behavior |
 | --- | --- | --- |

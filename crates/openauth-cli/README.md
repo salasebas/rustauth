@@ -59,29 +59,13 @@ config are loaded first, then files in `--cwd` (weaker to stronger:
 Experimental beta. Commands, flags, generated output, and workspace detection
 may change before stable release.
 
-## Upstream parity (Better Auth 1.6.9)
+## Better Auth compatibility
 
-Parity pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-Upstream package: `packages/cli` (npm `auth@1.6.9`). Rust toolchain for `openauth.toml`,
-SQL migrations via `openauth-sqlx`, and CLI telemetry via `openauth-telemetry`.
+Developer CLI and local schema/migration tooling aligned with Better Auth
+**1.6.9** where it matters; OpenAuth is not a line-by-line port.
 
-| Area | Parity | Notes |
-| --- | --- | --- |
-| `secret`, `init`, `db generate`, `db migrate`, `info`, `plugins` | High | Operational equivalence for Rust/sqlx workflows |
-| Config | Different | Static `openauth.toml` vs upstream `auth.ts` + jiti/c12 |
-| Schema output | Different | SQL files vs Prisma/Drizzle/Kysely generators |
-| `doctor`, `schema print`, `db status`, `completions` | Extra Rust | No upstream homonyms |
-| `ai`, `mcp`, `upgrade`, `login`, `logout` | N/A | TypeScript / npm product commands |
-| Package tests | Different shape | ~284 upstream Vitest vs 52 Rust integration tests |
-
-Verify: `cargo nextest run -p openauth-cli`.
-
-### Upstream lookup
-
-1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-2. CLI package: `reference/upstream-src/<version>/repository/packages/cli/`.
-3. Map upstream `src/commands/` to `crates/openauth-cli/src/`.
-4. Verify: `cargo nextest run -p openauth-cli`.
+For command-level parity, test counts, intentional differences, and known gaps,
+see [UPSTREAM.md](./UPSTREAM.md).
 
 ## Links
 

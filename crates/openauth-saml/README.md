@@ -68,33 +68,11 @@ openauth-sso = { version = "...", features = ["saml"] }
   routes.
 - `openauth-oidc`: recommended relying-party path for modern enterprise IdPs.
 
-## Upstream parity (Better Auth 1.6.9)
+## Better Auth compatibility
 
-Reference: `@better-auth/sso@1.6.9` → SAML service-provider helpers under
-`packages/sso/src/saml/`. Parity pin:
-[`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-
-**Scope:** Low-level SAML 2.0 SP primitives (AuthnRequest, metadata, ACS parse,
-logout XML). HTTP routes, provider storage, and account linking live in
-[`openauth-sso`](../openauth-sso/README.md#upstream-parity-better-auth-169).
-
-| Area | Parity | Notes |
-| --- | --- | --- |
-| Unsigned parse/build | Partial | Redirect/POST compatibility flows |
-| Signed/encrypted SAML | Experimental | `opensaml` via `saml-signed` feature |
-| SSO plugin HTTP routes | N/A here | `openauth-sso` `saml` feature |
-
-Cryptography (XMLDSig, XML-Enc) is delegated to
-[`opensaml`](https://github.com/sebasxsala/opensaml-rs), not Better Auth's Node
-XML stack. Prefer OIDC for new enterprise integrations.
-
-### Upstream lookup
-
-1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-2. SAML SP sources: `reference/upstream-src/<version>/repository/packages/sso/src/saml/`.
-3. HTTP SSO parity: upstream `packages/sso/src/` routes and tests →
-   [`openauth-sso`](../openauth-sso/README.md#upstream-lookup).
-4. Map `crates/openauth-saml/src/` modules to upstream SAML helpers and `*.test.ts` cases.
+Server-side SAML service-provider helper compatibility.
+Aligned with Better Auth 1.6.9 where it matters; OpenAuth is not a line-by-line port.
+For route-level parity, test counts, differences, and gaps, see [UPSTREAM.md](./UPSTREAM.md).
 
 ## Links
 

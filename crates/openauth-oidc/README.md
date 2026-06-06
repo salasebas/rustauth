@@ -108,48 +108,20 @@ verification, and account linking.
 - `openauth-oauth-provider`: OpenAuth plugin that turns your app into an
   OAuth/OIDC provider.
 
-## Upstream parity (Better Auth 1.6.9)
-
-Reference: `@better-auth/sso@1.6.9` → `packages/sso/src/oidc/` (discovery and
-types only). Parity pin:
-[`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-
-**Scope:** OIDC **relying-party** helpers — discovery, config types, endpoint
-validation, `oidc_redirect_uri`. Full SSO HTTP flow (sign-in, callback, ID token,
-UserInfo) lives in `openauth-sso`; authorization-server behavior in
-`openauth-oauth-provider`.
-
-| Area | Parity | Notes |
-| --- | --- | --- |
-| Discovery URL + fetch/validation | High | Caller-supplied `reqwest::Client` |
-| URL normalization / trusted origins | High | Re-validates origins after override merge |
-| Runtime discovery | High | Merges revocation/end_session/introspection |
-| Optional endpoints in DB | Superset | Persists revoke/end_session/introspection upstream omits |
-| Authorization code / ID token / UserInfo | N/A here | `openauth-sso` + `openauth-oauth` |
-| `ssoClient()` browser SDK | N/A | TypeScript-only |
-
-**26** crate tests (discovery/types); **22** upstream OIDC E2E `it` cases are
-covered in `openauth-sso`. No SAML/XML dependency surface in this crate.
-
-```bash
-cargo nextest run -p openauth-oidc
-```
-
-### Upstream lookup
-
-1. Pin: [`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-2. OIDC types/discovery: `reference/upstream-src/<version>/repository/packages/sso/src/oidc/`.
-3. Full SSO HTTP flow: `packages/sso/src/` routes and `oidc.test.ts` →
-   [`openauth-sso`](../openauth-sso/README.md#upstream-lookup).
-4. Verify: `cargo nextest run -p openauth-oidc`.
-
 ## Status
 
 Experimental beta. Discovery, validation, and configuration types are usable,
 but public API details may change before stable release.
 
+## Better Auth compatibility
+
+Server-side OIDC relying-party helpers for external identity providers. Aligned
+with Better Auth 1.6.9 where it matters; OpenAuth is not a line-by-line port.
+For route-level parity, test counts, differences, and gaps, see
+[UPSTREAM.md](./UPSTREAM.md).
+
 ## Links
 
 - [Root README](../../README.md)
-- [SSO HTTP flow parity (`openauth-sso`)](../openauth-sso/README.md#upstream-parity-better-auth-169)
+- [SSO HTTP flow (`openauth-sso`)](../openauth-sso/README.md)
 - [Repository](https://github.com/sebasxsala/openauth-rs)

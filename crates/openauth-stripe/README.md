@@ -122,60 +122,25 @@ For end-to-end validation against Stripe **test mode** (real API + Checkout + we
 - [.env.smoke.example](./.env.smoke.example) — template (copy to repo root `.env`)
 - [`scripts/stripe-smoke.sh`](../../scripts/stripe-smoke.sh) — env checks and CLI/curl hints
 
-Database hooks and built-in webhook handlers are **best-effort** (logged, non-fatal). During smoke, grep logs for the messages listed in SMOKE.md §10.
-
-## Upstream parity (Better Auth 1.6.9)
-
-Reference: `@better-auth/stripe@1.6.9` → `packages/stripe/`. Parity pin:
-[`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-
-**Scope:** Server-side Stripe billing plugin only — no `@better-auth/stripe/client`
-port.
-
-| Area | Parity | Notes |
-| --- | --- | --- |
-| HTTP routes (7) | High | Same webhook + subscription endpoints |
-| Customers, checkout, subscriptions | High | User/org linking, seats, scheduling, metered |
-| Webhooks | High | Best-effort built-in handlers; strict `on_event` |
-| DB hooks | High | Best-effort sign-up customer, email/seat sync |
-| Webhook idempotency | Extension | Durable `stripeWebhookEvent` by `event.id` |
-| `group` on subscription list | Extension | When plan defines `group` |
-
-June 2026 gap closure (G1–G12) closed remaining runtime parity gaps against
-Better Auth 1.6.9. **174** Rust tests vs **150** upstream Vitest `it`.
-Intentional differences: custom `StripeClient` + `StripeTransport`, no
-deprecated error aliases, stricter `/subscription/success` validation, durable
-webhook idempotency by `event.id`, and `group` on subscription list when the
-plan defines it. `groupId` exists in upstream types only and is not implemented
-in either stack.
-
-### Upstream lookup
-
-Clone the Better Auth monorepo (gitignored) with
-[`./scripts/fetch-upstream-better-auth.sh`](../../scripts/fetch-upstream-better-auth.sh);
-parity pin in
-[`reference/upstream-better-auth/VERSION.md`](../../reference/upstream-better-auth/VERSION.md).
-
-| Concern | Path under `reference/upstream-src/1.6.9/repository/packages/stripe/` |
-| --- | --- |
-| Plugin / routes | `src/index.ts`, `src/routes.ts` |
-| Schema / hooks | `src/schema.ts`, `src/hooks.ts`, `src/middleware.ts` |
-| Metadata | `src/metadata.ts` |
-| Tests | `test/stripe.test.ts`, `test/stripe-organization.test.ts`, `test/seat-based-billing.test.ts`, `test/metadata.test.ts`, `test/utils.test.ts` |
+Database hooks are **best-effort**. Built-in webhook handlers skip non-actionable
+events, but retryable processing failures return an error so Stripe can retry.
+During smoke, grep logs for the messages listed in SMOKE.md §10.
 
 ## Status
 
 Experimental beta. Customer, subscription, billing portal, and webhook behavior
 exist, but public APIs may change before stable release.
 
-Stripe failures during **database hooks** (sign-up customer, email sync, seat sync) and
-**built-in webhook handlers** are best-effort: they are logged and do not fail the
-underlying user operation or return an error to Stripe, matching Better Auth 1.6.9.
-The optional `on_event` hook can still fail the webhook response if it returns an error.
+Stripe failures during **database hooks** (sign-up customer, email sync, seat sync)
+are best-effort: they are logged and do not fail the underlying user operation,
+matching Better Auth 1.6.9. Built-in webhook handlers skip non-actionable events,
+but retryable processing failures and the optional `on_event` hook can fail the
+webhook response.
 
 ### Webhook events handled
 
-Built-in handlers (best-effort, HTTP 200 on handler errors):
+Built-in handlers (non-actionable skips return HTTP 200; retryable processing
+failures return an error so Stripe can retry):
 
 - `checkout.session.completed`
 - `customer.subscription.created`
@@ -187,6 +152,12 @@ Other event types invoke `on_event` only; a failing `on_event` returns `STRIPE_W
 ### Organization billing
 
 `customerType: "organization"` requires configuring `.authorize_reference(...)` on `SubscriptionOptions`. Without it, endpoints return `AUTHORIZE_REFERENCE_REQUIRED`.
+
+## Better Auth compatibility
+
+Server-side Stripe billing plugin. Aligned with Better Auth 1.6.9 where it
+matters; OpenAuth is not a line-by-line port.
+For route-level parity, test counts, differences, and gaps, see [UPSTREAM.md](./UPSTREAM.md).
 
 ## Links
 
