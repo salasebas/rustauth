@@ -54,7 +54,7 @@ pub struct EmailPasswordOptions {
 impl Default for EmailPasswordOptions {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             disable_sign_up: false,
             auto_sign_in: true,
             require_email_verification: false,

@@ -7,6 +7,32 @@ Versioning while the API is still pre-1.0.
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** Email/password sign-in and sign-up are now opt-in. Fresh
+  `OpenAuth::builder().secret(...).adapter(...).build()` no longer exposes
+  `/sign-up/email` or `/sign-in/email` until you enable them explicitly:
+
+  ```rust
+  use openauth::{EmailPasswordOptions, OpenAuth};
+
+  OpenAuth::builder()
+      .secret(secret)
+      .adapter(adapter)
+      .email_password(EmailPasswordOptions::new().enabled(true))
+      .build()?;
+  ```
+
+  Sign-up only can stay disabled while sign-in remains available:
+
+  ```rust
+  .email_password(
+      EmailPasswordOptions::new()
+          .enabled(true)
+          .disable_sign_up(true),
+  )
+  ```
+
 ### Added
 
 - Added SSO audit event `DomainVerificationRevoked` (`Warn`) when a provider

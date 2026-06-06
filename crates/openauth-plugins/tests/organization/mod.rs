@@ -4,7 +4,7 @@ use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{DbField, DbFieldType, MemoryAdapter, TableOptions};
-use openauth_core::options::OpenAuthOptions;
+use openauth_core::options::{EmailPasswordOptions, OpenAuthOptions};
 use openauth_plugins::organization::{
     has_permission, organization, organization_with_options, OrganizationOptions,
     OrganizationPermission, OrganizationRole, OrganizationSchemaOptions,
@@ -212,6 +212,8 @@ fn test_router(
             plugins: vec![organization_with_options(options)],
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         },
         adapter_dyn.clone(),

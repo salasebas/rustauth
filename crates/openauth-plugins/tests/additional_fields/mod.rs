@@ -6,7 +6,7 @@ use openauth_core::context::create_auth_context;
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{DbFieldType, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
 use openauth_plugins::additional_fields::{
     additional_fields, AdditionalField, AdditionalFieldsOptions,
 };
@@ -29,6 +29,8 @@ fn router(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         },
         adapter.clone(),

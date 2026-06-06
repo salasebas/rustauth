@@ -3,8 +3,8 @@ use std::sync::Mutex;
 
 use http::{header, Method, Request, StatusCode};
 use openauth::{
-    AdvancedOptions, MemoryAdapter, OpenAuth, OpenAuthError, OpenAuthOptions, PasswordOptions,
-    SessionOptions,
+    AdvancedOptions, EmailPasswordOptions, MemoryAdapter, OpenAuth, OpenAuthError, OpenAuthOptions,
+    PasswordOptions, SessionOptions,
 };
 use openauth_core::options::{
     PasswordResetEmail, RateLimitConsumeInput, RateLimitRule, RateLimitStore, SecondaryStorage,
@@ -317,6 +317,8 @@ async fn openauth_email_signup_uses_fred_secondary_storage_for_sessions(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         };
         let auth = OpenAuth::builder()
@@ -406,6 +408,8 @@ async fn openauth_email_signup_with_database_sessions_still_writes_fred_secondar
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         };
         let auth = OpenAuth::builder()
@@ -490,6 +494,8 @@ async fn openauth_password_reset_uses_fred_secondary_storage_for_verification(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         };
         let auth = OpenAuth::builder()

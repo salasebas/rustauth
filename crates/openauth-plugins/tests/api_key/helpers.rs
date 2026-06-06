@@ -13,7 +13,8 @@ use openauth_core::db::{
     MemoryAdapter, SchemaCreation, Update, UpdateMany,
 };
 use openauth_core::options::{
-    BackgroundTaskFuture, BackgroundTaskRunner, OpenAuthOptions, SecondaryStorage,
+    BackgroundTaskFuture, BackgroundTaskRunner, EmailPasswordOptions, OpenAuthOptions,
+    SecondaryStorage,
 };
 use serde_json::{json, Value};
 
@@ -51,6 +52,8 @@ pub fn test_router_with_adapter(
             plugins,
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         },
         adapter.clone(),

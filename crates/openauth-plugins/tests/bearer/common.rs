@@ -5,7 +5,7 @@ use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{Create, DbAdapter, DbRecord, DbValue, MemoryAdapter, Session, User};
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
 use openauth_core::plugin::AuthPlugin;
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
@@ -32,6 +32,8 @@ pub(super) fn router_with_plugins(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         },
         adapter.clone(),

@@ -21,8 +21,8 @@ use openauth::db::{
 };
 use openauth::rate_limit::GovernorMemoryRateLimitStore;
 use openauth::{
-    AdvancedOptions, EndpointInfo, HybridRateLimitOptions, OpenAuth, OpenAuthError,
-    RateLimitOptions, RateLimitRule, RateLimitStore,
+    AdvancedOptions, EmailPasswordOptions, EndpointInfo, HybridRateLimitOptions, OpenAuth,
+    OpenAuthError, RateLimitOptions, RateLimitRule, RateLimitStore,
 };
 use openauth_axum::OpenAuthAxumExt;
 use openauth_fred::FredRateLimitStore;
@@ -649,6 +649,7 @@ where
         ))
         .base_path(auth_base_path)
         .secret(config.secret)
+        .email_password(EmailPasswordOptions::new().enabled(true))
         .rate_limit(rate_limit)
         .advanced(AdvancedOptions::builder().cookie_prefix(cookie_prefix(config.db)))
         .adapter(adapter)

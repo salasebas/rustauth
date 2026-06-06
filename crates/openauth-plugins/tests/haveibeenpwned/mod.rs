@@ -6,7 +6,7 @@ use openauth_core::api::{core_auth_async_endpoints, ApiErrorResponse, AuthRouter
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
 use openauth_core::plugin::PluginPasswordValidationInput;
 use openauth_plugins::haveibeenpwned::{
     have_i_been_pwned_with_checker, have_i_been_pwned_with_options, HaveIBeenPwnedCheckError,
@@ -386,6 +386,8 @@ fn router_with_adapter(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         },
         adapter.clone(),

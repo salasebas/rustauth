@@ -121,10 +121,31 @@ async fn sign_in_email_route_returns_redirect_url_when_callback_url_is_provided(
 }
 
 #[tokio::test]
+async fn sign_in_email_route_rejects_by_default_without_explicit_opt_in(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router_with_bare_options(adapter, OpenAuthOptions::default())?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "EMAIL_PASSWORD_DISABLED");
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_in_email_route_rejects_when_email_password_is_disabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
-    let router = router_with_options(
+    let router = router_with_bare_options(
         adapter,
         OpenAuthOptions::default().email_password(EmailPasswordOptions::new().enabled(false)),
     )?;
@@ -164,7 +185,11 @@ async fn sign_in_email_route_requires_verified_email_after_password_is_valid(
     let router = router_with_options(
         adapter.clone(),
         OpenAuthOptions::default()
-            .email_password(EmailPasswordOptions::new().require_email_verification(true))
+            .email_password(
+                EmailPasswordOptions::new()
+                    .enabled(true)
+                    .require_email_verification(true),
+            )
             .email_verification(
                 EmailVerificationOptions::new()
                     .send_on_sign_in(true)

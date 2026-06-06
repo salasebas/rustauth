@@ -22,7 +22,8 @@ use openauth_core::db::{
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule, RateLimitStore,
+    AdvancedOptions, EmailPasswordOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule,
+    RateLimitStore,
 };
 use openauth_core::plugin::{
     PluginDatabaseBeforeAction, PluginDatabaseBeforeInput, PluginDatabaseHook,
@@ -1525,6 +1526,8 @@ fn router(adapter: Arc<MySqlAdapter>) -> Result<AuthRouter, OpenAuthError> {
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     })?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))

@@ -4,6 +4,12 @@ All notable changes to `openauth-core` are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** `EmailPasswordOptions::default()` now sets `enabled: false`.
+  Email/password routes reject requests until callers opt in with
+  `.email_password(EmailPasswordOptions::new().enabled(true))`.
+
 ### Added
 
 - Added `db::ensure_executable_migration_plan`, a shared preflight that rejects

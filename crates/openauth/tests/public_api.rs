@@ -5,9 +5,9 @@ use openauth::{
     open_auth_with_endpoints, AdvancedOptions, ApiErrorResponse, ApiRequest, ApiResponse,
     AsyncAuthEndpoint, AuthEndpoint, AuthEndpointOptions, AuthPlugin, BodyField, BodySchema,
     ChangeEmailOptions, CookieCacheOptions, CookieCacheStrategy, DeleteUserOptions,
-    EmailVerificationOptions, EndpointKind, HookedAdapter, JsonSchemaType, MemoryAdapter,
-    OpenApiOperation, OpenAuth, OpenAuthBuilder, OpenAuthError, OpenAuthOptions, PathParams,
-    PluginAfterHookAction, PluginBeforeHookAction, PluginDatabaseAfterInput,
+    EmailPasswordOptions, EmailVerificationOptions, EndpointKind, HookedAdapter, JsonSchemaType,
+    MemoryAdapter, OpenApiOperation, OpenAuth, OpenAuthBuilder, OpenAuthError, OpenAuthOptions,
+    PathParams, PluginAfterHookAction, PluginBeforeHookAction, PluginDatabaseAfterInput,
     PluginDatabaseBeforeAction, PluginDatabaseBeforeInput, PluginDatabaseHook,
     PluginDatabaseHookContext, PluginDatabaseOperation, PluginEndpoint, PluginEndpointHooks,
     PluginErrorCode, PluginHookMatcher, PluginInitOutput, PluginMigration, PluginRateLimitRule,
@@ -1376,6 +1376,8 @@ fn test_options() -> OpenAuthOptions {
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     }
 }

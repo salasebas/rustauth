@@ -1,7 +1,7 @@
 use openauth_core::context::{AuthEnvironment, SecretMaterial};
 use openauth_core::crypto::{SecretConfig, SecretEntry};
 use openauth_core::env::{allows_development_defaults, is_production, is_production_posture};
-use openauth_core::options::{ExperimentalOptions, OpenAuthOptions};
+use openauth_core::options::{EmailPasswordOptions, ExperimentalOptions, OpenAuthOptions};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 struct EnvRestore(Vec<(&'static str, Option<String>)>);
@@ -167,6 +167,12 @@ fn production_option_overrides_development_flag() {
         .production(true);
     assert!(is_production_posture(&options));
     assert!(!allows_development_defaults(&options));
+}
+
+#[test]
+fn email_password_is_disabled_by_default_until_explicitly_opted_in() {
+    assert!(!EmailPasswordOptions::default().enabled);
+    assert!(!OpenAuthOptions::default().email_password.enabled);
 }
 
 #[test]

@@ -104,6 +104,27 @@ fn router_with_options(
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
 }
 
+/// Build a router using caller options without test-only email/password opt-in.
+fn router_with_bare_options(
+    adapter: Arc<RouteAdapter>,
+    options: OpenAuthOptions,
+) -> Result<AuthRouter, OpenAuthError> {
+    let mut options = OpenAuthOptions {
+        secret: Some(secret().to_owned()),
+        advanced: AdvancedOptions {
+            disable_csrf_check: true,
+            disable_origin_check: true,
+            ..AdvancedOptions::default()
+        },
+        ..options
+    };
+    if !options.production {
+        options.development = true;
+    }
+    let context = create_auth_context_with_adapter(options, adapter.clone())?;
+    AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
+}
+
 /// Build a router preserving the caller's `advanced` options, only forcing the
 /// CSRF/origin checks off so tests can exercise `advanced.ip_address`.
 fn router_with_advanced(

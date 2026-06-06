@@ -1,4 +1,4 @@
-use openauth_core::options::OpenAuthOptions;
+use openauth_core::options::{EmailPasswordOptions, OpenAuthOptions};
 
 /// Apply development defaults for integration tests unless production mode is
 /// explicitly requested.
@@ -6,6 +6,9 @@ use openauth_core::options::OpenAuthOptions;
 pub fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
     if !options.production {
         options.development = true;
+    }
+    if !options.email_password.enabled {
+        options.email_password = EmailPasswordOptions::new().enabled(true);
     }
     options
 }

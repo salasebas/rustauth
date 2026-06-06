@@ -335,6 +335,8 @@ fn options() -> OpenAuthOptions {
         plugins: vec![openauth_plugins::username::username()],
         secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
         advanced: test_advanced_options(),
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     }
 }

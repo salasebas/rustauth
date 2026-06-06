@@ -183,6 +183,16 @@ impl OpenAuthBuilder {
     }
 
     #[must_use]
+    /// Replace email/password sign-in and sign-up configuration.
+    pub fn email_password(
+        mut self,
+        email_password: openauth_core::options::EmailPasswordOptions,
+    ) -> Self {
+        self.options = self.options.email_password(email_password);
+        self
+    }
+
+    #[must_use]
     /// Replace account linking and account model configuration.
     pub fn account(mut self, account: openauth_core::options::AccountOptions) -> Self {
         self.options = self.options.account(account);

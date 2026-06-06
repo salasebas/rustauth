@@ -14,11 +14,12 @@ or very small binaries that do not need the umbrella surface.
 ## Quick Start
 
 ```rust
-use openauth::{OpenAuth, RateLimitOptions};
+use openauth::{EmailPasswordOptions, OpenAuth, RateLimitOptions};
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
     .base_url("https://app.example.com/api/auth")
+    .email_password(EmailPasswordOptions::new().enabled(true))
     .rate_limit(RateLimitOptions::memory().enabled(true).window(60).max(100))
     .build()?;
 # let _ = auth;
@@ -29,7 +30,7 @@ Attach an adapter when you need durable users, sessions, accounts, plugin data,
 or migrations:
 
 ```rust
-use openauth::OpenAuth;
+use openauth::{EmailPasswordOptions, OpenAuth};
 use openauth_sqlx::SqliteAdapter;
 use sqlx::sqlite::SqlitePoolOptions;
 
@@ -38,6 +39,7 @@ let pool = SqlitePoolOptions::new().connect("sqlite://openauth.db").await?;
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
     .base_url("https://app.example.com/api/auth")
+    .email_password(EmailPasswordOptions::new().enabled(true))
     .adapter(SqliteAdapter::new(pool))
     .build()?;
 

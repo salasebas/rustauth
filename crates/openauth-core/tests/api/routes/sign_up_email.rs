@@ -41,10 +41,33 @@ async fn sign_up_email_route_creates_session_and_sets_cookie(
 }
 
 #[tokio::test]
+async fn sign_up_email_route_rejects_by_default_without_explicit_opt_in(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let router = router_with_bare_options(adapter.clone(), OpenAuthOptions::default())?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "EMAIL_PASSWORD_SIGN_UP_DISABLED");
+    assert!(adapter.is_empty("user").await);
+    assert!(adapter.is_empty("session").await);
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_up_email_route_rejects_when_email_password_is_disabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
-    let router = router_with_options(
+    let router = router_with_bare_options(
         adapter.clone(),
         OpenAuthOptions::default().email_password(EmailPasswordOptions::new().enabled(false)),
     )?;
@@ -67,11 +90,61 @@ async fn sign_up_email_route_rejects_when_email_password_is_disabled(
 }
 
 #[tokio::test]
+async fn sign_up_email_route_allows_sign_in_when_enabled_but_sign_up_disabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("secret123")?,
+            now,
+        ))
+        .await?;
+    let router = router_with_bare_options(
+        adapter.clone(),
+        OpenAuthOptions::default().email_password(
+            EmailPasswordOptions::new()
+                .enabled(true)
+                .disable_sign_up(true),
+        ),
+    )?;
+
+    let sign_up = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_up.status(), StatusCode::BAD_REQUEST);
+    let sign_up_body: Value = serde_json::from_slice(sign_up.body())?;
+    assert_eq!(sign_up_body["code"], "EMAIL_PASSWORD_SIGN_UP_DISABLED");
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_in.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_up_email_route_can_skip_auto_sign_in() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(RouteAdapter::default());
     let router = router_with_options(
         adapter.clone(),
-        OpenAuthOptions::default().email_password(EmailPasswordOptions::new().auto_sign_in(false)),
+        OpenAuthOptions::default().email_password(
+            EmailPasswordOptions::new()
+                .enabled(true)
+                .auto_sign_in(false),
+        ),
     )?;
 
     let response = router
@@ -171,7 +244,11 @@ async fn sign_up_email_route_sends_verification_and_returns_synthetic_duplicate_
     let router = router_with_options(
         adapter.clone(),
         OpenAuthOptions::default()
-            .email_password(EmailPasswordOptions::new().require_email_verification(true))
+            .email_password(
+                EmailPasswordOptions::new()
+                    .enabled(true)
+                    .require_email_verification(true),
+            )
             .email_verification(EmailVerificationOptions::new().send_verification_email(
                 move |email: VerificationEmail, _request: Option<&http::Request<Vec<u8>>>| {
                     sent_for_hook
@@ -244,6 +321,7 @@ async fn sign_up_email_route_duplicate_returns_synthetic_user_not_persisted_valu
     }
     .email_password(
         EmailPasswordOptions::new()
+            .enabled(true)
             .require_email_verification(true)
             .on_existing_user_sign_up(
                 move |payload: ExistingUserSignUpPayload,
@@ -307,7 +385,11 @@ async fn sign_up_email_route_duplicate_errors_when_auto_sign_in_disabled_without
     let adapter = Arc::new(RouteAdapter::default());
     let router = router_with_options(
         adapter.clone(),
-        OpenAuthOptions::default().email_password(EmailPasswordOptions::new().auto_sign_in(false)),
+        OpenAuthOptions::default().email_password(
+            EmailPasswordOptions::new()
+                .enabled(true)
+                .auto_sign_in(false),
+        ),
     )?;
 
     let first = router
@@ -343,6 +425,7 @@ async fn sign_up_email_route_duplicate_can_use_another_email_error_code(
         adapter.clone(),
         OpenAuthOptions::default().email_password(
             EmailPasswordOptions::new()
+                .enabled(true)
                 .auto_sign_in(false)
                 .another_email_error_on_duplicate(true),
         ),

@@ -13,8 +13,8 @@ use openauth_core::db::{
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule, RateLimitStore,
-    UserAdditionalField, UserOptions,
+    AdvancedOptions, EmailPasswordOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule,
+    RateLimitStore, UserAdditionalField, UserOptions,
 };
 use openauth_deadpool_postgres::migration::{MigrationStatementKind, SchemaMigrationWarning};
 use openauth_deadpool_postgres::{DeadpoolPostgresAdapter, DeadpoolPostgresRateLimitStore};
@@ -1467,6 +1467,8 @@ fn router(adapter: Arc<DeadpoolPostgresAdapter>) -> Result<AuthRouter, OpenAuthE
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     })?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))

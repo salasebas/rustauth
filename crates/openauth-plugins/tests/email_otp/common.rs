@@ -10,7 +10,7 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::cookies::{set_session_cookie, Cookie, SessionCookieOptions};
 use openauth_core::crypto::password::hash_password;
 use openauth_core::db::{DbAdapter, DbValue, FindOne, MemoryAdapter, User, Where};
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
 use openauth_core::options::{SecondaryStorage, SecondaryStorageFuture};
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
@@ -76,6 +76,8 @@ pub fn router(
                 ..AdvancedOptions::default()
             },
             plugins: vec![email_otp(adapter.clone(), options)],
+            email_password: EmailPasswordOptions::new().enabled(true),
+            development: true,
             ..OpenAuthOptions::default()
         },
         adapter.clone(),
@@ -90,6 +92,13 @@ pub fn router_with_auth_options(
     auth_options: OpenAuthOptions,
 ) -> Result<AuthRouter, openauth_core::error::OpenAuthError> {
     options.sender = Some(Arc::new(sender));
+    let mut auth_options = auth_options;
+    if !auth_options.email_password.enabled {
+        auth_options.email_password = EmailPasswordOptions::new().enabled(true);
+    }
+    if !auth_options.production {
+        auth_options.development = true;
+    }
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             secret: Some(SECRET.to_owned()),

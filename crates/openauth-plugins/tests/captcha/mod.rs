@@ -8,8 +8,8 @@ use openauth_core::api::{create_auth_endpoint, response, AuthEndpointOptions, Au
 use openauth_core::context::create_auth_context;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, IpAddressOptions, OpenAuthOptions, RateLimitOptions, RateLimitPathRule,
-    RateLimitRule,
+    AdvancedOptions, EmailPasswordOptions, IpAddressOptions, OpenAuthOptions, RateLimitOptions,
+    RateLimitPathRule, RateLimitRule,
 };
 use openauth_plugins::captcha::{captcha, CaptchaConfigError, CaptchaOptions, CaptchaProvider};
 
@@ -380,6 +380,8 @@ fn router_with_advanced(
             disable_origin_check: true,
             ..advanced
         },
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     })?;
     let endpoint = create_auth_endpoint(

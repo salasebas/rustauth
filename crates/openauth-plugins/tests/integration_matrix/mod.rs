@@ -7,7 +7,8 @@ use openauth_core::context::{create_auth_context, create_auth_context_with_adapt
 use openauth_core::db::DbAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule, RateLimitStore,
+    AdvancedOptions, EmailPasswordOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule,
+    RateLimitStore,
 };
 use openauth_core::plugin::AuthPlugin;
 use openauth_plugins::admin::{admin, AdminOptions};
@@ -221,6 +222,8 @@ fn matrix_options() -> Result<OpenAuthOptions, OpenAuthError> {
             ..AdvancedOptions::default()
         },
         plugins: matrix_plugins()?,
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     })
 }

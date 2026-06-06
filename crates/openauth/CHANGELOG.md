@@ -4,6 +4,12 @@ All notable changes to `openauth` are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** Email/password authentication is disabled by default. Enable it
+  with `OpenAuthBuilder::email_password(EmailPasswordOptions::new().enabled(true))`.
+  `EmailPasswordOptions` is now re-exported from the `openauth` crate.
+
 ### Fixed
 
 - SQL/memory/Postgres adapter constructors apply `database_hooks` once instead of

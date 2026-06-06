@@ -8,7 +8,7 @@ use openauth_core::crypto::password::hash_password;
 use openauth_core::db::{Create, DbAdapter, DbRecord, DbValue, MemoryAdapter, User};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, CookieCacheOptions, OpenAuthOptions, SessionOptions,
+    AdvancedOptions, CookieCacheOptions, EmailPasswordOptions, OpenAuthOptions, SessionOptions,
 };
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_plugins::multi_session::{multi_session_with_config, MultiSessionConfig};
@@ -51,6 +51,13 @@ impl Fixture {
         let adapter = Arc::new(MemoryAdapter::new());
         seed_user(&adapter, "user_1", "Ada", "ada@example.com").await?;
         seed_user(&adapter, "user_2", "Grace", "grace@example.com").await?;
+        let mut options = options;
+        if !options.email_password.enabled {
+            options.email_password = EmailPasswordOptions::new().enabled(true);
+        }
+        if !options.production {
+            options.development = true;
+        }
         let context = create_auth_context_with_adapter(
             OpenAuthOptions {
                 secret: Some(secret().to_owned()),
