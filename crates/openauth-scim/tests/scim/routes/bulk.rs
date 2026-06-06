@@ -956,6 +956,105 @@ async fn bulk_route_rejects_stale_operation_version() {
 }
 
 #[tokio::test]
+async fn bulk_group_membership_patch_advances_version_and_rejects_stale_operation_version() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
+    let (owner_cookie, owner_id) =
+        session_cookie_with_user(adapter.as_ref(), &context, "bulk-group-version@example.com")
+            .await
+            .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let user_id = create_scim_user(
+        &router,
+        &token,
+        "bulk-group-version@example.com",
+        "Bulk Group",
+    )
+    .await;
+    let group_id =
+        create_scim_group(&router, &token, "Bulk Version Group", "bulk-version", &[]).await;
+
+    let initial = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Groups/{group_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    let initial_version = json_body(initial)["meta"]["version"]
+        .as_str()
+        .expect("initial version")
+        .to_owned();
+
+    let add_member = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Bulk",
+            &format!(
+                r#"{{
+                    "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                    "Operations":[{{
+                        "method":"PATCH",
+                        "path":"/Groups/{group_id}",
+                        "data":{{
+                            "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                            "Operations":[{{"op":"add","path":"members","value":[{{"value":"{user_id}"}}]}}]
+                        }}
+                    }}]
+                }}"#
+            ),
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(add_member.status(), StatusCode::OK);
+    let add_body = json_body(add_member);
+    assert_eq!(add_body["Operations"][0]["status"]["code"], 200);
+    let updated_version = add_body["Operations"][0]["response"]["meta"]["version"]
+        .as_str()
+        .expect("updated version")
+        .to_owned();
+    assert_ne!(updated_version, initial_version);
+
+    let version_json =
+        serde_json::to_string(&initial_version).expect("version should serialize as JSON string");
+    let stale = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Bulk",
+            &format!(
+                r#"{{
+                    "schemas":["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+                    "Operations":[{{
+                        "method":"PATCH",
+                        "path":"/Groups/{group_id}",
+                        "version":{version_json},
+                        "data":{{
+                            "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                            "Operations":[{{"op":"replace","path":"displayName","value":"Should Fail"}}]
+                        }}
+                    }}]
+                }}"#
+            ),
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(stale.status(), StatusCode::OK);
+    let stale_body = json_body(stale);
+    assert_eq!(stale_body["Operations"][0]["status"]["code"], 412);
+    assert_eq!(stale_body["Operations"][0]["response"]["status"], "412");
+}
+
+#[tokio::test]
 async fn bulk_route_rejects_unresolved_bulk_id_references() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     ScimProviderStore::new(adapter.as_ref())

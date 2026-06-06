@@ -172,7 +172,7 @@ pub(super) async fn create_team_member_if_missing(
     adapter: &dyn DbAdapter,
     team_id: &str,
     user_id: &str,
-) -> Result<(), OpenAuthError> {
+) -> Result<bool, OpenAuthError> {
     if adapter
         .find_one(
             FindOne::new("team_member")
@@ -182,7 +182,7 @@ pub(super) async fn create_team_member_if_missing(
         .await?
         .is_some()
     {
-        return Ok(());
+        return Ok(false);
     }
     adapter
         .create(
@@ -192,6 +192,20 @@ pub(super) async fn create_team_member_if_missing(
                 .data("user_id", DbValue::String(user_id.to_owned()))
                 .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
                 .force_allow_id(),
+        )
+        .await?;
+    Ok(true)
+}
+
+async fn touch_group_updated_at(
+    adapter: &dyn DbAdapter,
+    group_id: &str,
+) -> Result<(), OpenAuthError> {
+    adapter
+        .update(
+            Update::new("team")
+                .where_clause(Where::new("id", DbValue::String(group_id.to_owned())))
+                .data("updated_at", DbValue::Timestamp(OffsetDateTime::now_utc())),
         )
         .await?;
     Ok(())
@@ -483,8 +497,13 @@ async fn apply_group_patch_mutation(
 ) -> Result<(), OpenAuthError> {
     match mutation {
         GroupPatchMutation::AddMembers(members) => {
+            let mut membership_changed = false;
             for member in members {
-                create_team_member_if_missing(adapter, group_id, &member).await?;
+                membership_changed |=
+                    create_team_member_if_missing(adapter, group_id, &member).await?;
+            }
+            if membership_changed {
+                touch_group_updated_at(adapter, group_id).await?;
             }
         }
         GroupPatchMutation::ReplaceMembers(members) => {
@@ -497,6 +516,7 @@ async fn apply_group_patch_mutation(
             for member in members {
                 create_team_member_if_missing(adapter, group_id, &member).await?;
             }
+            touch_group_updated_at(adapter, group_id).await?;
         }
         GroupPatchMutation::ReplaceDisplayName(display_name) => {
             adapter
@@ -509,13 +529,16 @@ async fn apply_group_patch_mutation(
                 .await?;
         }
         GroupPatchMutation::RemoveMember(member_id) => {
-            adapter
+            let removed = adapter
                 .delete_many(
                     DeleteMany::new("team_member")
                         .where_clause(Where::new("team_id", DbValue::String(group_id.to_owned())))
                         .where_clause(Where::new("user_id", DbValue::String(member_id))),
                 )
                 .await?;
+            if removed > 0 {
+                touch_group_updated_at(adapter, group_id).await?;
+            }
         }
     }
     Ok(())
