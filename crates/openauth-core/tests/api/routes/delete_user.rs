@@ -164,6 +164,7 @@ async fn delete_user_route_sends_verification_instead_of_immediate_delete(
             _: Option<&http::Request<Vec<u8>>>,
         ) -> Result<(), openauth_core::error::OpenAuthError> {
             assert!(payload.url.contains("/delete-user/callback?token="));
+            assert!(payload.url.contains("callbackURL=%2Fdone"));
             *self
                 .0
                 .lock()

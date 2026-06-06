@@ -7,12 +7,14 @@ use serde_json::json;
 use super::shared::{
     error_response, json_response, query_param, request_cookie_header, sensitive_session,
 };
+use crate::api::response_helpers::redirect_response;
 use crate::api::services::user as user_service;
 use crate::api::services::user::{DeleteUserError, DeleteUserErrorOrOpenAuth, DeleteUserResult};
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType, OpenApiOperation,
 };
+use crate::auth::trusted_origins::OriginMatchSettings;
 use crate::cookies::delete_session_cookie;
 use crate::db::DbAdapter;
 use crate::error_codes;
@@ -54,7 +56,8 @@ pub(super) fn delete_user_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndp
                 }
                 let body: DeleteUserBody = parse_request_body(&request)?;
                 if let Some(token) = body.token.as_deref() {
-                    return delete_user_by_token(adapter.as_ref(), context, &request, token).await;
+                    return delete_user_by_token(adapter.as_ref(), context, &request, token, None)
+                        .await;
                 }
                 let Some((session, user, _cookies)) =
                     sensitive_session(adapter.as_ref(), context, &request).await?
@@ -126,7 +129,15 @@ pub(super) fn delete_user_callback_endpoint(adapter: Arc<dyn DbAdapter>) -> Asyn
                 let Some(token) = query_param(&request, "token") else {
                     return invalid_token();
                 };
-                delete_user_by_token(adapter.as_ref(), context, &request, &token).await
+                let callback_url = query_param(&request, "callbackURL");
+                delete_user_by_token(
+                    adapter.as_ref(),
+                    context,
+                    &request,
+                    &token,
+                    callback_url.as_deref(),
+                )
+                .await
             })
         },
     )
@@ -137,6 +148,7 @@ async fn delete_user_by_token(
     context: &crate::context::AuthContext,
     request: &crate::api::ApiRequest,
     token: &str,
+    callback_url: Option<&str>,
 ) -> Result<crate::api::ApiResponse, crate::error::OpenAuthError> {
     let Some((_, user, _)) = sensitive_session(adapter, context, request).await? else {
         return super::shared::unauthorized();
@@ -151,6 +163,22 @@ async fn delete_user_by_token(
         &request_cookie_header(request).unwrap_or_default(),
         false,
     );
+    if let Some(callback_url) = callback_url {
+        let settings = Some(OriginMatchSettings {
+            allow_relative_paths: true,
+        });
+        if context.is_trusted_origin_for_request(callback_url, settings, Some(request))? {
+            return redirect_response(callback_url, cookies);
+        }
+        return redirect_response(
+            &format!(
+                "/error?error={}",
+                url::form_urlencoded::byte_serialize("INVALID_CALLBACK_URL".as_bytes())
+                    .collect::<String>()
+            ),
+            cookies,
+        );
+    }
     json_response(
         StatusCode::OK,
         &DeleteUserResponse {
