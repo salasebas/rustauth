@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 use std::process::Command;
 
 fn cargo_tree_stdout(args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
