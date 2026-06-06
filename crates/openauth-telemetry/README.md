@@ -64,6 +64,9 @@ enabled in options.
 
 ## Environment
 
+The [`openauth-cli`](../openauth-cli/README.md#telemetry) binary reuses these
+variables for `generate` / `migrate` telemetry (`cli_generate`, `cli_migrate`).
+
 - `OPENAUTH_TELEMETRY`: master switch (see precedence below).
 - `OPENAUTH_TELEMETRY_DEBUG`: print JSON instead of POSTing.
 - `OPENAUTH_TELEMETRY_ENDPOINT`: collector URL.

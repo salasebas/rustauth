@@ -41,6 +41,8 @@ Versioning while the API is still pre-1.0.
 - Extended `openauth-cli` parity with Better Auth v1.6.9: `info --json` / `--copy`,
   `db generate -y` confirmation flow, global `-c` for `--cwd`, `init --seed-secrets`,
   and parity docs under `docs/parity/openauth-cli/09-parity-closure.md`.
+- Documented CLI telemetry for `generate` / `migrate` (`cli_generate`, `cli_migrate`):
+  env vars, payload/redaction summary, opt-out guidance, and docs regression tests.
 
 ### Changed
 

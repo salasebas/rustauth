@@ -54,6 +54,68 @@ without overriding variables already set in the process environment. When
 config are loaded first, then files in `--cwd` (weaker to stronger:
 `config/.env`, `config/.env.local`, `<cwd>/.env`, `<cwd>/.env.local`).
 
+## Telemetry
+
+`generate` and `migrate` (including the `db generate` / `db migrate` aliases)
+can emit opt-in telemetry through [`openauth-telemetry`](../openauth-telemetry/README.md).
+Other CLI commands do not publish telemetry events today.
+
+Telemetry is **off by default**. Nothing leaves the process until you opt in
+**and** provide a collector endpoint (or a custom sink wired by your host
+application). The OpenAuth maintainers do not receive CLI telemetry unless you
+point an endpoint at their infrastructure.
+
+### Commands and events
+
+| Command | Aliases | Event type | Typical `outcome` values |
+| --- | --- | --- | --- |
+| `generate` | `db generate` | `cli_generate` | `generated`, `no_changes`, `aborted`, `overwritten`, `unsupported_adapter`, `unsupported_database` |
+| `migrate` | `db migrate` | `cli_migrate` | `migrated`, `no_changes`, `dry_run`, `aborted`, `unsupported_adapter`, `unsupported_database` |
+
+Each event includes an `outcome` string describing the CLI result and a
+Better Auth-shaped `config` snapshot derived from `openauth.toml` (adapter,
+database provider, enabled plugins, and anonymized feature flags). Adapter or
+database errors may add top-level `adapter` / `database` fields before the
+config block.
+
+### Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENAUTH_TELEMETRY` | Master switch. `true`/`1` opts in; `false`/`0` is a hard opt-out. When unset, telemetry stays off for CLI commands. |
+| `OPENAUTH_TELEMETRY_DEBUG` | Print JSON events to stderr instead of POSTing (useful for local inspection). |
+| `OPENAUTH_TELEMETRY_ENDPOINT` | Collector URL. Required before events are sent over the network. |
+
+Enablement precedence, test suppression, and transport details are documented
+in the [`openauth-telemetry` README](../openauth-telemetry/README.md#environment).
+
+### Payload and redaction
+
+CLI telemetry follows the same anonymized config snapshot as server-side
+OpenAuth telemetry:
+
+- **Included:** adapter name, database provider, plugin IDs, boolean/count
+  summaries of configured features (email/password, sessions, rate limits, and
+  similar flags).
+- **Excluded:** signing secrets, database URLs or connection strings, base URLs,
+  OAuth client credentials, environment variable names from `[security]`, and
+  other concrete deployment identifiers.
+
+Inspect redacted output locally with debug mode:
+
+```sh
+OPENAUTH_TELEMETRY=true \
+OPENAUTH_TELEMETRY_DEBUG=true \
+OPENAUTH_TELEMETRY_ENDPOINT=http://127.0.0.1:9999/collect \
+openauth db generate --yes
+```
+
+### Opt-out
+
+For local shells and CI, the simplest opt-out is to leave `OPENAUTH_TELEMETRY`
+unset or set `OPENAUTH_TELEMETRY=false`. That overrides any application-level
+telemetry settings inherited from the environment.
+
 ## Status
 
 Experimental beta. Commands, flags, generated output, and workspace detection

@@ -300,12 +300,17 @@ fn migrate_unsupported_adapter_emits_telemetry_when_debug_enabled() {
             "http://telemetry.invalid/collect",
         )
         .env("DATABASE_URL", "sqlite::memory:")
+        .env("OPENAUTH_SECRET", "super-secret-value-67890")
         .assert()
         .code(0)
         .stderr(predicate::str::contains("\"type\": \"cli_migrate\""))
         .stderr(predicate::str::contains(
             "\"outcome\": \"unsupported_adapter\"",
-        ));
+        ))
+        .stderr(predicate::str::contains("http://localhost:3000/api/auth").not())
+        .stderr(predicate::str::contains("super-secret-value-67890").not())
+        .stderr(predicate::str::contains("OPENAUTH_SECRET").not())
+        .stderr(predicate::str::contains("sqlite::memory:").not());
 }
 
 fn write_config_at(path: &std::path::Path, adapter: &str) {

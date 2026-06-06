@@ -229,6 +229,11 @@ enabled = ["username"]
         )
         .env("RUST_ENV", "development")
         .env("TEST", "false")
+        .env("OPENAUTH_SECRET_FOR_TEST", "super-secret-value-12345")
+        .env(
+            "DATABASE_URL",
+            format!("sqlite://{}/auth.sqlite", temp.path().display()),
+        )
         .assert()
         .success()
         .stderr(predicate::str::contains("\"type\": \"cli_generate\""))
@@ -236,5 +241,9 @@ enabled = ["username"]
         .stderr(predicate::str::contains("\"adapter\": \"sqlx\""))
         .stderr(predicate::str::contains("\"database\": \"sqlite\""))
         .stderr(predicate::str::contains("\"plugins\": ["))
-        .stderr(predicate::str::contains("\"username\""));
+        .stderr(predicate::str::contains("\"username\""))
+        .stderr(predicate::str::contains("http://localhost:3000/api/auth").not())
+        .stderr(predicate::str::contains("super-secret-value-12345").not())
+        .stderr(predicate::str::contains("OPENAUTH_SECRET_FOR_TEST").not())
+        .stderr(predicate::str::contains("sqlite://").not());
 }
