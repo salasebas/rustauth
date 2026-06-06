@@ -39,6 +39,16 @@ fn sqlx_postgres_feature_does_not_enable_sqlite_driver() -> Result<(), Box<dyn s
 }
 
 #[test]
+fn telemetry_feature_declares_oauth_on_telemetry_crate() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let contents = std::fs::read_to_string(manifest).expect("openauth Cargo.toml");
+    assert!(
+        contents.contains("\"openauth-telemetry/oauth\""),
+        "telemetry feature should enable openauth-telemetry/oauth for social-provider snapshots"
+    );
+}
+
+#[test]
 fn default_openauth_build_does_not_enable_telemetry_crate() -> Result<(), Box<dyn std::error::Error>>
 {
     let stdout = cargo_tree_stdout(&[
