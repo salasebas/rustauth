@@ -5,14 +5,13 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
+use josekit::jwk::JwkSet;
 use openauth_oauth::oauth2::{
     authorization_code_request, create_authorization_url, get_oauth2_tokens,
-    refresh_access_token_request, validate_authorization_code, AuthorizationCodeRequest,
-    AuthorizationUrlRequest, ClientAuthentication, ClientTokenRequest, OAuth2Tokens,
-    OAuth2UserInfo, OAuthError, OAuthFormRequest, OAuthProviderContract, ProviderOptions,
-    RefreshAccessTokenRequest,
+    refresh_access_token_request, validate_authorization_code, validate_token,
+    verify_jws_with_jwks, AuthorizationCodeRequest, AuthorizationUrlRequest, ClientAuthentication,
+    ClientId, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthFormRequest,
+    OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest, TokenValidationOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -29,6 +28,9 @@ pub const PAYPAL_SANDBOX_USER_INFO_ENDPOINT: &str =
     "https://api-m.sandbox.paypal.com/v1/identity/oauth2/userinfo";
 pub const PAYPAL_LIVE_USER_INFO_ENDPOINT: &str =
     "https://api-m.paypal.com/v1/identity/oauth2/userinfo";
+pub const PAYPAL_ISSUER: &str = "https://www.paypal.com";
+pub const PAYPAL_SANDBOX_JWKS_ENDPOINT: &str = "https://api-m.sandbox.paypal.com/v1/oauth2/certs";
+pub const PAYPAL_LIVE_JWKS_ENDPOINT: &str = "https://api-m.paypal.com/v1/oauth2/certs";
 
 type UserMapper = Arc<dyn Fn(&PayPalProfile) -> OAuth2UserInfo + Send + Sync>;
 type VerifyIdTokenFuture = Pin<Box<dyn Future<Output = Result<bool, OAuthError>> + Send>>;
@@ -47,6 +49,7 @@ pub struct PayPalOptions {
     pub oauth: ProviderOptions,
     pub environment: PayPalEnvironment,
     pub request_shipping_address: bool,
+    pub jwks_endpoint: Option<String>,
     pub map_profile_to_user: Option<UserMapper>,
     pub verify_id_token: Option<PayPalVerifyIdToken>,
 }
@@ -251,10 +254,50 @@ impl PayPalProvider {
             return verify_id_token(token.to_owned(), nonce.map(str::to_owned)).await;
         }
 
-        let payload = decode_jwt_payload(token)?;
-        Ok(payload
-            .get("sub")
-            .is_some_and(|sub| !sub.as_str().is_some_and(str::is_empty) && !sub.is_null()))
+        let audiences = self.client_id_audiences();
+        if audiences.is_empty() {
+            return Ok(false);
+        }
+
+        let payload = match validate_token(
+            token,
+            self.jwks_endpoint(),
+            self.id_token_validation_options(audiences),
+        )
+        .await
+        {
+            Ok(result) => result.payload,
+            Err(_) => return Ok(false),
+        };
+
+        self.valid_verified_id_token_payload(payload, nonce)
+    }
+
+    pub fn verify_id_token_with_jwk_set(
+        &self,
+        token: &str,
+        nonce: Option<&str>,
+        jwk_set: &JwkSet,
+    ) -> Result<bool, OAuthError> {
+        if self.options.oauth.disable_id_token_sign_in {
+            return Ok(false);
+        }
+
+        let audiences = self.client_id_audiences();
+        if audiences.is_empty() {
+            return Ok(false);
+        }
+
+        let result = match verify_jws_with_jwks(
+            token,
+            jwk_set,
+            &self.id_token_validation_options(audiences),
+        ) {
+            Ok(result) => result,
+            Err(_) => return Ok(false),
+        };
+
+        self.valid_verified_id_token_payload(result.payload, nonce)
     }
 
     pub async fn get_user_info(
@@ -322,6 +365,57 @@ impl PayPalProvider {
     fn user_info_url(&self) -> String {
         format!("{}?schema=paypalv1.1", self.user_info_endpoint)
     }
+
+    fn jwks_endpoint(&self) -> &str {
+        self.options
+            .jwks_endpoint
+            .as_deref()
+            .unwrap_or(match self.options.environment {
+                PayPalEnvironment::Sandbox => PAYPAL_SANDBOX_JWKS_ENDPOINT,
+                PayPalEnvironment::Live => PAYPAL_LIVE_JWKS_ENDPOINT,
+            })
+    }
+
+    fn id_token_validation_options(&self, audience: Vec<String>) -> TokenValidationOptions {
+        TokenValidationOptions {
+            audience,
+            issuer: vec![PAYPAL_ISSUER.to_owned()],
+            ..TokenValidationOptions::default().require_standard_claims()
+        }
+    }
+
+    fn valid_verified_id_token_payload(
+        &self,
+        payload: Value,
+        nonce: Option<&str>,
+    ) -> Result<bool, OAuthError> {
+        if payload
+            .get("sub")
+            .and_then(Value::as_str)
+            .map_or(true, str::is_empty)
+        {
+            return Ok(false);
+        }
+        if let Some(expected_nonce) = nonce {
+            let actual_nonce = payload.get("nonce").and_then(Value::as_str);
+            if actual_nonce != Some(expected_nonce) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn client_id_audiences(&self) -> Vec<String> {
+        match &self.options.oauth.client_id {
+            Some(ClientId::Single(value)) if !value.is_empty() => vec![value.clone()],
+            Some(ClientId::Multiple(values)) => values
+                .iter()
+                .filter(|value| !value.is_empty())
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 impl OAuthProviderContract for PayPalProvider {
@@ -332,17 +426,6 @@ impl OAuthProviderContract for PayPalProvider {
     fn name(&self) -> &str {
         PAYPAL_NAME
     }
-}
-
-fn decode_jwt_payload(token: &str) -> Result<Value, OAuthError> {
-    let payload = token
-        .split('.')
-        .nth(1)
-        .ok_or_else(|| OAuthError::InvalidResponse("id token must contain a payload".to_owned()))?;
-    let decoded = URL_SAFE_NO_PAD
-        .decode(payload)
-        .map_err(|error| OAuthError::InvalidResponse(error.to_string()))?;
-    serde_json::from_slice(&decoded).map_err(|error| OAuthError::InvalidResponse(error.to_string()))
 }
 
 fn paypal_token_headers() -> BTreeMap<String, String> {

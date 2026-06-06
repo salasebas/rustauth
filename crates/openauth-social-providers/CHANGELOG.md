@@ -13,6 +13,9 @@ All notable changes to `openauth-social-providers` are documented in this file.
 - Fixed Apple, Cognito, Facebook, Microsoft Entra ID, and Twitch ID token
   verification to require standard JWT claims (`sub`, `aud`, `iss`, `exp`)
   before accepting a token.
+- Fixed PayPal `verify_id_token` to validate ID tokens against PayPal JWKS
+  with issuer, audience, expiration, and nonce checks instead of accepting
+  unsigned JWT payloads with only a `sub` claim.
 
 ## [0.0.6] - 2026-05-24
 
