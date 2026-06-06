@@ -10,9 +10,19 @@ use openauth_core::cookies::{set_session_cookie, Cookie, SessionCookieOptions};
 use openauth_core::db::{Create, DbAdapter, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AccountLinkingOptions, AccountOptions, AdvancedOptions, OpenAuthOptions, SecondaryStorage,
-    SessionOptions, TrustedOriginOptions,
+    AccountLinkingOptions, AccountOptions, AdvancedOptions, EmailPasswordOptions, OpenAuthOptions,
+    SecondaryStorage, SessionOptions, TrustedOriginOptions,
 };
+
+fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
+    if !options.production {
+        options.development = true;
+    }
+    if !options.email_password.enabled {
+        options.email_password = EmailPasswordOptions::new().enabled(true);
+    }
+    options
+}
 use openauth_core::plugin::AuthPlugin;
 use openauth_sso::{sso, SsoOptions};
 use time::{Duration, OffsetDateTime};
@@ -44,7 +54,7 @@ pub fn router_with_options_and_account_linking(
 ) -> Result<(Arc<MemoryAdapter>, AuthRouter), OpenAuthError> {
     let adapter = Arc::new(MemoryAdapter::new());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             base_url: Some("https://app.example.com".to_owned()),
             secret: Some(SECRET.to_owned()),
             plugins: vec![sso(allow_loopback_oidc(options))],
@@ -55,7 +65,7 @@ pub fn router_with_options_and_account_linking(
                 ..AdvancedOptions::default()
             },
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(
@@ -89,7 +99,7 @@ pub fn router_with_adapter_and_options(
     options: SsoOptions,
 ) -> Result<AuthRouter, OpenAuthError> {
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             base_url: Some("https://app.example.com".to_owned()),
             secret: Some(SECRET.to_owned()),
             plugins: vec![sso(allow_loopback_oidc(options))],
@@ -99,7 +109,7 @@ pub fn router_with_adapter_and_options(
                 ..AdvancedOptions::default()
             },
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
@@ -188,7 +198,7 @@ fn router_with_options_storage_trusted_origins_extra_plugins_and_advanced(
     let mut plugins = vec![sso(options)];
     plugins.extend(extra_plugins);
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             base_url: Some("https://app.example.com".to_owned()),
             secret: Some(SECRET.to_owned()),
             plugins,
@@ -200,7 +210,7 @@ fn router_with_options_storage_trusted_origins_extra_plugins_and_advanced(
             secondary_storage,
             advanced,
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(

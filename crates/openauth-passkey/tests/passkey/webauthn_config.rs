@@ -1,5 +1,5 @@
 use http::{Method, StatusCode};
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
 use openauth_passkey::{PasskeyOptions, PasskeyRegistrationOptions, PasskeyRegistrationUser};
 use serde_json::Value;
 
@@ -19,6 +19,8 @@ fn test_auth_options(base_url: Option<&str>) -> OpenAuthOptions {
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         ..OpenAuthOptions::default()
     }
 }

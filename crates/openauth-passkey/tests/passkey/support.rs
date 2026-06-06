@@ -14,8 +14,19 @@ use openauth_core::db::{
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, OpenAuthOptions, SecondaryStorage, SecondaryStorageFuture, SessionOptions,
+    AdvancedOptions, EmailPasswordOptions, OpenAuthOptions, SecondaryStorage,
+    SecondaryStorageFuture, SessionOptions,
 };
+
+fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
+    if !options.production {
+        options.development = true;
+    }
+    if !options.email_password.enabled {
+        options.email_password = EmailPasswordOptions::new().enabled(true);
+    }
+    options
+}
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use openauth_passkey::{
     passkey, PasskeyAuthenticationStart, PasskeyOptions, PasskeyRegistrationStart,
@@ -33,7 +44,7 @@ pub async fn seeded_router(
     seed_user(adapter.as_ref()).await?;
     let backend = Arc::new(FakeWebAuthnBackend::default());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             advanced: AdvancedOptions {
@@ -43,7 +54,7 @@ pub async fn seeded_router(
             },
             plugins: vec![passkey(options.backend(backend.clone()))],
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(
@@ -65,13 +76,13 @@ pub async fn seeded_router_with_advanced(
     seed_user(adapter.as_ref()).await?;
     let backend = Arc::new(FakeWebAuthnBackend::default());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             advanced,
             plugins: vec![passkey(options.backend(backend.clone()))],
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(
@@ -92,10 +103,10 @@ pub async fn seeded_router_with_auth_options(
     seed_user(adapter.as_ref()).await?;
     let backend = Arc::new(FakeWebAuthnBackend::default());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             plugins: vec![passkey(passkey_options.backend(backend.clone()))],
             ..auth_options
-        },
+        }),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(
@@ -197,7 +208,7 @@ pub async fn seeded_router_with_secondary_storage(
     seed_user(adapter.as_ref()).await?;
     let backend = Arc::new(FakeWebAuthnBackend::default());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             secondary_storage: Some(storage),
@@ -209,7 +220,7 @@ pub async fn seeded_router_with_secondary_storage(
             },
             plugins: vec![passkey(options.backend(backend.clone()))],
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(
@@ -229,7 +240,7 @@ where
 {
     let backend = Arc::new(FakeWebAuthnBackend::default());
     let context = create_auth_context_with_adapter(
-        OpenAuthOptions {
+        with_test_defaults(OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             advanced: AdvancedOptions {
@@ -239,7 +250,7 @@ where
             },
             plugins: vec![passkey(options.backend(backend.clone()))],
             ..OpenAuthOptions::default()
-        },
+        }),
         adapter.clone(),
     )?;
     let router =

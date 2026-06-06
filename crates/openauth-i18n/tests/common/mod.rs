@@ -13,7 +13,17 @@ use openauth_core::db::{
     UpdateMany, User, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
+
+fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
+    if !options.production {
+        options.development = true;
+    }
+    if !options.email_password.enabled {
+        options.email_password = EmailPasswordOptions::new().enabled(true);
+    }
+    options
+}
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
 
@@ -297,7 +307,7 @@ pub fn router_with_options(
     adapter: Arc<RouteAdapter>,
     options: OpenAuthOptions,
 ) -> Result<AuthRouter, OpenAuthError> {
-    let context = create_auth_context(OpenAuthOptions {
+    let context = create_auth_context(with_test_defaults(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         advanced: AdvancedOptions {
             disable_csrf_check: true,
@@ -305,7 +315,7 @@ pub fn router_with_options(
             ..AdvancedOptions::default()
         },
         ..options
-    })?;
+    }))?;
     AuthRouter::with_async_endpoints(context, Vec::new(), core_auth_async_endpoints(adapter))
 }
 

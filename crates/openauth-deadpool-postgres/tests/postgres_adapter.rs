@@ -1482,6 +1482,8 @@ fn options_with_additional_user_fields() -> OpenAuthOptions {
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
+        email_password: EmailPasswordOptions::new().enabled(true),
+        development: true,
         user: UserOptions {
             additional_fields: BTreeMap::from([
                 (
