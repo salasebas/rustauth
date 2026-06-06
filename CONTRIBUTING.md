@@ -28,9 +28,11 @@ cargo nextest run -p <crate>
 ## Porting Work
 
 Each crate under `crates/` maps to an upstream Better Auth package when possible.
-Record parity status in the crate README **Upstream parity (Better Auth 1.6.9)**
-section (see [`docs/parity/README.md`](docs/parity/README.md) for the index and
-section template).
+Record parity status in `crates/<crate>/UPSTREAM.md` (tables, gaps, upstream
+mapping). Keep the crate README crates.io-friendly with a short **Better Auth
+compatibility** blurb linking to `UPSTREAM.md`. See
+[`docs/parity/README.md`](docs/parity/README.md) and
+[`docs/parity/UPSTREAM_SPLIT_PROMPT.md`](docs/parity/UPSTREAM_SPLIT_PROMPT.md).
 
 When porting behavior:
 
@@ -40,8 +42,7 @@ When porting behavior:
 3. Write a focused Rust test.
 4. Implement an idiomatic Rust equivalent with explicit errors.
 5. Keep framework- or database-specific behavior in a dedicated crate.
-6. Update the crate README parity section (Status, Intentional differences, Open
-   gaps, Upstream lookup) when behavior, gaps, or test coverage change.
+6. Update `UPSTREAM.md` when behavior, gaps, or test coverage change.
 
 Do not add intermediate audit checklists, standalone `PARITY.md` files, or agent
 planning docs to the repo.
