@@ -3,10 +3,12 @@ use std::collections::BTreeMap;
 use crate::db::{DbFieldType, DbValue};
 
 use super::cookies::CookieCacheOptions;
+use super::model_schema::ModelSchemaOptions;
 
 /// Session configuration.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SessionOptions {
+    pub schema: ModelSchemaOptions,
     pub expires_in: Option<u64>,
     pub update_age: Option<u64>,
     pub fresh_age: Option<u64>,
@@ -25,6 +27,12 @@ impl SessionOptions {
 
     pub fn builder() -> Self {
         Self::new()
+    }
+
+    #[must_use]
+    pub fn schema(mut self, schema: ModelSchemaOptions) -> Self {
+        self.schema = schema;
+        self
     }
 
     #[must_use]

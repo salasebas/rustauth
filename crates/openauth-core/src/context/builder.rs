@@ -15,7 +15,8 @@ use crate::error::OpenAuthError;
 use crate::options::hooks::{plugin_after_hooks, plugin_before_hooks};
 use crate::options::RateLimitStore;
 use crate::options::{
-    OpenAuthOptions, RateLimitStorageOption, SessionAdditionalField, UserAdditionalField,
+    plugin_database_hooks_from_init, ModelSchemaOptions, OpenAuthOptions, RateLimitStorageOption,
+    SessionAdditionalField, UserAdditionalField,
 };
 use crate::plugin::AuthPlugin;
 use crate::rate_limit::{GovernorMemoryRateLimitStore, LegacyRateLimitStorageAdapter};
@@ -155,7 +156,11 @@ pub fn create_auth_context_with_environment_and_adapter(
         social_providers,
         db_schema: auth_schema(schema_options),
         plugin_error_codes: BTreeMap::new(),
-        plugin_database_hooks: options.database_hooks.clone(),
+        plugin_database_hooks: {
+            let mut hooks = plugin_database_hooks_from_init(&options.init_database_hooks);
+            hooks.extend(options.database_hooks.clone());
+            hooks
+        },
         plugin_migrations: Vec::new(),
         telemetry_publisher: noop_telemetry_publisher(),
         logger,
@@ -231,6 +236,15 @@ fn validate_rate_limit_storage(options: &OpenAuthOptions) -> Result<(), OpenAuth
     Ok(())
 }
 
+fn apply_model_schema(table: &mut crate::db::TableOptions, schema: &ModelSchemaOptions) {
+    table.name = schema.model_name.clone();
+    table.field_names = schema
+        .field_names
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+}
+
 fn schema_options_from_auth_options(options: &OpenAuthOptions) -> AuthSchemaOptions {
     let mut schema_options = AuthSchemaOptions {
         has_secondary_storage: options.secondary_storage.is_some(),
@@ -242,6 +256,14 @@ fn schema_options_from_auth_options(options: &OpenAuthOptions) -> AuthSchemaOpti
         },
         ..AuthSchemaOptions::default()
     };
+    apply_model_schema(&mut schema_options.user, &options.user.schema);
+    apply_model_schema(&mut schema_options.session, &options.session.schema);
+    apply_model_schema(&mut schema_options.account, &options.account.schema);
+    apply_model_schema(
+        &mut schema_options.verification,
+        &options.verification.schema,
+    );
+    apply_model_schema(&mut schema_options.rate_limit, &options.rate_limit.schema);
     for (name, field) in &options.user.additional_fields {
         schema_options
             .user

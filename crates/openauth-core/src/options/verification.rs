@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use crate::error::OpenAuthError;
 
+use super::model_schema::ModelSchemaOptions;
+
 pub type StoreIdentifierHashFuture =
     Pin<Box<dyn Future<Output = Result<String, OpenAuthError>> + Send>>;
 pub type StoreIdentifierHashFn = Arc<dyn Fn(String) -> StoreIdentifierHashFuture + Send + Sync>;
@@ -65,6 +67,7 @@ impl VerificationStoreIdentifierConfig {
 /// Verification token storage options.
 #[derive(Clone, Debug, Default)]
 pub struct VerificationOptions {
+    pub schema: ModelSchemaOptions,
     pub store_identifier: VerificationStoreIdentifierConfig,
     pub disable_cleanup: bool,
 }
@@ -72,6 +75,12 @@ pub struct VerificationOptions {
 impl VerificationOptions {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[must_use]
+    pub fn schema(mut self, schema: ModelSchemaOptions) -> Self {
+        self.schema = schema;
+        self
     }
 
     #[must_use]

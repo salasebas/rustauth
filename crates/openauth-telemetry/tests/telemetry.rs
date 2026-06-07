@@ -10,7 +10,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use openauth_core::api::{ApiRequest, ApiResponse};
+use openauth_core::context::AuthContext;
+use openauth_core::db::DbRecord;
 use openauth_core::db::{DbFieldType, DbValue};
+use openauth_core::env::logger::{LogLevel, LoggerOptions};
 use openauth_core::error::OpenAuthError;
 #[cfg(feature = "oauth")]
 use openauth_core::oauth::oauth2::{
@@ -19,13 +23,17 @@ use openauth_core::oauth::oauth2::{
 };
 use openauth_core::options::{
     AccountLinkingOptions, AccountOptions, AdvancedOptions, ChangeEmailOptions, CookieCacheOptions,
-    CookieCacheStrategy, CookieConfig, EmailPasswordOptions, EmailVerificationOptions,
+    CookieCacheStrategy, CookieConfig, DatabaseModelHooks, DatabaseOperationHooks,
+    EmailPasswordOptions, EmailVerificationOptions, GlobalAfterHook, GlobalBeforeHook,
+    GlobalHookAction, GlobalHooksOptions, InitDatabaseAfterHook, InitDatabaseBeforeAction,
+    InitDatabaseBeforeHook, InitDatabaseHooksOptions, ModelSchemaOptions, OnApiErrorOptions,
     OpenAuthOptions, PasswordOptions, SessionAdditionalField, SessionOptions, TelemetryOptions,
-    UserAdditionalField, UserOptions,
+    UserAdditionalField, UserOptions, VerificationOptions,
 };
 use openauth_core::options::{
     EmailVerificationCallbackPayload, PasswordResetEmail, PasswordResetPayload, VerificationEmail,
 };
+use openauth_core::plugin::PluginDatabaseHookContext;
 use openauth_telemetry::{
     create_telemetry, types::CustomTrackFn, DetectionInfo, RuntimeInfo, TelemetryContext,
     TelemetryEvent, TelemetryHttpError, TelemetryHttpTransport, TelemetryTestHooks,
@@ -189,6 +197,158 @@ fn on_password_reset_noop(
     _request: Option<&http::Request<Vec<u8>>>,
 ) -> Result<(), OpenAuthError> {
     Ok(())
+}
+
+struct NoopGlobalBeforeHook;
+
+impl GlobalBeforeHook for NoopGlobalBeforeHook {
+    fn before(
+        &self,
+        _context: &AuthContext,
+        request: ApiRequest,
+        _method: &http::Method,
+        _path: &str,
+    ) -> Result<GlobalHookAction, OpenAuthError> {
+        Ok(GlobalHookAction::Continue(request))
+    }
+}
+
+struct NoopGlobalAfterHook;
+
+impl GlobalAfterHook for NoopGlobalAfterHook {
+    fn after(
+        &self,
+        _context: &AuthContext,
+        _request: &ApiRequest,
+        response: ApiResponse,
+        _method: &http::Method,
+        _path: &str,
+    ) -> Result<ApiResponse, OpenAuthError> {
+        Ok(response)
+    }
+}
+
+fn on_api_error_noop(
+    _error: &OpenAuthError,
+    _request: &ApiRequest,
+) -> Result<Option<ApiResponse>, OpenAuthError> {
+    Ok(None)
+}
+
+struct UserCreateBeforeNoop;
+
+impl InitDatabaseBeforeHook for UserCreateBeforeNoop {
+    fn before(
+        &self,
+        _context: &PluginDatabaseHookContext<'_>,
+        _record: &mut DbRecord,
+    ) -> Result<InitDatabaseBeforeAction, OpenAuthError> {
+        Ok(InitDatabaseBeforeAction::Continue)
+    }
+}
+
+struct UserCreateAfterNoop;
+
+impl InitDatabaseAfterHook for UserCreateAfterNoop {
+    fn after(
+        &self,
+        _context: &PluginDatabaseHookContext<'_>,
+        _record: &DbRecord,
+    ) -> Result<(), OpenAuthError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn auth_config_snapshot_reports_schema_aliases_and_init_database_hooks() {
+    let options = OpenAuthOptions {
+        user: UserOptions::new().schema(
+            ModelSchemaOptions::new()
+                .model_name("app_users")
+                .field_name("email", "email_address"),
+        ),
+        session: SessionOptions::new().schema(
+            ModelSchemaOptions::new()
+                .model_name("app_sessions")
+                .field_name("token", "session_token"),
+        ),
+        init_database_hooks: InitDatabaseHooksOptions {
+            user: DatabaseModelHooks {
+                create: DatabaseOperationHooks::new()
+                    .before(UserCreateBeforeNoop)
+                    .after(UserCreateAfterNoop),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let config =
+        openauth_telemetry::get_telemetry_auth_config(&options, &TelemetryContext::default());
+
+    assert_json_superset(
+        &config,
+        &json!({
+            "user": {
+                "modelName": true,
+                "fields": { "email": true }
+            },
+            "session": {
+                "modelName": true,
+                "fields": { "token": true }
+            },
+            "databaseHooks": {
+                "user": {
+                    "create": { "before": true, "after": true },
+                    "update": { "before": false, "after": false }
+                }
+            }
+        }),
+        "config",
+    );
+
+    let serialized = serde_json::to_string(&config).expect("serialize config");
+    assert!(!serialized.contains("app_users"));
+    assert!(!serialized.contains("app_sessions"));
+    assert!(!serialized.contains("email_address"));
+    assert!(!serialized.contains("session_token"));
+}
+
+#[test]
+fn auth_config_snapshot_reports_hooks_logger_and_api_error_presence() {
+    let options = OpenAuthOptions {
+        hooks: GlobalHooksOptions {
+            before: Some(Arc::new(NoopGlobalBeforeHook)),
+            after: Some(Arc::new(NoopGlobalAfterHook)),
+        },
+        on_api_error: OnApiErrorOptions::new()
+            .throw(true)
+            .error_url("https://app.example.com/auth/error")
+            .on_error(on_api_error_noop),
+        logger: LoggerOptions::new(LogLevel::Info)
+            .disabled(true)
+            .with_handler(|_level, _message, _args| {}),
+        verification: VerificationOptions::new().disable_cleanup(true),
+        ..Default::default()
+    };
+
+    let config =
+        openauth_telemetry::get_telemetry_auth_config(&options, &TelemetryContext::default());
+
+    assert_json_superset(
+        &config,
+        &json!({
+            "hooks": { "before": true, "after": true },
+            "onAPIError": { "errorURL": true, "onError": true, "throw": true },
+            "logger": { "disabled": true, "level": "info", "log": true },
+            "verification": { "disableCleanup": true }
+        }),
+        "config",
+    );
+
+    let serialized = serde_json::to_string(&config).expect("serialize config");
+    assert!(!serialized.contains("https://app.example.com"));
 }
 
 #[test]

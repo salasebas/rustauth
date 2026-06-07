@@ -14,6 +14,7 @@ use super::api_error::OnApiErrorOptions;
 use super::email_password::EmailPasswordOptions;
 use super::email_verification::EmailVerificationOptions;
 use super::hooks::GlobalHooksOptions;
+use super::init_database_hooks::InitDatabaseHooksOptions;
 use super::origins::TrustedOriginOptions;
 use super::password::PasswordOptions;
 use super::rate_limit::RateLimitOptions;
@@ -92,6 +93,7 @@ pub struct OpenAuthOptions {
     pub verification: VerificationOptions,
     pub hooks: GlobalHooksOptions,
     pub on_api_error: OnApiErrorOptions,
+    pub init_database_hooks: InitDatabaseHooksOptions,
     pub database_hooks: Vec<PluginDatabaseHook>,
     pub logger: LoggerOptions,
     pub advanced: AdvancedOptions,
@@ -236,6 +238,12 @@ impl OpenAuthOptions {
     }
 
     #[must_use]
+    pub fn init_database_hooks(mut self, hooks: InitDatabaseHooksOptions) -> Self {
+        self.init_database_hooks = hooks;
+        self
+    }
+
+    #[must_use]
     pub fn database_hook(mut self, hook: PluginDatabaseHook) -> Self {
         self.database_hooks.push(hook);
         self
@@ -330,6 +338,7 @@ impl fmt::Debug for OpenAuthOptions {
             .field("verification", &self.verification)
             .field("hooks", &self.hooks)
             .field("on_api_error", &self.on_api_error)
+            .field("init_database_hooks", &self.init_database_hooks)
             .field("database_hooks", &self.database_hooks)
             .field("logger", &"<logger-options>")
             .field("advanced", &self.advanced)

@@ -4,6 +4,8 @@ use std::sync::Arc;
 use crate::api::ApiRequest;
 use crate::error::OpenAuthError;
 
+use super::model_schema::ModelSchemaOptions;
+
 pub trait TrustedProvidersProvider: Send + Sync + 'static {
     fn trusted_providers(&self) -> Result<Vec<String>, OpenAuthError>;
 }
@@ -42,6 +44,7 @@ where
 /// Account and OAuth account behavior.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountOptions {
+    pub schema: ModelSchemaOptions,
     pub update_account_on_sign_in: bool,
     pub encrypt_oauth_tokens: bool,
     pub store_account_cookie: bool,
@@ -53,6 +56,7 @@ pub struct AccountOptions {
 impl Default for AccountOptions {
     fn default() -> Self {
         Self {
+            schema: ModelSchemaOptions::default(),
             update_account_on_sign_in: true,
             encrypt_oauth_tokens: false,
             store_account_cookie: false,
@@ -70,6 +74,12 @@ impl AccountOptions {
 
     pub fn builder() -> Self {
         Self::new()
+    }
+
+    #[must_use]
+    pub fn schema(mut self, schema: ModelSchemaOptions) -> Self {
+        self.schema = schema;
+        self
     }
 
     #[must_use]

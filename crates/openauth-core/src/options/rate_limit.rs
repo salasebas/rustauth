@@ -6,11 +6,13 @@ use std::time::Duration;
 
 use http::Request;
 
+use super::model_schema::ModelSchemaOptions;
 use crate::error::OpenAuthError;
 
 /// Rate limiting defaults.
 #[derive(Clone)]
 pub struct RateLimitOptions {
+    pub schema: ModelSchemaOptions,
     pub enabled: Option<bool>,
     pub window: u64,
     pub max: u64,
@@ -27,6 +29,7 @@ pub struct RateLimitOptions {
 impl Default for RateLimitOptions {
     fn default() -> Self {
         Self {
+            schema: ModelSchemaOptions::default(),
             enabled: None,
             window: 10,
             max: 100,
@@ -49,6 +52,12 @@ impl RateLimitOptions {
 
     pub fn builder() -> Self {
         Self::new()
+    }
+
+    #[must_use]
+    pub fn schema(mut self, schema: ModelSchemaOptions) -> Self {
+        self.schema = schema;
+        self
     }
 
     pub fn memory() -> Self {

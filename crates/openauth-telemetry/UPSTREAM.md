@@ -5,7 +5,7 @@
 | Parity pin | Better Auth `1.6.9` |
 | Upstream package/path | `@better-auth/telemetry` server entry at `reference/upstream-src/1.6.9/repository/packages/telemetry/src/node.ts` |
 | Rust crate | `openauth-telemetry` |
-| Parity level | High for publisher contract and anonymized payload shape; partial for host detectors |
+| Parity level | High for publisher contract, anonymized payload shape, and auth config snapshot; partial only for host CPU/memory metrics |
 | Scope | Server/runtime telemetry only |
 
 ## Summary
@@ -30,7 +30,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Debug mode | ✅ | Debug skips HTTP posting and prints JSON. |
 | Init event payload | ✅ | Emits `type`, `anonymousId`, and Better Auth-shaped `payload` with `config`, runtime, database, framework, environment, system info, and package manager. |
 | Anonymous project ID | ✅ | Mirrors package/base URL/random fallback using Cargo package name instead of `package.json` name. |
-| Auth config snapshot | ⚠️ | Shape matches upstream where OpenAuth options exist; unavailable Better Auth branches emit `null`, booleans, or static defaults. |
+| Auth config snapshot | ✅ | Shape matches upstream for modeled options, including `modelName`/`fields` aliases (redacted) and structured per-model `init_database_hooks` presence. |
 | Social provider snapshot | ⚠️ | Covered behind `--features oauth`; provider credentials are redacted. |
 | Runtime detection | 🎯 | Reports `rust` and crate version instead of Node. |
 | Database/framework detection | 🎯 | Reads `Cargo.toml` dependency signals instead of `package.json` or `node_modules`. |
@@ -43,7 +43,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Surface | OpenAuth tests | Upstream tests | Notes |
 | --- | --- | --- | --- |
 | Publisher/init/no-op/env/debug/custom track | 19 integration tests | 5 server-relevant Vitest cases in `src/telemetry.test.ts` | Rust expands upstream cases for hard opt-out, endpoint/custom precedence, empty endpoint, debug env, async custom sink, and publish reuse. |
-| Auth config snapshot | 1 default integration test | Covered inside upstream init payload test | Verifies modeled fields and redaction of secrets, base URL, DB names, and default values. |
+| Auth config snapshot | 3 integration tests | Covered inside upstream init payload test | Verifies modeled fields, schema alias presence, init `databaseHooks`, hook/logger/API-error presence, and redaction of secrets, base URL, DB names, and default values. |
 | OAuth social-provider snapshot | 1 feature-gated integration test | Covered by upstream social provider config fields | Run with `--features oauth` when changing provider telemetry. |
 | Rust detector units | 13 unit tests | Detector behavior mocked in upstream test | Covers Cargo manifest detection, env parsing, deployment vendor, system info basics, and package-manager detection. |
 | Verify command | `cargo nextest run -p openauth-telemetry` | `pnpm --filter @better-auth/telemetry test` upstream equivalent | Add `cargo nextest run -p openauth-telemetry --features oauth` for OAuth snapshot coverage. |
@@ -65,13 +65,16 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 
 ## Open Gaps / Risks
 
-| ID | Gap | Severity | Notes |
-| --- | --- | --- | --- |
-| TEL-1 | Some config branches remain `null` or static defaults | Medium | Model/field aliases, database hooks, logger hooks, and API error callbacks need matching `openauth-core` option surfaces first. |
-| TEL-2 | Host system metrics are shallow | Low | `cpuModel`, `cpuSpeed`, and `memory` stay `null` without a platform sysinfo dependency. |
-| TEL-3 | OAuth snapshot is feature-gated | Low | Run the OAuth feature test when changing social-provider telemetry fields. |
-| TEL-4 | Collector delivery is not guaranteed | Low | TLS, proxy behavior, retry policy, batching, and multi-instance analytics semantics are outside this crate contract. |
-| TEL-5 | Cloudflare Worker user-agent detection is not mirrored | Low | Upstream also checks `navigator.userAgent`; Rust server hosts rely on deployment env vars. |
+No open server-side parity gaps remain for this crate at pin `1.6.9`.
+
+## Out of scope / intentional (not tracked as gaps)
+
+| ID | Topic | Notes |
+| --- | --- | --- |
+| TEL-2 | Host system metrics | `cpuModel`, `cpuSpeed`, and `memory` stay `null` by design to avoid a `sysinfo` dependency; deployment vendor, OS, CPU count, Docker, WSL, TTY, and CI are reported. |
+| TEL-3 | OAuth snapshot feature gate | Direct `openauth-telemetry` consumers enable `--features oauth`; the umbrella `openauth` crate enables it via its `telemetry` feature. |
+| TEL-4 | Collector delivery guarantees | TLS, proxy behavior, retry policy, batching, and multi-instance analytics semantics are outside this crate contract (logs-and-continues transport only). |
+| TEL-5 | Cloudflare Worker user-agent | Upstream checks `navigator.userAgent === "Cloudflare-Workers"`; Rust server hosts use deployment env vars only (no browser runtime). |
 
 ## Hardening Notes
 

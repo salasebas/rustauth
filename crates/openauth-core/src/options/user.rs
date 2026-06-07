@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use http::Request;
 
+use super::model_schema::ModelSchemaOptions;
 use crate::db::{DbFieldType, DbValue, User};
 use crate::error::OpenAuthError;
 
 /// User lifecycle configuration.
 #[derive(Debug, Clone, Default)]
 pub struct UserOptions {
+    pub schema: ModelSchemaOptions,
     pub change_email: ChangeEmailOptions,
     pub delete_user: DeleteUserOptions,
     pub additional_fields: BTreeMap<String, UserAdditionalField>,
@@ -22,6 +24,12 @@ impl UserOptions {
 
     pub fn builder() -> Self {
         Self::new()
+    }
+
+    #[must_use]
+    pub fn schema(mut self, schema: ModelSchemaOptions) -> Self {
+        self.schema = schema;
+        self
     }
 
     #[must_use]

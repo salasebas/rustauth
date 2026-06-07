@@ -7,6 +7,8 @@ mod cookies;
 mod email_password;
 mod email_verification;
 pub(crate) mod hooks;
+mod init_database_hooks;
+mod model_schema;
 mod origins;
 mod password;
 mod rate_limit;
@@ -32,6 +34,12 @@ pub use email_verification::{
     EmailVerificationOptions, SendVerificationEmail, VerificationEmail,
 };
 pub use hooks::{GlobalAfterHook, GlobalBeforeHook, GlobalHookAction, GlobalHooksOptions};
+pub use init_database_hooks::{
+    plugin_database_hooks_from_init, DatabaseModelHooks, DatabaseOperationHooks,
+    InitDatabaseAfterHook, InitDatabaseBeforeAction, InitDatabaseBeforeHook,
+    InitDatabaseHooksOptions,
+};
+pub use model_schema::ModelSchemaOptions;
 pub use origins::{TrustedOriginOptions, TrustedOriginsProvider};
 pub use password::{
     OnPasswordReset, PasswordOptions, PasswordResetEmail, PasswordResetPayload, SendResetPassword,
