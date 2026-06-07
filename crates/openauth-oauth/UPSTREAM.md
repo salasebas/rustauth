@@ -30,7 +30,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | `validateToken` / JWKS verification | ✅ Implemented | Upstream defines `validateToken` in `validate-authorization-code.ts`; Rust maps it to `token_validation.rs` and covers RS256, ES256, EdDSA, kid lookup, empty/missing JWKS, audience, issuer, and temporal claims. |
 | `verifyJwsAccessToken` / `verifyAccessToken` | ✅ Implemented | Supports local JWS verification, `VerifyAccessTokenRemote`, opaque-token fallback, remote introspection, active flag, audience, issuer, and scopes. |
 | JWKS cache | 🎯 Hardened | Per-process cache is keyed by URL with TTL and entry limits; refetches on unknown `kid`. |
-| Provider trait | ⚠️ Partial | Rust `SocialOAuthProvider` models the server-side provider callbacks with an idiomatic trait. |
+| Provider trait | 🎯 Intentional Rust API | Rust `SocialOAuthProvider` models the observable server-side provider callbacks as an idiomatic trait rather than cloning upstream's TypeScript callback object shape. |
 | Rust module splits | 🎯 Hardened | `error.rs`, `request.rs`, `types.rs`, `http.rs`, `ssrf.rs`, and `claims.rs` split validation, transport, and claim handling beyond upstream's file layout. |
 | OAuth state, account linking, token encryption | ➖ Out of scope | Upstream `packages/better-auth/src/oauth2/{state,link-account,utils,errors}.ts`; covered by `openauth-core/src/auth/oauth/`. |
 | HTTP routes, cookies, sessions, schema | ➖ Out of scope | Server runtime behavior covered by `openauth-core`, provider crates, and integration crates. |
@@ -72,10 +72,10 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 
 | ID | Gap | Severity | Notes |
 | --- | --- | --- | --- |
-| OA-OAUTH-1 | Route, cookie, account-linking, token persistence, OAuth state, and schema parity are not in this crate | Medium | Audit those in `openauth-core/src/auth/oauth/` and `openauth-social-providers`. |
-| OA-OAUTH-2 | `SocialOAuthProvider` is not a one-to-one shape clone of upstream's provider callback object | Low | Intentional Rust API shape; verify sibling provider crates against behavior. |
-| OA-OAUTH-3 | No live provider conformance matrix | Medium | Shared wire contracts are covered, but provider-specific quirks require integration or smoke tests. |
-| OA-OAUTH-4 | JWKS cache is in-process only | Low | Multi-instance deployments refetch independently and do not share cache state. |
+| OA-OAUTH-1 | Route, cookie, account-linking, token persistence, OAuth state, and schema parity are out of scope for this crate | ➖ | Upstream `packages/better-auth/src/oauth2/*` and API route behavior belongs to `openauth-core/src/auth/oauth/`, provider crates, or integration crates; no `openauth-oauth` helper work remains for this item. |
+| OA-OAUTH-2 | `SocialOAuthProvider` is not a one-to-one shape clone of upstream's provider callback object | 🎯 | Intentional Rust API shape. The trait preserves the server-observable callbacks (`createAuthorizationURL`, `validateAuthorizationCode`, `getUserInfo`, optional refresh/revoke/ID-token verification) with typed requests, explicit errors, and default unsupported behavior. |
+| OA-OAUTH-3 | Live provider conformance matrix is not maintained in this helper crate | ➖ | Provider-specific quirks belong to `openauth-social-providers` and integration smoke tests. This crate covers shared OAuth wire contracts without requiring live third-party provider credentials. |
+| OA-OAUTH-4 | JWKS cache is in-process only | 🎯 | Intentional hardening tradeoff: the cache is URL-keyed, TTL-bound, entry-limited, and clearable, but not shared across service instances. Multi-instance deployments refetch independently. |
 
 ## Hardening
 
