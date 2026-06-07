@@ -57,6 +57,17 @@ pub type PluginOnResponse = Arc<
         + Send
         + Sync,
 >;
+pub type PluginOnResponseAsyncFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(), OpenAuthError>> + Send + 'a>>;
+pub type PluginOnResponseAsync = Arc<
+    dyn for<'a> Fn(
+            &'a AuthContext,
+            &'a PluginRequest,
+            &'a PluginResponse,
+        ) -> PluginOnResponseAsyncFuture<'a>
+        + Send
+        + Sync,
+>;
 pub type PluginMiddlewareHandler = Arc<
     dyn Fn(&AuthContext, &PluginRequest) -> Result<Option<PluginResponse>, OpenAuthError>
         + Send
@@ -76,6 +87,7 @@ pub struct AuthPlugin {
     pub async_middlewares: Vec<PluginAsyncMiddleware>,
     pub on_request: Option<PluginOnRequest>,
     pub on_response: Option<PluginOnResponse>,
+    pub on_response_async: Option<PluginOnResponseAsync>,
     pub init: Option<PluginInitHandler>,
     pub schema: Vec<PluginSchemaContribution>,
     pub rate_limit: Vec<PluginRateLimitRule>,
@@ -99,6 +111,7 @@ impl AuthPlugin {
             async_middlewares: Vec::new(),
             on_request: None,
             on_response: None,
+            on_response_async: None,
             init: None,
             schema: Vec::new(),
             rate_limit: Vec::new(),
@@ -302,6 +315,23 @@ impl AuthPlugin {
         self.on_response = Some(Arc::new(hook));
         self
     }
+
+    /// Async hook run during async response finalization after session hydration
+    /// and before synchronous `on_response` hooks.
+    pub fn with_on_response_async<F>(mut self, hook: F) -> Self
+    where
+        F: for<'a> Fn(
+                &'a AuthContext,
+                &'a PluginRequest,
+                &'a PluginResponse,
+            ) -> PluginOnResponseAsyncFuture<'a>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.on_response_async = Some(Arc::new(hook));
+        self
+    }
 }
 
 impl fmt::Debug for AuthPlugin {
@@ -316,6 +346,10 @@ impl fmt::Debug for AuthPlugin {
             .field("async_middlewares", &self.async_middlewares)
             .field("on_request", &self.on_request.as_ref().map(|_| "<hook>"))
             .field("on_response", &self.on_response.as_ref().map(|_| "<hook>"))
+            .field(
+                "on_response_async",
+                &self.on_response_async.as_ref().map(|_| "<hook>"),
+            )
             .field("init", &self.init.as_ref().map(|_| "<init>"))
             .field("schema", &self.schema)
             .field("rate_limit", &self.rate_limit)

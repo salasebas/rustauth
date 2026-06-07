@@ -77,6 +77,19 @@ pub(super) fn run_on_response_plugins(
     Ok(response)
 }
 
+pub(super) async fn run_on_response_async_plugins(
+    context: &AuthContext,
+    request: &ApiRequest,
+    response: &ApiResponse,
+) -> Result<(), OpenAuthError> {
+    for plugin in &context.plugins {
+        if let Some(hook) = &plugin.on_response_async {
+            hook(context, request, response).await?;
+        }
+    }
+    Ok(())
+}
+
 /// Apply rate-limit bookkeeping and plugin `on_response` hooks before returning.
 pub(super) fn finalize_response(
     context: &AuthContext,
@@ -87,13 +100,14 @@ pub(super) fn finalize_response(
     run_on_response_plugins(context, request, response)
 }
 
-/// Async finalize: hydrate session user for i18n, then sync finalize.
+/// Async finalize: hydrate session user, run async response hooks, then sync finalize.
 pub(super) async fn finalize_response_async(
     context: &AuthContext,
     request: &ApiRequest,
     response: ApiResponse,
 ) -> Result<ApiResponse, OpenAuthError> {
     ensure_session_user_in_request_state(context, request).await?;
+    run_on_response_async_plugins(context, request, &response).await?;
     finalize_response(context, request, response)
 }
 

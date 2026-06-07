@@ -35,6 +35,10 @@ Versioning while the API is still pre-1.0.
 
 ### Added
 
+- `openauth-i18n`: `AsyncLocaleResolver` and `I18nOptions::get_locale_async`
+  for Better Auth 1.6.9 async `getLocale` callbacks on `AuthRouter::handle_async`.
+- `openauth-core`: `AuthPlugin::with_on_response_async` hook run during async
+  response finalization (before synchronous `on_response` hooks).
 - `openauth-passkey`: `PasskeySchemaOptions` and `PasskeyOptions::schema` for
   physical passkey table/column renames (Better Auth `options.schema` /
   `mergeSchema` server parity).

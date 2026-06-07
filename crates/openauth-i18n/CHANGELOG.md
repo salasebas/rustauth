@@ -2,6 +2,14 @@
 
 All notable changes to `openauth-i18n` are documented in this file.
 
+## Unreleased
+
+### Added
+
+- `AsyncLocaleResolver` and `I18nOptions::get_locale_async` for Better Auth
+  `getLocale` callbacks that return a `Promise`, wired through
+  `openauth-core` `on_response_async` on async router paths.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added

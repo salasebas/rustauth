@@ -9,9 +9,9 @@ OpenAuth is inspired by Better Auth; it is not a line-by-line port.
 | **Upstream package** | `@better-auth/i18n` |
 | **Upstream path** | `reference/upstream-src/1.6.9/repository/packages/i18n/` |
 | **Rust crate** | `crates/openauth-i18n/` |
-| **Parity level** | **~97%** (server plugin) |
+| **Parity level** | **~99%** (server plugin) |
 | **Scope** | Server plugin only: error-message translation via response hook. No HTTP routes, DB schema, migrations, adapters, or rate limits. Re-exported from `openauth` with feature `i18n`. |
-| **Audit status** | **Complete (server-only, 2026-06-05)** |
+| **Audit status** | **Complete (server-only, 2026-06-07)** |
 
 ### Upstream server files (audited)
 
@@ -36,8 +36,8 @@ look up `code` in the translation dictionary, replace `message`, and set `origin
 The plugin owns no routes—it hooks `on_response` after handlers and router early exits
 (`openauth-core` `finalize_response` / `finalize_response_async`). Rust adds explicit config
 validation, case-insensitive locale catalogs, richer `Accept-Language` matching, typed error-code
-keys, optional `resolve_user_locale`, and async session user hydration before the hook on the
-async router path. Remaining partial gap: async `getLocale` callbacks.
+keys, optional `resolve_user_locale`, async session user hydration before the hook on the
+async router path, and async `get_locale_async` callbacks via `on_response_async`.
 
 Status symbols are defined in the [parity index](../../docs/parity/README.md#status-symbols).
 
@@ -53,17 +53,17 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | No endpoints / schema / migrations | ✅ | Plugin-only surface |
 | Router early exits (404, rate limit, `INVALID_ORIGIN`) | 🎯 | `finalize_response(_async)` runs `on_response` hooks |
 | Session locale from DB | 🎯 | `ensure_session_user_in_request_state` + optional `resolve_user_locale` |
-| Async `getLocale` callback | ⚠️ | Sync `LocaleResolver` only today |
+| Async `getLocale` callback | ✅ | `get_locale_async` on `AuthRouter::handle_async` via `on_response_async` |
 | `isAPIError` gate before translate | 🎯 | OpenAuth uses status + JSON `code` on `on_response` (broader, still skips success) |
 
 ## Test coverage
 
 | Surface | OpenAuth (Rust) | Upstream | Notes |
 | --- | --- | --- | --- |
-| Integration scenarios | 48 | 15 `it()` | `tests/i18n.rs` ↔ `src/i18n.test.ts` |
+| Integration scenarios | 50 | 15 `it()` | `tests/i18n.rs` ↔ `src/i18n.test.ts` |
 | Unit tests (`src/`) | 16 | — | `accept_language`, `locale`, `cookie`, `response` |
 | Test harness | `tests/common/mod.rs` | `better-auth/test` | In-memory adapter + async router |
-| **Total** | **64** | **15** | Rust superset: config validation, early exits, hydration, content-type gates |
+| **Total** | **66** | **15** | Rust superset: config validation, early exits, hydration, content-type gates |
 
 ```bash
 cargo nextest run -p openauth-i18n
@@ -81,7 +81,7 @@ Cross-crate: `openauth-core` session hydration (`session_request_state.rs`) is c
 | Locale key matching | Exact dictionary keys | Case-insensitive catalog; rejects duplicates after normalization | Safer configuration |
 | `Accept-Language` | Strips to base language in parser (`fr-CA` → `fr`) | Keeps full tags; exact region before base fallback | Finer control when both `pt` and `pt-BR` exist |
 | Error translation gate | `isAPIError(returned)` in `hooks.after` | Non-success `application/json` with string `code` on `on_response` | Typed pipeline; also covers router/plugin short-circuits |
-| `getLocale` | May return `Promise` | Sync `Fn` callback only | Response hooks are synchronous today |
+| `getLocale` | May return `Promise` | `get_locale` sync; `get_locale_async` on async router paths | Sync `AuthRouter::handle` keeps sync callbacks only |
 | Error code keys | String dictionary keys | `translation_dictionary` + `ApiErrorCode` / `AuthFlowErrorCode` | Compile-time keys without bundling translations |
 | Session locale | Reads `ctx.context.session.user` field synchronously | `resolve_user_locale` + async cookie hydration on `handle_async` | DB-backed sessions in OpenAuth |
 | Translation mechanism | Throws new `APIError` | Mutates response body in place | Same observable JSON contract |
@@ -90,11 +90,10 @@ Cross-crate: `openauth-core` session hydration (`session_request_state.rs`) is c
 
 | ID | Gap / risk | Severity | Notes |
 | --- | --- | --- | --- |
-| G1 | Async `getLocale` not exposed | Med | Use `resolve_user_locale` or pre-set request state until async response hooks exist |
-| G2 | Session detection on sync `handle()` | Med | `AuthRouter::handle` skips cookie hydration; needs `handle_async` or `resolve_user_locale` |
-| G3 | Fail-open missing translations | Low | Unknown `code` leaves original `message`; cover every exposed code per locale |
-| G4 | `application/json` gate only | Low | Plain-text or HTML error pages are not translated |
-| G5 | Broader translate gate vs `isAPIError` | Low | Non-`ApiErrorResponse` JSON errors with `code` may translate in OpenAuth only |
+| G2 | Session detection on sync `handle()` | ➖ | Intentional: sync router cannot hydrate DB sessions; use `handle_async`, `resolve_user_locale`, or pre-set request state |
+| G3 | Fail-open missing translations | ➖ | Intentional (matches upstream): unknown `code` leaves original `message`; operators must cover exposed codes |
+| G4 | `application/json` gate only | ➖ | Intentional: server JSON API errors only; HTML/plain-text pages are out of scope |
+| G5 | Broader translate gate vs `isAPIError` | 🎯 | OpenAuth extension: non-`ApiErrorResponse` JSON errors with `code` translate on `on_response` |
 
 ## Hardening notes
 
@@ -120,6 +119,7 @@ Cross-crate: `openauth-core` session hydration (`session_request_state.rs`) is c
 | Locale catalog / matching | `src/locale.rs` |
 | Config validation | `src/error.rs` |
 | `finalize_response_async` session hydration | `openauth-core/src/api/session_request_state.rs` |
+| `on_response_async` (async locale pre-detection) | `openauth-core/src/api/plugin_pipeline.rs` |
 | `src/i18n.test.ts` | `tests/i18n.rs`, `tests/common/mod.rs` |
 
 5. Add a failing Rust test before behavior changes; match JSON shape, locale selection,

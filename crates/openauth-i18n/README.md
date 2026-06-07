@@ -11,8 +11,8 @@ preserves the original message as `originalMessage`.
 ## What It Provides
 
 - Translation dictionaries keyed by OpenAuth error code.
-- Locale detection from `Accept-Language`, cookies, session fields, or a
-  synchronous resolver callback.
+- Locale detection from `Accept-Language`, cookies, session fields, or sync/async
+  resolver callbacks.
 - Fallback locale handling.
 - A server-side plugin that can be registered with `OpenAuth::builder()`.
 
@@ -56,8 +56,9 @@ let auth = OpenAuth::builder()
   before `pt`.
 - Cookie detection defaults to the `locale` cookie.
 - Session detection defaults to a user/session `locale` field.
-- Async locale callbacks are not exposed yet because response hooks are
-  currently synchronous.
+- Async locale callbacks use `get_locale_async` and require
+  `AuthRouter::handle_async` (or the OpenAuth async server path). Sync
+  `AuthRouter::handle` keeps synchronous `get_locale` only.
 
 ## Status
 

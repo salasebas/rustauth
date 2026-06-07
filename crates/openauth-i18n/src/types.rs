@@ -6,10 +6,22 @@ use openauth_core::auth::email_password::AuthFlowErrorCode;
 use openauth_core::context::AuthContext;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 /// Sync resolver for locale from the incoming request (callback / session hooks).
 pub type LocaleResolver = Arc<dyn Fn(&AuthContext, &ApiRequest) -> Option<String> + Send + Sync>;
+
+/// Async resolver for locale from the incoming request (callback strategy on async router paths).
+pub type AsyncLocaleResolver = Arc<
+    dyn for<'a> Fn(
+            &'a AuthContext,
+            &'a ApiRequest,
+        ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>>
+        + Send
+        + Sync,
+>;
 
 /// Locale detection strategy order (checked in sequence until one yields a locale).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,8 +110,10 @@ pub struct I18nOptions {
     pub locale_cookie: String,
     /// Session user field name for applications that map custom user locale fields. Default: `"locale"`.
     pub user_locale_field: String,
-    /// Used when [`LocaleDetectionStrategy::Callback`] is enabled (sync only; Better Auth allows async).
+    /// Used when [`LocaleDetectionStrategy::Callback`] is enabled on synchronous router paths.
     pub get_locale: Option<LocaleResolver>,
+    /// Used when [`LocaleDetectionStrategy::Callback`] is enabled on [`AuthRouter::handle_async`](openauth_core::api::AuthRouter::handle_async).
+    pub get_locale_async: Option<AsyncLocaleResolver>,
     /// Used when [`LocaleDetectionStrategy::Session`] is enabled — return the user’s stored locale (e.g. after loading session).
     pub resolve_user_locale: Option<LocaleResolver>,
 }
@@ -136,6 +150,7 @@ impl I18nOptions {
             locale_cookie: "locale".to_owned(),
             user_locale_field: "locale".to_owned(),
             get_locale: None,
+            get_locale_async: None,
             resolve_user_locale: None,
         }
     }
@@ -167,9 +182,15 @@ impl I18nOptions {
         self
     }
 
-    /// Set the callback resolver used by [`LocaleDetectionStrategy::Callback`].
+    /// Set the synchronous callback resolver used by [`LocaleDetectionStrategy::Callback`].
     pub fn get_locale(mut self, resolver: LocaleResolver) -> Self {
         self.get_locale = Some(resolver);
+        self
+    }
+
+    /// Set the async callback resolver used by [`LocaleDetectionStrategy::Callback`].
+    pub fn get_locale_async(mut self, resolver: AsyncLocaleResolver) -> Self {
+        self.get_locale_async = Some(resolver);
         self
     }
 
@@ -192,6 +213,13 @@ impl fmt::Debug for I18nOptions {
             .field(
                 "get_locale",
                 &self.get_locale.as_ref().map(|_| "<locale-resolver>"),
+            )
+            .field(
+                "get_locale_async",
+                &self
+                    .get_locale_async
+                    .as_ref()
+                    .map(|_| "<async-locale-resolver>"),
             )
             .field(
                 "resolve_user_locale",

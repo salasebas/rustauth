@@ -16,8 +16,8 @@ use openauth_core::context::{create_auth_context, request_state::set_current_ses
 use openauth_core::crypto::password::hash_password;
 use openauth_core::options::OpenAuthOptions;
 use openauth_i18n::{
-    i18n, translation_dictionary, I18nConfigError, I18nOptions, LocaleDetectionStrategy,
-    LocaleResolver,
+    i18n, translation_dictionary, AsyncLocaleResolver, I18nConfigError, I18nOptions,
+    LocaleDetectionStrategy, LocaleResolver,
 };
 use serde_json::{json, Value};
 use time::OffsetDateTime;
@@ -1061,6 +1061,100 @@ async fn callback_constant_locale_without_headers() -> Result<(), Box<dyn std::e
             Method::POST,
             "/api/auth/sign-in/email",
             r#"{"email":"ada@example.com","password":"wrongpassword"}"#,
+            None,
+        )?)
+        .await?;
+
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["message"], "Email ou mot de passe invalide");
+    Ok(())
+}
+
+#[tokio::test]
+async fn async_callback_constant_locale_without_headers() -> Result<(), Box<dyn std::error::Error>>
+{
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("other-password")?,
+            now,
+        ))
+        .await?;
+
+    let resolver: AsyncLocaleResolver =
+        Arc::new(|_ctx, _req| Box::pin(async { Some("fr".into()) }));
+    let opts = I18nOptions::new(base_translations())
+        .default_locale("en")
+        .detection([LocaleDetectionStrategy::Callback])
+        .get_locale_async(resolver);
+
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            plugins: vec![i18n(opts)?],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"wrongpassword"}"#,
+            None,
+        )?)
+        .await?;
+
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "INVALID_EMAIL_OR_PASSWORD");
+    assert_eq!(body["message"], "Email ou mot de passe invalide");
+    assert_eq!(body["originalMessage"], "Invalid email or password");
+    Ok(())
+}
+
+#[tokio::test]
+async fn async_callback_custom_header_locale() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_account(credential_account_record(
+            "user_1",
+            &hash_password("other-password")?,
+            now,
+        ))
+        .await?;
+
+    let resolver: AsyncLocaleResolver = Arc::new(|_ctx, req| {
+        let locale = req
+            .headers()
+            .get("x-custom-locale")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        Box::pin(async move { locale })
+    });
+    let opts = I18nOptions::new(base_translations())
+        .default_locale("en")
+        .detection([LocaleDetectionStrategy::Callback])
+        .get_locale_async(resolver);
+
+    let router = router_with_options(
+        adapter,
+        OpenAuthOptions {
+            plugins: vec![i18n(opts)?],
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let response = router
+        .handle_async(json_request_with_headers(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"wrongpassword"}"#,
+            &[("X-Custom-Locale", "fr")],
             None,
         )?)
         .await?;
