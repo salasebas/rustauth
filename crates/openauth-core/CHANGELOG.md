@@ -9,9 +9,15 @@ All notable changes to `openauth-core` are documented in this file.
 - **Breaking:** `EmailPasswordOptions::default()` now sets `enabled: false`.
   Email/password routes reject requests until callers opt in with
   `.email_password(EmailPasswordOptions::new().enabled(true))`.
+- **Breaking:** `SecondaryStorage` now includes compare-and-set and
+  conditional-delete hooks so distributed secondary-storage users can implement
+  atomic index updates.
 
 ### Added
 
+- Added typed `AuthPlugin::with_state` / `AuthPlugin::state` support so sibling
+  crates can discover plugin-owned runtime options without parsing public
+  metadata.
 - Added `db::ensure_executable_migration_plan`, a shared preflight that rejects
   migration plans containing non-executable warnings so every SQL adapter
   refuses warning/error plans identically before mutating the database.

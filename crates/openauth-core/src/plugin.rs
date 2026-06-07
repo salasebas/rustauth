@@ -1,5 +1,6 @@
 //! Plugin contracts for OpenAuth extensions.
 
+use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -98,6 +99,7 @@ pub struct AuthPlugin {
     #[cfg(feature = "oauth")]
     pub social_providers: Vec<Arc<dyn SocialOAuthProvider>>,
     pub password_validators: Vec<PluginPasswordValidator>,
+    pub state: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl AuthPlugin {
@@ -122,6 +124,7 @@ impl AuthPlugin {
             #[cfg(feature = "oauth")]
             social_providers: Vec::new(),
             password_validators: Vec::new(),
+            state: None,
         }
     }
 
@@ -262,6 +265,23 @@ impl AuthPlugin {
         self
     }
 
+    pub fn with_state<T>(mut self, state: T) -> Self
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        self.state = Some(Arc::new(state));
+        self
+    }
+
+    pub fn state<T>(&self) -> Option<Arc<T>>
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        self.state
+            .as_ref()
+            .and_then(|state| Arc::clone(state).downcast::<T>().ok())
+    }
+
     pub fn with_middleware<F>(mut self, path: impl Into<String>, middleware: F) -> Self
     where
         F: Fn(&AuthContext, &PluginRequest) -> Result<Option<PluginResponse>, OpenAuthError>
@@ -359,6 +379,7 @@ impl fmt::Debug for AuthPlugin {
             .field("migrations", &self.migrations)
             .field("social_providers", &debug_social_providers(self))
             .field("password_validators", &self.password_validators)
+            .field("state", &self.state.as_ref().map(|_| "<state>"))
             .finish()
     }
 }
