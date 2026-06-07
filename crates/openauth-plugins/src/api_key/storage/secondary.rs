@@ -188,7 +188,7 @@ fn ttl_seconds(api_key: &ApiKeyRecord) -> Option<u64> {
     u64::try_from(seconds).ok().filter(|seconds| *seconds > 0)
 }
 
-async fn mutate_ref_index<F>(
+pub(super) async fn mutate_ref_index<F>(
     storage: &dyn SecondaryStorage,
     ref_key: &str,
     mutate: F,

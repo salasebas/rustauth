@@ -63,6 +63,7 @@ clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
 inquire = "0.7"
 openauth-oauth = { path = "crates/openauth-oauth", version = "0.0.6", default-features = false }
+openauth-fred = { path = "crates/openauth-fred", version = "0.0.6" }
 openauth-plugins = { path = "crates/openauth-plugins", version = "0.0.6" }
 openauth-passkey = { path = "crates/openauth-passkey", version = "0.0.6" }
 openauth-redis = { path = "crates/openauth-redis", version = "0.0.6" }

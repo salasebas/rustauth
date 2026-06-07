@@ -14,8 +14,9 @@ All notable changes to `openauth-redis` are documented in this file.
   `openauth-fred`.
 - `connect_with_options`, `connect_redis`, and `connect_valkey` on both stores.
 - `scan_count` on `RedisSecondaryStorageOptions`.
-- Live Redis/Valkey coverage for `RedisSecondaryStorage::set_if_not_exists`
-  atomic create-once behavior and TTL expiry.
+- Live Redis/Valkey coverage runs the shared `SecondaryStorage` contract suite,
+  including `set_if_not_exists`, `compare_and_set`, `delete_if_value`, `take`,
+  atomic concurrency behavior, and TTL expiry.
 
 ### Fixed
 

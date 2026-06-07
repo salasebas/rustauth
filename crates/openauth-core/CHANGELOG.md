@@ -9,12 +9,15 @@ All notable changes to `openauth-core` are documented in this file.
 - **Breaking:** `EmailPasswordOptions::default()` now sets `enabled: false`.
   Email/password routes reject requests until callers opt in with
   `.email_password(EmailPasswordOptions::new().enabled(true))`.
-- **Breaking:** `SecondaryStorage` now includes compare-and-set and
-  conditional-delete hooks so distributed secondary-storage users can implement
-  atomic index updates.
+- **Breaking:** `SecondaryStorage::compare_and_set` and
+  `SecondaryStorage::delete_if_value` are now required methods. Implementations
+  must provide real atomic compare-and-write/delete semantics instead of
+  inheriting a best-effort `get` + write default.
 
 ### Added
 
+- Added the `test-utils` feature with a reusable `SecondaryStorage` contract
+  suite that storage adapter crates can run against their live implementations.
 - Added typed `AuthPlugin::with_state` / `AuthPlugin::state` support so sibling
   crates can discover plugin-owned runtime options without parsing public
   metadata.

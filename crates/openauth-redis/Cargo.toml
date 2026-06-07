@@ -19,6 +19,9 @@ openauth-core.workspace = true
 redis = { version = "0.32", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
 tokio.workspace = true
 
+[dev-dependencies]
+openauth-core = { workspace = true, features = ["test-utils"] }
+
 [features]
 default = []
 native-tls = ["redis/tokio-native-tls-comp"]

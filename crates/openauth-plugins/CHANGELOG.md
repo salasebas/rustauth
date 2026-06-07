@@ -47,6 +47,13 @@ All notable changes to `openauth-plugins` are documented in this file.
   pure `SecondaryStorage` mode by using the new atomic compare-and-set storage
   contract, so multi-process create/delete races no longer drop live keys from
   `/api-key/list` on atomic backends.
+- Pure `SecondaryStorage` API-key listing now prunes stale ids from the
+  `api-key:by-ref:*` index when the referenced `api-key:by-id:*` record is
+  missing, preventing expired or orphaned records from accumulating in the
+  listing index.
+- Added live Redis/Fred coverage for concurrent API-key creates in pure
+  `SecondaryStorage` mode so the production backends exercise the same
+  `/api-key/list` reference-index race as the in-memory regression test.
 - Added `organization::provision_organization_member` so sibling crates can
   create org memberships through the organization plugin's hooks, limits, and
   role validation instead of writing `member` rows directly.

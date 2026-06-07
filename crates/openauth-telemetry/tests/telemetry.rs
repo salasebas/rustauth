@@ -551,6 +551,24 @@ impl openauth_core::options::SecondaryStorage for TestSecondaryStorage {
     ) -> openauth_core::options::SecondaryStorageFuture<'a, Option<String>> {
         Box::pin(async move { Ok(None) })
     }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        _key: &'a str,
+        _expected: Option<String>,
+        _value: String,
+        _ttl_seconds: Option<u64>,
+    ) -> openauth_core::options::SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move { Ok(true) })
+    }
+
+    fn delete_if_value<'a>(
+        &'a self,
+        _key: &'a str,
+        _expected: Option<String>,
+    ) -> openauth_core::options::SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move { Ok(false) })
+    }
 }
 
 #[cfg(not(feature = "oauth"))]

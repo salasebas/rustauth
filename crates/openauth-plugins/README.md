@@ -49,11 +49,10 @@ authorization policy.
   crate.
 - API key storage can use the database and selected secondary-storage paths.
 - In pure `SecondaryStorage` mode (no database fallback) the `api-key:by-ref:*`
-  listing index is mutated through an in-process lock, so concurrent
-  create/delete on one process stay consistent. Multi-process deployments still
-  need a secondary-storage backend with atomic collection semantics, or the
-  database fallback, to keep `/api-key/list` from dropping concurrently written
-  keys.
+  listing index is mutated through atomic `compare_and_set` /
+  `delete_if_value`. Multi-process deployments need a secondary-storage backend
+  that implements those methods with real backend atomicity, or the database
+  fallback, to keep `/api-key/list` from dropping concurrently written keys.
 - OpenAPI support serves generated auth schemas and optional Scalar reference
   UI.
 

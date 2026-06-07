@@ -10,8 +10,9 @@ All notable changes to `openauth-fred` are documented in this file.
   secondary storage.
 - `FredOpenAuthStores::apply_to_options` wires `secondary_storage` and
   `RateLimitOptions::secondary_storage` in one call.
-- Live Redis/Valkey coverage for `FredSecondaryStorage::set_if_not_exists`
-  atomic create-once behavior and TTL expiry.
+- Live Redis/Valkey coverage runs the shared `SecondaryStorage` contract suite,
+  including `set_if_not_exists`, `compare_and_set`, `delete_if_value`, `take`,
+  atomic concurrency behavior, and TTL expiry.
 - `examples/full-app` Fred profiles now use `FredOpenAuthStores`, demonstrating
   shared Fred secondary storage plus distributed rate limiting.
 

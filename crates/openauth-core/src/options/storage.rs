@@ -37,6 +37,11 @@ pub trait SecondaryStorage: Send + Sync + 'static {
     /// Atomically replace the key only when the currently stored value matches
     /// `expected`. `expected == None` means the key must be absent.
     ///
+    /// Implementations must perform the comparison and replacement as a single
+    /// backend operation. A `get` followed by `set` is not sufficient for
+    /// shared or multi-process storage because concurrent writers can lose
+    /// updates between the read and write.
+    ///
     /// Returns `Ok(true)` when the replacement was applied.
     fn compare_and_set<'a>(
         &'a self,
@@ -44,33 +49,19 @@ pub trait SecondaryStorage: Send + Sync + 'static {
         expected: Option<String>,
         value: String,
         ttl_seconds: Option<u64>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            if self.get(key).await? != expected {
-                return Ok(false);
-            }
-            self.set(key, value, ttl_seconds).await?;
-            Ok(true)
-        })
-    }
+    ) -> SecondaryStorageFuture<'a, bool>;
 
     /// Atomically delete the key only when the currently stored value matches
     /// `expected`. `expected == None` means the key must already be absent and
     /// therefore no deletion is performed.
+    ///
+    /// Implementations must perform the comparison and deletion as a single
+    /// backend operation. A `get` followed by `delete` is not sufficient for
+    /// shared or multi-process storage because concurrent writers can race the
+    /// deletion.
     fn delete_if_value<'a>(
         &'a self,
         key: &'a str,
         expected: Option<String>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            let Some(expected) = expected else {
-                return Ok(false);
-            };
-            if self.get(key).await?.as_deref() != Some(expected.as_str()) {
-                return Ok(false);
-            }
-            self.delete(key).await?;
-            Ok(true)
-        })
-    }
+    ) -> SecondaryStorageFuture<'a, bool>;
 }

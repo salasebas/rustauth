@@ -260,6 +260,19 @@ impl TestSecondaryStorage {
         }
     }
 
+    pub fn remove_raw(&self, key: &str) {
+        if let Ok(mut values) = self.values.lock() {
+            values.remove(key);
+        }
+    }
+
+    pub fn value_for(&self, key: &str) -> Option<String> {
+        self.values
+            .lock()
+            .ok()
+            .and_then(|values| values.get(key).cloned())
+    }
+
     async fn maybe_delay_get(&self) {
         let active = self.active_gets.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_active_gets.fetch_max(active, Ordering::SeqCst);
@@ -426,12 +439,25 @@ impl SecondaryStorage for TestSecondaryStorage {
             if values.get(key).cloned() != expected {
                 return Ok(false);
             }
-            values.insert(key.to_owned(), value);
-            drop(values);
-            self.ttl
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .insert(key.to_owned(), ttl_seconds);
+            if ttl_seconds == Some(0) {
+                values.remove(key);
+                drop(values);
+                self.deleted
+                    .lock()
+                    .map_err(|error| {
+                        openauth_core::error::OpenAuthError::Adapter(error.to_string())
+                    })?
+                    .push(key.to_owned());
+            } else {
+                values.insert(key.to_owned(), value);
+                drop(values);
+                self.ttl
+                    .lock()
+                    .map_err(|error| {
+                        openauth_core::error::OpenAuthError::Adapter(error.to_string())
+                    })?
+                    .insert(key.to_owned(), ttl_seconds);
+            }
             Ok(true)
         })
     }

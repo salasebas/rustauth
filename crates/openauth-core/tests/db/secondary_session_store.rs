@@ -127,6 +127,57 @@ impl SecondaryStorage for TtlAwareSecondaryStorage {
             Ok(entries.remove(key).map(|entry| entry.value))
         })
     }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            self.purge_expired()?;
+            let mut entries = self.entries.lock().map_err(|_| {
+                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
+            })?;
+            if entries.get(key).map(|entry| entry.value.clone()) != expected {
+                return Ok(false);
+            }
+            let expires_at = match ttl_seconds {
+                None => None,
+                Some(0) => {
+                    entries.remove(key);
+                    return Ok(true);
+                }
+                Some(seconds) => {
+                    Some(OffsetDateTime::now_utc() + Duration::seconds(seconds as i64))
+                }
+            };
+            entries.insert(key.to_owned(), StoredEntry { value, expires_at });
+            Ok(true)
+        })
+    }
+
+    fn delete_if_value<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            self.purge_expired()?;
+            let Some(expected) = expected else {
+                return Ok(false);
+            };
+            let mut entries = self.entries.lock().map_err(|_| {
+                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
+            })?;
+            if entries.get(key).map(|entry| entry.value.as_str()) != Some(expected.as_str()) {
+                return Ok(false);
+            }
+            entries.remove(key);
+            Ok(true)
+        })
+    }
 }
 
 fn secondary_store(

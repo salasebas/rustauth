@@ -207,6 +207,49 @@ impl SecondaryStorage for InMemorySecondaryStorage {
             Ok(entries.remove(key))
         })
     }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let mut entries = self.entries.lock().map_err(|_| {
+                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
+            })?;
+            if entries.get(key).cloned() != expected {
+                return Ok(false);
+            }
+            if ttl_seconds == Some(0) {
+                entries.remove(key);
+            } else {
+                entries.insert(key.to_owned(), value);
+            }
+            Ok(true)
+        })
+    }
+
+    fn delete_if_value<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let Some(expected) = expected else {
+                return Ok(false);
+            };
+            let mut entries = self.entries.lock().map_err(|_| {
+                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
+            })?;
+            if entries.get(key).map(String::as_str) != Some(expected.as_str()) {
+                return Ok(false);
+            }
+            entries.remove(key);
+            Ok(true)
+        })
+    }
 }
 
 /// Build a seeded router that resolves sessions/challenges from secondary storage only.

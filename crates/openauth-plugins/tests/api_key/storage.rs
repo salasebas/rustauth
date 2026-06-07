@@ -2,10 +2,13 @@ use std::sync::Arc;
 
 use http::{Method, StatusCode};
 use openauth_core::db::{DbAdapter, DbValue, Delete, MemoryAdapter, Update, Where};
+use openauth_core::options::SecondaryStorage;
+use openauth_fred::{FredSecondaryStorage, FredSecondaryStorageOptions};
 use openauth_plugins::api_key::{
     api_key_with_options, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions,
     ApiKeyStorageMode, API_KEY_MODEL, INVALID_API_KEY,
 };
+use openauth_redis::{RedisSecondaryStorage, RedisSecondaryStorageOptions};
 use serde_json::json;
 use time::{Duration, OffsetDateTime};
 
@@ -681,4 +684,265 @@ async fn secondary_storage_concurrent_creates_keep_both_ids_in_ref_index(
         "second concurrently-created key id missing from list: {listed_ids:?}"
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn secondary_storage_list_prunes_zombie_ids_from_ref_index(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let storage = Arc::new(TestSecondaryStorage::default());
+    let router = test_router(
+        adapter,
+        api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                storage: ApiKeyStorageMode::SecondaryStorage,
+                custom_storage: Some(storage.clone()),
+                ..ApiKeyConfiguration::default()
+            },
+        }),
+    )?;
+    let user = sign_up(&router, "Zombie", "zombie-api@example.com").await?;
+
+    let first = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name": "live"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    let second = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name": "zombie"}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(first.status, StatusCode::OK);
+    assert_eq!(second.status, StatusCode::OK);
+    let live_id = first.body["id"].as_str().ok_or("missing live id")?;
+    let zombie_id = second.body["id"].as_str().ok_or("missing zombie id")?;
+
+    storage.remove_raw(&format!("api-key:by-id:{zombie_id}"));
+
+    let listed = request_json(
+        &router,
+        Method::GET,
+        "/api/auth/api-key/list",
+        serde_json::Value::Null,
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["total"], 1);
+    assert_eq!(listed.body["apiKeys"][0]["id"], live_id);
+
+    let ref_index = storage
+        .value_for(&format!("api-key:by-ref:{}", user.user_id))
+        .ok_or("missing repaired ref index")?;
+    let indexed_ids = serde_json::from_str::<Vec<String>>(&ref_index)?;
+    assert_eq!(indexed_ids, vec![live_id.to_owned()]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn live_atomic_secondary_storage_concurrent_creates_keep_both_ids_in_ref_index(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut storages: Vec<(&str, Arc<dyn SecondaryStorage>)> = Vec::new();
+
+    for target in live_secondary_storage_targets("OPENAUTH_REDIS_URL", "OPENAUTH_VALKEY_URL") {
+        match RedisSecondaryStorage::connect_with_options(
+            &target.url,
+            RedisSecondaryStorageOptions {
+                key_prefix: format!("openauth:test:api-key:{}:{}:", target.name, now_ms()),
+                scan_count: 10,
+            },
+        )
+        .await
+        {
+            Ok(storage) => storages.push((target.name, Arc::new(storage))),
+            Err(error) if target.explicit => {
+                return Err(format!(
+                    "explicit {} Redis target `{}` is unavailable: {error}",
+                    target.name, target.url
+                )
+                .into());
+            }
+            Err(error) => {
+                eprintln!(
+                    "skipping default {} Redis target `{}` because it is unavailable: {error}",
+                    target.name, target.url
+                );
+            }
+        }
+    }
+
+    for target in
+        live_secondary_storage_targets("OPENAUTH_FRED_REDIS_URL", "OPENAUTH_FRED_VALKEY_URL")
+    {
+        match FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: format!("openauth:test:api-key:fred:{}:{}:", target.name, now_ms()),
+                scan_count: 10,
+            },
+        )
+        .await
+        {
+            Ok(storage) => storages.push((target.name, Arc::new(storage))),
+            Err(error) if target.explicit => {
+                return Err(format!(
+                    "explicit {} Fred target `{}` is unavailable: {error}",
+                    target.name, target.url
+                )
+                .into());
+            }
+            Err(error) => {
+                eprintln!(
+                    "skipping default {} Fred target `{}` because it is unavailable: {error}",
+                    target.name, target.url
+                );
+            }
+        }
+    }
+
+    for (name, storage) in storages {
+        assert_concurrent_create_listing_keeps_both_ids(name, storage).await?;
+    }
+    Ok(())
+}
+
+async fn assert_concurrent_create_listing_keeps_both_ids(
+    storage_name: &str,
+    storage: Arc<dyn SecondaryStorage>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(
+        adapter,
+        api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                storage: ApiKeyStorageMode::SecondaryStorage,
+                custom_storage: Some(storage),
+                ..ApiKeyConfiguration::default()
+            },
+        }),
+    )?;
+    let suffix = now_ms();
+    let user = sign_up(
+        &router,
+        &format!("Live Conc {storage_name}"),
+        &format!("live-conc-{storage_name}-{suffix}@example.com"),
+    )
+    .await?;
+
+    let (first, second) = tokio::join!(
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/create",
+            json!({"name": "first"}),
+            Some(&user.cookie),
+            None,
+        ),
+        request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/create",
+            json!({"name": "second"}),
+            Some(&user.cookie),
+            None,
+        ),
+    );
+    let first = first?;
+    let second = second?;
+    assert_eq!(first.status, StatusCode::OK, "{storage_name} first create");
+    assert_eq!(
+        second.status,
+        StatusCode::OK,
+        "{storage_name} second create"
+    );
+    let first_id = first.body["id"].as_str().ok_or("missing first id")?;
+    let second_id = second.body["id"].as_str().ok_or("missing second id")?;
+
+    let listed = request_json(
+        &router,
+        Method::GET,
+        "/api/auth/api-key/list",
+        serde_json::Value::Null,
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(listed.status, StatusCode::OK, "{storage_name} list");
+    assert_eq!(
+        listed.body["total"], 2,
+        "{storage_name} must keep both concurrently-created keys in the reference index",
+    );
+    let listed_ids = listed.body["apiKeys"]
+        .as_array()
+        .ok_or("missing apiKeys array")?
+        .iter()
+        .filter_map(|api_key| api_key["id"].as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        listed_ids.contains(&first_id),
+        "{storage_name} first concurrently-created key id missing from list: {listed_ids:?}"
+    );
+    assert!(
+        listed_ids.contains(&second_id),
+        "{storage_name} second concurrently-created key id missing from list: {listed_ids:?}"
+    );
+    Ok(())
+}
+
+#[derive(Debug)]
+struct LiveSecondaryStorageTarget {
+    name: &'static str,
+    url: String,
+    explicit: bool,
+}
+
+fn live_secondary_storage_targets(
+    redis_env: &str,
+    valkey_env: &str,
+) -> Vec<LiveSecondaryStorageTarget> {
+    let mut targets = Vec::new();
+    if let Ok(url) = std::env::var(redis_env) {
+        targets.push(LiveSecondaryStorageTarget {
+            name: "redis",
+            url,
+            explicit: true,
+        });
+    }
+    if let Ok(url) = std::env::var(valkey_env) {
+        targets.push(LiveSecondaryStorageTarget {
+            name: "valkey",
+            url,
+            explicit: true,
+        });
+    }
+    if targets.is_empty() {
+        targets.push(LiveSecondaryStorageTarget {
+            name: "redis",
+            url: "redis://127.0.0.1:6379".to_owned(),
+            explicit: false,
+        });
+        targets.push(LiveSecondaryStorageTarget {
+            name: "valkey",
+            url: "valkey://127.0.0.1:6380".to_owned(),
+            explicit: false,
+        });
+    }
+    targets
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }

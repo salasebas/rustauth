@@ -2,7 +2,7 @@ use openauth_core::db::{Count, DbValue, FindMany, Sort, SortDirection, Where};
 use openauth_core::error::OpenAuthError;
 
 use super::keys::{compare_api_keys, storage_key_by_reference};
-use super::secondary::{get_secondary_bounded, set_secondary_bounded};
+use super::secondary::{get_secondary_bounded, mutate_ref_index, set_secondary_bounded};
 use super::ApiKeyStore;
 use crate::api_key::models::{record_from_db, ApiKeyRecord, API_KEY_FIELDS};
 use crate::api_key::options::ApiKeyStorageMode;
@@ -144,7 +144,18 @@ pub(super) async fn list_from_secondary_storage(
         });
     };
     let ids = serde_json::from_str::<Vec<String>>(&ids).unwrap_or_default();
-    let mut api_keys = get_secondary_bounded(storage, ids).await?;
+    let mut api_keys = get_secondary_bounded(storage, ids.clone()).await?;
+    if api_keys.len() != ids.len() {
+        let live_ids = api_keys
+            .iter()
+            .map(|api_key| api_key.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let ref_key = storage_key_by_reference(reference_id);
+        mutate_ref_index(storage, &ref_key, |ids| {
+            ids.retain(|id| live_ids.contains(id));
+        })
+        .await?;
+    }
     if let Some(config_id) = &options.config_id {
         api_keys.retain(|api_key| &api_key.config_id == config_id);
     }

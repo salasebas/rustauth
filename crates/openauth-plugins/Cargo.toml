@@ -39,6 +39,7 @@ tokio.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+openauth-fred.workspace = true
 openauth-redis.workspace = true
 openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
 sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }

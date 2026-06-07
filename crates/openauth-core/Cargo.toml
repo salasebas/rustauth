@@ -19,6 +19,7 @@ default = ["jose", "oauth", "social-providers"]
 jose = ["dep:josekit"]
 oauth = ["dep:openauth-oauth", "openauth-oauth/jose"]
 social-providers = ["oauth", "dep:openauth-social-providers"]
+test-utils = []
 
 [dependencies]
 base64.workspace = true

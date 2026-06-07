@@ -3188,6 +3188,7 @@ dependencies = [
  "indexmap 2.14.0",
  "josekit",
  "openauth-core",
+ "openauth-fred",
  "openauth-oauth",
  "openauth-redis",
  "openauth-social-providers",
