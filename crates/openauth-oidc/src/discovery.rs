@@ -3,6 +3,16 @@ use url::Url;
 
 use crate::options::{OidcConfig, TokenEndpointAuthentication};
 
+/// Required fields that must be present in a valid OIDC discovery document.
+///
+/// Matches Better Auth `REQUIRED_DISCOVERY_FIELDS` in `@better-auth/sso`.
+pub const REQUIRED_DISCOVERY_FIELDS: &[&str] = &[
+    "issuer",
+    "authorization_endpoint",
+    "token_endpoint",
+    "jwks_uri",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OidcDiscoveryDocument {
     #[serde(default)]
@@ -147,9 +157,8 @@ where
     let document = fetch_discovery_document(&discovery_endpoint, client).await?;
     validate_discovery_document(&document, issuer)?;
     let normalized = normalize_discovery_document(document, issuer)?;
-    let token_endpoint_authentication = existing
-        .token_endpoint_authentication
-        .unwrap_or_else(|| select_token_endpoint_authentication(&normalized));
+    let token_endpoint_authentication =
+        select_token_endpoint_authentication(&normalized, existing.token_endpoint_authentication);
 
     let hydrated = HydratedOidcDiscovery {
         issuer: existing
@@ -453,7 +462,16 @@ impl OidcDiscoveryError {
     }
 }
 
-async fn fetch_discovery_document(
+/// Validate a discovery URL before fetching.
+pub fn validate_discovery_url<F>(url: &str, is_trusted_origin: F) -> Result<(), OidcDiscoveryError>
+where
+    F: Fn(&str) -> bool,
+{
+    validate_trusted_url("discovery_endpoint", url, &is_trusted_origin)
+}
+
+/// Fetch the OIDC discovery document from the IdP.
+pub async fn fetch_discovery_document(
     discovery_endpoint: &str,
     client: &reqwest::Client,
 ) -> Result<OidcDiscoveryDocument, OidcDiscoveryError> {
@@ -490,22 +508,23 @@ fn classify_reqwest_error(error: reqwest::Error) -> OidcDiscoveryError {
     OidcDiscoveryError::Request(error.to_string())
 }
 
-fn validate_discovery_document(
+/// Validate a discovery document for required fields and issuer match.
+pub fn validate_discovery_document(
     document: &OidcDiscoveryDocument,
     issuer: &str,
 ) -> Result<(), OidcDiscoveryError> {
     let mut missing = Vec::new();
-    if document.issuer.is_empty() {
-        missing.push("issuer");
-    }
-    if document.authorization_endpoint.is_empty() {
-        missing.push("authorization_endpoint");
-    }
-    if document.token_endpoint.is_empty() {
-        missing.push("token_endpoint");
-    }
-    if document.jwks_uri.is_empty() {
-        missing.push("jwks_uri");
+    for field in REQUIRED_DISCOVERY_FIELDS {
+        let is_empty = match *field {
+            "issuer" => document.issuer.is_empty(),
+            "authorization_endpoint" => document.authorization_endpoint.is_empty(),
+            "token_endpoint" => document.token_endpoint.is_empty(),
+            "jwks_uri" => document.jwks_uri.is_empty(),
+            _ => false,
+        };
+        if is_empty {
+            missing.push(*field);
+        }
     }
     if !missing.is_empty() {
         return Err(if missing.len() == 1 {
@@ -518,6 +537,54 @@ fn validate_discovery_document(
         return Err(OidcDiscoveryError::IssuerMismatch);
     }
     Ok(())
+}
+
+/// Normalize discovery document URLs and validate each endpoint origin.
+pub fn normalize_discovery_urls<F>(
+    document: OidcDiscoveryDocument,
+    issuer: &str,
+    is_trusted_origin: F,
+) -> Result<OidcDiscoveryDocument, OidcDiscoveryError>
+where
+    F: Fn(&str) -> bool,
+{
+    let normalized = normalize_discovery_document(document, issuer)?;
+    validate_trusted_url(
+        "authorization_endpoint",
+        &normalized.authorization_endpoint,
+        &is_trusted_origin,
+    )?;
+    validate_trusted_url(
+        "token_endpoint",
+        &normalized.token_endpoint,
+        &is_trusted_origin,
+    )?;
+    validate_trusted_url("jwks_uri", &normalized.jwks_uri, &is_trusted_origin)?;
+    if let Some(userinfo_endpoint) = &normalized.userinfo_endpoint {
+        validate_trusted_url("userinfo_endpoint", userinfo_endpoint, &is_trusted_origin)?;
+    }
+    if let Some(revocation_endpoint) = &normalized.revocation_endpoint {
+        validate_trusted_url(
+            "revocation_endpoint",
+            revocation_endpoint,
+            &is_trusted_origin,
+        )?;
+    }
+    if let Some(end_session_endpoint) = &normalized.end_session_endpoint {
+        validate_trusted_url(
+            "end_session_endpoint",
+            end_session_endpoint,
+            &is_trusted_origin,
+        )?;
+    }
+    if let Some(introspection_endpoint) = &normalized.introspection_endpoint {
+        validate_trusted_url(
+            "introspection_endpoint",
+            introspection_endpoint,
+            &is_trusted_origin,
+        )?;
+    }
+    Ok(normalized)
 }
 
 fn normalize_discovery_document(
@@ -614,9 +681,14 @@ fn ensure_supported_url_scheme(field: &'static str, url: &Url) -> Result<(), Oid
     })
 }
 
-fn select_token_endpoint_authentication(
+/// Select the token endpoint authentication method from discovery metadata.
+pub fn select_token_endpoint_authentication(
     document: &OidcDiscoveryDocument,
+    existing: Option<TokenEndpointAuthentication>,
 ) -> TokenEndpointAuthentication {
+    if let Some(existing) = existing {
+        return existing;
+    }
     let Some(supported) = &document.token_endpoint_auth_methods_supported else {
         return TokenEndpointAuthentication::ClientSecretBasic;
     };
@@ -981,6 +1053,98 @@ mod tests {
     }
 
     #[test]
+    fn required_discovery_fields_match_upstream_contract() {
+        assert_eq!(
+            REQUIRED_DISCOVERY_FIELDS,
+            &[
+                "issuer",
+                "authorization_endpoint",
+                "token_endpoint",
+                "jwks_uri",
+            ]
+        );
+    }
+
+    #[test]
+    fn validate_discovery_url_rejects_invalid_and_untrusted_urls() {
+        assert!(matches!(
+            validate_discovery_url("not-a-url", |_| true),
+            Err(OidcDiscoveryError::InvalidUrl { .. })
+        ));
+        assert!(matches!(
+            validate_discovery_url("ftp://idp.example.com/config", |_| true),
+            Err(OidcDiscoveryError::InvalidUrl { .. })
+        ));
+        assert!(matches!(
+            validate_discovery_url(
+                "https://untrusted.example.com/.well-known/openid-configuration",
+                |_| false
+            ),
+            Err(OidcDiscoveryError::UntrustedOrigin { .. })
+        ));
+        assert!(validate_discovery_url(
+            "https://idp.example.com/.well-known/openid-configuration",
+            |_| true
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn normalize_discovery_urls_rejects_untrusted_required_endpoints(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let document = OidcDiscoveryDocument {
+            issuer: "https://idp.example.com".to_owned(),
+            authorization_endpoint: "/oauth2/authorize".to_owned(),
+            token_endpoint: "/oauth2/token".to_owned(),
+            jwks_uri: "/.well-known/jwks.json".to_owned(),
+            userinfo_endpoint: Some("/userinfo".to_owned()),
+            revocation_endpoint: Some("/revoke".to_owned()),
+            end_session_endpoint: Some("/endsession".to_owned()),
+            introspection_endpoint: Some("/introspection".to_owned()),
+            token_endpoint_auth_methods_supported: None,
+            scopes_supported: None,
+            response_types_supported: None,
+            subject_types_supported: None,
+            id_token_signing_alg_values_supported: None,
+            claims_supported: None,
+            code_challenge_methods_supported: None,
+        };
+
+        for (suffix, field_hint) in [
+            ("/oauth2/token", "token_endpoint"),
+            ("/oauth2/authorize", "authorization_endpoint"),
+            ("/.well-known/jwks.json", "jwks_uri"),
+            ("/userinfo", "userinfo_endpoint"),
+            ("/revoke", "revocation_endpoint"),
+            ("/endsession", "end_session_endpoint"),
+            ("/introspection", "introspection_endpoint"),
+        ] {
+            let error =
+                match normalize_discovery_urls(document.clone(), "https://idp.example.com", |url| {
+                    !url.ends_with(suffix)
+                }) {
+                    Ok(_) => return Err(format!("expected untrusted {field_hint}").into()),
+                    Err(error) => error,
+                };
+            assert_eq!(error.code(), "discovery_untrusted_origin");
+            assert!(error.to_string().contains(field_hint));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn token_endpoint_authentication_prefers_existing_config_value() {
+        let document = discovery_document("https://idp.example.com");
+        assert_eq!(
+            select_token_endpoint_authentication(
+                &document,
+                Some(TokenEndpointAuthentication::ClientSecretPost)
+            ),
+            TokenEndpointAuthentication::ClientSecretPost
+        );
+    }
+
+    #[test]
     fn token_endpoint_authentication_prefers_client_secret_basic_when_both_supported() {
         let mut document = discovery_document("https://idp.example.com");
         document.token_endpoint_auth_methods_supported = Some(vec![
@@ -988,7 +1152,7 @@ mod tests {
             "client_secret_basic".to_owned(),
         ]);
         assert_eq!(
-            select_token_endpoint_authentication(&document),
+            select_token_endpoint_authentication(&document, None),
             TokenEndpointAuthentication::ClientSecretBasic
         );
     }
@@ -999,7 +1163,7 @@ mod tests {
         document.token_endpoint_auth_methods_supported =
             Some(vec!["client_secret_post".to_owned()]);
         assert_eq!(
-            select_token_endpoint_authentication(&document),
+            select_token_endpoint_authentication(&document, None),
             TokenEndpointAuthentication::ClientSecretPost
         );
     }
@@ -1022,7 +1186,7 @@ mod tests {
         let mut document = discovery_document("https://idp.example.com");
         document.token_endpoint_auth_methods_supported = Some(Vec::new());
         assert_eq!(
-            select_token_endpoint_authentication(&document),
+            select_token_endpoint_authentication(&document, None),
             TokenEndpointAuthentication::ClientSecretBasic
         );
 
@@ -1031,7 +1195,7 @@ mod tests {
             "tls_client_auth".to_owned(),
         ]);
         assert_eq!(
-            select_token_endpoint_authentication(&document),
+            select_token_endpoint_authentication(&document, None),
             TokenEndpointAuthentication::ClientSecretBasic
         );
     }
@@ -1389,6 +1553,271 @@ mod tests {
             hydrated.token_endpoint_authentication,
             TokenEndpointAuthentication::ClientSecretBasic
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn discover_uses_custom_and_existing_discovery_endpoints(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let base_url = format!("http://{address}");
+        let server_base_url = base_url.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let server_base_url = server_base_url.clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let Ok(read) = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await
+                    else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let body = if request.contains("GET /custom/.well-known/openid-configuration ")
+                    {
+                        format!(
+                            r#"{{
+                                "issuer":"{server_base_url}",
+                                "authorization_endpoint":"{server_base_url}/authorize",
+                                "token_endpoint":"{server_base_url}/token",
+                                "jwks_uri":"{server_base_url}/keys"
+                            }}"#
+                        )
+                    } else if request.contains("GET /tenant/.well-known/openid-configuration ") {
+                        format!(
+                            r#"{{
+                                "issuer":"{server_base_url}",
+                                "authorization_endpoint":"{server_base_url}/tenant/authorize",
+                                "token_endpoint":"{server_base_url}/tenant/token",
+                                "jwks_uri":"{server_base_url}/tenant/keys"
+                            }}"#
+                        )
+                    } else {
+                        r#"{"error":"not_found"}"#.to_owned()
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ =
+                        tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes()).await;
+                });
+            }
+        });
+
+        let custom_endpoint = format!("{base_url}/custom/.well-known/openid-configuration");
+        let custom = discover_oidc_config_with_origin_validator(
+            &base_url,
+            Some(&custom_endpoint),
+            PartialOidcDiscoveryConfig::default(),
+            |url| url.starts_with(&base_url),
+            &reqwest::Client::new(),
+        )
+        .await?;
+        assert_eq!(custom.discovery_endpoint, custom_endpoint);
+
+        let existing_endpoint = format!("{base_url}/tenant/.well-known/openid-configuration");
+        let existing = discover_oidc_config_with_origin_validator(
+            &base_url,
+            None,
+            PartialOidcDiscoveryConfig {
+                discovery_endpoint: Some(&existing_endpoint),
+                ..PartialOidcDiscoveryConfig::default()
+            },
+            |url| url.starts_with(&base_url),
+            &reqwest::Client::new(),
+        )
+        .await?;
+        assert_eq!(existing.discovery_endpoint, existing_endpoint);
+        assert_eq!(
+            existing.authorization_endpoint,
+            format!("{base_url}/tenant/authorize")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn discover_includes_scopes_supported_and_ignores_unknown_fields(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let base_url = format!("http://{address}");
+        let server_base_url = base_url.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let server_base_url = server_base_url.clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 1024];
+                    let Ok(read) = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await
+                    else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]);
+                    let body = if request.starts_with("GET /.well-known/openid-configuration ") {
+                        format!(
+                            r#"{{
+                                "issuer":"{server_base_url}",
+                                "authorization_endpoint":"{server_base_url}/authorize",
+                                "token_endpoint":"{server_base_url}/token",
+                                "jwks_uri":"{server_base_url}/keys",
+                                "scopes_supported":["openid","profile","email","custom"],
+                                "x-vendor-feature":true,
+                                "custom_logout_endpoint":"{server_base_url}/logout"
+                            }}"#
+                        )
+                    } else {
+                        r#"{"error":"not_found"}"#.to_owned()
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ =
+                        tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes()).await;
+                });
+            }
+        });
+
+        let hydrated = discover_oidc_config_with_origin_validator(
+            &base_url,
+            None,
+            PartialOidcDiscoveryConfig::default(),
+            |url| url.starts_with(&base_url),
+            &reqwest::Client::new(),
+        )
+        .await?;
+
+        assert_eq!(
+            hydrated.scopes_supported,
+            Some(vec![
+                "openid".to_owned(),
+                "profile".to_owned(),
+                "email".to_owned(),
+                "custom".to_owned()
+            ])
+        );
+        assert_eq!(hydrated.user_info_endpoint, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn discover_rejects_untrusted_main_discovery_url(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let error = match discover_oidc_config_with_origin_validator(
+            "https://idp.example.com",
+            None,
+            PartialOidcDiscoveryConfig::default(),
+            |_| false,
+            &reqwest::Client::new(),
+        )
+        .await
+        {
+            Ok(_) => return Err("expected untrusted discovery URL to fail".into()),
+            Err(error) => error,
+        };
+        assert_eq!(error.code(), "discovery_untrusted_origin");
+        assert!(error.to_string().contains("discovery_endpoint"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ensure_runtime_returns_unchanged_config_when_discovery_not_needed(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let config = OidcConfig {
+            issuer: "https://idp.example.com".to_owned(),
+            pkce: true,
+            client_id: "client-id".to_owned(),
+            client_secret: "client-secret".into(),
+            discovery_endpoint: compute_discovery_url("https://idp.example.com"),
+            authorization_endpoint: Some("https://idp.example.com/authorize".to_owned()),
+            token_endpoint: Some("https://idp.example.com/token".to_owned()),
+            user_info_endpoint: Some("https://idp.example.com/userinfo".to_owned()),
+            jwks_endpoint: Some("https://idp.example.com/keys".to_owned()),
+            revocation_endpoint: None,
+            end_session_endpoint: None,
+            introspection_endpoint: None,
+            token_endpoint_authentication: None,
+            scopes: Some(vec!["openid".to_owned()]),
+            mapping: None,
+            override_user_info: false,
+        };
+
+        let unchanged = ensure_runtime_oidc_config_with_origin_validator(
+            "https://idp.example.com",
+            config.clone(),
+            OidcRuntimeRequirement::Callback,
+            |_| true,
+            false,
+            &reqwest::Client::new(),
+        )
+        .await?;
+
+        assert_eq!(unchanged.client_id, config.client_id);
+        assert_eq!(
+            unchanged.client_secret.expose_secret(),
+            config.client_secret.expose_secret()
+        );
+        assert_eq!(unchanged.pkce, config.pkce);
+        assert_eq!(unchanged.scopes, config.scopes);
+        assert_eq!(
+            unchanged.authorization_endpoint,
+            config.authorization_endpoint
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ensure_runtime_throws_when_discovery_fails() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let base_url = format!("http://{address}");
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 1024];
+                    let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await;
+                    let response =
+                        "HTTP/1.1 404 Not Found\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}";
+                    let _ =
+                        tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes()).await;
+                });
+            }
+        });
+
+        let config = OidcConfig {
+            issuer: base_url.clone(),
+            pkce: true,
+            client_id: "client-id".to_owned(),
+            client_secret: "client-secret".into(),
+            discovery_endpoint: compute_discovery_url(&base_url),
+            authorization_endpoint: None,
+            token_endpoint: None,
+            user_info_endpoint: None,
+            jwks_endpoint: None,
+            revocation_endpoint: None,
+            end_session_endpoint: None,
+            introspection_endpoint: None,
+            token_endpoint_authentication: None,
+            scopes: None,
+            mapping: None,
+            override_user_info: false,
+        };
+
+        let error = match ensure_runtime_oidc_config_with_origin_validator(
+            &base_url,
+            config,
+            OidcRuntimeRequirement::SignIn,
+            |_| true,
+            false,
+            &reqwest::Client::new(),
+        )
+        .await
+        {
+            Ok(_) => return Err("expected runtime discovery failure".into()),
+            Err(error) => error,
+        };
+        assert_eq!(error.code(), "discovery_not_found");
         Ok(())
     }
 

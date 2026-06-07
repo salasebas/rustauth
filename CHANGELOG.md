@@ -7,6 +7,13 @@ Versioning while the API is still pre-1.0.
 
 ## Unreleased
 
+### Added
+
+- `openauth-oidc`: exported `REQUIRED_DISCOVERY_FIELDS` and upstream-matching
+  discovery helpers (`validate_discovery_url`, `fetch_discovery_document`,
+  `validate_discovery_document`, `normalize_discovery_urls`,
+  `select_token_endpoint_authentication`) with additional parity tests.
+
 ### Changed
 
 - **Breaking:** Email/password sign-in and sign-up are now opt-in. Fresh

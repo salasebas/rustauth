@@ -24,6 +24,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Runtime discovery | ✅ Implemented | Hydrates missing authorization, token, and JWKS endpoints for stored configs; `SignIn` and `Callback` currently share the same required endpoint set. |
 | Token endpoint auth selection | ✅ Implemented | Supports `client_secret_basic` and `client_secret_post`; defaults to basic like upstream. |
 | Provider config and mapping types | ✅ Implemented | Rust structs mirror OIDC config, claim mapping, scopes, PKCE, and override fields; applying claim mapping is `openauth-sso` callback scope. |
+| Public discovery helper exports | ✅ Implemented | Exports `REQUIRED_DISCOVERY_FIELDS`, `validate_discovery_url`, `fetch_discovery_document`, `validate_discovery_document`, `normalize_discovery_urls`, and `select_token_endpoint_authentication` to match upstream `packages/sso/src/oidc/index.ts`. |
 | Secret handling | 🎯 Intentional difference | `SecretString` redacts in `Debug` while still serializing for provider persistence. |
 | Revocation/end-session/introspection endpoints | 🎯 Intentional difference | Upstream normalizes these during discovery but does not persist them; OpenAuth models and hydrates them as a server-side superset. |
 | OIDC provider registration | ➖ Out of scope | `packages/sso/src/routes/sso.ts` maps to `openauth-sso`, which calls this crate for discovery. |
@@ -35,7 +36,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 
 | Surface | OpenAuth tests | Upstream tests | Notes |
 | --- | --- | --- | --- |
-| OIDC discovery helpers | 24 unit tests in `src/discovery.rs` plus 3 tests in `tests/flow.rs` | 71 `it`/`test` declarations in `packages/sso/src/oidc/discovery.test.ts` | Verify with `cargo nextest run -p openauth-oidc`. |
+| OIDC discovery helpers | 33 unit tests in `src/discovery.rs` plus 3 tests in `tests/flow.rs` | 71 `it`/`test` declarations in `packages/sso/src/oidc/discovery.test.ts` | Core upstream discovery scenarios are covered; verify with `cargo nextest run -p openauth-oidc`. |
 | OIDC server routes | Covered in `openauth-sso` route tests | 22 declarations in `packages/sso/src/oidc.test.ts` | Registration, sign-in, callback, default SSO, shared redirect, provisioning; verify with `cargo nextest run -p openauth-sso --test sso`. |
 
 ## Intentional Differences
@@ -49,17 +50,12 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | SSO plugin config type | Uses one `OIDCConfig` interface in the SSO package. | `openauth-sso` has its own `OidcConfig` and converts to/from `openauth_oidc::OidcConfig`. | Keeps the helper crate usable without depending on plugin internals. |
 | Request scopes | Discovery exposes `scopes_supported`; request scopes are chosen in routes. | `HydratedOidcDiscovery` exposes `scopes_supported`, but `OidcConfig.scopes` is not auto-mutated. | Preserves explicit caller scopes; default request scopes live in `openauth-sso`. |
 | Unsupported token auth methods | Falls back to `client_secret_basic`; `unsupported_token_auth_method` exists but is not thrown in 1.6.9. | Same fallback. | Preserves Better Auth 1.6.9 behavior; stricter rejection would be a behavior change. |
+| Private-key JWT / mTLS client auth | Not implemented; falls back to `client_secret_basic`. | Same fallback via `select_token_endpoint_authentication`. | Matches Better Auth 1.6.9; enterprise IdP methods are a future extension, not a 1.6.9 gap. |
+| SSRF policy ownership | Uses internal `betterFetch` without caller-controlled origin policy. | Caller supplies `reqwest::Client` and `is_trusted_origin`; `openauth-sso` wires private-IP checks. | Rust auth boundary design; production safety depends on restrictive origin predicates and HTTP client policy. |
 
 ## Open Gaps / Risks
 
-| ID | Gap | Severity | Notes |
-| --- | --- | --- | --- |
-| OIDC-1 | Test delta against upstream discovery helpers | Medium | Core contracts are covered, but upstream has broader mocked Vitest coverage than this small Rust crate. |
-| OIDC-2 | Route-level OIDC behavior not in this crate | Low | Server routes, callback, account linking, provisioning, cookies, and DB writes are intentionally `openauth-sso` scope. |
-| OIDC-3 | No private-key JWT or mTLS client auth | Medium | Matches Better Auth 1.6.9 fallback behavior, but some enterprise IdPs require these methods. |
-| OIDC-4 | SSRF policy is caller-owned | High | Safe production use depends on a restrictive origin predicate and guarded HTTP client configuration. |
-| OIDC-5 | Some upstream public helper exports are internal or renamed in Rust | Low | `fetchDiscoveryDocument`, `validateDiscoveryUrl`, `validateDiscoveryDocument`, and `normalizeDiscoveryUrls` are represented through Rust APIs or private helpers. |
-| OIDC-6 | No exported `REQUIRED_DISCOVERY_FIELDS` constant | Low | Required fields are enforced by validation tests but not exported as a public Rust constant. |
+No open in-scope gaps remain for Better Auth 1.6.9 OIDC discovery helpers. Route-level SSO behavior, account linking, and provisioning are tracked in `openauth-sso/UPSTREAM.md`.
 
 ## Hardening Notes
 
@@ -80,8 +76,9 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Upstream | Rust |
 | --- | --- |
 | `packages/sso/src/oidc/index.ts` | `src/lib.rs` re-exports; `openauth-sso` also re-exports this crate as `openauth_sso::oidc` with the `oidc` feature |
-| `packages/sso/src/oidc/discovery.ts` | `src/discovery.rs`; some upstream public helpers are private or renamed in Rust |
-| `packages/sso/src/oidc/types.ts` | `src/discovery.rs`, `src/options.rs` |
+| `packages/sso/src/oidc/discovery.ts` | `src/discovery.rs` |
+| `packages/sso/src/oidc/types.ts` `REQUIRED_DISCOVERY_FIELDS` | `discovery::REQUIRED_DISCOVERY_FIELDS` |
+| `packages/sso/src/oidc/types.ts` (config/error types) | `src/discovery.rs`, `src/options.rs` |
 | `packages/sso/src/oidc/errors.ts` | `OidcDiscoveryError::code()` / `status()` plus `openauth-sso/src/routes/registration.rs` error responses |
 | `packages/sso/src/types.ts` `OIDCConfig` / `OIDCMapping` | `OidcConfig`, `OidcProfileMapping` in `src/options.rs` |
 | `packages/sso/src/routes/sso.ts` `getOIDCRedirectURI` | `src/flow.rs`, `tests/flow.rs` |
