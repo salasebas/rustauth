@@ -187,6 +187,84 @@ impl SecondaryStorage for RedisSecondaryStorage {
                 .map_err(|error| OpenAuthError::Adapter(error.to_string()))
         })
     }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let redis_key = self.prefixed_key(key)?;
+            let mut manager = self.manager.clone();
+            if ttl_seconds == Some(0) {
+                let deleted = self.delete_if_value(key, expected).await?;
+                return Ok(deleted);
+            }
+            let script = r#"
+local current = redis.call("GET", KEYS[1])
+local expected_is_nil = ARGV[1]
+local expected = ARGV[2]
+if expected_is_nil == "1" then
+  if current ~= false then return 0 end
+else
+  if current ~= expected then return 0 end
+end
+if ARGV[4] == "" then
+  redis.call("SET", KEYS[1], ARGV[3])
+else
+  redis.call("SET", KEYS[1], ARGV[3], "EX", tonumber(ARGV[4]))
+end
+return 1
+"#;
+            let expected_is_nil = expected.is_none();
+            let expected = expected.unwrap_or_default();
+            let ttl = ttl_seconds.map(|ttl| ttl.to_string()).unwrap_or_default();
+            let applied: i64 = redis::cmd("EVAL")
+                .arg(script)
+                .arg(1)
+                .arg(redis_key)
+                .arg(if expected_is_nil { "1" } else { "0" })
+                .arg(expected)
+                .arg(value)
+                .arg(ttl)
+                .query_async(&mut manager)
+                .await
+                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+            Ok(applied == 1)
+        })
+    }
+
+    fn delete_if_value<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let Some(expected) = expected else {
+                return Ok(false);
+            };
+            let redis_key = self.prefixed_key(key)?;
+            let mut manager = self.manager.clone();
+            let script = r#"
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  redis.call("DEL", KEYS[1])
+  return 1
+end
+return 0
+"#;
+            let deleted: i64 = redis::cmd("EVAL")
+                .arg(script)
+                .arg(1)
+                .arg(redis_key)
+                .arg(expected)
+                .query_async(&mut manager)
+                .await
+                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
+            Ok(deleted == 1)
+        })
+    }
 }
 
 fn validate_secondary_storage_options(

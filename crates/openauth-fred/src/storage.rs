@@ -1,5 +1,6 @@
 use fred::clients::Client;
 use fred::interfaces::KeysInterface;
+use fred::types::scripts::Script;
 use fred::types::{Expiration, SetOptions};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{SecondaryStorage, SecondaryStorageFuture};
@@ -183,6 +184,83 @@ impl SecondaryStorage for FredSecondaryStorage {
                 .getdel::<Option<String>, _>(self.prefixed_key(key)?)
                 .await
                 .map_err(|error| fred_error("secondary take", error))
+        })
+    }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            if ttl_seconds == Some(0) {
+                return self.delete_if_value(key, expected).await;
+            }
+            let redis_key = self.prefixed_key(key)?;
+            let script = Script::from_lua(
+                r#"
+local current = redis.call("GET", KEYS[1])
+local expected_is_nil = ARGV[1]
+local expected = ARGV[2]
+if expected_is_nil == "1" then
+  if current ~= false then return 0 end
+else
+  if current ~= expected then return 0 end
+end
+if ARGV[4] == "" then
+  redis.call("SET", KEYS[1], ARGV[3])
+else
+  redis.call("SET", KEYS[1], ARGV[3], "EX", tonumber(ARGV[4]))
+end
+return 1
+"#,
+            );
+            let expected_is_nil = expected.is_none();
+            let expected = expected.unwrap_or_default();
+            let ttl = ttl_seconds.map(|ttl| ttl.to_string()).unwrap_or_default();
+            let applied: i64 = script
+                .evalsha_with_reload(
+                    &self.client,
+                    vec![redis_key],
+                    vec![
+                        if expected_is_nil { "1" } else { "0" }.to_owned(),
+                        expected,
+                        value,
+                        ttl,
+                    ],
+                )
+                .await
+                .map_err(|error| fred_error("secondary compare_and_set", error))?;
+            Ok(applied == 1)
+        })
+    }
+
+    fn delete_if_value<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+    ) -> SecondaryStorageFuture<'a, bool> {
+        Box::pin(async move {
+            let Some(expected) = expected else {
+                return Ok(false);
+            };
+            let redis_key = self.prefixed_key(key)?;
+            let script = Script::from_lua(
+                r#"
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  redis.call("DEL", KEYS[1])
+  return 1
+end
+return 0
+"#,
+            );
+            let deleted: i64 = script
+                .evalsha_with_reload(&self.client, vec![redis_key], vec![expected])
+                .await
+                .map_err(|error| fred_error("secondary delete_if_value", error))?;
+            Ok(deleted == 1)
         })
     }
 }
