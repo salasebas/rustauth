@@ -40,6 +40,17 @@ Versioning while the API is still pre-1.0.
   )
   ```
 
+### Changed
+
+- `openauth-telemetry`: `get_telemetry_auth_config` reports global hook presence,
+  logger settings, `onAPIError` configuration (URL redacted), custom password
+  hash/verify callbacks, change-email confirmation hooks, verification
+  `disableCleanup`, schema alias presence, and structured `init_database_hooks`
+  from `OpenAuthOptions`.
+- `openauth-core`: `ModelSchemaOptions` on user/session/account/verification/rate-limit
+  options and `InitDatabaseHooksOptions` for Better Auth-shaped schema aliases and
+  init-time database hooks (bridged into plugin hook execution).
+
 ### Added
 
 - `openauth-i18n`: `AsyncLocaleResolver` and `I18nOptions::get_locale_async`

@@ -47,6 +47,21 @@ impl LoggerOptions {
         }
     }
 
+    /// Whether logging is disabled.
+    pub fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    /// Configured minimum log level.
+    pub fn level(&self) -> LogLevel {
+        self.level
+    }
+
+    /// Whether a custom log handler is configured.
+    pub fn has_custom_handler(&self) -> bool {
+        self.handler.is_some()
+    }
+
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self

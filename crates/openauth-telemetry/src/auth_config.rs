@@ -1,16 +1,91 @@
 //! Maps [`openauth_core::options::OpenAuthOptions`] into the anonymized JSON snapshot
 //! expected by Better Auth telemetry (`getTelemetryAuthConfig`).
 //!
-//! Many Better Auth fields are not modeled in OpenAuth core yet; those branches emit the same
-//! defaults as upstream integration tests until the Rust option surface grows.
+//! Maps modeled [`OpenAuthOptions`] branches into the anonymized Better Auth telemetry snapshot.
 
+use std::collections::BTreeMap;
+
+use openauth_core::env::logger::LogLevel;
 use openauth_core::options::{
-    CookieCacheStrategy, OpenAuthOptions, RateLimitStorageOption, SessionAdditionalField,
-    TrustedOriginOptions, UserAdditionalField,
+    CookieCacheStrategy, DatabaseModelHooks, InitDatabaseHooksOptions, ModelSchemaOptions,
+    OpenAuthOptions, RateLimitStorageOption, SessionAdditionalField, TrustedOriginOptions,
+    UserAdditionalField,
 };
 use serde_json::{json, Map, Value};
 
 use crate::types::TelemetryContext;
+
+fn telemetry_model_name(model_name: &Option<String>) -> Value {
+    if model_name.is_some() {
+        Value::Bool(true)
+    } else {
+        Value::Null
+    }
+}
+
+fn telemetry_field_names(field_names: &BTreeMap<String, String>) -> Value {
+    if field_names.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(
+            field_names
+                .keys()
+                .map(|name| (name.clone(), Value::Bool(true)))
+                .collect(),
+        )
+    }
+}
+
+fn telemetry_model_schema(schema: &ModelSchemaOptions) -> (Value, Value) {
+    (
+        telemetry_model_name(&schema.model_name),
+        telemetry_field_names(&schema.field_names),
+    )
+}
+
+fn telemetry_operation_hooks(hooks: &openauth_core::options::DatabaseOperationHooks) -> Value {
+    json!({
+        "before": hooks.before.is_some(),
+        "after": hooks.after.is_some(),
+    })
+}
+
+fn telemetry_model_hooks(hooks: &DatabaseModelHooks) -> Value {
+    json!({
+        "create": telemetry_operation_hooks(&hooks.create),
+        "update": telemetry_operation_hooks(&hooks.update),
+    })
+}
+
+fn telemetry_database_hooks(hooks: &InitDatabaseHooksOptions) -> Value {
+    json!({
+        "user": telemetry_model_hooks(&hooks.user),
+        "session": telemetry_model_hooks(&hooks.session),
+        "account": telemetry_model_hooks(&hooks.account),
+        "verification": telemetry_model_hooks(&hooks.verification),
+    })
+}
+
+fn telemetry_log_level(level: LogLevel) -> Value {
+    Value::String(
+        match level {
+            LogLevel::Debug => "debug",
+            LogLevel::Info => "info",
+            LogLevel::Success => "success",
+            LogLevel::Warn => "warn",
+            LogLevel::Error => "error",
+        }
+        .to_owned(),
+    )
+}
+
+fn telemetry_throw_flag(enabled: bool) -> Value {
+    if enabled {
+        Value::Bool(true)
+    } else {
+        Value::Null
+    }
+}
 
 fn user_additional_fields(
     fields: &std::collections::BTreeMap<String, UserAdditionalField>,
@@ -103,6 +178,13 @@ fn social_providers(_options: &OpenAuthOptions) -> Value {
 }
 
 pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryContext) -> Value {
+    let (user_model_name, user_fields) = telemetry_model_schema(&options.user.schema);
+    let (session_model_name, session_fields) = telemetry_model_schema(&options.session.schema);
+    let (account_model_name, account_fields) = telemetry_model_schema(&options.account.schema);
+    let (verification_model_name, verification_fields) =
+        telemetry_model_schema(&options.verification.schema);
+    let (rate_limit_model_name, _) = telemetry_model_schema(&options.rate_limit.schema);
+
     let trusted_origins_len = match &options.trusted_origins {
         TrustedOriginOptions::None => Value::Null,
         TrustedOriginOptions::Static(v) => json!(v.len()),
@@ -142,7 +224,10 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
             "sendResetPassword": options.password.send_reset_password.is_some(),
             "resetPasswordTokenExpiresIn": options.password.reset_password_token_expires_in,
             "onPasswordReset": options.password.on_password_reset.is_some(),
-            "password": { "hash": false, "verify": false },
+            "password": {
+                "hash": options.password.hash_password.is_some(),
+                "verify": options.password.verify_password.is_some(),
+            },
             "autoSignIn": options.email_password.auto_sign_in,
             "revokeSessionsOnPasswordReset": options.password.revoke_sessions_on_password_reset,
         },
@@ -153,21 +238,25 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
             json!(options.plugins.iter().map(|p| p.id.clone()).collect::<Vec<_>>())
         },
         "user": {
-            "modelName": Value::Null,
-            "fields": Value::Null,
+            "modelName": user_model_name,
+            "fields": user_fields,
             "additionalFields": user_additional_fields(&options.user.additional_fields),
             "changeEmail": {
                 "enabled": options.user.change_email.enabled,
-                "sendChangeEmailConfirmation": false,
+                "sendChangeEmailConfirmation": options
+                    .user
+                    .change_email
+                    .send_change_email_confirmation
+                    .is_some(),
             },
         },
         "verification": {
-            "modelName": Value::Null,
-            "disableCleanup": Value::Null,
-            "fields": Value::Null,
+            "modelName": verification_model_name,
+            "disableCleanup": options.verification.disable_cleanup,
+            "fields": verification_fields,
         },
         "session": {
-            "modelName": Value::Null,
+            "modelName": session_model_name,
             "additionalFields": session_additional_fields(&options.session.additional_fields),
             "cookieCache": {
                 "enabled": options.session.cookie_cache.enabled,
@@ -176,15 +265,15 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
             },
             "disableSessionRefresh": options.session.disable_session_refresh,
             "expiresIn": options.session.expires_in,
-            "fields": Value::Null,
+            "fields": session_fields,
             "freshAge": options.session.fresh_age,
             "preserveSessionInDatabase": options.session.preserve_session_in_database,
             "storeSessionInDatabase": options.session.store_session_in_database,
             "updateAge": options.session.update_age,
         },
         "account": {
-            "modelName": Value::Null,
-            "fields": Value::Null,
+            "modelName": account_model_name,
+            "fields": account_fields,
             "encryptOAuthTokens": options.account.encrypt_oauth_tokens,
             "updateAccountOnSignIn": options.account.update_account_on_sign_in,
             "accountLinking": {
@@ -194,7 +283,10 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
                 "allowUnlinkingAll": options.account.account_linking.allow_unlinking_all,
             },
         },
-        "hooks": { "after": false, "before": false },
+        "hooks": {
+            "after": options.hooks.after.is_some(),
+            "before": options.hooks.before.is_some(),
+        },
         "secondaryStorage": options.secondary_storage.is_some(),
         "advanced": {
             "cookiePrefix": options.advanced.cookie_prefix.is_some(),
@@ -226,39 +318,26 @@ pub fn get_telemetry_auth_config(options: &OpenAuthOptions, context: &TelemetryC
         "trustedOrigins": trusted_origins_len,
         "rateLimit": {
             "storage": rate_storage,
-            "modelName": Value::Null,
+            "modelName": rate_limit_model_name,
             "window": options.rate_limit.window,
             "customStorage": options.rate_limit.custom_storage.is_some(),
             "enabled": options.rate_limit.enabled,
             "max": options.rate_limit.max,
         },
         "onAPIError": {
-            "errorURL": Value::Null,
-            "onError": false,
-            "throw": Value::Null,
+            "errorURL": if options.on_api_error.error_url.is_some() {
+                Value::Bool(true)
+            } else {
+                Value::Null
+            },
+            "onError": options.on_api_error.on_error.is_some(),
+            "throw": telemetry_throw_flag(options.on_api_error.throw),
         },
         "logger": {
-            "disabled": Value::Null,
-            "level": Value::Null,
-            "log": false,
+            "disabled": options.logger.is_disabled(),
+            "level": telemetry_log_level(options.logger.level()),
+            "log": options.logger.has_custom_handler(),
         },
-        "databaseHooks": {
-            "user": {
-                "create": { "after": false, "before": false },
-                "update": { "after": false, "before": false },
-            },
-            "session": {
-                "create": { "after": false, "before": false },
-                "update": { "after": false, "before": false },
-            },
-            "account": {
-                "create": { "after": false, "before": false },
-                "update": { "after": false, "before": false },
-            },
-            "verification": {
-                "create": { "after": false, "before": false },
-                "update": { "after": false, "before": false },
-            },
-        },
+        "databaseHooks": telemetry_database_hooks(&options.init_database_hooks),
     })
 }

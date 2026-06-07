@@ -31,8 +31,8 @@
 //!
 //! - **Framework** and **database** are inferred from the host `Cargo.toml` when `CARGO_MANIFEST_DIR`
 //!   (or cwd) is available; override with [`TelemetryContext`] or [`TelemetryTestHooks`].
-//! - **`get_telemetry_auth_config`** emits Better Auth-shaped JSON; many branches are static defaults
-//!   until matching fields exist on [`openauth_core::options::OpenAuthOptions`].
+//! - **`get_telemetry_auth_config`** emits Better Auth-shaped JSON from modeled
+//!   [`OpenAuthOptions`] branches; physical table/column names are redacted in telemetry output.
 //! - **Runtime** is reported as `rust` (not Node/Bun/Deno).
 //! - **System metrics** `cpuModel`, `cpuSpeed`, and `memory` stay `null` without a platform sysinfo dependency.
 //! - **HTTP**: JSON POST uses `reqwest` when the `http` feature is enabled (default).
