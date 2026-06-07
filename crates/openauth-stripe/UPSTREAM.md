@@ -18,9 +18,9 @@ parameters. This document only covers the server plugin surface.
 OpenAuth implements the full Better Auth `@better-auth/stripe` server plugin:
 seven billing routes, customer linking, webhook lifecycle sync, schema
 contributions, metadata protection, and organization hooks. Rust adds durable
-webhook idempotency and stricter redirect validation. Remaining risk is mostly
-operational: live Stripe smoke testing, route rate limits, and webhook table
-migrations.
+webhook idempotency and stricter redirect validation. No open upstream
+server-side parity gaps remain; the remaining notes are operational deployment
+concerns rather than Better Auth behavior to port.
 
 ## Server-Side Inventory
 
@@ -77,7 +77,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Upstream package tests | N/A | `stripe.test.ts` 101, `stripe-organization.test.ts` 22, `seat-based-billing.test.ts` 14, `metadata.test.ts` 4, `utils.test.ts` 9 | Upstream total: 150. |
 | Rust route coverage | Covered | Mapped to upstream route tests | Includes upgrade, cancel, restore, list, success, billing portal, and cross-reference authorization. |
 | Rust webhook coverage | Covered | Mapped to upstream webhook tests plus extensions | Includes signature verification, lifecycle hooks, idempotency, retries, and skip paths. |
-| Live Stripe behavior | ⚠️ Smoke only | Upstream uses mocked Stripe clients | Run `SMOKE.md` before production rollout. |
+| Live Stripe behavior | ➖ Operational smoke | Upstream uses mocked Stripe clients | Not an upstream parity gap; run `SMOKE.md` before production rollout. |
 | Verify command | `cargo nextest run -p openauth-stripe` | Upstream package uses `vitest` | Use the Rust command for this crate. |
 
 ## Intentional Differences
@@ -92,15 +92,19 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Error aliases | Keeps deprecated `SUBSCRIPTION_NOT_SCHEDULED_FOR_CANCELLATION` alias | Exposes only `SUBSCRIPTION_NOT_PENDING_CHANGE` | Avoid carrying deprecated aliases in the Rust public API. |
 | Subscription grouping | No runtime grouping field in server responses | Runtime `group` included on list responses when configured | Exposes useful plan metadata without changing upstream route ownership rules. |
 
-## Open Gaps / Risks
+## Operational Notes
+
+No open upstream server-side parity gaps remain for Better Auth `1.6.9`
+`@better-auth/stripe`. The items below are intentional operational notes or
+OpenAuth extensions, not missing Better Auth behavior.
 
 | ID | Gap | Severity | Notes |
 | --- | --- | --- | --- |
-| STRIPE-S1 | Live Stripe portal/schedule/webhook delivery needs smoke testing | Medium | Fake transports cover contracts; run `SMOKE.md` with Stripe test mode. |
-| STRIPE-S2 | Route-level rate limits are not added by this plugin | Medium | Rely on OpenAuth/server middleware, edge limits, and Stripe retry controls. |
-| STRIPE-S3 | Webhook idempotency requires migration/table availability | High | Missing `stripeWebhookEvent` can allow duplicate side effects. |
-| STRIPE-S4 | Best-effort hooks can leave stale customer/seat data | Medium | Monitor logs and reconcile through webhooks or operational checks. |
-| STRIPE-S5 | Stripe and local pagination have safety caps | Low | Caps prevent unbounded loops; extremely large histories may need operational review. |
+| STRIPE-S1 | Live Stripe portal/schedule/webhook delivery smoke testing | Operational | Not an upstream parity gap: upstream tests mock Stripe clients. Run `SMOKE.md` with Stripe test mode before production rollout. |
+| STRIPE-S2 | Route-level rate limits | Intentional boundary | Better Auth `@better-auth/stripe` does not add plugin-specific route limits. Use OpenAuth/server middleware, edge limits, and Stripe retry controls. |
+| STRIPE-S3 | Webhook idempotency table migration | OpenAuth extension | `stripeWebhookEvent` is a Rust-only durable idempotency table. Run adapter migrations so the extension is available before webhook traffic. |
+| STRIPE-S4 | Best-effort sync hooks | Upstream behavior | User/org customer sync and seat sync hooks intentionally log and continue on Stripe failures, matching upstream best-effort behavior. Monitor logs and reconcile through webhooks or operational checks. |
+| STRIPE-S5 | Stripe and local pagination safety caps | Intentional hardening | Caps prevent unbounded loops; extremely large histories may need operational review. Upstream uses Stripe SDK pagination without an explicit durable cap. |
 
 ## Hardening
 
