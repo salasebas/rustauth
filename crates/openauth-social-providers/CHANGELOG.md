@@ -4,6 +4,12 @@ All notable changes to `openauth-social-providers` are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Clarified Better Auth 1.6.9 parity status: remaining provider differences are
+  intentional Rust API or token-verification hardening choices, not open
+  in-scope `openauth-social-providers` implementation gaps.
+
 ### Fixed
 
 - Fixed social provider profile and userinfo HTTP calls to use the SSRF-safe
