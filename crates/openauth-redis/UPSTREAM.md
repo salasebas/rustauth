@@ -35,9 +35,9 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Rate limit Redis store | 🎯 Extension | `RedisRateLimitStore` + Lua; upstream reuses secondary KV as JSON |
 | Shared connection bundle | ✅ High | `RedisOpenAuthStores` — one `ConnectionManager` for both stores |
 | Cross-adapter wire format | ✅ High | Byte-compatible with `openauth-fred` on same Redis instance |
-| Better Auth Redis data import | ❌ Low | Upstream flat `{prefix}{key}` vs OpenAuth `secondary:` namespace |
-| Auto RL when secondary configured | ⚠️ Partial | Upstream defaults `rateLimit.storage` to `secondary-storage`; OpenAuth needs explicit `RateLimitOptions` |
-| Session payload interchange | ⚠️ Partial | Key layout and JSON differ in `openauth-core`, not this crate |
+| Better Auth Redis data import | ➖ Out of scope | Upstream flat `{prefix}{key}` vs OpenAuth `secondary:` namespace; requires an explicit migration/rewrite tool, not adapter fallback reads |
+| Auto RL when secondary configured | ✅ High | `RedisOpenAuthStores::apply_to_options` wires secondary storage and distributed RL together; core default policy remains explicit |
+| Session payload interchange | ➖ Out of scope | Logical keys and JSON live in `openauth-core`; this crate stores opaque strings only |
 | Valkey URL aliases | 🎯 Extension | `valkey://` / `valkeys://` normalized to `redis://` / `rediss://` |
 | TLS (`rediss://` / `valkeys://`) | ✅ High | Opt-in `rustls` or `native-tls` crate features |
 
@@ -46,10 +46,10 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Surface | OpenAuth (Rust) | Upstream | Notes |
 | --- | --- | --- | --- |
 | Adapter unit + validation | 10 | 0 | `src/lib.rs`, `src/secondary.rs`, `src/rate_limit.rs`, `tests/config.rs` |
-| Live Redis/Valkey integration | 10 | 0 | `tests/redis_rate_limit.rs` — secondary CRUD, rate-limit atomicity, shared bundle |
+| Live Redis/Valkey integration | 11 | 0 | `tests/redis_rate_limit.rs` — secondary CRUD, `set_if_not_exists`, rate-limit atomicity, shared bundle |
 | Secondary-storage server flows | — | 4 `it()` | `packages/better-auth/src/db/secondary-storage.test.ts` (covered in `openauth-fred` E2E) |
 | Rate-limit middleware + storage mode | — | ~6 relevant | `rate-limiter.test.ts` + `create-context.test.ts` (middleware in `openauth-core`) |
-| **Total (this crate)** | **20** | **0 adapter + 4 secondary + ~6 RL/context** | `cargo nextest list -p openauth-redis` |
+| **Total (this crate)** | **21** | **0 adapter + 4 secondary + ~6 RL/context** | `cargo nextest list -p openauth-redis` |
 
 Verify:
 
@@ -76,11 +76,9 @@ Override with `OPENAUTH_REDIS_URL` / `OPENAUTH_VALKEY_URL`.
 
 | ID | Gap / risk | Severity | Notes |
 | --- | --- | --- | --- |
-| G1 | Better Auth Redis import | High | Flat upstream keys ≠ `{prefix}secondary:`; rewrite required |
-| G2 | Explicit rate-limit wiring | Med | Upstream auto-selects secondary KV for RL in `create-context.ts`; OpenAuth requires `RateLimitOptions::secondary_storage` |
-| G3 | Session payloads not portable | Med | Logical keys and JSON live in `openauth-core` |
-| G4 | `set_if_not_exists` untested | Med | Implemented in `src/secondary.rs`; no dedicated live-redis test |
-| G5 | Live Redis/Valkey required | Med | Integration tests skip when default endpoints are unreachable |
+| G1 | Better Auth Redis import | High | Intentional out of scope for this adapter: flat upstream keys need an explicit migration/rewrite tool instead of fallback reads that broaden the key namespace |
+| G2 | Session payloads not portable | Med | Out of scope: logical keys and JSON live in `openauth-core`; this crate treats values as opaque strings |
+| G3 | Live Redis/Valkey required | Med | Integration tests skip when default endpoints are unreachable |
 
 ## Hardening notes
 
@@ -89,6 +87,8 @@ Override with `OPENAUTH_REDIS_URL` / `OPENAUTH_VALKEY_URL`.
 - `clear()` scoped to `secondary:` so co-located `rate-limit:` keys survive.
 - `SCAN` patterns escape Redis glob metacharacters in prefixes.
 - `take()` uses `GETDEL` for one-shot reads.
+- `set_if_not_exists()` uses Redis `SET NX` and is covered under live Redis/Valkey
+  for overwrite protection, concurrent create-once behavior, and TTL expiry.
 
 ## Upstream lookup
 
