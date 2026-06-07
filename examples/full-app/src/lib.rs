@@ -22,10 +22,10 @@ use openauth::db::{
 use openauth::rate_limit::GovernorMemoryRateLimitStore;
 use openauth::{
     AdvancedOptions, EmailPasswordOptions, EndpointInfo, HybridRateLimitOptions, OpenAuth,
-    OpenAuthError, RateLimitOptions, RateLimitRule, RateLimitStore,
+    OpenAuthError, OpenAuthOptions, RateLimitOptions, RateLimitRule, RateLimitStore,
 };
 use openauth_axum::OpenAuthAxumExt;
-use openauth_fred::FredRateLimitStore;
+use openauth_fred::FredOpenAuthStores;
 use openauth_redis::RedisRateLimitStore;
 use openauth_sqlx::{
     MySqlAdapter, MySqlRateLimitStore, PostgresAdapter, PostgresRateLimitStore, SqliteAdapter,
@@ -667,27 +667,32 @@ where
         RateLimitBackend::HybridValkey => shared_redis_rate_limit(&config, &config.valkey_url)
             .await?
             .hybrid(HybridRateLimitOptions::enabled()),
-        RateLimitBackend::FredRedis => rate_limit_defaults(
-            &config,
-            RateLimitOptions::secondary_storage(
-                FredRateLimitStore::connect_redis(&config.redis_url).await?,
-            ),
-        ),
-        RateLimitBackend::FredValkey => rate_limit_defaults(
-            &config,
-            RateLimitOptions::secondary_storage(
-                FredRateLimitStore::connect_valkey(&config.valkey_url).await?,
-            ),
-        ),
+        RateLimitBackend::FredRedis | RateLimitBackend::FredValkey => {
+            // Applied below through FredOpenAuthStores so the example demonstrates
+            // the shared Fred secondary-storage + rate-limit wiring.
+            RateLimitOptions::memory()
+        }
+    };
+
+    let options = OpenAuthOptions::new()
+        .base_url(auth_base_url_for_path(&config.base_url, &auth_base_path)?)
+        .base_path(auth_base_path)
+        .secret(config.secret.clone())
+        .email_password(EmailPasswordOptions::new().enabled(true))
+        .rate_limit(rate_limit)
+        .advanced(AdvancedOptions::builder().cookie_prefix(cookie_prefix(config.db)));
+    let options = match config.rate_limit {
+        RateLimitBackend::FredRedis => {
+            apply_fred_stores(&config, &config.redis_url, options).await?
+        }
+        RateLimitBackend::FredValkey => {
+            apply_fred_stores(&config, &config.valkey_url, options).await?
+        }
+        _ => options,
     };
 
     OpenAuth::builder()
-        .base_url(auth_base_url_for_path(&config.base_url, &auth_base_path)?)
-        .base_path(auth_base_path)
-        .secret(config.secret)
-        .email_password(EmailPasswordOptions::new().enabled(true))
-        .rate_limit(rate_limit)
-        .advanced(AdvancedOptions::builder().cookie_prefix(cookie_prefix(config.db)))
+        .options(options)
         .adapter(adapter)
         .build()
         .map_err(ExampleError::from)
@@ -711,6 +716,20 @@ async fn shared_redis_rate_limit(
         config,
         RateLimitOptions::secondary_storage(RedisRateLimitStore::connect(url).await?),
     ))
+}
+
+async fn apply_fred_stores(
+    config: &ExampleConfig,
+    url: &str,
+    options: OpenAuthOptions,
+) -> Result<OpenAuthOptions, ExampleError> {
+    let stores = FredOpenAuthStores::connect(url).await?;
+    Ok(stores
+        .apply_to_options(options)
+        .rate_limit(rate_limit_defaults(
+            config,
+            RateLimitOptions::secondary_storage(stores.rate_limit.clone()),
+        )))
 }
 
 fn cookie_prefix(db: DbBackend) -> String {
@@ -3126,6 +3145,48 @@ mod tests {
         assert_eq!(
             auth.context().base_url,
             format!("https://example.com/demo{profile_path}")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fred_profiles_wire_secondary_storage_with_rate_limit() -> Result<(), ExampleError> {
+        let config = ExampleConfig {
+            host: "127.0.0.1".to_owned(),
+            port: 3000,
+            base_url: format!("http://127.0.0.1:3000{AUTH_BASE_PATH}"),
+            secret: DEFAULT_SECRET.to_owned(),
+            db: DbBackend::Memory,
+            rate_limit: RateLimitBackend::FredRedis,
+            rate_limit_enabled: true,
+            rate_limit_window: 60,
+            rate_limit_max: 120,
+            database_url: String::new(),
+            database_urls: HashMap::new(),
+            allow_default_database_urls: true,
+            redis_url: "redis://127.0.0.1:6379".to_owned(),
+            valkey_url: "valkey://127.0.0.1:6380".to_owned(),
+            dev_controls: true,
+        };
+
+        let auth = build_profile_auth(
+            config,
+            DbBackend::Memory,
+            RateLimitBackend::FredRedis,
+            profile_base_path(DbBackend::Memory, RateLimitBackend::FredRedis),
+            openauth::MemoryAdapter::new(),
+            Arc::new(GovernorMemoryRateLimitStore::new()),
+        )
+        .await?;
+
+        assert!(
+            auth.context().secondary_storage.is_some(),
+            "fred profiles should demonstrate FredOpenAuthStores, not only FredRateLimitStore"
+        );
+        assert!(auth.context().rate_limit.custom_store.is_some());
+        assert_eq!(
+            auth.context().rate_limit.storage,
+            openauth::RateLimitStorageOption::SecondaryStorage
         );
         Ok(())
     }

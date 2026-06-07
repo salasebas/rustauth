@@ -258,7 +258,13 @@ async fn fred_rate_limit_store_does_not_reset_at_exact_window_boundary(
 async fn openauth_handler_async_uses_fred_rate_limit_store(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for target in available_fred_targets().await? {
-        let store = FredRateLimitStore::connect(&target.url).await?;
+        let store = FredRateLimitStore::connect_with_options(
+            &target.url,
+            FredRateLimitOptions {
+                key_prefix: format!("openauth:test:{}:{}:handler:", target.name, now_ms()),
+            },
+        )
+        .await?;
         let auth = OpenAuth::builder()
             .secret("secret-a-at-least-32-chars-long!!")
             .rate_limit(
@@ -635,6 +641,76 @@ async fn fred_open_auth_stores_share_one_client() -> Result<(), Box<dyn std::err
             Some("from-bundle")
         );
         stores.secondary_storage.delete(&key).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn fred_secondary_storage_set_if_not_exists_is_atomic_and_honors_ttl(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let prefix = format!("openauth:test:{}:{}:nx:", target.name, now_ms());
+        let storage = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: prefix,
+                scan_count: 10,
+            },
+        )
+        .await?;
+        storage.clear().await?;
+
+        assert!(
+            storage
+                .set_if_not_exists("existing", "first".to_owned(), Some(60))
+                .await?,
+            "{} should create absent key",
+            target.name
+        );
+        assert!(
+            !storage
+                .set_if_not_exists("existing", "second".to_owned(), Some(60))
+                .await?,
+            "{} should not overwrite existing key",
+            target.name
+        );
+        assert_eq!(storage.get("existing").await?.as_deref(), Some("first"));
+
+        let first_storage = storage.clone();
+        let second_storage = storage.clone();
+        let (first_created, second_created) = tokio::join!(
+            first_storage.set_if_not_exists("concurrent", "first".to_owned(), Some(60)),
+            second_storage.set_if_not_exists("concurrent", "second".to_owned(), Some(60)),
+        );
+        let created_count = [first_created?, second_created?]
+            .into_iter()
+            .filter(|created| *created)
+            .count();
+        assert_eq!(
+            created_count, 1,
+            "{} concurrent set_if_not_exists calls must create exactly once",
+            target.name
+        );
+        assert!(
+            matches!(
+                storage.get("concurrent").await?.as_deref(),
+                Some("first" | "second")
+            ),
+            "{} should keep one concurrent payload",
+            target.name
+        );
+
+        assert!(
+            storage
+                .set_if_not_exists("short-lived", "expires".to_owned(), Some(1))
+                .await?,
+            "{} should create short-lived key",
+            target.name
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+        assert_eq!(storage.get("short-lived").await?, None);
+
+        storage.clear().await?;
     }
     Ok(())
 }

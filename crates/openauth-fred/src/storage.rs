@@ -158,10 +158,12 @@ impl SecondaryStorage for FredSecondaryStorage {
                     })
                 })
                 .transpose()?;
-            self.client
-                .set::<bool, _, _>(redis_key, value, expire, Some(SetOptions::NX), false)
+            let created = self
+                .client
+                .set::<Option<String>, _, _>(redis_key, value, expire, Some(SetOptions::NX), false)
                 .await
-                .map_err(|error| fred_error("secondary set_if_not_exists", error))
+                .map_err(|error| fred_error("secondary set_if_not_exists", error))?;
+            Ok(created.is_some())
         })
     }
 

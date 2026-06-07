@@ -9,7 +9,7 @@ OpenAuth is inspired by Better Auth; it is not a line-by-line port.
 | **Upstream package** | `@better-auth/redis-storage` (ioredis) |
 | **Upstream path** | `reference/upstream-src/1.6.9/repository/packages/redis-storage/` |
 | **Rust crate** | `crates/openauth-fred/` |
-| **Parity level** | **~75%** vs literal upstream adapter; **~98%** vs OpenAuth secondary-storage contract |
+| **Parity level** | **High** vs OpenAuth secondary-storage contract; **partial** vs literal upstream adapter |
 | **Scope** | Server-side Redis/Valkey: `SecondaryStorage`, `RateLimitStore`, connection helpers. Sibling: [`openauth-redis`](../openauth-redis/UPSTREAM.md). Session key names and HTTP rate-limit middleware live in [`openauth-core`](../openauth-core/UPSTREAM.md). |
 
 ## Summary
@@ -29,14 +29,14 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Secondary storage (`get`/`set`/`delete`) | ⚠️ Partial | Upstream `redis-storage.ts` exposes three ops; OpenAuth `SecondaryStorage` trait |
+| Secondary storage (`get`/`set`/`delete`) | ✅ High | `{prefix}secondary:` namespace; `ttl=0` deletes key per `openauth-core` contract |
 | `set_if_not_exists` / `take` | 🎯 Extension | Required by `openauth-core`; absent from upstream redis adapter |
 | `list_keys` / `clear` | ✅ High | `SCAN` on `{prefix}secondary:*`; upstream `KEYS` on `{prefix}*` |
 | Rate limit Redis store | 🎯 Extension | `FredRateLimitStore` + Lua; upstream reuses secondary KV as JSON |
 | Shared connection bundle | ✅ High | `FredOpenAuthStores` — one shared `fred` connection (`src/bundle.rs`) |
 | Cross-adapter wire format | ✅ High | `{prefix}secondary:{key}`; byte-compatible with `openauth-redis` |
-| Better Auth Redis data import | ❌ Low | Upstream flat `{prefix}{key}` vs OpenAuth `secondary:` namespace |
-| Auto RL when secondary configured | ⚠️ Partial | Upstream defaults `rateLimit.storage` to `secondary-storage`; OpenAuth needs explicit `RateLimitOptions` |
+| Better Auth Redis data import | ➖ Out of scope | Upstream flat `{prefix}{key}` vs OpenAuth `secondary:` namespace; requires an explicit migration/rewrite tool, not adapter fallback reads |
+| Auto RL when secondary configured | ✅ High | `FredOpenAuthStores::apply_to_options` wires secondary storage and distributed RL together; core default policy remains explicit |
 | Valkey URL aliases | 🎯 Extension | `valkey://` → `redis://` (`src/url.rs`) |
 | TLS (`rediss://` / `valkeys://`) | ✅ High | Opt-in `native-tls` or `rustls` features on `fred` |
 
@@ -45,13 +45,14 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Surface | OpenAuth (Rust) | Upstream (server) | Notes |
 | --- | --- | --- | --- |
 | Adapter unit + validation | 27 | 0 | `src/storage.rs`, `src/script.rs`, `tests/config.rs` — no live Redis |
-| Live Redis/Valkey integration | 17 | 0 | `tests/fred_rate_limit.rs` |
+| Live Redis/Valkey integration | 18 | 0 | `tests/fred_rate_limit.rs` |
 | Secondary-storage server flows | 3 | 4 | Sign-up, DB+secondary, password-reset vs `secondary-storage.test.ts` |
 | Rate-limit store atomicity | 5 | ~4 relevant | Lua boundary, concurrency, handler `429`; upstream RL+secondary-KV in `rate-limiter.test.ts` (~20 total, mostly middleware rules) |
 | Cross-adapter (`openauth-redis`) | 2 | — | Shared physical keys and `take` |
-| `set_if_not_exists` | 0 | — | Implemented in `src/storage.rs`; no dedicated test |
+| `set_if_not_exists` | 1 | — | Live Redis/Valkey create-once, non-overwrite, concurrency, and TTL coverage |
 | Context defaults (RL storage mode) | — | 2 | `create-context.test.ts` (`secondary-storage` when `secondaryStorage` set) |
-| **Total (this crate)** | **44** | **0 adapter + 4 secondary + ~6 RL/context** | `cargo nextest list -p openauth-fred` |
+| Example app Fred bundle | 1 | — | `examples/full-app` profiles use `FredOpenAuthStores` |
+| **Total (this crate)** | **46** | **0 adapter + 4 secondary + ~6 RL/context** | `cargo nextest list -p openauth-fred` plus focused example test |
 
 Verify:
 
@@ -79,13 +80,10 @@ fail closed when unreachable).
 
 | ID | Gap / risk | Severity | Notes |
 | --- | --- | --- | --- |
-| G1 | Better Auth Redis import | High | Flat upstream keys ≠ `{prefix}secondary:`; rewrite required |
-| G2 | Explicit rate-limit wiring | Med | Upstream auto-selects `secondary-storage` RL mode in `create-context.ts`; OpenAuth requires `RateLimitOptions::secondary_storage` |
-| G3 | `set_if_not_exists` untested | Med | No unit or live-redis test (unlike `take`, which has concurrency coverage) |
-| G4 | Legacy Fred key layout | Med | Pre-`secondary:` physical keys not read after namespace change ([CHANGELOG](./CHANGELOG.md)) |
-| G5 | Live Redis/Valkey required | Med | 17 integration tests skip unavailable default endpoints |
-| G6 | Reconnect / cluster | Low | Delegated to `fred`; no OpenAuth retry wrapper |
-| G7 | Example app coverage | Low | `examples/full-app` demos `FredRateLimitStore` only, not `FredSecondaryStorage` / `FredOpenAuthStores` |
+| G1 | Better Auth Redis import | High | Intentional out of scope for this adapter: flat upstream keys need an explicit migration/rewrite tool instead of fallback reads that broaden the key namespace |
+| G2 | Legacy Fred key layout | Med | Intentional breaking beta migration: pre-`secondary:` physical keys are not read after namespace change ([CHANGELOG](./CHANGELOG.md)) |
+| G3 | Live Redis/Valkey required | Med | Integration tests skip unavailable default endpoints |
+| G4 | Reconnect / cluster | Low | Delegated to `fred`; no OpenAuth retry wrapper |
 
 ## Hardening notes
 
@@ -94,6 +92,10 @@ fail closed when unreachable).
 - `clear()` scoped to `secondary:` so co-located `rate-limit:` keys survive (OPE-37).
 - `SCAN` patterns escape Redis glob metacharacters in prefixes.
 - `take()` uses `GETDEL`; concurrent take verified under live Redis.
+- `set_if_not_exists()` uses Redis `SET NX` and is covered under live Redis/Valkey
+  for overwrite protection, concurrent create-once behavior, and TTL expiry.
+- `examples/full-app` Fred profiles use `FredOpenAuthStores`, demonstrating shared
+  Fred secondary-storage + distributed rate-limit wiring.
 
 ## Upstream lookup
 
@@ -155,8 +157,9 @@ tests, and upstream adapter contract files above were reviewed.
 | `get-tables.ts` / schema tests | DB schema when secondary storage is enabled |
 | `test/unit/magic-link-secondary-storage.test.ts` | Plugin E2E — not redis adapter scope |
 
-**Open implementation gaps** (documented above, not audit blockers): G3
-(`set_if_not_exists` test), G7 (example app), G1/G2 (core wiring / key import).
+**Open implementation gaps**: none inside the `openauth-fred` crate boundary.
+Remaining risks above are intentional migration/deployment constraints or delegated
+to `fred`/sibling crates.
 
 ## Related docs
 
