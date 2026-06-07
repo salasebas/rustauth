@@ -100,7 +100,7 @@ uuid = { version = "1", features = ["serde", "v4", "v5"] }
 webauthn-rs = { version = "0.5", features = ["conditional-ui", "danger-allow-state-serialisation", "danger-credential-internals"] }
 webauthn-rs-core = "=0.5.5"
 x509-parser = "0.18"
-opensaml = { git = "https://github.com/sebasxsala/opensaml-rs", rev = "d65e77da80e835d91dc6ff830ab6e8bf1f2292bf", default-features = true }
+opensaml = { git = "https://github.com/sebasxsala/opensaml-rs", rev = "d65e77da80e835d91dc6ff830ab6e8bf1f2292bf", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

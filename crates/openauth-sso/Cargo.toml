@@ -48,7 +48,7 @@ base64.workspace = true
 flate2.workspace = true
 josekit.workspace = true
 openauth-sqlx = { workspace = true, features = ["sqlite"] }
-opensaml = { workspace = true, default-features = true }
+opensaml = { workspace = true, features = ["crypto-bergshamra"] }
 sqlx = { workspace = true, features = ["sqlite"] }
 
 [lints]

@@ -4,20 +4,26 @@ use std::time::Duration;
 
 use opensaml::constants::signature_algorithm;
 use opensaml::constants::Binding;
-use opensaml::entity::{BindingContext, EntitySetting, User};
+use opensaml::entity::EntitySetting;
+#[cfg(feature = "saml-signed")]
+use opensaml::entity::{BindingContext, User};
 use opensaml::error::OpenSamlError;
+#[cfg(feature = "saml-signed")]
 use opensaml::flow::{flow, FlowOptions, FlowResult, HttpRequest};
 use opensaml::idp::IdentityProvider;
+#[cfg(feature = "saml-signed")]
 use opensaml::logout::{
     create_logout_request_with_id, create_logout_response_with_id, parse_logout_request,
     parse_logout_response,
 };
 use opensaml::metadata::{Endpoint, IdpMetadataConfig, SpMetadataConfig};
 use opensaml::sp::ServiceProvider;
+#[cfg(feature = "saml-signed")]
 use opensaml::util::Value;
 
 use crate::options::SamlConfig;
 use crate::saml_impl::authn_request::assertion_consumer_service_url;
+#[cfg(feature = "saml-signed")]
 use crate::saml_impl::security::SamlConditions;
 
 /// Runtime inputs when building a service provider entity.
@@ -161,6 +167,7 @@ pub fn create_identity_provider(config: &SamlConfig) -> Result<IdentityProvider,
     )
 }
 
+#[cfg(feature = "saml-signed")]
 pub fn parse_login_response(
     sp: &ServiceProvider,
     idp: &IdentityProvider,
@@ -209,11 +216,13 @@ pub fn parse_login_response(
     )
 }
 
+#[cfg(feature = "saml-signed")]
 fn sp_has_signing_key(config: &SamlConfig) -> bool {
     config.private_key.is_some() || config.sp_metadata.private_key.is_some()
 }
 
 /// Build an outbound SP-initiated [`LogoutRequest`] via opensaml.
+#[cfg(feature = "saml-signed")]
 #[allow(clippy::too_many_arguments)]
 pub fn build_sp_logout_request(
     config: &SamlConfig,
@@ -245,6 +254,7 @@ pub fn build_sp_logout_request(
 }
 
 /// Build an outbound SP [`LogoutResponse`] via opensaml.
+#[cfg(feature = "saml-signed")]
 #[allow(clippy::too_many_arguments)]
 pub fn build_sp_logout_response(
     config: &SamlConfig,
@@ -271,6 +281,7 @@ pub fn build_sp_logout_response(
 }
 
 /// Parse an inbound IdP-originated [`LogoutRequest`] at this SP.
+#[cfg(feature = "saml-signed")]
 pub fn parse_inbound_logout_request(
     config: &SamlConfig,
     base_url: &str,
@@ -285,6 +296,7 @@ pub fn parse_inbound_logout_request(
 }
 
 /// Parse an inbound IdP-originated [`LogoutResponse`] at this SP.
+#[cfg(feature = "saml-signed")]
 pub fn parse_inbound_logout_response(
     config: &SamlConfig,
     base_url: &str,
@@ -298,6 +310,7 @@ pub fn parse_inbound_logout_response(
     parse_logout_response(&sp.setting, &idp.metadata, binding, request)
 }
 
+#[cfg(feature = "saml-signed")]
 pub fn map_flow_to_conditions(extract: &Value) -> Option<SamlConditions> {
     let conditions = extract.get("conditions")?;
     Some(SamlConditions {
@@ -306,6 +319,7 @@ pub fn map_flow_to_conditions(extract: &Value) -> Option<SamlConditions> {
     })
 }
 
+#[cfg(feature = "saml-signed")]
 pub fn map_flow_attributes(extract: &Value) -> std::collections::BTreeMap<String, String> {
     let mut attributes = std::collections::BTreeMap::new();
     let Some(Value::Object(entries)) = extract.get("attributes") else {
@@ -326,6 +340,7 @@ pub fn map_flow_attributes(extract: &Value) -> std::collections::BTreeMap<String
     attributes
 }
 
+#[cfg(feature = "saml-signed")]
 pub fn assertion_id_from_saml_content(xml: &str) -> Option<String> {
     let field = opensaml::xml::ExtractorField::new("id", &["Response", "Assertion"]).attrs(&["ID"]);
     opensaml::xml::extract(xml, std::slice::from_ref(&field))
@@ -475,10 +490,7 @@ fn secret_to_string(secret: Option<&openauth_core::secret::SecretString>) -> Opt
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
 
-    use base64::Engine;
-
     use super::*;
-    use crate::options::SamlSpMetadata;
 
     #[test]
     fn authn_request_for_post_slo_provider_config() {
@@ -563,6 +575,9 @@ mod tests {
     #[test]
     fn build_logout_request_includes_session_index() {
         use std::io::Read;
+
+        use crate::options::SamlSpMetadata;
+        use base64::Engine;
 
         let config = SamlConfig {
             issuer: "https://app.example.com/sso/saml2/sp/metadata".to_owned(),

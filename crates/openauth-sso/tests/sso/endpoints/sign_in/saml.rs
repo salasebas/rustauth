@@ -1,6 +1,77 @@
 use super::*;
 
 #[tokio::test]
+async fn sign_in_sso_uses_saml_provider_for_organization_slug(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_options_and_extra_plugins(
+        SsoOptions::default(),
+        vec![AuthPlugin::new("organization")],
+    )?;
+    let cookie = seed_session(&adapter).await?;
+    seed_organization(&adapter, "org_1", "acme").await?;
+    SsoProviderStore::new(adapter.as_ref())
+        .create(CreateSsoProviderInput {
+            provider_id: "acme-saml".to_owned(),
+            issuer: "https://idp.example.com".to_owned(),
+            domain: "acme.example.com".to_owned(),
+            user_id: "other_user".to_owned(),
+            organization_id: Some("org_1".to_owned()),
+            oidc_config: None,
+            saml_config: Some(serde_json::to_string(&SamlConfig {
+                issuer: "https://app.example.com/sso/saml2/sp/metadata".to_owned(),
+                entry_point: "https://idp.example.com/saml/sso".to_owned(),
+                cert: "CERTIFICATE".to_owned(),
+                callback_url: "https://app.example.com/sso/saml2/sp/acs/acme-saml".to_owned(),
+                acs_url: None,
+                audience: None,
+                idp_metadata: None,
+                sp_metadata: SamlSpMetadata {
+                    entity_id: Some("https://app.example.com/saml/sp".to_owned()),
+                    ..SamlSpMetadata::default()
+                },
+                mapping: None,
+                want_assertions_signed: false,
+                authn_requests_signed: false,
+                signature_algorithm: None,
+                digest_algorithm: None,
+                identifier_format: None,
+                private_key: None,
+                decryption_pvk: None,
+                additional_params: None,
+            })?),
+            domain_verified: None,
+        })
+        .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sign-in/sso",
+            r#"{"organizationSlug":"acme","providerType":"saml","callbackURL":"/dashboard"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response)?;
+    let url = url::Url::parse(body["url"].as_str().ok_or("missing URL")?)?;
+    assert_eq!(
+        url.as_str().split('?').next(),
+        Some("https://idp.example.com/saml/sso")
+    );
+    let query = url
+        .query_pairs()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let saml_request = query.get("SAMLRequest").ok_or("missing SAMLRequest")?;
+    let xml = inflate_redirect_binding(saml_request)?;
+    assert!(xml.contains(
+        r#"AssertionConsumerServiceURL="https://app.example.com/sso/saml2/sp/acs/acme-saml""#
+    ));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn sign_in_sso_omits_redirect_signature_when_authn_requests_are_unsigned(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (adapter, router) = router_with_options(SsoOptions::default())?;

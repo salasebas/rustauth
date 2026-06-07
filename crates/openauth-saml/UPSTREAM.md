@@ -5,7 +5,7 @@
 | Parity pin | Better Auth `1.6.9` (`reference/upstream-better-auth/VERSION.md`) |
 | Upstream package/path | `@better-auth/sso`, `reference/upstream-src/1.6.9/repository/packages/sso/` |
 | Rust crate | `openauth-saml` |
-| Parity level | ⚠️ Partial low-level SAML SP helper parity |
+| Parity level | High low-level SAML SP helper parity; ⚠️ production hardening depends on `saml-signed` and route-layer coverage |
 | Scope | Server-only SAML primitives; plugin routes, provider storage, schema, and hooks live in `openauth-sso` |
 
 `openauth-saml` implements the server-side SAML helper layer that Better Auth
@@ -24,14 +24,14 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | AuthnRequest Redirect | ✅ | Builds Redirect requests and custom IDs; signed requests require key material |
 | SP metadata | ✅ | Generates SP metadata with ACS and optional SLO endpoints or returns supplied XML |
 | IdP metadata lookup | ✅ | Extracts first SSO/SLO service locations from metadata XML |
-| ACS response parsing | ⚠️ | Unsigned local parser plus signed/encrypted `opensaml` flow behind `saml-signed` |
+| ACS response parsing | ✅ | Unsigned local parser plus signed/encrypted `opensaml` flow behind `saml-signed` |
 | Single assertion / XSW checks | ✅ | Enforces exactly one direct `Assertion` or `EncryptedAssertion` child |
 | Timestamp validation | ✅ | `NotBefore`/`NotOnOrAfter`, 5-minute default clock skew, optional required timestamps |
 | Algorithm validation | ✅ | Signature, digest, key encryption, and data encryption allow-lists and deprecated policy |
 | XML hardening | ✅ | Rejects malformed XML/DOCTYPE and preserves namespace-local matching |
-| Signature verification | ⚠️ | Real XMLDSig verification only with `saml-signed`; default build fails closed |
-| Encrypted assertions | ⚠️ | Real ACS decryption flows through `opensaml`; standalone helper is a stub |
-| Logout helpers | ⚠️ | Builds/parses Redirect and POST LogoutRequest/LogoutResponse; route semantics live in `openauth-sso` |
+| Signature verification | ✅ | Real XMLDSig verification with `saml-signed`; default build fails closed |
+| Encrypted assertions | ✅ | ACS decryption and standalone `decrypt_encrypted_assertion_response` use `opensaml` behind `saml-signed`; default build fails closed |
+| Logout helpers | ✅ | Builds/parses Redirect and POST LogoutRequest/LogoutResponse; route semantics live in `openauth-sso` |
 | State key prefixes | ✅ | Mirrors upstream verification prefixes for AuthnRequest, assertion replay, sessions, logout |
 | RelayState cookie state | ➖ | Server route concern mapped to `openauth-sso`, not this helper crate |
 | Provider registration/update schemas | ➖ | SAML config validation is split between `openauth-sso` route code and this crate's algorithm/config types |
@@ -45,9 +45,9 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 
 | Surface | OpenAuth tests | Upstream tests | Notes + verify command |
 | --- | ---: | ---: | --- |
-| Low-level SAML helpers | 32 direct `#[test]` cases in `crates/openauth-saml` | 55 tests in `src/saml/assertions.test.ts` and `src/saml/algorithms.test.ts` | Run `cargo nextest run -p openauth-saml` |
+| Low-level SAML helpers | 35 direct `#[test]` cases in `crates/openauth-saml` | 55 tests in `src/saml/assertions.test.ts` and `src/saml/algorithms.test.ts` | Run `cargo nextest run -p openauth-saml` |
 | SAML HTTP/plugin behavior | Covered in `openauth-sso` SAML endpoint tests | 108 tests in `src/saml.test.ts` | Verify route layer with `cargo nextest run -p openauth-sso --features saml --test sso` |
-| Signed/encrypted paths | Shallow in-crate; broader fixture coverage in `openauth-sso` | Covered through upstream `samlify` integration tests | Run `cargo nextest run -p openauth-saml --features saml-signed` before changing crypto |
+| Signed/encrypted paths | Direct in-crate signature/decryption tests plus broader fixture coverage in `openauth-sso` | Covered through upstream `samlify` integration tests | Run `cargo nextest run -p openauth-saml --features saml-signed` before changing crypto |
 | SLO behavior | Mostly route-level tests in `openauth-sso` | Included in upstream `src/saml.test.ts` | This crate only owns SAML message helpers |
 | Registration/provider/domain/linking routes | Covered in `openauth-sso` endpoint tests | Mixed coverage in `src/providers.test.ts`, `src/domain-verification.test.ts`, and `src/linking/org-assignment.test.ts` | Server-only boundary handled by `openauth-sso` |
 
@@ -64,16 +64,18 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 
 ## Open Gaps / Risks
 
-| ID | Gap | Severity | Notes |
+| ID | Gap / risk | Severity | Notes |
 | --- | --- | --- | --- |
-| SAML-1 | Signed/encrypted fixture depth | High | Add Okta/Azure/Google-shaped signed, bad-cert, and encrypted assertions |
-| SAML-2 | Standalone decryption helper stub | Medium | `decrypt_encrypted_assertion_response` returns failure; real ACS decryption uses `opensaml` |
-| SAML-3 | In-crate async signature tests | Medium | `verify_signed_*` helpers lack direct async tests in this crate |
-| SAML-4 | RelayState and cookie-backed state | Medium | Better Auth uses `relay_state`; OpenAuth route parity belongs in `openauth-sso` |
-| SAML-5 | SLO production semantics | Medium | Storage, TTL, idempotency, session cleanup, and replay protection are route-level concerns |
-| SAML-6 | Organization provisioning side effects | Medium | Requires idempotent server hooks and organization plugin behavior in `openauth-sso` |
-| SAML-7 | Deprecated algorithm default | Medium | Warn-by-default matches upstream; production should set reject or explicit allow-lists |
-| SAML-8 | Live IdP coverage | Low | Smoke testing is manual; CI relies on fixtures |
+| SAML-1 | Live IdP coverage | Low | Smoke testing is manual; CI relies on fixtures and `openauth-sso` route tests |
+| SAML-2 | Deprecated algorithm default | Medium | Warn-by-default matches upstream; production should set reject or explicit allow-lists |
+| SAML-3 | Crypto feature boundary | Medium | Signed/encrypted helpers require `saml-signed`; default builds intentionally fail closed |
+
+Closed/stale audit items: signed/encrypted fixture depth is covered by
+`openauth-sso` Okta/Azure/Google, wrong-cert, tamper, XSW, and encrypted ACS
+tests; standalone decryption now uses `opensaml`; direct in-crate signature
+tests cover `verify_signed_saml_response`; RelayState, SLO storage/session
+cleanup, and organization provisioning are route/plugin concerns implemented in
+`openauth-sso`.
 
 ## Hardening Notes
 

@@ -9,7 +9,7 @@ OpenAuth is inspired by Better Auth; it is not a line-by-line port.
 | **Upstream package** | `@better-auth/sso` |
 | **Upstream path** | `reference/upstream-src/1.6.9/repository/packages/sso/` |
 | **Rust crate** | `crates/openauth-sso/` |
-| **Parity level** | High (OIDC E2E); ⚠️ Partial (SAML, org-slug sign-in) |
+| **Parity level** | High (OIDC E2E, SAML routes, org-aware sign-in); ⚠️ production SAML depends on signed feature + IdP smoke |
 | **Scope** | Server-side SSO plugin: routes, storage, callbacks, provisioning. Low-level OIDC helpers → [`openauth-oidc`](../openauth-oidc/UPSTREAM.md); SAML XML/crypto → [`openauth-saml`](../openauth-saml/UPSTREAM.md); SCIM → [`openauth-scim`](../openauth-scim/UPSTREAM.md). TypeScript `ssoClient()` is ➖ N/A (server-only). |
 
 ## Summary
@@ -19,8 +19,8 @@ OIDC sign-in/callback, optional SAML HTTP routes, domain verification, account
 linking, organization assignment, audit hooks, and rate limits. It re-exports
 `openauth_oidc` and `openauth_saml` under feature flags for convenience, but
 owns the `AuthPlugin`, `sso_providers` schema, and HTTP boundaries. OIDC
-end-to-end behavior matches upstream `oidc.test.ts` closely; SAML remains
-experimental until signed/encrypted paths are production-ready.
+end-to-end behavior matches upstream `oidc.test.ts` closely; SAML route behavior
+is covered with signed/encrypted fixture tests behind the `saml` feature.
 
 Status symbols are defined in the [parity index](../../docs/parity/README.md#status-symbols).
 
@@ -35,8 +35,8 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | `provisionUser` (first / every login) | ✅ High | Callback provisioning hooks |
 | Domain verification | ✅ High | Request + verify TXT; gates SAML sign-in |
 | Account linking / profile mapping | ✅ High | Normalized profile + org assignment helpers |
-| Organization slug sign-in | ⚠️ Partial | Requires `organization` plugin integration |
-| SAML metadata / ACS / SLO / logout | ⚠️ Partial | Unsigned compatibility flows; signing/encryption WIP |
+| Organization slug sign-in | ✅ High | Resolves provider by organization slug when the `organization` plugin is installed; email/domain/`providerId` remain available without it |
+| SAML metadata / ACS / SLO / logout | ✅ High | Metadata, RelayState, ACS, replay, signed/encrypted ACS, SLO state/session cleanup, logout routes |
 | Audit events + rate limits | ✅ High | Per-route rules for register, callback, SAML, domain |
 | `ssoClient()` browser helper | ➖ N/A | Upstream client-only; OpenAuth is server-only |
 | SCIM provisioning | ➖ N/A | Lives in `openauth-scim` |
@@ -48,9 +48,9 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | `POST /sso/register` | `routes/sso.ts` | always |
 | `POST /sign-in/sso` | `routes/sso.ts` | `oidc` / `saml` |
 | `GET /sso/callback`, `GET /sso/callback/:providerId` | `routes/sso.ts` | `oidc` |
-| `GET /sso/providers`, `GET /sso/providers/:id` | `routes/providers.ts` | always |
-| `PATCH /sso/providers/:id`, `DELETE /sso/providers/:id` | `routes/providers.ts` | always |
-| `GET /sso/saml2/sp/metadata/:providerId` | `routes/sso.ts` | `saml` |
+| `GET /sso/providers`, `GET /sso/get-provider` | `routes/providers.ts` | always |
+| `POST /sso/update-provider`, `POST /sso/delete-provider` | `routes/providers.ts` | always |
+| `GET /sso/saml2/sp/metadata?providerId=...` | `routes/sso.ts` | `saml` |
 | `GET/POST /sso/saml2/callback/:providerId`, `POST /sso/saml2/sp/acs/:providerId` | `routes/sso.ts` | `saml` |
 | `GET/POST /sso/saml2/sp/slo/:providerId`, `GET /sso/saml2/logout/:providerId` | `routes/sso.ts` | `saml` |
 | `POST /sso/request-domain-verification`, `POST /sso/verify-domain` | `routes/domain-verification.ts` | optional |
@@ -59,7 +59,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 
 | Surface | OpenAuth (Rust) | Upstream | Notes |
 | --- | --- | --- | --- |
-| Integration tests (`--test sso`) | 323 `#[test]` / `#[tokio::test]` | — | `rg '#\[(test|tokio::test)\]' crates/openauth-sso` |
+| Integration tests (`--test sso`) | 326 tests with `--features saml` | — | `cargo nextest run -p openauth-sso --features saml --test sso` |
 | OIDC E2E (`oidc.test.ts`) | 22 scenarios covered + 6 in `oidc_upstream_parity.rs` | 22 `it()` | Explicit upstream-alignment module |
 | OIDC discovery helpers | — (in `openauth-oidc`) | 71 `it()` in `oidc/discovery.test.ts` | See [`openauth-oidc`](../openauth-oidc/UPSTREAM.md) |
 | SAML routes (`saml.test.ts`) | Broad coverage under `tests/sso/endpoints/saml/` | 108 `it()` | Run with `--features saml` |
@@ -89,12 +89,16 @@ cargo nextest run -p openauth-sso --features saml --test sso   # SAML routes
 
 | ID | Gap / risk | Severity | Notes |
 | --- | --- | --- | --- |
-| SSO-1 | SAML signing/encryption production readiness | High | Prefer OIDC for new IdPs; see [`openauth-saml`](../openauth-saml/UPSTREAM.md) |
-| SSO-2 | Organization slug sign-in without org plugin | Med | Email/domain/`providerId` paths are complete |
-| SSO-3 | Duplicate OIDC test maintenance | Low | Overlap between `tests/sso/oidc.rs` and `openauth-oidc/tests/flow.rs` |
+| SSO-1 | SAML smoke not in CI | Med | Manual `scripts/saml-smoke.sh`; see [SMOKE-SAML.md](./SMOKE-SAML.md) |
+| SSO-2 | SSRF policy is application-configurable | High | Discovery/token/JWKS/UserInfo use guarded clients by default; production must keep private endpoint access disabled unless explicitly required |
+| SSO-3 | Duplicate OIDC test maintenance | Low | Some overlap remains between `tests/sso/oidc.rs` and `openauth-oidc/tests/flow.rs` |
 | SSO-4 | No typed browser SSO client | Low | Expected for server-only crate |
-| SSO-5 | SSRF on discovery/token/JWKS/UserInfo | High | Depends on trusted-origin predicate + guarded HTTP client |
-| SSO-6 | SAML smoke not in CI | Med | Manual `scripts/saml-smoke.sh`; see [SMOKE-SAML.md](./SMOKE-SAML.md) |
+
+Closed/stale audit items: organization slug sign-in is implemented for installs
+that include the `organization` plugin; SAML metadata, ACS, RelayState,
+assertion replay, signed/encrypted ACS, SLO, logout, session cleanup, and
+provider fixtures are covered by `tests/sso/endpoints/saml/`; SSRF-sensitive
+OIDC calls use trusted-origin validation and guarded HTTP clients by default.
 
 ## Hardening notes
 

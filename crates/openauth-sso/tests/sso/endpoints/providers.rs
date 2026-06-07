@@ -52,6 +52,55 @@ async fn get_and_delete_provider_apply_authenticated_user_scope(
 
 #[tokio::test]
 #[cfg(feature = "oidc")]
+async fn delete_provider_does_not_delete_linked_accounts() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (adapter, router) = router_with_options(SsoOptions::default())?;
+    let cookie = seed_session(&adapter).await?;
+    register_oidc_provider(&router, &cookie).await?;
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .create(
+            Create::new("account")
+                .data("id", DbValue::String("linked_account_1".to_owned()))
+                .data("account_id", DbValue::String("oidc-subject-123".to_owned()))
+                .data("provider_id", DbValue::String("okta".to_owned()))
+                .data("user_id", DbValue::String("user_1".to_owned()))
+                .data("access_token", DbValue::Null)
+                .data("refresh_token", DbValue::Null)
+                .data("id_token", DbValue::Null)
+                .data("access_token_expires_at", DbValue::Null)
+                .data("refresh_token_expires_at", DbValue::Null)
+                .data("scope", DbValue::Null)
+                .data("password", DbValue::Null)
+                .data("created_at", DbValue::Timestamp(now))
+                .data("updated_at", DbValue::Timestamp(now))
+                .force_allow_id(),
+        )
+        .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sso/delete-provider",
+            r#"{"providerId":"okta"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(adapter.records("ssoProvider").await.is_empty());
+    let accounts = adapter.records("account").await;
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(
+        accounts[0].get("id"),
+        Some(&DbValue::String("linked_account_1".to_owned()))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg(feature = "oidc")]
 async fn get_provider_accepts_provider_id_query_parameter() -> Result<(), Box<dyn std::error::Error>>
 {
     let (adapter, router) = router_with_options(SsoOptions::default())?;

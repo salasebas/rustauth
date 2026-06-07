@@ -8,11 +8,87 @@ use openauth_saml::{
     DeprecatedAlgorithmBehavior, DigestAlgorithm, SamlConditions, SamlConfig, SamlIdpMetadata,
     SamlRuntimeAlgorithmPolicy, SamlSecurityError, SignatureAlgorithm, TimestampValidationOptions,
 };
+#[cfg(feature = "saml-signed")]
+use openauth_saml::{
+    encryption::decrypt_encrypted_assertion_response,
+    signature::{verify_signed_saml_response, SamlSignatureInfo, SamlSignatureValidationError},
+};
+#[cfg(feature = "saml-signed")]
+use opensaml::{
+    constants::{signature_algorithm::RSA_SHA256, Binding},
+    crypto::encrypt_assertion,
+    entity::{EntitySetting, User},
+    idp::{IdentityProvider, LoginResponseOptions},
+    metadata::{Endpoint, IdpMetadataConfig, SpMetadataConfig},
+    ServiceProvider,
+};
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 fn encode_saml_xml(xml: &str) -> String {
     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xml)
+}
+
+#[cfg(feature = "saml-signed")]
+fn sp_private_key_pem() -> &'static str {
+    include_str!("../../openauth-sso/tests/fixtures/saml/key/sp_privkey.pem")
+}
+
+#[cfg(feature = "saml-signed")]
+fn sp_signing_cert_pem() -> &'static str {
+    include_str!("../../openauth-sso/tests/fixtures/saml/key/sp_signing_cert.cer")
+}
+
+#[cfg(feature = "saml-signed")]
+fn signed_login_response(in_response_to: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let idp = IdentityProvider::from_config(
+        &IdpMetadataConfig {
+            entity_id: "https://idp.example.com".to_owned(),
+            signing_certs: vec![sp_signing_cert_pem().to_owned()],
+            want_authn_requests_signed: false,
+            single_sign_on_service: vec![Endpoint::new(
+                Binding::Redirect,
+                "https://idp.example.com/sso".to_owned(),
+            )],
+            ..Default::default()
+        },
+        EntitySetting {
+            private_key: Some(sp_private_key_pem().to_owned()),
+            signing_cert: Some(sp_signing_cert_pem().to_owned()),
+            request_signature_algorithm: RSA_SHA256.to_owned(),
+            ..Default::default()
+        },
+    )?;
+    let sp = ServiceProvider::from_config(
+        &SpMetadataConfig {
+            entity_id: "https://sp.example.com/entity".to_owned(),
+            signing_certs: vec![sp_signing_cert_pem().to_owned()],
+            authn_requests_signed: false,
+            want_assertions_signed: true,
+            assertion_consumer_service: vec![Endpoint::new(
+                Binding::Post,
+                "https://sp.example.com/acs".to_owned(),
+            )],
+            ..Default::default()
+        },
+        EntitySetting {
+            entity_id: Some("https://sp.example.com/entity".to_owned()),
+            private_key: Some(sp_private_key_pem().to_owned()),
+            signing_cert: Some(sp_signing_cert_pem().to_owned()),
+            request_signature_algorithm: RSA_SHA256.to_owned(),
+            ..Default::default()
+        },
+    )?;
+    let response = idp.create_login_response(
+        &sp,
+        Binding::Post,
+        &User::new("saml-user@example.com"),
+        &LoginResponseOptions {
+            in_response_to: Some(in_response_to),
+            ..Default::default()
+        },
+    )?;
+    Ok(response.context)
 }
 
 #[test]
@@ -161,6 +237,78 @@ fn encrypted_assertion_without_decryption_support_fails_closed(
     assert!(error
         .to_string()
         .contains("Encrypted SAML assertions are not supported"));
+    Ok(())
+}
+
+#[cfg(feature = "saml-signed")]
+#[test]
+fn decrypt_encrypted_assertion_response_replaces_encrypted_assertion(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+            <saml:Assertion ID="encrypted-fixture">
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+            </saml:Assertion>
+        </samlp:Response>
+    "#;
+    let encrypted = encrypt_assertion(
+        xml,
+        sp_signing_cert_pem(),
+        "http://www.w3.org/2001/04/xmlenc#aes256-cbc",
+        "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p",
+        "saml",
+    )?;
+
+    let decrypted = decrypt_encrypted_assertion_response(&encrypted, sp_private_key_pem())?;
+
+    assert!(decrypted.contains(r#"<saml:Assertion ID="encrypted-fixture">"#));
+    assert!(!decrypted.contains("EncryptedAssertion"));
+    Ok(())
+}
+
+#[cfg(feature = "saml-signed")]
+#[tokio::test]
+async fn verify_signed_saml_response_accepts_matching_certificate(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let encoded = signed_login_response("request-1")?;
+    let signature = SamlSignatureInfo {
+        count: 1,
+        response: true,
+        assertion: false,
+        logout_request: false,
+        logout_response: false,
+    };
+
+    let verified = verify_signed_saml_response(&encoded, signature, sp_signing_cert_pem())
+        .await
+        .map_err(|error| format!("signature verification failed: {error:?}"))?;
+
+    assert_eq!(
+        verified.element,
+        openauth_saml::signature::SamlSignedElement::Response
+    );
+    Ok(())
+}
+
+#[cfg(feature = "saml-signed")]
+#[tokio::test]
+async fn verify_signed_saml_response_rejects_wrong_certificate(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let encoded = signed_login_response("request-1")?;
+    let signature = SamlSignatureInfo {
+        count: 1,
+        response: true,
+        assertion: false,
+        logout_request: false,
+        logout_response: false,
+    };
+
+    let error = match verify_signed_saml_response(&encoded, signature, "WRONG-CERT").await {
+        Ok(_) => return Err("wrong certificate should fail".into()),
+        Err(error) => error,
+    };
+
+    assert_eq!(error, SamlSignatureValidationError::Invalid);
     Ok(())
 }
 

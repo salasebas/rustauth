@@ -19,6 +19,9 @@ All notable changes to `openauth-saml` are documented in this file.
 
 - `saml-signed` now enables real XMLDSig/XML-Enc via `opensaml/crypto-bergshamra`
   (no longer a placeholder).
+- `decrypt_encrypted_assertion_response` now decrypts encrypted assertions with
+  `opensaml` when `saml-signed` is enabled instead of returning a placeholder
+  failure.
 - LogoutRequest/LogoutResponse preserve caller-provided IDs under `saml-signed`.
 - Redirect SLO signature verification decodes DEFLATE/base64 before octet
   construction (fixes detached redirect binding verify).

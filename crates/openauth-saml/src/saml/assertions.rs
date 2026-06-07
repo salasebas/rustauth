@@ -4,10 +4,11 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 use std::collections::BTreeMap;
 
+use crate::bridge::SpBuildOptions;
+#[cfg(feature = "saml-signed")]
 use crate::bridge::{
     assertion_id_from_saml_content, create_identity_provider, create_service_provider,
     map_flow_attributes, map_flow_to_conditions, opensaml_error_code, parse_login_response,
-    SpBuildOptions,
 };
 use crate::options::SamlConfig;
 
@@ -300,12 +301,14 @@ fn parse_saml_response_via_opensaml(
     ))
 }
 
+#[cfg(feature = "saml-signed")]
 fn encoded_response_contains_signature(encoded_response: &str) -> bool {
     decode_saml_response_xml_detailed(encoded_response)
         .map(|xml| xml.contains("<Signature") || xml.contains(":Signature"))
         .unwrap_or(false)
 }
 
+#[cfg(feature = "saml-signed")]
 fn map_flow_result_to_parsed_response(
     flow: &opensaml::flow::FlowResult,
     signature_checked: bool,
@@ -356,6 +359,7 @@ fn map_flow_result_to_parsed_response(
     })
 }
 
+#[cfg(feature = "saml-signed")]
 #[allow(clippy::collapsible_match)]
 fn extract_assertion_attributes_from_xml(xml: &str) -> BTreeMap<String, String> {
     let mut attributes = BTreeMap::new();
@@ -410,6 +414,7 @@ fn extract_assertion_attributes_from_xml(xml: &str) -> BTreeMap<String, String> 
     attributes
 }
 
+#[cfg(feature = "saml-signed")]
 fn audience_values(extract: &opensaml::util::Value) -> Vec<String> {
     match extract.get("audience") {
         Some(opensaml::util::Value::Str(value)) => vec![value.clone()],
@@ -422,6 +427,7 @@ fn audience_values(extract: &opensaml::util::Value) -> Vec<String> {
     }
 }
 
+#[cfg(feature = "saml-signed")]
 fn runtime_algorithms_from_sig(
     sig_alg: Option<&str>,
     mut algorithms: SamlRuntimeAlgorithms,
@@ -438,6 +444,7 @@ fn runtime_algorithms_from_sig(
     algorithms
 }
 
+#[cfg(feature = "saml-signed")]
 fn assertion_signature_present(xml: &str) -> bool {
     let Some(assertion_start) = xml
         .find("<saml:Assertion")
@@ -451,6 +458,7 @@ fn assertion_signature_present(xml: &str) -> bool {
     tail.contains("<ds:Signature") || tail.contains("<Signature")
 }
 
+#[cfg(feature = "saml-signed")]
 fn signature_info_from_content(
     xml: &str,
     signature_checked: bool,
@@ -472,6 +480,7 @@ fn signature_info_from_content(
     }
 }
 
+#[cfg(feature = "saml-signed")]
 fn map_opensaml_parse_error(
     error: opensaml::error::OpenSamlError,
     xml: &str,

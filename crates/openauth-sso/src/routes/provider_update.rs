@@ -217,7 +217,10 @@ pub(super) fn endpoint(options: Arc<SsoOptions>) -> AsyncAuthEndpoint {
                 } else {
                     None
                 };
+                #[cfg(feature = "saml")]
                 let mut saml_trust_boundary_changed = false;
+                #[cfg(not(feature = "saml"))]
+                let saml_trust_boundary_changed = false;
                 let merged_saml_config = if let Some(update) = body.saml_config {
                     #[cfg(not(feature = "saml"))]
                     {

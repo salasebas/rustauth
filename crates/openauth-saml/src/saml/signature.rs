@@ -1,7 +1,12 @@
-use opensaml::constants::{Binding, ParserType};
+#[cfg(feature = "saml-signed")]
+use opensaml::constants::Binding;
+use opensaml::constants::ParserType;
+#[cfg(feature = "saml-signed")]
 use opensaml::flow::{flow, FlowOptions, HttpRequest};
 
+#[cfg(feature = "saml-signed")]
 use crate::bridge::opensaml_error_code;
+#[cfg(feature = "saml-signed")]
 use crate::options::SamlConfig;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -220,6 +225,7 @@ fn verify_redirect_signature(
     }
 }
 
+#[cfg(feature = "saml-signed")]
 fn map_verify_error(error: opensaml::error::OpenSamlError) -> SamlSignatureValidationError {
     match opensaml_error_code(&error) {
         "SAML_SIGNATURE_VALIDATION_NOT_IMPLEMENTED" => SamlSignatureValidationError::NotImplemented,
