@@ -409,6 +409,59 @@ impl SecondaryStorage for TestSecondaryStorage {
             Ok(value)
         })
     }
+
+    fn compare_and_set<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+        value: String,
+        ttl_seconds: Option<u64>,
+    ) -> Pin<Box<dyn Future<Output = Result<bool, openauth_core::error::OpenAuthError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            let mut values = self
+                .values
+                .lock()
+                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?;
+            if values.get(key).cloned() != expected {
+                return Ok(false);
+            }
+            values.insert(key.to_owned(), value);
+            drop(values);
+            self.ttl
+                .lock()
+                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
+                .insert(key.to_owned(), ttl_seconds);
+            Ok(true)
+        })
+    }
+
+    fn delete_if_value<'a>(
+        &'a self,
+        key: &'a str,
+        expected: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<bool, openauth_core::error::OpenAuthError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            let Some(expected) = expected else {
+                return Ok(false);
+            };
+            let mut values = self
+                .values
+                .lock()
+                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?;
+            if values.get(key).map(String::as_str) != Some(expected.as_str()) {
+                return Ok(false);
+            }
+            values.remove(key);
+            drop(values);
+            self.deleted
+                .lock()
+                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
+                .push(key.to_owned());
+            Ok(true)
+        })
+    }
 }
 
 #[derive(Default)]
