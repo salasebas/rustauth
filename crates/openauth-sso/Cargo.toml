@@ -30,6 +30,7 @@ openauth-core = { workspace = true, default-features = false }
 openidconnect.workspace = true
 openauth-oauth = { workspace = true, default-features = false }
 openauth-oidc = { workspace = true, optional = true }
+openauth-plugins.workspace = true
 openauth-saml = { workspace = true, optional = true }
 publicsuffix2.workspace = true
 serde.workspace = true

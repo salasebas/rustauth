@@ -26,6 +26,9 @@ All notable changes to `openauth-scim` are documented in this file.
 
 ### Fixed
 
+- Organization-scoped SCIM user provisioning now creates memberships through the
+  real organization plugin semantics when installed, including member hooks,
+  role validation, and membership limits.
 - Require an organization-scoped `scimGroupProfile` marker for a team before
   exposing or mutating it through SCIM group routes, so native organization
   teams are no longer listed, readable, or mutable via `GET/PUT/PATCH/DELETE

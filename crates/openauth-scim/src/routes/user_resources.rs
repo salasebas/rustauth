@@ -51,6 +51,9 @@ pub(super) async fn ensure_provider_account_id_available(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn create_scim_user_account_and_membership(
+    organization_options: Option<
+        std::sync::Arc<openauth_plugins::organization::OrganizationOptions>,
+    >,
     adapter: &dyn DbAdapter,
     existing_user: Option<User>,
     user_input: CreateUserInput,
@@ -76,7 +79,8 @@ pub(super) async fn create_scim_user_account_and_membership(
                     create_org_membership_if_missing(
                         transaction.as_ref(),
                         organization_id,
-                        &user.id,
+                        &user,
+                        organization_options.as_deref(),
                     )
                     .await?;
                 }

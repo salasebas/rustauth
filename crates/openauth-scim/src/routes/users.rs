@@ -193,6 +193,7 @@ pub(super) fn create_user_endpoint(
                     scope: None,
                 };
                 let (user, account) = create_scim_user_account_and_membership(
+                    openauth_plugins::organization::organization_options_from_context(context),
                     adapter.as_ref(),
                     users.find_user_by_email(&email).await?,
                     user_input,

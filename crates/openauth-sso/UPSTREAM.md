@@ -34,7 +34,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | OIDC callback (`/sso/callback`, `/sso/callback/:providerId`) | ✅ High | Shared redirect URI, ID token + UserInfo, linking |
 | `provisionUser` (first / every login) | ✅ High | Callback provisioning hooks |
 | Domain verification | ✅ High | Request + verify TXT; gates SAML sign-in |
-| Account linking / profile mapping | ✅ High | Normalized profile + org assignment helpers |
+| Account linking / profile mapping | ✅ High | Normalized profile + org assignment helpers; real organization plugin installs provision through member hooks/limits/role validation |
 | Organization slug sign-in | ✅ High | Resolves provider by organization slug when the `organization` plugin is installed; email/domain/`providerId` remain available without it |
 | SAML metadata / ACS / SLO / logout | ✅ High | Metadata, RelayState, ACS, replay, signed/encrypted ACS, SLO state/session cleanup, logout routes |
 | Audit events + rate limits | ✅ High | Per-route rules for register, callback, SAML, domain |
@@ -84,6 +84,7 @@ cargo nextest run -p openauth-sso --features saml --test sso   # SAML routes
 | HTTP client | Internal `betterFetch` | Caller-owned `reqwest::Client` + origin predicates | SSRF and timeout policy owned by the application |
 | Browser client | `ssoClient()` export | None | Server-only Rust boundary |
 | Error surface | TypeScript union codes | `SsoErrorDescriptor` + HTTP status mapping | Explicit Rust error taxonomy |
+| Organization provisioning implementation | Direct membership writes | Delegates to `openauth-plugins::organization` when the real plugin is installed, with a fallback only for minimal test stubs | Keeps SSO assignment consistent with organization hooks and limits. |
 
 ## Open gaps and risks
 
@@ -97,7 +98,9 @@ cargo nextest run -p openauth-sso --features saml --test sso   # SAML routes
 Closed/stale audit items: organization slug sign-in is implemented for installs
 that include the `organization` plugin; SAML metadata, ACS, RelayState,
 assertion replay, signed/encrypted ACS, SLO, logout, session cleanup, and
-provider fixtures are covered by `tests/sso/endpoints/saml/`; SSRF-sensitive
+provider fixtures are covered by `tests/sso/endpoints/saml/`; organization
+assignment now uses the real organization plugin provisioning semantics when
+available; SSRF-sensitive
 OIDC calls use trusted-origin validation and guarded HTTP clients by default.
 
 ## Hardening notes

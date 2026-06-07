@@ -3,6 +3,10 @@ use openauth_core::crypto::random::generate_random_string;
 use openauth_core::db::{Create, DbAdapter, DbValue, FindOne, User, Where};
 use openauth_core::error::OpenAuthError;
 use openauth_oauth::oauth2::OAuth2Tokens;
+use openauth_plugins::organization::{
+    organization_options_from_context, provision_organization_member,
+    ProvisionOrganizationMemberInput,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -96,20 +100,20 @@ pub async fn assign_organization_from_provider(
             token,
         })
         .await?;
-    adapter
-        .create(
-            Create::new("member")
-                .data("id", DbValue::String(generate_random_string(32)))
-                .data(
-                    "organization_id",
-                    DbValue::String(organization_id.to_owned()),
-                )
-                .data("user_id", DbValue::String(user.id.clone()))
-                .data("role", DbValue::String(role))
-                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
-                .force_allow_id(),
+    if let Some(options) = organization_options_from_context(context) {
+        provision_organization_member(
+            adapter,
+            &options,
+            ProvisionOrganizationMemberInput {
+                organization_id,
+                user,
+                role: &role,
+            },
         )
         .await?;
+    } else {
+        create_org_membership_direct(adapter, organization_id, &user.id, &role).await?;
+    }
     Ok(())
 }
 
@@ -234,6 +238,29 @@ async fn organization_member(
                 .where_clause(Where::new("user_id", DbValue::String(user_id.to_owned()))),
         )
         .await
+}
+
+async fn create_org_membership_direct(
+    adapter: &dyn DbAdapter,
+    organization_id: &str,
+    user_id: &str,
+    role: &str,
+) -> Result<(), OpenAuthError> {
+    adapter
+        .create(
+            Create::new("member")
+                .data("id", DbValue::String(generate_random_string(32)))
+                .data(
+                    "organization_id",
+                    DbValue::String(organization_id.to_owned()),
+                )
+                .data("user_id", DbValue::String(user_id.to_owned()))
+                .data("role", DbValue::String(role.to_owned()))
+                .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
+                .force_allow_id(),
+        )
+        .await?;
+    Ok(())
 }
 
 fn normalize_domain(value: &str) -> String {

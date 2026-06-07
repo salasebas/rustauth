@@ -121,8 +121,11 @@ async fn process_bulk_operations_independent(
     let mut responses = Vec::new();
     let mut errors = 0_u64;
     let mut bulk_ids = std::collections::BTreeMap::new();
+    let organization_options =
+        openauth_plugins::organization::organization_options_from_context(context);
     for operation in operations {
         let result = execute_bulk_operation(
+            organization_options.clone(),
             adapter,
             &context.base_url,
             options,
@@ -160,6 +163,8 @@ async fn process_bulk_operations_atomic(
     let provider_for_audit = provider.clone();
     let provider = provider.clone();
     let base_url = context.base_url.clone();
+    let organization_options =
+        openauth_plugins::organization::organization_options_from_context(context);
     let responses = Arc::new(Mutex::new(Vec::new()));
     let responses_for_transaction = Arc::clone(&responses);
     let transaction_result = adapter
@@ -167,11 +172,13 @@ async fn process_bulk_operations_atomic(
             let base_url = base_url.clone();
             let options = options.clone();
             let provider = provider.clone();
+            let organization_options = organization_options.clone();
             let responses = Arc::clone(&responses_for_transaction);
             let mut bulk_ids = std::collections::BTreeMap::new();
             Box::pin(async move {
                 for operation in operations {
                     let result = execute_bulk_operation(
+                        organization_options.clone(),
                         transaction.as_ref(),
                         &base_url,
                         &options,
@@ -275,6 +282,9 @@ async fn emit_bulk_failure(
 }
 
 async fn execute_bulk_operation(
+    organization_options: Option<
+        std::sync::Arc<openauth_plugins::organization::OrganizationOptions>,
+    >,
     adapter: &dyn DbAdapter,
     base_url: &str,
     options: &ScimOptions,
@@ -405,7 +415,8 @@ async fn execute_bulk_operation(
                 ScimError::bad_request("Bulk data is required"),
             );
         };
-        let response = bulk_create_user(adapter, base_url, provider, data).await?;
+        let response =
+            bulk_create_user(organization_options, adapter, base_url, provider, data).await?;
         if let (Some(bulk_id), Some(id)) = (operation.bulk_id.as_ref(), response.2.as_ref()) {
             bulk_ids.insert(bulk_id.clone(), format!("/Users/{id}"));
         }
@@ -756,6 +767,9 @@ fn bulk_response_version(response: &serde_json::Value) -> Option<String> {
 }
 
 async fn bulk_create_user(
+    organization_options: Option<
+        std::sync::Arc<openauth_plugins::organization::OrganizationOptions>,
+    >,
     adapter: &dyn DbAdapter,
     base_url: &str,
     provider: &AuthenticatedScimProvider,
@@ -823,6 +837,7 @@ async fn bulk_create_user(
     }
     let profile_attributes = scim_user_profile_attributes(&input);
     let (user, account) = create_scim_user_account_and_membership(
+        organization_options,
         adapter,
         users.find_user_by_email(&email).await?,
         CreateUserInput::new(name, email).email_verified(true),

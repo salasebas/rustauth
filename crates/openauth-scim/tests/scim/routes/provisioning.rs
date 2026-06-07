@@ -54,6 +54,62 @@ async fn scim_post_user_links_account_to_existing_user_by_email() {
 }
 
 #[tokio::test]
+async fn scim_post_user_provisions_org_member_through_real_organization_hooks() {
+    use openauth_plugins::organization::{MemberHookData, OrganizationHooks, OrganizationOptions};
+    use std::sync::Arc;
+
+    let organization_options = OrganizationOptions::builder()
+        .hooks(OrganizationHooks {
+            before_add_member: Some(Arc::new(|event| {
+                Ok(MemberHookData {
+                    role: "admin".to_owned(),
+                    ..event.member.clone()
+                })
+            })),
+            ..OrganizationHooks::default()
+        })
+        .build();
+    let (adapter, router, _) = router_with_context_and_organization_options(
+        crate::scim_options_for_manual_provider_tokens(),
+        organization_options,
+    )
+    .expect("router should build");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("organization should create");
+    ScimProviderStore::new(adapter.as_ref())
+        .create(CreateScimProviderInput {
+            provider_id: "okta".to_owned(),
+            scim_token: "base-token".to_owned(),
+            organization_id: Some("org_1".to_owned()),
+            user_id: None,
+        })
+        .await
+        .expect("provider should create");
+    let token = encode_bearer_token("base-token", "okta", Some("org_1"));
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Users",
+            r#"{"userName":"hooked-scim@example.com"}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_body(response);
+    let user_id = body["id"].as_str().expect("user id").to_owned();
+    let members = adapter.records("member").await;
+    assert!(members.iter().any(|record| {
+        record.get("organization_id") == Some(&DbValue::String("org_1".to_owned()))
+            && record.get("user_id") == Some(&DbValue::String(user_id.clone()))
+            && record.get("role") == Some(&DbValue::String("admin".to_owned()))
+    }));
+}
+
+#[tokio::test]
 async fn scim_delete_user_unlinks_provider_when_linked_by_email_across_providers() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     for (provider_id, base_token) in [("okta", "okta-secret"), ("entra", "entra-secret")] {

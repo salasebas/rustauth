@@ -21,7 +21,7 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | --- | --- | --- |
 | Plugin entrypoint | ✅ | `scim(ScimOptions)` maps to upstream plugin id `scim`. |
 | Management routes | ✅ | `POST /scim/generate-token`, list/get/delete provider connections. |
-| User CRUD routes | ✅ | `POST/GET/PUT/PATCH/DELETE /scim/v2/Users`; SCIM JSON errors and locations. |
+| User CRUD routes | ✅ | `POST/GET/PUT/PATCH/DELETE /scim/v2/Users`; SCIM JSON errors, locations, and org membership provisioning through real organization plugin semantics when installed. |
 | Bearer token auth | ✅ | Base64url bearer token with provider and optional organization scope. |
 | `scimProvider` schema | ✅ | Global `providerId`, hidden unique token, optional org/user ownership fields. |
 | Token storage modes | ✅ | Plain, hashed, encrypted, custom hash, and custom encryption. |
@@ -68,6 +68,7 @@ Verify command: `cargo nextest run -p openauth-scim`
 | Metadata capabilities | Bulk/sort/etag unsupported in 1.6.9 | Advertises implemented OpenAuth capabilities | Callers should see the actual server contract. |
 | Groups | Not implemented | Organization team-backed Groups | Adds enterprise provisioning while reusing OpenAuth org data. |
 | Bulk | Not implemented | Independent and atomic bulk modes | Adds RFC-style batch provisioning with adapter-aware transactions. |
+| Organization membership provisioning | Direct member insert | Delegates to `openauth-plugins::organization` when the real plugin is installed | Keeps SCIM org provisioning consistent with member hooks, role validation, and limits. |
 
 ## Open Gaps / Risks
 

@@ -248,12 +248,26 @@ pub(super) fn parse_roles(role: &str) -> Vec<String> {
 pub(super) async fn create_org_membership_if_missing(
     adapter: &dyn DbAdapter,
     organization_id: &str,
-    user_id: &str,
+    user: &openauth_core::db::User,
+    organization_options: Option<&openauth_plugins::organization::OrganizationOptions>,
 ) -> Result<(), OpenAuthError> {
-    if member_role(adapter, organization_id, user_id)
+    if member_role(adapter, organization_id, &user.id)
         .await?
         .is_some()
     {
+        return Ok(());
+    }
+    if let Some(options) = organization_options {
+        openauth_plugins::organization::provision_organization_member(
+            adapter,
+            options,
+            openauth_plugins::organization::ProvisionOrganizationMemberInput {
+                organization_id,
+                user,
+                role: "member",
+            },
+        )
+        .await?;
         return Ok(());
     }
     adapter
@@ -264,7 +278,7 @@ pub(super) async fn create_org_membership_if_missing(
                     "organization_id",
                     DbValue::String(organization_id.to_owned()),
                 )
-                .data("user_id", DbValue::String(user_id.to_owned()))
+                .data("user_id", DbValue::String(user.id.clone()))
                 .data("role", DbValue::String("member".to_owned()))
                 .data("created_at", DbValue::Timestamp(OffsetDateTime::now_utc()))
                 .force_allow_id(),

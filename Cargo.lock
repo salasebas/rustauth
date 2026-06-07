@@ -3298,6 +3298,7 @@ dependencies = [
  "openauth-core",
  "openauth-oauth",
  "openauth-oidc",
+ "openauth-plugins",
  "openauth-saml",
  "openauth-sqlx",
  "openidconnect",
