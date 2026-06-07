@@ -27,8 +27,9 @@ pub async fn status(context: &AppContext, args: StatusArgs) -> Result<(), AppErr
 }
 
 pub async fn generate(context: &AppContext, args: GenerateArgs) -> Result<(), AppError> {
-    let config = context.load_config()?;
-    let planned = match db::plan_with_base(&config, args.from_empty, Some(context.cwd())).await {
+    let config = generation_config(context, &args).await?;
+    let from_empty = args.from_empty || args.adapter.is_some();
+    let planned = match db::plan_with_base(&config, from_empty, Some(context.cwd())).await {
         Ok(planned) => planned,
         Err(error) => return map_db_error(&config, "generate", error).await,
     };
@@ -67,6 +68,47 @@ pub async fn generate(context: &AppContext, args: GenerateArgs) -> Result<(), Ap
         telemetry::publish_generate(&config, "generated").await;
     }
     Ok(())
+}
+
+async fn generation_config(
+    context: &AppContext,
+    args: &GenerateArgs,
+) -> Result<crate::config::CliConfig, AppError> {
+    let Some(adapter) = args.adapter.as_deref() else {
+        return context.load_config();
+    };
+    let (mut config, _) = context.load_config_or_default()?;
+    config.database.adapter = normalize_generate_adapter(adapter).to_owned();
+    if let Some(dialect) = args.dialect.as_deref() {
+        config.database.provider = Some(normalize_generate_dialect(dialect).to_owned());
+    }
+    if config.database.adapter != "sqlx" {
+        let error = db::DbCliError::UnsupportedAdapter(config.database.adapter.clone());
+        return match map_db_error(&config, "generate", error).await {
+            Ok(()) => Ok(config),
+            Err(error) => Err(error),
+        };
+    }
+    if config.database.provider.is_none() {
+        return Err(AppError::Message(
+            "--dialect is required when using --adapter without a configured provider".to_owned(),
+        ));
+    }
+    Ok(config)
+}
+
+fn normalize_generate_adapter(adapter: &str) -> &str {
+    match adapter {
+        "kysely" => "sqlx",
+        other => other,
+    }
+}
+
+fn normalize_generate_dialect(dialect: &str) -> &str {
+    match dialect {
+        "postgresql" | "pg" => "postgres",
+        other => other,
+    }
 }
 
 pub async fn migrate(context: &AppContext, args: MigrateArgs) -> Result<(), AppError> {

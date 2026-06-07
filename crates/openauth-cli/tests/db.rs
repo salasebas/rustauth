@@ -316,6 +316,86 @@ fn output_dir_flag_writes_generated_migration_to_directory() {
     assert_eq!(entries, 1);
 }
 
+#[test]
+fn generate_adapter_and_dialect_writes_sql_without_config_or_database_url() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let output = temp.path().join("schema.sql");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--adapter",
+            "kysely",
+            "--dialect",
+            "postgresql",
+            "--output",
+            output.to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .env_remove("DATABASE_URL")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Generated migration:"));
+
+    let sql = fs::read_to_string(output).expect("generated sql");
+    assert!(sql.contains("-- dialect: postgres"));
+    assert!(sql.contains(r#"CREATE TABLE IF NOT EXISTS "users""#));
+}
+
+#[test]
+fn generate_sqlx_adapter_and_dialect_writes_sql_without_config_or_database_url() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let output = temp.path().join("schema.sql");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--adapter",
+            "sqlx",
+            "--dialect",
+            "sqlite",
+            "--output",
+            output.to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .env_remove("DATABASE_URL")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Generated migration:"));
+
+    let sql = fs::read_to_string(output).expect("generated sql");
+    assert!(sql.contains("-- dialect: sqlite"));
+    assert!(sql.contains(r#"CREATE TABLE IF NOT EXISTS "users""#));
+}
+
+#[test]
+fn generate_unsupported_orm_adapter_without_config_prints_guidance() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    Command::cargo_bin("openauth")
+        .expect("binary")
+        .args([
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--adapter",
+            "drizzle",
+            "--dialect",
+            "sqlite",
+            "--yes",
+        ])
+        .env_remove("DATABASE_URL")
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains("Drizzle"));
+}
+
 /// OPE-118: non-interactive runs must not write schema artifacts without `--yes`.
 #[test]
 fn non_interactive_generate_without_yes_fails_without_writing_files() {

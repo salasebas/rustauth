@@ -13,18 +13,20 @@ TypeScript-only scaffolding are excluded from comparison.
 | **Upstream package** | `auth@1.6.9` (npm; binaries `better-auth`, `auth`) |
 | **Upstream path** | `reference/upstream-src/1.6.9/repository/packages/cli/` |
 | **Rust crate** | `crates/openauth-cli/` |
-| **Parity level** | **High** (Kysely/sqlx migration workflow) · **Partial** (overall) |
+| **Parity level** | **High** (server SQL CLI workflow) · **Partial by design** (TypeScript/ORM scaffolding) |
 | **Scope** | Server DB schema, migration apply, signing secrets, server config/env for CLI commands |
 | **Audit status** | **Complete** (server-only inventory — see [Server file inventory](#server-file-inventory)) |
 
 ## Summary
 
-OpenAuth CLI matches Better Auth’s server migration path: load auth config, diff
-the target schema (core + plugins), emit SQL, and apply when using the built-in
-SQL adapter (`sqlx` ↔ upstream Kysely). Config is static `openauth.toml` instead
-of executable server config modules. Schema emitters target versioned `.sql`
-files only (no Prisma/Drizzle generators). Rust adds `doctor`, `db status`,
-`schema print`, and standalone `plugins` commands for operational safety.
+OpenAuth CLI matches Better Auth’s server SQL migration path: load auth config,
+diff the target schema (core + plugins), emit SQL, and apply when using the
+built-in SQL adapter (`sqlx` ↔ upstream Kysely). Config is static
+`openauth.toml` instead of executable server config modules. Schema emitters
+target versioned `.sql` files only; Prisma/Drizzle and generated TypeScript auth
+modules are intentionally outside the Rust stack. Rust adds `doctor`,
+`db status`, `schema print`, and standalone `plugins` commands for operational
+safety.
 
 Status symbols are defined in the [parity index](../../docs/parity/README.md#status-symbols).
 
@@ -33,16 +35,16 @@ Status symbols are defined in the [parity index](../../docs/parity/README.md#sta
 | Area | Status | Notes |
 | --- | --- | --- |
 | `secret` | ✅ | Generate + `--check` / `--check-env` / production strength rules |
-| `generate` | ⚠️ | SQL via `openauth-sqlx`; matches Kysely SQL path; no Prisma/Drizzle emitters |
+| `generate` | ✅ | SQL via `openauth-sqlx`; matches Kysely SQL path including `--adapter kysely/sqlx --dialect`; no Prisma/Drizzle emitters by design |
 | `migrate` | ✅ | sqlx apply, confirm/`--yes`; adds `--dry-run` and unsafe-plan guard |
-| `init` (server config) | ⚠️ | Seeds `openauth.toml` + env; no generated server auth module |
-| Init social providers / auth toggles | ❌ | Upstream prompts for OAuth env + email/password/stateless; Rust init has none |
-| Config resolution | ⚠️ | `openauth.toml` + `.env`; upstream loads server config via `get-config.ts` |
+| `init` (server config) | ➖ | Seeds `openauth.toml` + env; generated TypeScript server auth module is out of scope |
+| Init social providers / auth toggles | ➖ | Upstream prompts generate TypeScript auth config/env scaffolding; Rust apps configure providers in code |
+| Config resolution | ✅ | Static `openauth.toml` + `.env`/`.env.local`; executable TS config loading is intentionally not used |
 | Plugin schema in generate/migrate | ✅ | Enabled plugins extend target schema before plan/apply |
-| `info` (server diagnostics) | ⚠️ | Redacted live server config; Rust reports static TOML + Cargo/Rust toolchain |
+| `info` (server diagnostics) | ✅ | Redacted static TOML plus Cargo/Rust toolchain; live TS config diagnostics are not applicable |
 | Telemetry (`cli_generate`, `cli_migrate`) | ✅ | Outcomes via `openauth-telemetry` |
-| Programmatic schema API | ❌ | Upstream exports `auth/api` (`src/api.ts`); no Rust equivalent in this crate |
-| `generate --adapter` / `--dialect` | ❌ | Upstream mock adapter path in `generate.ts`; Rust requires `openauth.toml` |
+| Programmatic schema API | ➖ | Upstream exports `auth/api` for TypeScript generators; Rust uses crate APIs (`openauth_sqlx`, `schema print`) instead |
+| `generate --adapter` / `--dialect` | ✅ | Supports SQL mock generation without config or DB URL for `kysely`/`sqlx`; Prisma/Drizzle emit guidance |
 | `doctor` | 🎯 | Production readiness checks |
 | `schema print` | 🎯 | SQL/JSON schema dump without DB connection |
 | `db status` | 🎯 | Pending migration summary + `--check` exit code |
@@ -57,8 +59,8 @@ cases (`auth client configuration`, `package managers`, `installing dependencies
 
 | Surface | OpenAuth (Rust) | Upstream (server) | Notes |
 | --- | --- | --- | --- |
-| **Total** | **63** | **219** | Rust: `cargo test -p openauth-cli -- --list` |
-| `generate` / schema / SQL | 22 | 65 | Rust: `db.rs`, `schema_snapshots.rs`, `regression_gaps.rs`; upstream: `generate.test.ts` (53), `generate-all-db.test.ts` (12); **~2–6** kysely-direct vs rest Prisma/Drizzle (G2) |
+| **Total** | **70** | **219** | Rust: `cargo test -p openauth-cli -- --list` (68 run by default; 2 Docker tests ignored) |
+| `generate` / schema / SQL | 25 | 65 | Rust: `db.rs`, `schema_snapshots.rs`, `regression_gaps.rs`; upstream: `generate.test.ts` (53), `generate-all-db.test.ts` (12); SQL mock-adapter coverage added for `kysely` and `sqlx`; Prisma/Drizzle cases remain out of scope (G2) |
 | Config / env resolution | 9 | 40 | Rust: `config.rs`, `env.rs`, `regression_gaps.rs`; upstream: `get-config.test.ts` (21), `init/utility/env.test.ts` (19) |
 | Server init scaffolding | 6 | 105 | Rust: `commands.rs`, `quick_start.rs`, `regression_gaps.rs`; upstream: `init.test.ts` (14), `auth-config.test.ts` (4), `database.test.ts` (11), `plugin.test.ts` (66), `imports.test.ts` (10) |
 | `migrate` / db apply | 16 | 2 | Rust: `db.rs`, `regression_gaps.rs`; upstream: `migrate.test.ts`; Postgres/MySQL Rust tests `#[ignore]` |
@@ -80,6 +82,7 @@ cargo nextest run -p openauth-cli --run-ignored all
 | Server config | Executable server config module + `get-config.ts` | Static `openauth.toml` | Rust projects; explicit parse errors |
 | SQL adapter | Kysely built-in (`generators/kysely.ts`) | `database.adapter = "sqlx"` | Native Rust/sqlx stack |
 | Schema output | Kysely `.sql`, or Prisma/Drizzle ORM files | Versioned `.sql` under `migrations_dir` | Transparent, reviewable migrations |
+| `generate --adapter` | Mock adapters for Kysely, Prisma, Drizzle | `kysely`/`sqlx` map to SQL generation; Prisma/Drizzle print guidance | Rust stack emits SQL only; no ORM schema files |
 | Secret format | 32-byte hex (`secret.ts`) | URL-safe base64 (default 32 bytes) | Idiomatic Rust crypto |
 | Secret command | Generate only | Generate + validate flags | Fail-closed production diagnostics |
 | Unsupported adapters | Guidance + exit 0 (Prisma/Drizzle on migrate) | Same for Prisma/Drizzle/Kysely/memory/MongoDB | Mixed-team operational parity |
@@ -91,16 +94,16 @@ cargo nextest run -p openauth-cli --run-ignored all
 
 | ID | Gap / risk | Severity | Notes |
 | --- | --- | --- | --- |
-| G1 | Init does not emit server auth module | Med | Upstream `init/generate-auth.ts` + `utility/imports.ts`; Rust seeds TOML/env only |
-| G2 | No Prisma/Drizzle schema emitters | Med | ~51 upstream `generate.test.ts` cases; use SQL output + ORM tool |
-| G3 | No `auth/api` programmatic exports | Low | Upstream `src/api.ts` re-exports generators |
-| G4 | No `generate --adapter` / `--dialect` without config | Low | Upstream mock adapter in `generate.ts` |
+| G1 | Init does not emit server auth module | ➖ | Intentional: upstream `init/generate-auth.ts` emits TypeScript; Rust seeds TOML/env and prints integration guidance |
+| G2 | No Prisma/Drizzle schema emitters | ➖ | Intentional: SQL-only Rust workflow; use generated `.sql` with external ORM tooling |
+| G3 | No `auth/api` TypeScript generator exports | ➖ | Intentional: upstream `src/api.ts` exports TS generators; Rust public APIs live in implementation crates |
+| G4 | SQL `generate --adapter` / `--dialect` without config | Closed | `kysely`/`sqlx` mock generation writes SQL from the target schema without a DB URL; ORM adapters print guidance |
 | G5 | Postgres/MySQL migrate untested in CI | Med | `db.rs` docker tests are `#[ignore]` |
 | G6 | Init/plugin utility test depth | Med | 105 upstream server init tests vs 6 Rust init integration tests |
 | G7 | Concurrent `migrate` not serialized | Med | Multi-instance race; use external migration lock |
 | G8 | Live telemetry publish untested | Low | Events fire; network path not asserted |
-| G9 | No init social-provider env scaffolding | Low | Upstream `social-providers.config.ts` + init prompts |
-| G10 | No init auth-method toggles | Low | Upstream email/password disable, stateless mode, MongoDB/Prisma setup flows |
+| G9 | No init social-provider env scaffolding | ➖ | Intentional: upstream prompts generate TS auth config/env placeholders; Rust providers are configured in application code |
+| G10 | No init auth-method toggles | ➖ | Intentional: upstream TS config prompts for email/password/stateless/MongoDB/Prisma; Rust CLI stays TOML + SQL tooling |
 
 ## Hardening notes
 
@@ -109,7 +112,7 @@ cargo nextest run -p openauth-cli --run-ignored all
 - **Config:** missing `openauth.toml` is non-fatal for read-only commands; parse failures fail closed.
 - **Env loading:** process environment wins over `.env` / `.env.local` (`env.rs`).
 - **Redaction:** `doctor` / `info --json` redact database URLs and secrets (`diagnostics.rs`).
-- **Unsupported adapters:** guidance printed; known non-sqlx adapters exit **0** on migrate (upstream parity), not silent apply.
+- **Unsupported adapters:** guidance printed; known non-sqlx adapters exit **0** on migrate/generate guidance paths (upstream parity), not silent apply or file emission.
 
 ## Server file inventory
 
@@ -123,14 +126,14 @@ Every file under `packages/cli/` is classified. **Audited** = behavior mapped to
 | `src/commands/migrate.ts` | Audited | `commands/db.rs`, `db.rs`, `db_support.rs` |
 | `src/commands/info.ts` | Audited | `commands/info.rs`, `diagnostics.rs`, `workspace.rs` |
 | `src/commands/init/index.ts` | Audited (server paths) | `commands/init.rs` (partial); client block ~L1332+ excluded |
-| `src/commands/init/generate-auth.ts` | Audited | `commands/init.rs` (partial) |
+| `src/commands/init/generate-auth.ts` | Audited | Out of scope: TypeScript server auth module generation; `commands/init.rs` seeds TOML/env |
 | `src/commands/init/configs/databases.config.ts` | Audited | `config.rs`, `commands/init.rs` |
 | `src/commands/init/configs/temp-plugins.config.ts` | Audited | `plugins.rs`, `config.rs` |
-| `src/commands/init/configs/social-providers.config.ts` | Audited | — (G9) |
+| `src/commands/init/configs/social-providers.config.ts` | Audited | Out of scope: TypeScript auth config/env scaffolding |
 | `src/commands/init/utility/{auth-config,database,env,plugin,imports,format,prompt}.ts` | Audited | `config.rs`, `env.rs`, `plugins.rs`, `schema.rs`, `prompt.rs` |
 | `src/generators/{index,kysely,types}.ts` | Audited | `schema.rs`, `db.rs`, `openauth-sqlx` |
-| `src/generators/{prisma,drizzle}.ts` | Audited | — intentional (G2) |
-| `src/api.ts` | Audited | — (G3) |
+| `src/generators/{prisma,drizzle}.ts` | Audited | Out of scope: ORM schema emitters |
+| `src/api.ts` | Audited | Out of scope: TypeScript generator re-exports |
 | `src/index.ts` | Audited | `app.rs`, `src/bin/*` |
 | `src/utils/get-config.ts` | Audited | `config.rs`, `env.rs` |
 | `src/utils/config-paths.ts` | Audited | `paths.rs` (`possibleAuthConfigPaths` → fixed `openauth.toml`) |
@@ -160,16 +163,16 @@ Every file under `packages/cli/` is classified. **Audited** = behavior mapped to
 | Upstream (server) | Rust |
 | --- | --- |
 | `src/index.ts` | `src/bin/openauth.rs`, `src/app.rs` |
-| `src/api.ts` | — (G3) |
+| `src/api.ts` | Out of scope (TypeScript generator re-exports) |
 | `src/commands/secret.ts` | `src/commands/secret.rs`, `src/secret.rs` |
 | `src/commands/generate.ts` | `src/commands/db.rs`, `src/db.rs` |
 | `src/commands/migrate.ts` | `src/commands/db.rs`, `src/db.rs`, `src/commands/db_support.rs` |
 | `src/commands/info.ts` | `src/commands/info.rs`, `src/diagnostics.rs`, `src/workspace.rs` |
-| `src/commands/init/generate-auth.ts` | `src/commands/init.rs` (partial) |
-| `src/commands/init/configs/{databases,temp-plugins,social-providers}.config.ts` | `src/config.rs`, `src/plugins.rs` (social: G9) |
+| `src/commands/init/generate-auth.ts` | Out of scope (TypeScript server auth module); `src/commands/init.rs` seeds TOML/env |
+| `src/commands/init/configs/{databases,temp-plugins,social-providers}.config.ts` | `src/config.rs`, `src/plugins.rs`; social provider TS scaffolding is out of scope |
 | `src/commands/init/utility/{auth-config,database,env,plugin,imports,format,prompt}.ts` | `src/config.rs`, `src/env.rs`, `src/plugins.rs`, `src/schema.rs`, `src/prompt.rs` |
-| `src/generators/kysely.ts` | `src/db.rs`, `src/schema.rs`, `openauth-sqlx` |
-| `src/generators/{prisma,drizzle}.ts` | — (G2) |
+| `src/generators/kysely.ts` | `src/db.rs`, `src/schema.rs`, `openauth-sqlx`; includes `--adapter kysely/sqlx --dialect` mock generation |
+| `src/generators/{prisma,drizzle}.ts` | Out of scope (ORM schema emitters) |
 | `src/utils/get-config.ts`, `config-paths.ts` | `src/config.rs`, `src/paths.rs`, `src/env.rs` |
 | `src/utils/get-package-info.ts`, `helper.ts` | `src/workspace.rs`, `src/secret.rs` |
 | `test/generate*.test.ts` | `tests/db.rs`, `tests/schema_snapshots.rs` |

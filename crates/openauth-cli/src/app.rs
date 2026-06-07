@@ -117,6 +117,10 @@ pub(crate) struct GenerateArgs {
     #[arg(long)]
     pub(crate) output_dir: Option<PathBuf>,
     #[arg(long)]
+    pub(crate) adapter: Option<String>,
+    #[arg(long)]
+    pub(crate) dialect: Option<String>,
+    #[arg(long)]
     pub(crate) from_empty: bool,
     #[arg(long)]
     pub(crate) force: bool,
