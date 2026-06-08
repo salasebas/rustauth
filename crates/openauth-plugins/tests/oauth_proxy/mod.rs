@@ -543,6 +543,38 @@ async fn rejects_untrusted_callback_url() -> Result<(), Box<dyn std::error::Erro
 }
 
 #[tokio::test]
+async fn sign_in_state_package_contains_callback_url() -> Result<(), Box<dyn std::error::Error>> {
+    let router = router(
+        Arc::new(MemoryAdapter::default()),
+        "https://login.example.com/api/auth",
+        OAuthProxyOptions::new().current_url("http://preview.example.com"),
+    )?;
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "http://preview.example.com/api/auth/sign-in/social",
+            r#"{"provider":"google","callbackURL":"/dashboard"}"#,
+        )?)
+        .await?;
+    let body: Value = serde_json::from_slice(sign_in.body())?;
+    let state =
+        query_value(body["url"].as_str().ok_or("missing url")?, "state").ok_or("missing state")?;
+    let package: Value = serde_json::from_str(&symmetric_decrypt(SECRET, &state)?)?;
+    let state_cookie = package["state_cookie"]
+        .as_str()
+        .ok_or("missing state_cookie")?;
+    let cookie_package: Value = serde_json::from_str(&symmetric_decrypt(SECRET, state_cookie)?)?;
+
+    assert_eq!(package["is_oauth_proxy"], true);
+    let callback_url = cookie_package["data"]["callback_url"]
+        .as_str()
+        .ok_or("missing callback_url")?;
+    assert!(callback_url.contains("oauth-proxy-callback"));
+    assert!(callback_url.contains("%2Fdashboard"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn callback_rejects_state_binding_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let router = router(
         Arc::new(MemoryAdapter::default()),
