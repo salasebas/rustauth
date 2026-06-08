@@ -51,7 +51,12 @@ jobs:
             nextest_args: --all-features
           - package: openauth-scim
             services: postgres mysql
-            nextest_args: --all-features
+            # Shared docker DB: run serially and skip duplicate create_schema smokes
+            # (sqlite_schema_and_provider_store_work covers the provider contract).
+            nextest_args: >-
+              --all-features
+              --test-threads 1
+              -E 'not test(schema_and_provider_store_work_when_configured)'
             doc_tests: true
           - package: openauth-fred
             services: redis valkey

@@ -58,7 +58,7 @@ Crates removed from fast CI (moved to Integration): `openauth-deadpool-postgres`
 | `Test openauth` | 169s | success | `--run-ignored only` (postgres/mysql migrations) |
 | `Test openauth-plugins` | 148s | success | `--run-ignored only` (integration matrix) |
 | `Test openauth-cli` | 134s | success | `--run-ignored only` (DB migrate smoke) |
-| `Test openauth-scim` | 115s | **failure** | MySQL parallel `create_schema` race — fix: `MYSQL_ADAPTER_TEST_LOCK` |
+| `Test openauth-scim` | 115s | **failure** | Shared DB `create_schema` collisions — workflow uses `--test-threads 1` + nextest filter |
 | `Test openauth-passkey` | 108s | success | `--run-ignored only` (postgres/mysql SQL) |
 | `Test openauth-sqlx` | 105s | success | `--all-features` + postgres/mysql |
 | `Test openauth-example-full-app` | 102s | success | e2e smoke (`examples/full-app/tests/smoke.rs`) |

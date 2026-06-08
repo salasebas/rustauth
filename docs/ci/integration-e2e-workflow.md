@@ -33,7 +33,7 @@ Services are started per matrix row via `./scripts/ensure-test-services.sh`.
 | `openauth-sqlx` | postgres mysql | `--all-features` | postgres/mysql/sqlite adapters |
 | `openauth-deadpool-postgres` | postgres | default nextest | deadpool adapter |
 | `openauth-tokio-postgres` | postgres | default nextest | tokio-postgres adapter |
-| `openauth-scim` | postgres mysql | `--all-features` + doctests | SCIM DB adapters (env URLs required) |
+| `openauth-scim` | postgres mysql | `--all-features --test-threads 1` + doctests | SCIM DB adapters; excludes duplicate `create_schema` smokes on shared DB (contract covered by sqlite test) |
 | `openauth-fred` | redis valkey | `--all-features` | Fred secondary storage / rate limit |
 | `openauth-redis` | redis valkey | `--all-features` | Redis rate limit store |
 | `openauth-example-full-app` | redis valkey | `--all-features` | **E2E** example app smoke |
@@ -59,10 +59,21 @@ Run only with `cargo nextest run --run-ignored only`:
 
 Fast CI runs the same packages **without** `--run-ignored`, so ignored tests are skipped there by design.
 
-## First production run (`27171088982`)
+## SCIM on shared Docker databases
 
-- **10/11** matrix jobs passed; wall ~179s parallel.
-- **Failure:** `openauth-scim` — `mysql_schema_and_provider_store_work_when_configured` raced with `mysql_run_migrations_adds_scim_tables_when_configured` on shared MySQL (duplicate index). Fix: `MYSQL_ADAPTER_TEST_LOCK` in `crates/openauth-scim/tests/scim/db_adapters.rs` (same pattern as postgres).
+Postgres/MySQL adapter tests in `openauth-scim` share one database per service from `docker compose`. Parallel `create_schema` calls on default table names collide. Mitigations:
+
+1. `MYSQL_ADAPTER_TEST_LOCK` / `POSTGRES_ADAPTER_TEST_LOCK` for in-process serialization.
+2. Integration job runs `--test-threads 1` and excludes `*schema_and_provider_store_work_when_configured` (sqlite in-memory test keeps provider-store contract coverage).
+3. `run_migrations_*_when_configured` tests remain in Integration.
+
+## Run history
+
+| Run | Workflow | Result | Notes |
+| --- | --- | --- | --- |
+| `27171088989` | CI | success (~173s) | First fast split |
+| `27171088982` | Integration | failure | SCIM shared-DB collision |
+| `27171373075` | Integration | failure | Same class of SCIM collisions (workflow filter pending) |
 
 ## Local parity
 
