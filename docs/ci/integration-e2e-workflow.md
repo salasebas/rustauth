@@ -74,6 +74,7 @@ Postgres/MySQL adapter tests in `openauth-scim` share one database per service f
 | `27171088989` | CI | success (~173s) | First fast split |
 | `27171088982` | Integration | failure | SCIM shared-DB collision |
 | `27171373075` | Integration | failure | Same class of SCIM collisions (workflow filter pending) |
+| `27171536274` | Integration | **success (~156s)** | SCIM filter + `--test-threads 1`; e2e example-app green |
 
 ## Local parity
 

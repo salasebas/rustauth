@@ -58,7 +58,7 @@ Crates removed from fast CI (moved to Integration): `openauth-deadpool-postgres`
 | `Test openauth` | 169s | success | `--run-ignored only` (postgres/mysql migrations) |
 | `Test openauth-plugins` | 148s | success | `--run-ignored only` (integration matrix) |
 | `Test openauth-cli` | 134s | success | `--run-ignored only` (DB migrate smoke) |
-| `Test openauth-scim` | 115s | **failure** | Shared DB `create_schema` collisions — workflow uses `--test-threads 1` + nextest filter |
+| `Test openauth-scim` | 126s | success (run `27171536274`) | `--test-threads 1` + nextest filter on shared DB |
 | `Test openauth-passkey` | 108s | success | `--run-ignored only` (postgres/mysql SQL) |
 | `Test openauth-sqlx` | 105s | success | `--all-features` + postgres/mysql |
 | `Test openauth-example-full-app` | 102s | success | e2e smoke (`examples/full-app/tests/smoke.rs`) |
@@ -68,6 +68,8 @@ Crates removed from fast CI (moved to Integration): `openauth-deadpool-postgres`
 | `Test openauth-redis` | 64s | success | redis + valkey |
 
 Env vars set at workflow level: `OPENAUTH_TEST_POSTGRES_URL`, `OPENAUTH_TEST_MYSQL_URL`.
+
+**Latest green Integration run:** `27171536274` — wall **~156s** parallel (11/11 matrix jobs).
 
 See also: [integration-e2e-workflow.md](./integration-e2e-workflow.md).
 
@@ -98,7 +100,7 @@ See also: [integration-e2e-workflow.md](./integration-e2e-workflow.md).
 
 ## Next Steps
 
-1. Re-run Integration after MySQL SCIM lock fix; confirm `Integration` gate green.
+1. Integration gate green on run `27171536274`; watch for `openauth-cli` telemetry test flakes on fast CI.
 2. Optionally add `workflow_dispatch` badge / required-check docs in branch protection for both workflows.
 3. Monitor `Test openauth` and `Test openauth-sso` wall times (still dominated by compile, not nextest).
 
