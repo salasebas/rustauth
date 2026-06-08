@@ -3,7 +3,7 @@ use std::sync::Arc;
 use http::{header, HeaderValue, Method, Response, StatusCode};
 use openauth_core::context::create_auth_context;
 use openauth_core::db::{DbValue, MemoryAdapter};
-use openauth_core::options::OpenAuthOptions;
+use openauth_core::options::{AdvancedOptions, CookieConfig, OpenAuthOptions};
 use openauth_plugins::last_login_method::{
     last_login_method, LastLoginMethodOptions, LoginMethodContext, DEFAULT_COOKIE_MAX_AGE,
     DEFAULT_COOKIE_NAME, UPSTREAM_PLUGIN_ID,
@@ -13,7 +13,8 @@ mod helpers;
 mod oauth;
 use helpers::{
     find_user_by_email, json_request, request, response_with_set_cookie, router_with_plugin,
-    run_last_login_after_hook, secret, set_cookie_values, signed_session_cookie,
+    router_with_plugin_options, run_last_login_after_hook, secret, set_cookie_values,
+    signed_session_cookie,
 };
 
 #[test]
@@ -497,5 +498,64 @@ async fn subsequent_login_updates_existing_last_login_method(
         user.get("last_login_method"),
         Some(&DbValue::String("signin-email".to_owned()))
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_in_sets_last_method_cookie_with_cross_subdomain_attributes(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = router_with_plugin_options(
+        adapter,
+        LastLoginMethodOptions::default(),
+        OpenAuthOptions {
+            base_url: Some("https://auth.example.com".to_owned()),
+            advanced: AdvancedOptions {
+                cookie_prefix: Some("custom-auth".to_owned()),
+                cross_subdomain_cookies: Some(
+                    CookieConfig::new()
+                        .enabled(true)
+                        .domain("example.com".to_owned()),
+                ),
+                default_cookie_attributes: openauth_core::options::CookieAttributesOverride {
+                    same_site: Some("Lax".to_owned()),
+                    ..openauth_core::options::CookieAttributesOverride::default()
+                },
+                disable_csrf_check: true,
+                disable_origin_check: true,
+                ..AdvancedOptions::default()
+            },
+            ..OpenAuthOptions::default()
+        },
+    )?;
+
+    let sign_up = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-up/email",
+            r#"{"name":"Ada","email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    assert_eq!(sign_up.status(), StatusCode::OK);
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"secret123"}"#,
+            None,
+        )?)
+        .await?;
+    let last_method = set_cookie_values(&sign_in)
+        .into_iter()
+        .find(|cookie| cookie.starts_with(DEFAULT_COOKIE_NAME))
+        .ok_or("missing last login method cookie")?;
+
+    assert_eq!(sign_in.status(), StatusCode::OK);
+    assert!(last_method.starts_with("better-auth.last_used_login_method=email"));
+    assert!(last_method.contains("Domain=example.com"));
+    assert!(last_method.contains("SameSite=Lax"));
+    assert!(!last_method.contains("custom-auth.last_used_login_method"));
     Ok(())
 }
