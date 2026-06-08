@@ -330,6 +330,7 @@ fn migrate_unsupported_adapter_emits_telemetry_when_debug_enabled() {
         .env("OPENAUTH_SECRET", "super-secret-value-67890")
         .assert()
         .code(0)
+        .stderr(predicate::str::contains("\"type\": \"init\""))
         .stderr(predicate::str::contains("\"type\": \"cli_migrate\""))
         .stderr(predicate::str::contains(
             "\"outcome\": \"unsupported_adapter\"",

@@ -18,6 +18,10 @@ fn readme_documents_cli_telemetry() {
         "expected cli_migrate event documented in openauth-cli README"
     );
     assert!(
+        contents.contains("`init`"),
+        "expected init bootstrap event documented in openauth-cli README"
+    );
+    assert!(
         contents.contains("OPENAUTH_TELEMETRY"),
         "expected OPENAUTH_TELEMETRY documented in openauth-cli README"
     );

@@ -22,3 +22,22 @@ fn readme_documents_oauth_feature_for_social_provider_snapshots() {
         "expected umbrella telemetry wiring documented in openauth-telemetry README"
     );
 }
+
+#[test]
+fn readme_documents_automatic_init_event() {
+    let readme = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md");
+    let contents = std::fs::read_to_string(readme).expect("openauth-telemetry README");
+
+    assert!(
+        contents.contains("`init`"),
+        "expected init event documented in openauth-telemetry README"
+    );
+    assert!(
+        contents.contains("create_telemetry"),
+        "expected create_telemetry init behavior documented in openauth-telemetry README"
+    );
+    assert!(
+        contents.contains("cli_generate") || contents.contains("cli_migrate"),
+        "expected CLI follow-on events referenced in openauth-telemetry README"
+    );
+}

@@ -7,12 +7,13 @@ All notable changes to `openauth-cli` are documented in this file.
 ### Added
 
 - CLI telemetry documentation in `README.md`: participating commands
-  (`generate` / `migrate` and `db` aliases), event names (`cli_generate`,
-  `cli_migrate`), environment variables, payload/redaction summary, and opt-out
-  guidance for local shells and CI.
+  (`generate` / `migrate` and `db` aliases), event names (`init`,
+  `cli_generate`, `cli_migrate`), environment variables, payload/redaction
+  summary, and opt-out guidance for local shells and CI.
 - Docs regression test ensuring the CLI README documents telemetry env vars and
-  event names; extended debug-mode tests assert documented redaction of secrets,
-  base URLs, and database connection strings.
+  event names (including the automatic `init` bootstrap event); extended
+  debug-mode tests assert `init` precedes command events and documented
+  redaction of secrets, base URLs, and database connection strings.
 - `info --json` / `--copy` (clipboard helpers) and global `-c` for `--cwd`.
 - `db generate` confirmation with `-y` and telemetry outcome `aborted`.
 - `init --seed-secrets` to write a generated secret into a new `.env` file.
