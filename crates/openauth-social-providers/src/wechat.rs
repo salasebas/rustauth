@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use openauth_oauth::oauth2::{
-    get_primary_client_id, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthProviderContract,
-    ProviderOptions,
+    get_primary_client_id, validate_authorization_url_invariants, OAuth2Tokens, OAuth2UserInfo,
+    OAuthError, OAuthProviderContract, ProviderOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -131,6 +131,11 @@ impl WeChatProvider {
         &self,
         request: WeChatAuthorizationUrlRequest,
     ) -> Result<Url, OAuthError> {
+        validate_authorization_url_invariants(
+            &request.state,
+            self.options.oauth.redirect_uri.as_deref(),
+            &request.redirect_uri,
+        )?;
         let mut url = Url::parse(WECHAT_AUTHORIZATION_ENDPOINT)?;
         {
             let mut query = url.query_pairs_mut();

@@ -70,6 +70,62 @@ fn tiktok_authorization_url_can_disable_default_scope() -> Result<(), OAuthError
 }
 
 #[test]
+fn tiktok_authorization_url_rejects_empty_state() {
+    let provider = tiktok(provider_options());
+
+    let error = provider
+        .create_authorization_url(TiktokAuthorizationUrlRequest {
+            state: String::new(),
+            redirect_uri: "https://app.example.com/auth/callback".to_owned(),
+            scopes: Vec::new(),
+        })
+        .err()
+        .map(|error| error.to_string());
+
+    assert!(error
+        .as_deref()
+        .is_some_and(|message| message.contains("authorization state")));
+}
+
+#[test]
+fn tiktok_authorization_url_rejects_invalid_redirect_uri_without_override() {
+    let provider = tiktok(provider_options());
+
+    let error = provider
+        .create_authorization_url(TiktokAuthorizationUrlRequest {
+            state: "state-1".to_owned(),
+            redirect_uri: "notaurl".to_owned(),
+            scopes: Vec::new(),
+        })
+        .err()
+        .map(|error| error.to_string());
+
+    assert!(error
+        .as_deref()
+        .is_some_and(|message| message.contains("OAuth URL")));
+}
+
+#[test]
+fn tiktok_authorization_url_uses_redirect_override_when_configured() -> Result<(), OAuthError> {
+    let provider = tiktok(ProviderOptions {
+        redirect_uri: Some("https://auth.example.com/tiktok/callback".to_owned()),
+        ..provider_options()
+    });
+
+    let url = provider.create_authorization_url(TiktokAuthorizationUrlRequest {
+        state: "state-1".to_owned(),
+        redirect_uri: "notaurl".to_owned(),
+        scopes: Vec::new(),
+    })?;
+
+    assert_eq!(
+        query_value(&url, "redirect_uri"),
+        Some("https://auth.example.com/tiktok/callback".to_owned())
+    );
+    Ok(())
+}
+
+#[test]
 fn tiktok_authorization_url_requires_client_key() {
     let provider = tiktok(ProviderOptions {
         client_secret: Some("tiktok-secret".to_owned()),

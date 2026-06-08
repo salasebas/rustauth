@@ -119,6 +119,25 @@ impl AuthorizationUrlRequest {
     }
 }
 
+/// Validates non-empty OAuth `state` and a parseable effective `redirect_uri`.
+///
+/// Manual provider URL builders that do not use [`create_authorization_url`]
+/// should call this before emitting redirect URLs.
+pub fn validate_authorization_url_invariants(
+    state: &str,
+    options_redirect_uri: Option<&str>,
+    request_redirect_uri: &str,
+) -> Result<(), OAuthError> {
+    if state.is_empty() {
+        return Err(OAuthError::InvalidConfiguration(
+            "authorization state cannot be empty".to_owned(),
+        ));
+    }
+    let redirect_uri = options_redirect_uri.unwrap_or(request_redirect_uri);
+    Url::parse(redirect_uri)?;
+    Ok(())
+}
+
 pub fn create_authorization_url(input: AuthorizationUrlRequest) -> Result<Url, OAuthError> {
     validate_authorization_url_request(&input)?;
     let endpoint = input
@@ -189,23 +208,17 @@ pub fn create_authorization_url(input: AuthorizationUrlRequest) -> Result<Url, O
 fn validate_authorization_url_request(input: &AuthorizationUrlRequest) -> Result<(), OAuthError> {
     get_primary_client_id(&input.options.client_id)
         .ok_or(OAuthError::MissingOption("client_id"))?;
-    if input.state.is_empty() {
-        return Err(OAuthError::InvalidConfiguration(
-            "authorization state cannot be empty".to_owned(),
-        ));
-    }
+    validate_authorization_url_invariants(
+        &input.state,
+        input.options.redirect_uri.as_deref(),
+        &input.redirect_uri,
+    )?;
     let endpoint = input
         .options
         .authorization_endpoint
         .as_deref()
         .unwrap_or(&input.authorization_endpoint);
     Url::parse(endpoint)?;
-    let redirect_uri = input
-        .options
-        .redirect_uri
-        .as_deref()
-        .unwrap_or(&input.redirect_uri);
-    Url::parse(redirect_uri)?;
     Ok(())
 }
 

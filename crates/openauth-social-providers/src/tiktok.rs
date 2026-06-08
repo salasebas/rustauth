@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 
 use openauth_oauth::oauth2::{
     authorization_code_request, refresh_access_token, refresh_access_token_request,
-    validate_authorization_code, AuthorizationCodeRequest, ClientAuthentication,
-    ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError, OAuthFormRequest,
-    OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest,
+    validate_authorization_code, validate_authorization_url_invariants, AuthorizationCodeRequest,
+    ClientAuthentication, ClientTokenRequest, OAuth2Tokens, OAuth2UserInfo, OAuthError,
+    OAuthFormRequest, OAuthProviderContract, ProviderOptions, RefreshAccessTokenRequest,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -134,6 +134,11 @@ impl TiktokProvider {
         &self,
         request: TiktokAuthorizationUrlRequest,
     ) -> Result<Url, OAuthError> {
+        validate_authorization_url_invariants(
+            &request.state,
+            self.options.redirect_uri.as_deref(),
+            &request.redirect_uri,
+        )?;
         let client_key = self.client_key()?;
         let redirect_uri = self
             .options

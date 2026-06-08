@@ -91,6 +91,42 @@ fn authorization_url_merges_scopes_and_can_disable_default_scope() {
 }
 
 #[test]
+fn authorization_url_rejects_empty_state() {
+    let provider = wechat(provider_options());
+
+    let error = provider
+        .create_authorization_url(WeChatAuthorizationUrlRequest {
+            state: String::new(),
+            redirect_uri: "https://app.example.com/auth/wechat/callback".to_owned(),
+            scopes: Vec::new(),
+        })
+        .err()
+        .map(|error| error.to_string());
+
+    assert!(error
+        .as_deref()
+        .is_some_and(|message| message.contains("authorization state")));
+}
+
+#[test]
+fn authorization_url_rejects_invalid_redirect_uri_without_override() {
+    let provider = wechat(provider_options());
+
+    let error = provider
+        .create_authorization_url(WeChatAuthorizationUrlRequest {
+            state: "state-1".to_owned(),
+            redirect_uri: "notaurl".to_owned(),
+            scopes: Vec::new(),
+        })
+        .err()
+        .map(|error| error.to_string());
+
+    assert!(error
+        .as_deref()
+        .is_some_and(|message| message.contains("OAuth URL")));
+}
+
+#[test]
 fn authorization_url_uses_redirect_override_and_english_lang() {
     let provider = WeChatProvider::new(WeChatProviderOptions {
         oauth: ProviderOptions {

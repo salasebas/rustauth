@@ -12,6 +12,8 @@ All notable changes to `openauth-social-providers` are documented in this file.
 
 ### Fixed
 
+- Fixed TikTok and WeChat authorization URL construction to reject empty OAuth
+  `state` and malformed `redirect_uri` values before emitting provider redirects.
 - Fixed social provider profile and userinfo HTTP calls to use the SSRF-safe
   provider HTTP client so requests cannot target literal private IPs by default.
 - Fixed Facebook limited-login `verify_id_token` to reject opaque (non-JWT)
