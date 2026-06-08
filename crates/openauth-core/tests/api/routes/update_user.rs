@@ -2,10 +2,11 @@ use super::*;
 use std::collections::BTreeMap;
 
 use openauth_core::cookies::{get_cookie_cache, set_cookie_cache, CookieCachePayload};
-use openauth_core::db::DbFieldType;
+use openauth_core::db::{DbField, DbFieldType};
 use openauth_core::options::{
     CookieCacheOptions, SessionOptions, UserAdditionalField, UserOptions,
 };
+use openauth_core::plugin::{AuthPlugin, PluginSchemaContribution};
 
 #[tokio::test]
 async fn update_user_route_updates_name_and_image() -> Result<(), Box<dyn std::error::Error>> {
@@ -273,6 +274,153 @@ async fn update_user_route_rejects_non_input_additional_user_fields(
     let body: Value = serde_json::from_slice(response.body())?;
     assert_eq!(body["code"], "INVALID_REQUEST_BODY");
     Ok(())
+}
+
+#[tokio::test]
+async fn update_user_route_rejects_generated_plugin_schema_role_field(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    let mut record = user_record(user(now));
+    record.insert("role".to_owned(), DbValue::String("member".to_owned()));
+    adapter.create(create_query("user", record)).await?;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router_with_options(adapter.clone(), generated_role_plugin_options())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/update-user",
+            r#"{"role":"admin"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "INVALID_REQUEST_BODY");
+    let updated = record_by_string(&adapter, "user", "email", "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        updated.get("role"),
+        Some(&DbValue::String("member".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_user_route_rejects_generated_plugin_schema_two_factor_field(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    let mut record = user_record(user(now));
+    record.insert("two_factor_enabled".to_owned(), DbValue::Boolean(false));
+    adapter.create(create_query("user", record)).await?;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router_with_options(adapter.clone(), generated_two_factor_plugin_options())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/update-user",
+            r#"{"twoFactorEnabled":true}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["code"], "INVALID_REQUEST_BODY");
+    let updated = record_by_string(&adapter, "user", "email", "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        updated.get("two_factor_enabled"),
+        Some(&DbValue::Boolean(false))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_user_route_updates_input_enabled_plugin_schema_fields(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(RouteAdapter::default());
+    let now = OffsetDateTime::now_utc();
+    adapter.insert_user(user(now)).await;
+    adapter
+        .insert_session(session(now, now + Duration::hours(1)))
+        .await;
+    let router = router_with_options(adapter.clone(), input_plugin_user_field_options())?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/update-user",
+            r#"{"tenantId":"tenant_1"}"#,
+            Some(&cookie),
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated = record_by_string(&adapter, "user", "email", "ada@example.com")
+        .await?
+        .ok_or("missing user")?;
+    assert_eq!(
+        updated.get("tenant_id"),
+        Some(&DbValue::String("tenant_1".to_owned()))
+    );
+    Ok(())
+}
+
+fn generated_role_plugin_options() -> OpenAuthOptions {
+    OpenAuthOptions {
+        plugins: vec![
+            AuthPlugin::new("admin").with_schema(PluginSchemaContribution::field(
+                "user",
+                "role",
+                DbField::new("role", DbFieldType::String)
+                    .optional()
+                    .generated(),
+            )),
+        ],
+        ..OpenAuthOptions::default()
+    }
+}
+
+fn generated_two_factor_plugin_options() -> OpenAuthOptions {
+    OpenAuthOptions {
+        plugins: vec![
+            AuthPlugin::new("two-factor").with_schema(PluginSchemaContribution::field(
+                "user",
+                "two_factor_enabled",
+                DbField::new("two_factor_enabled", DbFieldType::Boolean)
+                    .optional()
+                    .generated(),
+            )),
+        ],
+        ..OpenAuthOptions::default()
+    }
+}
+
+fn input_plugin_user_field_options() -> OpenAuthOptions {
+    OpenAuthOptions {
+        plugins: vec![
+            AuthPlugin::new("tenant").with_schema(PluginSchemaContribution::field(
+                "user",
+                "tenant_id",
+                DbField::new("tenant_id", DbFieldType::String).optional(),
+            )),
+        ],
+        ..OpenAuthOptions::default()
+    }
 }
 
 fn user_field_options() -> OpenAuthOptions {

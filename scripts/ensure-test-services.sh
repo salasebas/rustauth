@@ -70,7 +70,29 @@ for service in "$@"; do
   remove_foreign_container "$service"
 done
 
-docker compose up -d --force-recreate --remove-orphans --wait "$@"
+compose_up_with_retry() {
+  local attempt=1
+  local max_attempts=3
+  local delay_seconds=5
+
+  while true; do
+    if docker compose up -d --force-recreate --remove-orphans --wait "$@"; then
+      return 0
+    fi
+
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      echo "docker compose up failed after $max_attempts attempts" >&2
+      return 1
+    fi
+
+    echo "docker compose up failed (attempt $attempt/$max_attempts); retrying in ${delay_seconds}s..." >&2
+    attempt=$((attempt + 1))
+    sleep "$delay_seconds"
+    delay_seconds=$((delay_seconds * 2))
+  done
+}
+
+compose_up_with_retry "$@"
 
 for service in "$@"; do
   assert_published_port "$service"

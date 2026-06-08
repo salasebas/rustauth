@@ -88,6 +88,10 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- `openauth-core`: `/update-user` no longer accepts plugin schema user fields
+  marked as non-input (for example admin `role`/`banned` or two-factor
+  `two_factor_enabled`); schema-backed updates now honor `DbField.input` and
+  validate values against `DbFieldType`.
 - Fixed the full-app example so `OPENAUTH_EXAMPLE_BASE_URL` preserves reverse-proxy
   path prefixes when rebuilding static and dynamic auth URLs, and malformed values
   now fail fast with `InvalidConfig` instead of silently falling back to localhost.

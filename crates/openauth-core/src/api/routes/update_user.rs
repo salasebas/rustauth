@@ -8,13 +8,12 @@ use super::shared::{
     auth_session_cookies, current_session, error_response, invalid_additional_field_response,
     json_openapi_response, json_response, unauthorized,
 };
-use crate::api::additional_fields::update_values;
+use crate::api::additional_fields::{json_to_db_value, update_values, AdditionalFieldError};
 use crate::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
     OpenApiOperation,
 };
 use crate::db::DbAdapter;
-use crate::db::DbValue;
 use crate::error::OpenAuthError;
 use crate::session::SessionStore;
 use crate::user::{DbUserStore, UpdateUserInput};
@@ -162,14 +161,28 @@ pub(super) fn update_user_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndp
                     {
                         continue;
                     }
-                    if context.db_schema.field("user", &logical_field).is_err() {
+                    let Ok(db_field) = context.db_schema.field("user", &logical_field) else {
                         return error_response(
                             StatusCode::BAD_REQUEST,
                             "INVALID_REQUEST_BODY",
                             format!("unknown user field `{field}`"),
                         );
+                    };
+                    if !db_field.input {
+                        return invalid_additional_field_response(AdditionalFieldError::NotInput(
+                            field.clone(),
+                        ));
                     }
-                    input = input.field(logical_field, json_to_db_value(value)?);
+                    let db_value =
+                        match json_to_db_value(&logical_field, &db_field.field_type, &value) {
+                            Ok(value) => value,
+                            Err(message) => {
+                                return invalid_additional_field_response(
+                                    AdditionalFieldError::InvalidType(message),
+                                );
+                            }
+                        };
+                    input = input.field(db_field.name.clone(), db_value);
                 }
                 input = input.additional_fields(additional_fields);
                 if input.is_empty() {
@@ -220,23 +233,6 @@ fn camel_to_snake(field: &str) -> String {
         }
     }
     output
-}
-
-fn json_to_db_value(value: Value) -> Result<DbValue, OpenAuthError> {
-    match value {
-        Value::Null => Ok(DbValue::Null),
-        Value::String(value) => Ok(DbValue::String(value)),
-        Value::Bool(value) => Ok(DbValue::Boolean(value)),
-        Value::Number(value) => {
-            value
-                .as_i64()
-                .map(DbValue::Number)
-                .ok_or(OpenAuthError::NumericOutOfRange {
-                    context: "additional user field number",
-                })
-        }
-        other => Ok(DbValue::Json(other)),
-    }
 }
 
 fn update_user_request_body() -> Value {
