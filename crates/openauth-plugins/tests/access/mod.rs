@@ -35,6 +35,43 @@ fn allows_defined_statements_directly_in_new_role() -> Result<(), AccessError> {
 }
 
 #[test]
+fn validates_permissions() -> Result<(), AccessError> {
+    assert_eq!(
+        role()?.authorize(request([("project", ["create"])]), Connector::And),
+        Ok(())
+    );
+    assert_eq!(
+        role()?.authorize(request([("project", ["delete-many"])]), Connector::And),
+        Err(AccessError::UnauthorizedResource {
+            resource: "project".to_string()
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn validates_or_connector_for_specific_resource() -> Result<(), AccessError> {
+    let mut allowed = openauth_plugins::access::AccessRequest::new();
+    allowed.insert(
+        "project".to_string(),
+        ResourceRequest::any(["create", "delete-many"]),
+    );
+    allowed.insert("ui".to_string(), ResourceRequest::all(["view", "edit"]));
+    assert_eq!(role()?.authorize(allowed, Connector::And), Ok(()));
+
+    let mut denied = openauth_plugins::access::AccessRequest::new();
+    denied.insert("project".to_string(), ResourceRequest::any(["delete-many"]));
+    denied.insert("ui".to_string(), ResourceRequest::all(["view", "edit"]));
+    assert_eq!(
+        role()?.authorize(denied, Connector::And),
+        Err(AccessError::UnauthorizedResource {
+            resource: "project".to_string()
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn authorizes_allowed_action() -> Result<(), AccessError> {
     assert_eq!(
         role()?.authorize(request([("project", ["create"])]), Connector::And),
