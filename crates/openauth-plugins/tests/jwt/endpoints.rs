@@ -228,6 +228,43 @@ fn remote_url_accepts_plain_strings_and_query_params() {
 }
 
 #[tokio::test]
+async fn token_from_http_validates_against_jwks_kid_and_claims(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_session(adapter.as_ref()).await?;
+    let context = openauth_core::context::create_auth_context_with_adapter(
+        options_with_plugin(jwt()?),
+        adapter.clone(),
+    )?;
+    let router = router_with_plugin(adapter, jwt()?)?;
+    let cookie = signed_session_cookie("token_1")?;
+
+    let token_response = router
+        .handle_async(request(Method::GET, "/api/auth/token", "", Some(&cookie))?)
+        .await?;
+    assert_eq!(token_response.status(), StatusCode::OK);
+    let token = serde_json::from_slice::<Value>(token_response.body())?["token"]
+        .as_str()
+        .ok_or("missing token")?
+        .to_owned();
+
+    let jwks_response = router
+        .handle_async(request(Method::GET, "/api/auth/jwks", "", None)?)
+        .await?;
+    assert_eq!(jwks_response.status(), StatusCode::OK);
+    let jwks: Value = serde_json::from_slice(jwks_response.body())?;
+    let kid = jwt_kid(&token)?;
+    let keys = jwks["keys"].as_array().ok_or("missing keys")?;
+    assert!(keys.iter().any(|key| key["kid"] == kid));
+
+    let claims = verify_jwt(&context, &token, None)
+        .await?
+        .ok_or("token should verify against stored JWKS")?;
+    assert_eq!(claims["sub"], "user_1");
+    Ok(())
+}
+
+#[tokio::test]
 async fn remote_url_still_allows_local_signing_without_custom_signer_for_supported_algorithms(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for algorithm in [
