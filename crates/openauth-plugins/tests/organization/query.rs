@@ -70,6 +70,93 @@ async fn get_full_organization_accepts_id_slug_and_returns_null_without_active(
 }
 
 #[tokio::test]
+async fn get_full_organization_prioritizes_slug_over_id_when_both_provided(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth = super::test_router(
+        Arc::new(MemoryAdapter::new()),
+        OrganizationOptions::default(),
+    )?;
+    let ada = super::sign_up(&auth, "Ada", "ada-slug-priority@example.com").await?;
+    let first = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/create",
+        json!({"name":"First Priority","slug":"first-priority"}),
+        Some(&ada.cookie),
+    )
+    .await?;
+    assert_eq!(first.status, StatusCode::OK);
+    let first_id = first.body["id"].as_str().ok_or("missing first id")?;
+    let second = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/create",
+        json!({"name":"Second Priority","slug":"second-priority"}),
+        Some(&ada.cookie),
+    )
+    .await?;
+    assert_eq!(second.status, StatusCode::OK);
+
+    let resolved = super::request_json(
+        &auth,
+        Method::GET,
+        &format!(
+            "/api/auth/organization/get-full-organization?organizationId={first_id}&organizationSlug=second-priority"
+        ),
+        json!({}),
+        Some(&ada.cookie),
+    )
+    .await?;
+    assert_eq!(resolved.status, StatusCode::OK);
+    assert_eq!(resolved.body["name"], "Second Priority");
+    assert_eq!(resolved.body["slug"], "second-priority");
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_organizations_returns_all_member_organizations(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth = super::test_router(
+        Arc::new(MemoryAdapter::new()),
+        OrganizationOptions::default(),
+    )?;
+    let ada = super::sign_up(&auth, "Ada", "ada-list-orgs@example.com").await?;
+    for (name, slug) in [("Org One", "org-one"), ("Org Two", "org-two")] {
+        let created = super::request_json(
+            &auth,
+            Method::POST,
+            "/api/auth/organization/create",
+            json!({"name": name, "slug": slug}),
+            Some(&ada.cookie),
+        )
+        .await?;
+        assert_eq!(created.status, StatusCode::OK);
+    }
+
+    let listed = super::request_json(
+        &auth,
+        Method::GET,
+        "/api/auth/organization/list",
+        json!({}),
+        Some(&ada.cookie),
+    )
+    .await?;
+    assert_eq!(listed.status, StatusCode::OK);
+    let organizations = listed
+        .body
+        .as_array()
+        .ok_or("expected organization array")?;
+    assert_eq!(organizations.len(), 2);
+    let slugs = organizations
+        .iter()
+        .filter_map(|org| org["slug"].as_str())
+        .collect::<Vec<_>>();
+    assert!(slugs.contains(&"org-one"));
+    assert!(slugs.contains(&"org-two"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn check_slug_reports_available_and_taken_slugs() -> Result<(), Box<dyn std::error::Error>> {
     let auth = super::test_router(
         Arc::new(MemoryAdapter::new()),

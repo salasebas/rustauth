@@ -198,6 +198,48 @@ async fn server_side_create_with_user_id_provisions_organization(
 }
 
 #[tokio::test]
+async fn user_cannot_create_organization_when_disabled_but_server_can(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth = super::test_router(
+        Arc::new(MemoryAdapter::new()),
+        OrganizationOptions::builder()
+            .allow_user_to_create_organization(false)
+            .build(),
+    )?;
+    let owner = super::sign_up(&auth, "Owner", "owner-disabled-create@example.com").await?;
+
+    let denied = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/create",
+        json!({"name":"Denied Org","slug":"denied-create-org"}),
+        Some(&owner.cookie),
+    )
+    .await?;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        denied.body["code"],
+        "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION"
+    );
+
+    let created = super::server_request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/create",
+        json!({
+            "name": "Server Org",
+            "slug": "server-create-org",
+            "userId": owner.user_id
+        }),
+        None,
+    )
+    .await?;
+    assert_eq!(created.status, StatusCode::OK);
+    assert_eq!(created.body["slug"], "server-create-org");
+    Ok(())
+}
+
+#[tokio::test]
 async fn active_team_is_returned_from_get_session_when_teams_are_enabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let options = OrganizationOptions::builder()

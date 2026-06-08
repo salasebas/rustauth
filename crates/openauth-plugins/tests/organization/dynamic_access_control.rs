@@ -187,6 +187,75 @@ async fn has_permission_allows_custom_ac_resource_for_dynamic_role(
 }
 
 #[tokio::test]
+async fn has_permission_preserves_builtin_actions_when_db_role_is_partial(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use openauth_core::db::{Create, DbAdapter, DbValue};
+    use time::OffsetDateTime;
+
+    let adapter = Arc::new(MemoryAdapter::new());
+    let options = OrganizationOptions::builder()
+        .dynamic_access_control(DynamicAccessControlOptions {
+            enabled: true,
+            maximum_roles_per_organization: Some(3),
+        })
+        .build();
+    let auth = super::test_router(adapter.clone(), options)?;
+    let owner = super::sign_up(&auth, "Owner", "owner-partial-db@example.com").await?;
+    let org = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/create",
+        json!({"name":"Partial DB","slug":"partial-db"}),
+        Some(&owner.cookie),
+    )
+    .await?;
+    assert_eq!(org.status, StatusCode::OK);
+    let organization_id = org.body["id"].as_str().ok_or("missing organization id")?;
+
+    let now = OffsetDateTime::now_utc();
+    adapter
+        .create(
+            Create::new("organization_role")
+                .data("id", DbValue::String("role_owner_partial".to_owned()))
+                .data(
+                    "organization_id",
+                    DbValue::String(organization_id.to_owned()),
+                )
+                .data("role", DbValue::String("owner".to_owned()))
+                .data(
+                    "permission",
+                    DbValue::Json(json!({ "organization": ["update"] })),
+                )
+                .data("created_at", DbValue::Timestamp(now))
+                .data("updated_at", DbValue::Timestamp(now)),
+        )
+        .await?;
+
+    let update = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/has-permission",
+        json!({"organizationId": organization_id, "permissions": {"organization": ["update"]}}),
+        Some(&owner.cookie),
+    )
+    .await?;
+    assert_eq!(update.status, StatusCode::OK);
+    assert_eq!(update.body["success"], true);
+
+    let delete = super::request_json(
+        &auth,
+        Method::POST,
+        "/api/auth/organization/has-permission",
+        json!({"organizationId": organization_id, "permissions": {"organization": ["delete"]}}),
+        Some(&owner.cookie),
+    )
+    .await?;
+    assert_eq!(delete.status, StatusCode::OK);
+    assert_eq!(delete.body["success"], true);
+    Ok(())
+}
+
+#[tokio::test]
 async fn has_permission_merges_comma_separated_static_and_dynamic_roles(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
