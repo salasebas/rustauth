@@ -778,6 +778,82 @@ async fn trusted_device_bypasses_second_factor_and_rotates_cookie(
 }
 
 #[tokio::test]
+async fn expired_trust_device_record_forces_second_factor() -> Result<(), Box<dyn std::error::Error>>
+{
+    use openauth_core::db::{DbValue, FindMany, Sort, SortDirection, Update, Where};
+    use time::Duration;
+
+    let options = TwoFactorOptions {
+        trust_device_max_age: 3600,
+        ..TwoFactorOptions::default()
+    };
+    let (adapter, router) = seeded_router_with_options(options).await?;
+    let _cookie = enable_totp(&adapter, &router).await?;
+    let record = two_factor_record(adapter.as_ref()).await?;
+    let secret = symmetric_decrypt(secret(), string_field(&record, "secret")?)?;
+    let code = totp_code(&secret, 6, 30, OffsetDateTime::now_utc().unix_timestamp());
+    let (challenge_cookie, _body) = two_factor_challenge_cookie(&router).await?;
+
+    let trusted_response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/two-factor/verify-totp",
+            &format!(r#"{{"code":"{code}","trustDevice":true}}"#),
+            Some(&challenge_cookie),
+        )?)
+        .await?;
+    assert_eq!(trusted_response.status(), StatusCode::OK);
+    let trusted_cookie_header = cookie_header_from_response(&trusted_response);
+    let trusted_value = signed_cookie_value(&trusted_cookie_header, "trust_device")?;
+    let (_token, trust_identifier) = trusted_value
+        .split_once('!')
+        .ok_or("missing trust identifier")?;
+
+    let trust_record = adapter
+        .find_many(
+            FindMany::new("verification")
+                .where_clause(Where::new(
+                    "identifier",
+                    DbValue::String(trust_identifier.to_owned()),
+                ))
+                .sort_by(Sort::new("created_at", SortDirection::Desc))
+                .limit(1),
+        )
+        .await?
+        .into_iter()
+        .next()
+        .ok_or("missing trust verification")?;
+    let trust_id = match trust_record.get("id") {
+        Some(DbValue::String(id)) => id.clone(),
+        _ => return Err("missing trust verification id".into()),
+    };
+    adapter
+        .update(
+            Update::new("verification")
+                .where_clause(Where::new("id", DbValue::String(trust_id)))
+                .data(
+                    "expires_at",
+                    DbValue::Timestamp(OffsetDateTime::now_utc() - Duration::seconds(1)),
+                ),
+        )
+        .await?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/sign-in/email",
+            r#"{"email":"ada@example.com","password":"password123"}"#,
+            Some(&trusted_cookie_header),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(response.body())?;
+    assert_eq!(body["twoFactorRedirect"], true);
+    assert!(body["token"].is_null());
+    Ok(())
+}
+
+#[tokio::test]
 async fn invalid_trusted_device_cookie_is_expired_on_second_factor_challenge(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let options = TwoFactorOptions {
