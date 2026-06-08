@@ -1188,6 +1188,203 @@ async fn user_resource_includes_read_only_group_memberships() {
 }
 
 #[tokio::test]
+async fn user_resource_version_changes_when_scim_group_membership_changes() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
+    let (owner_cookie, owner_id) =
+        session_cookie_with_user(adapter.as_ref(), &context, "user-version-owner@example.com")
+            .await
+            .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let user_id =
+        create_scim_user(&router, &token, "versioned@example.com", "Versioned User").await;
+    let group_id = create_scim_group(&router, &token, "Version Group", "version-group", &[]).await;
+
+    let initial = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{user_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(initial.status(), StatusCode::OK);
+    let initial_body = json_body(initial);
+    let initial_version = initial_body["meta"]["version"]
+        .as_str()
+        .expect("initial version")
+        .to_owned();
+    assert!(initial_body["groups"]
+        .as_array()
+        .is_none_or(|groups| groups.is_empty()));
+
+    let add_member = router
+        .handle_async(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri(format!("/scim/v2/Groups/{group_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/scim+json")
+                .body(
+                    format!(
+                        r#"{{
+                            "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                            "Operations":[{{"op":"add","path":"members","value":[{{"value":"{user_id}"}}]}}]
+                        }}"#
+                    )
+                    .into_bytes(),
+                )
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should succeed");
+    assert_eq!(add_member.status(), StatusCode::OK);
+
+    let updated = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{user_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated_etag = updated
+        .headers()
+        .get(header::ETAG)
+        .expect("updated etag")
+        .to_str()
+        .expect("etag string")
+        .to_owned();
+    let updated_body = json_body(updated);
+    let updated_version = updated_body["meta"]["version"]
+        .as_str()
+        .expect("updated version")
+        .to_owned();
+    assert_ne!(updated_version, initial_version);
+    assert_eq!(updated_body["groups"][0]["value"], group_id);
+    assert_eq!(updated_etag, updated_version);
+
+    let stale_patch = router
+        .handle_async(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri(format!("/scim/v2/Users/{user_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/scim+json")
+                .header(header::IF_MATCH, initial_version)
+                .body(
+                    br#"{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"title","value":"Should Fail"}]}"#
+                        .to_vec(),
+                )
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should succeed");
+    assert_eq!(stale_patch.status(), StatusCode::PRECONDITION_FAILED);
+}
+
+#[tokio::test]
+async fn user_resource_version_changes_for_all_org_scoped_providers_when_group_membership_changes()
+{
+    let (adapter, router, context) =
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
+    let (owner_cookie, owner_id) = session_cookie_with_user(
+        adapter.as_ref(),
+        &context,
+        "cross-provider-owner@example.com",
+    )
+    .await
+    .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let okta_token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let entra_token = generate_scim_token(&router, &owner_cookie, "entra", Some("org_1")).await;
+    let email = "cross-provider-version@example.com";
+    let user_id = create_scim_user(&router, &okta_token, email, "Cross Provider").await;
+
+    let linked = router
+        .handle_async(json_request(
+            Method::POST,
+            "/scim/v2/Users",
+            &format!(r#"{{"userName":"{email}","name":{{"formatted":"Cross Provider"}}}}"#),
+            Some(&entra_token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(linked.status(), StatusCode::CREATED);
+    assert_eq!(json_body(linked)["id"], user_id);
+
+    let group_id =
+        create_scim_group(&router, &okta_token, "Shared Group", "shared-group", &[]).await;
+
+    let initial_entra = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{user_id}"),
+            &entra_token,
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(initial_entra.status(), StatusCode::OK);
+    let initial_version = json_body(initial_entra)["meta"]["version"]
+        .as_str()
+        .expect("initial version")
+        .to_owned();
+
+    let add_member = router
+        .handle_async(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri(format!("/scim/v2/Groups/{group_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {okta_token}"))
+                .header(header::CONTENT_TYPE, "application/scim+json")
+                .body(
+                    format!(
+                        r#"{{
+                            "schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                            "Operations":[{{"op":"add","path":"members","value":[{{"value":"{user_id}"}}]}}]
+                        }}"#
+                    )
+                    .into_bytes(),
+                )
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should succeed");
+    assert_eq!(add_member.status(), StatusCode::OK);
+
+    let updated_entra = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Users/{user_id}"),
+            &entra_token,
+        ))
+        .await
+        .expect("request should succeed");
+    let updated_body = json_body(updated_entra);
+    assert_ne!(
+        updated_body["meta"]["version"]
+            .as_str()
+            .expect("updated version"),
+        initial_version
+    );
+    assert_eq!(updated_body["groups"][0]["value"], group_id);
+}
+
+#[tokio::test]
 async fn user_extended_and_enterprise_attributes_are_persisted() {
     let (adapter, router) = router_with_adapter().expect("router should build");
     ScimProviderStore::new(adapter.as_ref())

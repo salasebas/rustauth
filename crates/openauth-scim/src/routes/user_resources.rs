@@ -575,6 +575,72 @@ pub(super) fn reserved_scim_user_attribute_error(attribute: &str) -> ScimError {
     .with_scim_type("mutability")
 }
 
+pub(super) async fn touch_scim_user_profile_version(
+    adapter: &dyn DbAdapter,
+    provider_id: &str,
+    user_id: &str,
+) -> Result<(), OpenAuthError> {
+    let now = OffsetDateTime::now_utc();
+    let updated = adapter
+        .update(
+            Update::new("scimUserProfile")
+                .where_clause(Where::new(
+                    "providerId",
+                    DbValue::String(provider_id.to_owned()),
+                ))
+                .where_clause(Where::new("userId", DbValue::String(user_id.to_owned())))
+                .data("version", DbValue::String(resource_version(now)))
+                .data("updatedAt", DbValue::Timestamp(now)),
+        )
+        .await?;
+    if updated.is_none() {
+        upsert_scim_user_profile(adapter, provider_id, user_id, None, serde_json::json!({}))
+            .await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn touch_scim_user_profile_versions(
+    adapter: &dyn DbAdapter,
+    provider_id: &str,
+    user_ids: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<(), OpenAuthError> {
+    for user_id in user_ids {
+        touch_scim_user_profile_version(adapter, provider_id, user_id.as_ref()).await?;
+    }
+    Ok(())
+}
+
+pub(super) async fn touch_scim_user_profile_versions_for_organization_group_membership(
+    adapter: &dyn DbAdapter,
+    organization_id: &str,
+    user_ids: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<(), OpenAuthError> {
+    let user_ids = user_ids
+        .into_iter()
+        .map(|user_id| user_id.as_ref().to_owned())
+        .collect::<Vec<_>>();
+    if user_ids.is_empty() {
+        return Ok(());
+    }
+    let provider_ids = ScimProviderStore::new(adapter)
+        .list()
+        .await?
+        .into_iter()
+        .filter(|provider| provider.organization_id.as_deref() == Some(organization_id))
+        .map(|provider| provider.provider_id)
+        .collect::<Vec<_>>();
+    for provider_id in provider_ids {
+        touch_scim_user_profile_versions(
+            adapter,
+            &provider_id,
+            user_ids.iter().map(String::as_str),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 pub(super) async fn upsert_scim_user_profile(
     adapter: &dyn DbAdapter,
     provider_id: &str,

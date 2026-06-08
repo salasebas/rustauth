@@ -328,7 +328,7 @@ async fn purge_provider_connection(
     provider: &ScimProviderRecord,
     deprovision_mode: crate::options::ScimDeprovisionMode,
 ) -> Result<(), OpenAuthError> {
-    purge_provider_groups(adapter, &provider.provider_id).await?;
+    purge_provider_groups(adapter, provider).await?;
     purge_provider_users(adapter, provider, deprovision_mode).await?;
     ScimProviderStore::new(adapter)
         .delete(&provider.provider_id)
@@ -337,21 +337,24 @@ async fn purge_provider_connection(
 
 async fn purge_provider_groups(
     adapter: &dyn DbAdapter,
-    provider_id: &str,
+    provider: &ScimProviderRecord,
 ) -> Result<(), OpenAuthError> {
+    let Some(organization_id) = provider.organization_id.as_deref() else {
+        return Ok(());
+    };
     let profiles = adapter
         .find_many(
             FindMany::new("scimGroupProfile")
                 .where_clause(Where::new(
                     "providerId",
-                    DbValue::String(provider_id.to_owned()),
+                    DbValue::String(provider.provider_id.clone()),
                 ))
                 .select(["teamId"]),
         )
         .await?;
     for profile in profiles {
         let team_id = required_string(&profile, "teamId")?.to_owned();
-        delete_group(adapter, provider_id, &team_id).await?;
+        delete_group(adapter, organization_id, &provider.provider_id, &team_id).await?;
     }
     Ok(())
 }

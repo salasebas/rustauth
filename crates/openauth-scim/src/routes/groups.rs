@@ -444,7 +444,13 @@ pub(super) fn delete_group_endpoint(
                 {
                     return error.into_response();
                 }
-                delete_group(adapter.as_ref(), &provider.provider_id, &group_id).await?;
+                delete_group(
+                    adapter.as_ref(),
+                    organization_id,
+                    &provider.provider_id,
+                    &group_id,
+                )
+                .await?;
                 Response::builder()
                     .status(StatusCode::NO_CONTENT)
                     .body(Vec::new())

@@ -123,6 +123,11 @@ pub(super) async fn create_group_with_profile_and_members(
 ) -> Result<ScimTeamRecord, OpenAuthError> {
     let provider_id = provider_id.to_owned();
     let organization_id = organization_id.to_owned();
+    let member_user_ids = input
+        .members
+        .iter()
+        .map(|member| member.value.clone())
+        .collect::<Vec<_>>();
     let result = Arc::new(Mutex::new(None));
     let result_for_transaction = Arc::clone(&result);
     adapter
@@ -146,6 +151,12 @@ pub(super) async fn create_group_with_profile_and_members(
                     create_team_member_if_missing(transaction.as_ref(), &team.id, &member.value)
                         .await?;
                 }
+                touch_scim_user_profile_versions_for_organization_group_membership(
+                    transaction.as_ref(),
+                    &organization_id,
+                    member_user_ids.iter().map(String::as_str),
+                )
+                .await?;
                 let mut guard = result_for_transaction.lock().map_err(|_| {
                     OpenAuthError::Adapter("create SCIM group result mutex was poisoned".to_owned())
                 })?;
@@ -195,6 +206,30 @@ pub(super) async fn create_team_member_if_missing(
         )
         .await?;
     Ok(true)
+}
+
+async fn team_member_user_ids(
+    adapter: &dyn DbAdapter,
+    team_id: &str,
+) -> Result<Vec<String>, OpenAuthError> {
+    match adapter
+        .find_many(
+            FindMany::new("team_member")
+                .where_clause(Where::new("team_id", DbValue::String(team_id.to_owned())))
+                .select(["user_id"]),
+        )
+        .await
+    {
+        Ok(records) => Ok(records
+            .into_iter()
+            .filter_map(|record| match record.get("user_id") {
+                Some(DbValue::String(user_id)) => Some(user_id.to_owned()),
+                _ => None,
+            })
+            .collect()),
+        Err(OpenAuthError::TableNotFound { table }) if table == "team_member" => Ok(Vec::new()),
+        Err(error) => Err(error),
+    }
 }
 
 async fn touch_group_updated_at(
@@ -377,16 +412,28 @@ pub(super) async fn replace_group(
                     input.external_id.as_deref(),
                 )
                 .await?;
+                let previous_members =
+                    team_member_user_ids(transaction.as_ref(), &group_id).await?;
                 transaction
                     .delete_many(
                         DeleteMany::new("team_member")
                             .where_clause(Where::new("team_id", DbValue::String(group_id.clone()))),
                     )
                     .await?;
-                for member in input.members {
+                let mut affected_members = previous_members
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>();
+                for member in &input.members {
+                    affected_members.insert(member.value.clone());
                     create_team_member_if_missing(transaction.as_ref(), &group_id, &member.value)
                         .await?;
                 }
+                touch_scim_user_profile_versions_for_organization_group_membership(
+                    transaction.as_ref(),
+                    &organization_id,
+                    affected_members.iter().map(String::as_str),
+                )
+                .await?;
                 Ok(())
             })
         }))
@@ -501,12 +548,19 @@ pub(super) async fn apply_group_patch(
         return Err(ScimErrorOrOpenAuth::Scim(unsupported_group_patch_path()));
     }
 
+    let organization_id = organization_id.to_owned();
     let group_id = group_id.to_owned();
     adapter
         .transaction(Box::new(move |transaction| {
             Box::pin(async move {
                 for mutation in mutations {
-                    apply_group_patch_mutation(transaction.as_ref(), &group_id, mutation).await?;
+                    apply_group_patch_mutation(
+                        transaction.as_ref(),
+                        &organization_id,
+                        &group_id,
+                        mutation,
+                    )
+                    .await?;
                 }
                 Ok(())
             })
@@ -524,31 +578,49 @@ enum GroupPatchMutation {
 
 async fn apply_group_patch_mutation(
     adapter: &dyn DbAdapter,
+    organization_id: &str,
     group_id: &str,
     mutation: GroupPatchMutation,
 ) -> Result<(), OpenAuthError> {
     match mutation {
         GroupPatchMutation::AddMembers(members) => {
             let mut membership_changed = false;
-            for member in members {
+            for member in &members {
                 membership_changed |=
-                    create_team_member_if_missing(adapter, group_id, &member).await?;
+                    create_team_member_if_missing(adapter, group_id, member).await?;
             }
             if membership_changed {
                 touch_group_updated_at(adapter, group_id).await?;
+                touch_scim_user_profile_versions_for_organization_group_membership(
+                    adapter,
+                    organization_id,
+                    &members,
+                )
+                .await?;
             }
         }
         GroupPatchMutation::ReplaceMembers(members) => {
+            let previous_members = team_member_user_ids(adapter, group_id).await?;
             adapter
                 .delete_many(
                     DeleteMany::new("team_member")
                         .where_clause(Where::new("team_id", DbValue::String(group_id.to_owned()))),
                 )
                 .await?;
-            for member in members {
-                create_team_member_if_missing(adapter, group_id, &member).await?;
+            let mut affected_members = previous_members
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>();
+            for member in &members {
+                affected_members.insert(member.clone());
+                create_team_member_if_missing(adapter, group_id, member).await?;
             }
             touch_group_updated_at(adapter, group_id).await?;
+            touch_scim_user_profile_versions_for_organization_group_membership(
+                adapter,
+                organization_id,
+                affected_members.iter().map(String::as_str),
+            )
+            .await?;
         }
         GroupPatchMutation::ReplaceDisplayName(display_name) => {
             adapter
@@ -565,11 +637,17 @@ async fn apply_group_patch_mutation(
                 .delete_many(
                     DeleteMany::new("team_member")
                         .where_clause(Where::new("team_id", DbValue::String(group_id.to_owned())))
-                        .where_clause(Where::new("user_id", DbValue::String(member_id))),
+                        .where_clause(Where::new("user_id", DbValue::String(member_id.clone()))),
                 )
                 .await?;
             if removed > 0 {
                 touch_group_updated_at(adapter, group_id).await?;
+                touch_scim_user_profile_versions_for_organization_group_membership(
+                    adapter,
+                    organization_id,
+                    [member_id.as_str()],
+                )
+                .await?;
             }
         }
     }
@@ -645,20 +723,30 @@ pub(super) fn member_value_from_filter_path(path: &str) -> Option<String> {
 
 pub(super) async fn delete_group(
     adapter: &dyn DbAdapter,
+    organization_id: &str,
     provider_id: &str,
     group_id: &str,
 ) -> Result<(), OpenAuthError> {
+    let organization_id = organization_id.to_owned();
     let provider_id = provider_id.to_owned();
     let group_id = group_id.to_owned();
     adapter
         .transaction(Box::new(move |transaction| {
             Box::pin(async move {
+                let affected_members =
+                    team_member_user_ids(transaction.as_ref(), &group_id).await?;
                 transaction
                     .delete_many(
                         DeleteMany::new("team_member")
                             .where_clause(Where::new("team_id", DbValue::String(group_id.clone()))),
                     )
                     .await?;
+                touch_scim_user_profile_versions_for_organization_group_membership(
+                    transaction.as_ref(),
+                    &organization_id,
+                    affected_members.iter().map(String::as_str),
+                )
+                .await?;
                 transaction
                     .delete_many(
                         DeleteMany::new("scimGroupProfile")

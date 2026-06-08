@@ -596,7 +596,7 @@ async fn execute_bulk_operation(
                     ScimError::not_found("Group not found"),
                 );
             }
-            delete_group(adapter, &provider.provider_id, group_id).await?;
+            delete_group(adapter, organization_id, &provider.provider_id, group_id).await?;
             return Ok(BulkOperationResponse {
                 method,
                 path: Some(path),
