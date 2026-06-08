@@ -13,17 +13,11 @@ use openauth_core::db::{
     UpdateMany, User, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{AdvancedOptions, EmailPasswordOptions, OpenAuthOptions};
-use openauth_core::test_utils::apply_fast_password_defaults;
+use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
+use openauth_core::test_utils::with_integration_test_defaults;
 
-fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
-    if !options.production {
-        options.development = true;
-    }
-    if !options.email_password.enabled {
-        options.email_password = EmailPasswordOptions::new().enabled(true);
-    }
-    apply_fast_password_defaults(options)
+fn with_test_defaults(options: OpenAuthOptions) -> OpenAuthOptions {
+    with_integration_test_defaults(options)
 }
 use time::OffsetDateTime;
 use tokio::sync::Mutex;

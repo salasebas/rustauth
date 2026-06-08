@@ -4,8 +4,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{header, HeaderValue, Method, Request};
 use openauth::db::DbValue;
 use openauth::{
-    ApiResponse, AsyncAuthEndpoint, AuthContext, AuthEndpointOptions, EmailPasswordOptions,
-    MemoryAdapter, OpenAuthError,
+    ApiResponse, AsyncAuthEndpoint, AuthContext, AuthEndpointOptions, MemoryAdapter, OpenAuthError,
 };
 use openauth::{
     OAuth2Tokens, OAuth2UserInfo, OAuthError, OpenAuth, OpenAuthOptions, ProviderOptions,
@@ -24,14 +23,8 @@ pub struct ResponseExtensionMarker(pub &'static str);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestExtensionMarker(pub &'static str);
 
-fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
-    if !options.production {
-        options.development = true;
-    }
-    if !options.email_password.enabled {
-        options.email_password = EmailPasswordOptions::new().enabled(true);
-    }
-    options
+fn with_test_defaults(options: OpenAuthOptions) -> OpenAuthOptions {
+    openauth_core::test_utils::with_integration_test_defaults(options)
 }
 
 pub fn auth_with_options(options: OpenAuthOptions) -> Result<OpenAuth, openauth::OpenAuthError> {

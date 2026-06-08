@@ -2956,6 +2956,7 @@ dependencies = [
  "axum",
  "http-body-util",
  "openauth",
+ "openauth-core",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",

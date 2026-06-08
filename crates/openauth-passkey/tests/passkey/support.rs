@@ -11,11 +11,9 @@ use openauth_core::db::{
     Update, UpdateMany, Where,
 };
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{
-    AdvancedOptions, EmailPasswordOptions, OpenAuthOptions, SessionOptions,
-};
+use openauth_core::options::{AdvancedOptions, OpenAuthOptions, SessionOptions};
 use openauth_core::test_utils::{
-    apply_fast_password_defaults, fast_hash_password, MemorySecondaryStorage,
+    fast_hash_password, with_integration_test_defaults, MemorySecondaryStorage,
 };
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use openauth_passkey::{
@@ -26,14 +24,8 @@ use openauth_passkey::{
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 
-fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
-    if !options.production {
-        options.development = true;
-    }
-    if !options.email_password.enabled {
-        options.email_password = EmailPasswordOptions::new().enabled(true);
-    }
-    apply_fast_password_defaults(options)
+fn with_test_defaults(options: OpenAuthOptions) -> OpenAuthOptions {
+    with_integration_test_defaults(options)
 }
 
 pub fn allow_credentials_contains_id(allowed: &[Value], credential_id: &str) -> bool {

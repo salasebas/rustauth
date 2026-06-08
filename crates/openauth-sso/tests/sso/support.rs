@@ -10,16 +10,10 @@ use openauth_core::options::{
     AccountLinkingOptions, AccountOptions, AdvancedOptions, EmailPasswordOptions, OpenAuthOptions,
     SecondaryStorage, SessionOptions, TrustedOriginOptions,
 };
-use openauth_core::test_utils::MemorySecondaryStorage;
+use openauth_core::test_utils::{with_integration_test_defaults, MemorySecondaryStorage};
 
-fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
-    if !options.production {
-        options.development = true;
-    }
-    if !options.email_password.enabled {
-        options.email_password = EmailPasswordOptions::new().enabled(true);
-    }
-    options
+fn with_test_defaults(options: OpenAuthOptions) -> OpenAuthOptions {
+    with_integration_test_defaults(options)
 }
 use openauth_core::plugin::AuthPlugin;
 use openauth_sso::{sso, SsoOptions};
