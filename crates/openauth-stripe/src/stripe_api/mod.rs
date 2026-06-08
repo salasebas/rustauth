@@ -172,11 +172,24 @@ impl StripeClient {
     }
 
     pub async fn search_customers(&self, query: &str) -> Result<Value, StripeApiError> {
-        self.get(
-            "/v1/customers/search",
-            serde_json::json!({ "query": query, "limit": 1 }),
-        )
-        .await
+        self.search_customers_page(query, None).await
+    }
+
+    pub(crate) async fn search_customers_page(
+        &self,
+        query: &str,
+        page: Option<&str>,
+    ) -> Result<Value, StripeApiError> {
+        let mut params = serde_json::json!({
+            "query": query,
+            "limit": paginated_list::STRIPE_LIST_PAGE_LIMIT,
+        });
+        if let Some(page) = page {
+            if let Some(object) = params.as_object_mut() {
+                object.insert("page".to_owned(), serde_json::json!(page));
+            }
+        }
+        self.get("/v1/customers/search", params).await
     }
 
     pub async fn list_customers(&self, params: Value) -> Result<Value, StripeApiError> {

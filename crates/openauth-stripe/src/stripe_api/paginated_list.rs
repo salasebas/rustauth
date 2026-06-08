@@ -6,7 +6,7 @@ use super::{StripeApiError, StripeClient};
 
 /// Stripe list endpoints default to 10 items; billing state decisions must scan
 /// the full customer history, not only the first page.
-const STRIPE_LIST_PAGE_LIMIT: u64 = 100;
+pub(crate) const STRIPE_LIST_PAGE_LIMIT: u64 = 100;
 /// Safety cap to avoid unbounded loops if Stripe keeps returning `has_more`.
 const MAX_STRIPE_LIST_PAGES: usize = 100;
 
@@ -36,6 +36,47 @@ impl StripeClient {
     pub async fn list_customers_all(&self, mut params: Value) -> Result<Value, StripeApiError> {
         self.paginate_list(|page_params| self.list_customers(page_params), &mut params)
             .await
+    }
+
+    /// Walk customer search pages until `predicate` matches or the search is exhausted.
+    pub async fn find_customer_from_search<F>(
+        &self,
+        query: &str,
+        mut predicate: F,
+    ) -> Result<Option<Value>, StripeApiError>
+    where
+        F: FnMut(&Value) -> bool,
+    {
+        let mut page_token: Option<String> = None;
+        let mut pages = 0usize;
+        loop {
+            if pages >= MAX_STRIPE_LIST_PAGES {
+                return Ok(None);
+            }
+            pages += 1;
+            let search_result = self
+                .search_customers_page(query, page_token.as_deref())
+                .await?;
+            if let Some(found) = search_result
+                .get("data")
+                .and_then(Value::as_array)
+                .and_then(|customers| {
+                    customers
+                        .iter()
+                        .find(|customer| predicate(customer))
+                        .cloned()
+                })
+            {
+                return Ok(Some(found));
+            }
+            page_token = search_result
+                .get("next_page")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            if page_token.is_none() {
+                return Ok(None);
+            }
+        }
     }
 
     /// Walk customer list pages until `predicate` matches or the list is exhausted.
