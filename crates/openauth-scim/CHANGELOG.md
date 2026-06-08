@@ -28,9 +28,9 @@ All notable changes to `openauth-scim` are documented in this file.
 
 - Advance org-scoped SCIM User `meta.version` / ETag when SCIM-managed group
   memberships change, so cached User representations and stale `If-Match`
-  preconditions reflect `groups` updates. Version bumps apply across every
-  organization-scoped provider in the same organization, and missing
-  `scimUserProfile` rows are created when needed.
+  preconditions reflect `groups` updates. Version bumps apply to existing
+  `scimUserProfile` rows for every organization-scoped provider in the same
+  organization where the user is already provisioned.
 - Organization-scoped SCIM user provisioning now creates memberships through the
   real organization plugin semantics when installed, including member hooks,
   role validation, and membership limits.
