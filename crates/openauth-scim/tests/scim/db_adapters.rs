@@ -26,6 +26,7 @@ use tokio::sync::Mutex;
 const SECRET: &str = "secret-a-at-least-32-chars-long!!";
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(0);
 static POSTGRES_ADAPTER_TEST_LOCK: Mutex<()> = Mutex::const_new(());
+static MYSQL_ADAPTER_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
 #[tokio::test]
 async fn sqlite_schema_and_provider_store_work() -> Result<(), Box<dyn std::error::Error>> {
@@ -298,6 +299,7 @@ async fn mysql_schema_and_provider_store_work_when_configured(
         .await?;
     let adapter = Arc::new(MySqlAdapter::with_schema(pool, context.db_schema.clone()));
 
+    let _guard = MYSQL_ADAPTER_TEST_LOCK.lock().await;
     adapter.create_schema(&context.db_schema, None).await?;
     provider_store_contract(adapter.clone()).await?;
     Ok(())
@@ -320,6 +322,7 @@ async fn mysql_run_migrations_adds_scim_tables_when_configured(
         scim_context.db_schema.clone(),
     ));
 
+    let _guard = MYSQL_ADAPTER_TEST_LOCK.lock().await;
     adapter.run_migrations(&base_context.db_schema).await?;
     adapter.run_migrations(&scim_context.db_schema).await?;
     assert!(mysql_table_exists(&pool, "scim_providers").await?);
