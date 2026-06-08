@@ -322,6 +322,52 @@ async fn revoke_active_session_sets_next_valid_session_active(
 }
 
 #[tokio::test]
+async fn revoke_inactive_session_preserves_current_active_session(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new(MultiSessionConfig::default()).await?;
+    let first = fixture
+        .sign_in("ada@example.com", "secret123", None)
+        .await?;
+    let first_token = response_token(&first)?;
+    let first_cookie = cookie_header_from_response(&first);
+    let second = fixture
+        .sign_in("grace@example.com", "secret123", Some(&first_cookie))
+        .await?;
+    let second_token = response_token(&second)?;
+    let second_cookie = cookie_header_from_response(&second);
+    let cookie = merge_cookie_headers(&[&first_cookie, &second_cookie]);
+
+    let response = fixture
+        .request(
+            Method::POST,
+            "/api/auth/multi-session/revoke",
+            &format!(r#"{{"sessionToken":"{first_token}"}}"#),
+            Some(&cookie),
+        )
+        .await?;
+    let session_response = fixture
+        .request(
+            Method::GET,
+            "/api/auth/get-session",
+            "",
+            Some(&merge_cookie_headers(&[
+                &cookie,
+                &cookie_header_from_response(&response),
+            ])),
+        )
+        .await?;
+    let body: Value = serde_json::from_slice(session_response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body["user"]["email"], "grace@example.com");
+    assert!(DbSessionStore::new(fixture.adapter.as_ref())
+        .find_session(&second_token)
+        .await?
+        .is_some());
+    Ok(())
+}
+
+#[tokio::test]
 async fn revoke_active_session_deletes_active_cookie_when_no_next_session(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new(MultiSessionConfig::default()).await?;
