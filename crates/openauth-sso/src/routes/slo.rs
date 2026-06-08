@@ -166,6 +166,7 @@ async fn handle_slo(
             context,
             adapter,
             &options,
+            &provider_id,
             parsed.message,
             body.relay_state.as_deref(),
             parsed.signature_verified,
@@ -236,6 +237,7 @@ async fn handle_saml_logout_response(
     context: &AuthContext,
     adapter: &dyn DbAdapter,
     options: &SsoOptions,
+    provider_id: &str,
     parsed: ParsedSamlLogoutResponse,
     relay_state: Option<&str>,
     signature_verified: bool,
@@ -282,18 +284,39 @@ async fn handle_saml_logout_response(
             &json!({"code": "LOGOUT_FAILED_AT_IDP"}),
         );
     }
-    if let Some(in_response_to) = parsed.in_response_to {
+    let stored_callback_url = if let Some(in_response_to) = parsed.in_response_to {
         let state_store = SsoStateStore::new(context, adapter);
         let identifier = logout_request_key(&in_response_to);
-        if state_store.find(&identifier).await?.is_none() {
+        let Some(state) = state_store.find(&identifier).await? else {
             return utils::json(
                 http::StatusCode::BAD_REQUEST,
                 &json!({"code": "UNKNOWN_LOGOUT_REQUEST"}),
             );
+        };
+        let record = match serde_json::from_str::<SamlLogoutRequestRecord>(&state.value) {
+            Ok(record) => record,
+            Err(_) => {
+                return utils::json(
+                    http::StatusCode::BAD_REQUEST,
+                    &json!({"code": "INVALID_LOGOUT_REQUEST_STATE"}),
+                );
+            }
+        };
+        if record.provider_id != provider_id {
+            return utils::json(
+                http::StatusCode::BAD_REQUEST,
+                &json!({"code": "SAML_IN_RESPONSE_TO_PROVIDER_MISMATCH"}),
+            );
         }
+        let callback_url = record.callback_url;
         state_store.delete(&identifier).await?;
-    }
-    let redirect_url = relay_state
+        Some(callback_url)
+    } else {
+        None
+    };
+    let redirect_url = stored_callback_url
+        .as_deref()
+        .or(relay_state)
         .and_then(|value| utils::safe_redirect_url(context, value))
         .unwrap_or_else(|| context.base_url.clone());
     redirect(&redirect_url)

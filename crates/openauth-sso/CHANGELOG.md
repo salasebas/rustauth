@@ -12,6 +12,10 @@ All notable changes to `openauth-sso` are documented in this file.
 
 ### Fixed
 
+- SAML LogoutResponse handling now deserializes and validates the pending
+  LogoutRequest record before consuming it, rejecting responses whose
+  `InResponseTo` state belongs to another provider and redirecting to the
+  stored logout callback instead of an unbound inbound `RelayState`.
 - Organization assignment during OIDC/SAML callbacks now provisions members
   through the real organization plugin semantics when installed, including
   membership hooks, role validation, and membership limits.

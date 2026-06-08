@@ -224,6 +224,16 @@ const ERROR_DESCRIPTORS: &[SsoErrorDescriptor] = &[
         SsoErrorCategory::SuspectedAttack,
     ),
     descriptor(
+        "INVALID_LOGOUT_REQUEST_STATE",
+        "Invalid SAML LogoutRequest state",
+        SsoErrorCategory::SuspectedAttack,
+    ),
+    descriptor(
+        "SAML_IN_RESPONSE_TO_PROVIDER_MISMATCH",
+        "SAML InResponseTo provider mismatch",
+        SsoErrorCategory::SuspectedAttack,
+    ),
+    descriptor(
         "SAML_SIGNATURE_INVALID",
         "Invalid SAML signature",
         SsoErrorCategory::SuspectedAttack,
