@@ -62,10 +62,19 @@ publisher
 Without an endpoint or custom sink this remains a no-op, even when telemetry is
 enabled in options.
 
+When telemetry is enabled and a sink exists, [`create_telemetry`](https://docs.rs/openauth-telemetry/latest/openauth_telemetry/fn.create_telemetry.html)
+immediately publishes an `init` event (asynchronously, without blocking
+construction). The payload includes a Better Auth-shaped `config` snapshot plus
+runtime, database, framework, environment, `systemInfo`, and `packageManager`
+detection fields. Later [`TelemetryPublisher::publish`](https://docs.rs/openauth-telemetry/latest/openauth_telemetry/struct.TelemetryPublisher.html)
+calls emit additional event types you choose (for example `cli_generate` from
+the CLI).
+
 ## Environment
 
 The [`openauth-cli`](../openauth-cli/README.md#telemetry) binary reuses these
-variables for `generate` / `migrate` telemetry (`cli_generate`, `cli_migrate`).
+variables for `generate` / `migrate` telemetry. Each opted-in run emits `init`
+first, then `cli_generate` or `cli_migrate`.
 
 - `OPENAUTH_TELEMETRY`: master switch (see precedence below).
 - `OPENAUTH_TELEMETRY_DEBUG`: print JSON instead of POSTing.

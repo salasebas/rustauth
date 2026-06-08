@@ -236,6 +236,7 @@ enabled = ["username"]
         )
         .assert()
         .success()
+        .stderr(predicate::str::contains("\"type\": \"init\""))
         .stderr(predicate::str::contains("\"type\": \"cli_generate\""))
         .stderr(predicate::str::contains("\"outcome\": \"generated\""))
         .stderr(predicate::str::contains("\"adapter\": \"sqlx\""))

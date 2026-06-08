@@ -6,6 +6,10 @@ All notable changes to `openauth-telemetry` are documented in this file.
 
 ### Changed
 
+- README now documents that [`create_telemetry`](https://docs.rs/openauth-telemetry/latest/openauth_telemetry/fn.create_telemetry.html)
+  immediately publishes an `init` event when telemetry is enabled and a sink
+  exists, and that CLI `generate` / `migrate` runs emit `init` before their
+  command-specific events.
 - `get_telemetry_auth_config` now reports global hook presence, logger settings, `onAPIError`
   configuration (with URL redaction), custom password hash/verify callbacks, change-email
   confirmation hooks, verification `disableCleanup`, per-model schema alias presence, and

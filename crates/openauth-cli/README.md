@@ -75,12 +75,18 @@ point an endpoint at their infrastructure.
 
 ### Commands and events
 
+Every opted-in `generate` / `migrate` run first emits the shared telemetry
+bootstrap event `init` from [`create_telemetry`](../openauth-telemetry/README.md#quick-start)
+(runtime, environment, and anonymized config detection). The command-specific
+event follows immediately afterward.
+
 | Command | Aliases | Event type | Typical `outcome` values |
 | --- | --- | --- | --- |
+| *(bootstrap)* | — | `init` | — (no `outcome`; see [`openauth-telemetry`](../openauth-telemetry/README.md#quick-start)) |
 | `generate` | `db generate` | `cli_generate` | `generated`, `no_changes`, `aborted`, `overwritten`, `unsupported_adapter`, `unsupported_database` |
 | `migrate` | `db migrate` | `cli_migrate` | `migrated`, `no_changes`, `dry_run`, `aborted`, `unsupported_adapter`, `unsupported_database` |
 
-Each event includes an `outcome` string describing the CLI result and a
+Each command event includes an `outcome` string describing the CLI result and a
 Better Auth-shaped `config` snapshot derived from `openauth.toml` (adapter,
 database provider, enabled plugins, and anonymized feature flags). Adapter or
 database errors may add top-level `adapter` / `database` fields before the
