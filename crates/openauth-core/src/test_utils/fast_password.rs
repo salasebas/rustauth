@@ -3,7 +3,7 @@
 
 use crate::crypto::password::{hash_password, verify_password};
 use crate::error::OpenAuthError;
-use crate::options::{OpenAuthOptions, PasswordOptions};
+use crate::options::{EmailPasswordOptions, OpenAuthOptions, PasswordOptions};
 
 /// Deterministic password hashing for route/plugin fixtures.
 pub fn fast_hash_password(password: &str) -> Result<String, OpenAuthError> {
@@ -20,6 +20,17 @@ pub fn real_password_options() -> PasswordOptions {
     PasswordOptions::default()
         .hash_password(hash_password)
         .verify_password(verify_password)
+}
+
+/// Development and email/password defaults for integration test routers.
+pub fn with_integration_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
+    if !options.production {
+        options.development = true;
+    }
+    if !options.email_password.enabled {
+        options.email_password = EmailPasswordOptions::new().enabled(true);
+    }
+    apply_fast_password_defaults(options)
 }
 
 /// Wire fast password callbacks unless the caller already configured hashing.

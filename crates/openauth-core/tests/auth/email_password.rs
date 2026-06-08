@@ -9,6 +9,7 @@ use openauth_core::db::{
     UpdateMany, User, Where, WhereOperator,
 };
 use openauth_core::error::OpenAuthError;
+use openauth_core::test_utils::{fast_hash_password, fast_verify_password};
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
 
@@ -263,7 +264,7 @@ impl DbAdapter for AuthTransactionAdapter<'_> {
 async fn sign_up_creates_user_credential_account_and_session(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = AuthAdapter::default();
-    let auth = EmailPasswordAuth::new(&adapter, config(), fake_hash_password, fake_verify_password);
+    let auth = EmailPasswordAuth::new(&adapter, config(), fast_hash_password, fast_verify_password);
 
     let result = auth
         .sign_up(
@@ -293,7 +294,7 @@ async fn sign_up_rejects_duplicate_email() -> Result<(), Box<dyn std::error::Err
         .await;
 
     let error =
-        EmailPasswordAuth::new(&adapter, config(), fake_hash_password, fake_verify_password)
+        EmailPasswordAuth::new(&adapter, config(), fast_hash_password, fast_verify_password)
             .sign_up(SignUpInput::new("Ada", "ADA@example.com", "secret123"))
             .await
             .err();
@@ -311,7 +312,7 @@ async fn sign_up_rolls_back_user_when_account_create_fails(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = AuthAdapter::failing_account_creates();
     let error =
-        EmailPasswordAuth::new(&adapter, config(), fake_hash_password, fake_verify_password)
+        EmailPasswordAuth::new(&adapter, config(), fast_hash_password, fast_verify_password)
             .sign_up(SignUpInput::new("Ada", "ada@example.com", "secret123"))
             .await
             .err();
@@ -338,13 +339,13 @@ async fn sign_in_creates_session_for_valid_credentials() -> Result<(), Box<dyn s
         .insert_account(credential_account(
             "account_1",
             "user_1",
-            "hash:secret123",
+            &fast_hash_password("secret123")?,
             now,
         ))
         .await;
 
     let result =
-        EmailPasswordAuth::new(&adapter, config(), fake_hash_password, fake_verify_password)
+        EmailPasswordAuth::new(&adapter, config(), fast_hash_password, fast_verify_password)
             .sign_in(SignInInput::new("ADA@example.com", "secret123"))
             .await?;
 
@@ -366,13 +367,13 @@ async fn sign_in_rejects_invalid_credentials_without_creating_session(
         .insert_account(credential_account(
             "account_1",
             "user_1",
-            "hash:secret123",
+            &fast_hash_password("secret123")?,
             now,
         ))
         .await;
 
     let error =
-        EmailPasswordAuth::new(&adapter, config(), fake_hash_password, fake_verify_password)
+        EmailPasswordAuth::new(&adapter, config(), fast_hash_password, fast_verify_password)
             .sign_in(SignInInput::new("ada@example.com", "wrong"))
             .await
             .err();
@@ -397,7 +398,7 @@ async fn sign_in_rejects_unverified_email_when_required() -> Result<(), Box<dyn 
         .insert_account(credential_account(
             "account_1",
             "user_1",
-            "hash:secret123",
+            &fast_hash_password("secret123")?,
             now,
         ))
         .await;
@@ -408,8 +409,8 @@ async fn sign_in_rejects_unverified_email_when_required() -> Result<(), Box<dyn 
             require_email_verification: true,
             ..config()
         },
-        fake_hash_password,
-        fake_verify_password,
+        fast_hash_password,
+        fast_verify_password,
     )
     .sign_in(SignInInput::new("ada@example.com", "secret123"))
     .await
@@ -434,14 +435,6 @@ fn config() -> EmailPasswordConfig {
         store_session_in_database: false,
         preserve_session_in_database: false,
     }
-}
-
-fn fake_hash_password(password: &str) -> Result<String, OpenAuthError> {
-    Ok(format!("hash:{password}"))
-}
-
-fn fake_verify_password(hash: &str, password: &str) -> Result<bool, OpenAuthError> {
-    Ok(hash == format!("hash:{password}"))
 }
 
 fn user(id: &str, name: &str, email: &str, email_verified: bool, now: OffsetDateTime) -> User {
