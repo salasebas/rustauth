@@ -43,10 +43,11 @@ fn options_constructor_preserves_upstream_options_shape() -> Result<(), Box<dyn 
 #[tokio::test]
 async fn compromised_password_blocks_account_creation() -> Result<(), Box<dyn std::error::Error>> {
     let checker = Arc::new(FakeChecker::compromised());
-    let router = router(have_i_been_pwned_with_checker(
-        HaveIBeenPwnedOptions::default(),
-        checker,
-    ))?;
+    let adapter = Arc::new(MemoryAdapter::default());
+    let router = router_with_adapter(
+        adapter.clone(),
+        have_i_been_pwned_with_checker(HaveIBeenPwnedOptions::default(), checker),
+    )?;
 
     let response = router
         .handle_async(json_request(
@@ -62,6 +63,8 @@ async fn compromised_password_blocks_account_creation() -> Result<(), Box<dyn st
         body.message,
         "The password you entered has been compromised. Please choose a different password."
     );
+    assert_eq!(adapter.len("user").await, 0);
+    assert_eq!(adapter.len("account").await, 0);
     Ok(())
 }
 
