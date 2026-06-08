@@ -25,7 +25,7 @@ async fn domain_verification_uses_secondary_storage_when_configured(
                     .unwrap_or_default())
             }
         });
-    let storage = std::sync::Arc::new(TestSecondaryStorage::default());
+    let storage = std::sync::Arc::new(crate::support::test_secondary_storage());
     let (adapter, router) = router_with_options_and_secondary_storage(options, storage.clone())?;
     let cookie = seed_session(&adapter).await?;
     router

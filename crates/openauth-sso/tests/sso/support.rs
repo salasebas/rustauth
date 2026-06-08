@@ -1,7 +1,4 @@
-use std::collections::BTreeMap;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use http::{header, Method, Request};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
@@ -13,6 +10,7 @@ use openauth_core::options::{
     AccountLinkingOptions, AccountOptions, AdvancedOptions, EmailPasswordOptions, OpenAuthOptions,
     SecondaryStorage, SessionOptions, TrustedOriginOptions,
 };
+use openauth_core::test_utils::MemorySecondaryStorage;
 
 fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
     if !options.production {
@@ -221,188 +219,10 @@ fn router_with_options_storage_trusted_origins_extra_plugins_and_advanced(
     Ok((adapter, router))
 }
 
-#[derive(Default)]
-pub struct TestSecondaryStorage {
-    values: Mutex<BTreeMap<String, String>>,
-    ttl: Mutex<BTreeMap<String, Option<u64>>>,
-    deleted: Mutex<Vec<String>>,
-}
+pub type TestSecondaryStorage = MemorySecondaryStorage;
 
-impl TestSecondaryStorage {
-    pub fn value_for(&self, key: &str) -> Option<String> {
-        self.values
-            .lock()
-            .ok()
-            .and_then(|values| values.get(key).cloned())
-    }
-
-    pub fn ttl_for(&self, key: &str) -> Option<Option<u64>> {
-        self.ttl.lock().ok().and_then(|ttl| ttl.get(key).copied())
-    }
-
-    #[cfg(feature = "saml")]
-    pub fn deleted_keys(&self) -> Vec<String> {
-        self.deleted
-            .lock()
-            .map(|keys| keys.clone())
-            .unwrap_or_default()
-    }
-}
-
-impl SecondaryStorage for TestSecondaryStorage {
-    fn get<'a>(
-        &'a self,
-        key: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, OpenAuthError>> + Send + 'a>> {
-        Box::pin(async move {
-            Ok(self
-                .values
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .get(key)
-                .cloned())
-        })
-    }
-
-    fn set<'a>(
-        &'a self,
-        key: &'a str,
-        value: String,
-        ttl_seconds: Option<u64>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), OpenAuthError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.values
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .insert(key.to_owned(), value);
-            self.ttl
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .insert(key.to_owned(), ttl_seconds);
-            Ok(())
-        })
-    }
-
-    fn set_if_not_exists<'a>(
-        &'a self,
-        key: &'a str,
-        value: String,
-        ttl_seconds: Option<u64>,
-    ) -> Pin<Box<dyn Future<Output = Result<bool, OpenAuthError>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
-            if values.contains_key(key) {
-                return Ok(false);
-            }
-            values.insert(key.to_owned(), value);
-            drop(values);
-            self.ttl
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .insert(key.to_owned(), ttl_seconds);
-            Ok(true)
-        })
-    }
-
-    fn delete<'a>(
-        &'a self,
-        key: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), OpenAuthError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.values
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .remove(key);
-            self.deleted
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .push(key.to_owned());
-            Ok(())
-        })
-    }
-
-    fn take<'a>(
-        &'a self,
-        key: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, OpenAuthError>> + Send + 'a>> {
-        Box::pin(async move {
-            let value = self
-                .values
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .remove(key);
-            if value.is_some() {
-                self.deleted
-                    .lock()
-                    .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                    .push(key.to_owned());
-            }
-            Ok(value)
-        })
-    }
-
-    fn compare_and_set<'a>(
-        &'a self,
-        key: &'a str,
-        expected: Option<String>,
-        value: String,
-        ttl_seconds: Option<u64>,
-    ) -> Pin<Box<dyn Future<Output = Result<bool, OpenAuthError>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
-            if values.get(key).cloned() != expected {
-                return Ok(false);
-            }
-            if ttl_seconds == Some(0) {
-                values.remove(key);
-                drop(values);
-                self.deleted
-                    .lock()
-                    .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                    .push(key.to_owned());
-            } else {
-                values.insert(key.to_owned(), value);
-                drop(values);
-                self.ttl
-                    .lock()
-                    .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                    .insert(key.to_owned(), ttl_seconds);
-            }
-            Ok(true)
-        })
-    }
-
-    fn delete_if_value<'a>(
-        &'a self,
-        key: &'a str,
-        expected: Option<String>,
-    ) -> Pin<Box<dyn Future<Output = Result<bool, OpenAuthError>> + Send + 'a>> {
-        Box::pin(async move {
-            let Some(expected) = expected else {
-                return Ok(false);
-            };
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
-            if values.get(key).map(String::as_str) != Some(expected.as_str()) {
-                return Ok(false);
-            }
-            values.remove(key);
-            drop(values);
-            self.deleted
-                .lock()
-                .map_err(|error| OpenAuthError::Adapter(error.to_string()))?
-                .push(key.to_owned());
-            Ok(true)
-        })
-    }
+pub fn test_secondary_storage() -> TestSecondaryStorage {
+    TestSecondaryStorage::tracking_deletes()
 }
 
 pub fn json_request(

@@ -22,6 +22,9 @@ pub mod verification;
 #[path = "options/storage_contract.rs"]
 pub mod storage_contract;
 
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
+
 #[cfg(feature = "oauth")]
 pub use openauth_oauth as oauth;
 #[cfg(feature = "social-providers")]

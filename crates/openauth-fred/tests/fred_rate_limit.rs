@@ -647,6 +647,56 @@ async fn fred_open_auth_stores_share_one_client() -> Result<(), Box<dyn std::err
 }
 
 #[tokio::test]
+async fn fred_secondary_storage_set_if_not_exists_ttl_zero_is_non_destructive(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for target in available_fred_targets().await? {
+        let storage = FredSecondaryStorage::connect_with_options(
+            &target.url,
+            FredSecondaryStorageOptions {
+                key_prefix: format!("openauth:test:{}:{}:nx-ttl-zero:", target.name, now_ms()),
+                scan_count: 10,
+            },
+        )
+        .await?;
+        storage.clear().await?;
+
+        storage
+            .set("existing", "original".to_owned(), Some(60))
+            .await?;
+        assert!(
+            !storage
+                .set_if_not_exists("existing", "ignored".to_owned(), Some(0))
+                .await?,
+            "{} set_if_not_exists with ttl=0 should return false for an existing key",
+            target.name
+        );
+        assert_eq!(
+            storage.get("existing").await?.as_deref(),
+            Some("original"),
+            "{} set_if_not_exists with ttl=0 must not delete an existing key",
+            target.name
+        );
+
+        assert!(
+            !storage
+                .set_if_not_exists("absent", "ignored".to_owned(), Some(0))
+                .await?,
+            "{} set_if_not_exists with ttl=0 should return false for an absent key",
+            target.name
+        );
+        assert_eq!(
+            storage.get("absent").await?,
+            None,
+            "{} set_if_not_exists with ttl=0 must not create an absent key",
+            target.name
+        );
+
+        storage.clear().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn fred_secondary_storage_satisfies_contract() -> Result<(), Box<dyn std::error::Error>> {
     for target in available_fred_targets().await? {
         let url = target.url.clone();

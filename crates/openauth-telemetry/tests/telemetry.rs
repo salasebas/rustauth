@@ -533,9 +533,9 @@ impl openauth_core::options::SecondaryStorage for TestSecondaryStorage {
         &'a self,
         _key: &'a str,
         _value: String,
-        _ttl_seconds: Option<u64>,
+        ttl_seconds: Option<u64>,
     ) -> openauth_core::options::SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move { Ok(true) })
+        Box::pin(async move { Ok(ttl_seconds != Some(0)) })
     }
 
     fn delete<'a>(

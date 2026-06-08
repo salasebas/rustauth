@@ -21,12 +21,14 @@ All notable changes to `openauth-redis` are documented in this file.
 ### Fixed
 
 - `RedisSecondaryStorage::take` uses `GETDEL` for atomic read-delete.
+- `RedisSecondaryStorage::set_if_not_exists` with `Some(0)` no longer deletes
+  an existing key; it is a non-destructive no-op that returns `Ok(false)`
+  (OPE-163).
 
 ### Changed
 
-- `set` and `set_if_not_exists` with `Some(0)` delete the key instead of
-  storing without expiration, matching `openauth-core` expiry semantics and
-  `openauth-fred`.
+- `set` with `Some(0)` deletes the key instead of storing without expiration,
+  matching `openauth-core` expiry semantics and `openauth-fred`.
 - Empty `key_prefix` is rejected for secondary storage and rate limit keys.
 - Rate limit Lua resets the bucket when `(now - last_request) > window` (was
   `>=`), matching Better Auth `onResponseRateLimit` window rollover.

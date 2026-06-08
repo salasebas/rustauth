@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::AuthRouter;
@@ -7,10 +6,9 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::cookies::{get_cookies, set_session_cookie, Cookie, SessionCookieOptions};
 use openauth_core::db::{DbFieldType, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
-use openauth_core::options::{
-    AdvancedOptions, OpenAuthOptions, SecondaryStorage, SecondaryStorageFuture,
-};
+use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
+use openauth_core::test_utils::MemorySecondaryStorage as TestSecondaryStorage;
 use openauth_core::user::{CreateUserInput, DbUserStore};
 use openauth_plugins::device_authorization::{
     device_authorization_with_options, DeviceAuthorizationOptions,
@@ -159,125 +157,4 @@ fn string_field<'a>(body: &'a Value, name: &str) -> &'a str {
 
 async fn device_record(adapter: &TestAdapter) -> Option<indexmap::IndexMap<String, DbValue>> {
     adapter.records("deviceCode").await.into_iter().next()
-}
-
-#[derive(Default)]
-struct TestSecondaryStorage {
-    values: Mutex<HashMap<String, String>>,
-}
-
-impl TestSecondaryStorage {
-    fn value(&self, key: &str) -> Result<Option<String>, OpenAuthError> {
-        Ok(self
-            .values
-            .lock()
-            .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
-            .get(key)
-            .cloned())
-    }
-}
-
-impl SecondaryStorage for TestSecondaryStorage {
-    fn get<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
-        Box::pin(async move { self.value(key) })
-    }
-
-    fn set<'a>(
-        &'a self,
-        key: &'a str,
-        value: String,
-        _ttl_seconds: Option<u64>,
-    ) -> SecondaryStorageFuture<'a, ()> {
-        Box::pin(async move {
-            self.values
-                .lock()
-                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
-                .insert(key.to_owned(), value);
-            Ok(())
-        })
-    }
-
-    fn set_if_not_exists<'a>(
-        &'a self,
-        key: &'a str,
-        value: String,
-        _ttl_seconds: Option<u64>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?;
-            if values.contains_key(key) {
-                return Ok(false);
-            }
-            values.insert(key.to_owned(), value);
-            Ok(true)
-        })
-    }
-
-    fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
-        Box::pin(async move {
-            self.values
-                .lock()
-                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
-                .remove(key);
-            Ok(())
-        })
-    }
-
-    fn take<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
-        Box::pin(async move {
-            Ok(self
-                .values
-                .lock()
-                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?
-                .remove(key))
-        })
-    }
-
-    fn compare_and_set<'a>(
-        &'a self,
-        key: &'a str,
-        expected: Option<String>,
-        value: String,
-        ttl_seconds: Option<u64>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?;
-            if values.get(key).cloned() != expected {
-                return Ok(false);
-            }
-            if ttl_seconds == Some(0) {
-                values.remove(key);
-            } else {
-                values.insert(key.to_owned(), value);
-            }
-            Ok(true)
-        })
-    }
-
-    fn delete_if_value<'a>(
-        &'a self,
-        key: &'a str,
-        expected: Option<String>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            let Some(expected) = expected else {
-                return Ok(false);
-            };
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|_| OpenAuthError::Api("secondary storage lock poisoned".to_owned()))?;
-            if values.get(key).map(String::as_str) != Some(expected.as_str()) {
-                return Ok(false);
-            }
-            values.remove(key);
-            Ok(true)
-        })
-    }
 }

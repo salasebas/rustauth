@@ -3006,6 +3006,7 @@ dependencies = [
  "http",
  "indexmap 2.14.0",
  "josekit",
+ "openauth-core",
  "openauth-oauth",
  "openauth-social-providers",
  "rand 0.8.6",

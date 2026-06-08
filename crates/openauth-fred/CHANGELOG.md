@@ -18,6 +18,9 @@ All notable changes to `openauth-fred` are documented in this file.
 
 ### Fixed
 
+- `FredSecondaryStorage::set_if_not_exists` with `Some(0)` no longer deletes
+  an existing key; it is a non-destructive no-op that returns `Ok(false)`
+  (OPE-163).
 - `FredSecondaryStorage::set_if_not_exists` now treats Redis `SET ... NX` `OK` /
   nil replies as create-or-skip booleans instead of trying to parse the reply
   directly as a boolean.

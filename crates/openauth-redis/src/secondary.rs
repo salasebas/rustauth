@@ -147,10 +147,6 @@ impl SecondaryStorage for RedisSecondaryStorage {
             let redis_key = self.prefixed_key(key)?;
             let mut manager = self.manager.clone();
             if ttl_seconds == Some(0) {
-                let _: usize = manager
-                    .del(redis_key)
-                    .await
-                    .map_err(|error| OpenAuthError::Adapter(error.to_string()))?;
                 return Ok(false);
             }
             let mut command = redis::cmd("SET");

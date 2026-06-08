@@ -1,8 +1,7 @@
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use http::{header, Method, Request, StatusCode};
 use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
@@ -16,6 +15,7 @@ use openauth_core::options::{
     BackgroundTaskFuture, BackgroundTaskRunner, EmailPasswordOptions, OpenAuthOptions,
     SecondaryStorage,
 };
+use openauth_core::test_utils::MemorySecondaryStorage;
 
 pub fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
     if !options.production {
@@ -192,9 +192,7 @@ async fn dispatch_json(
 }
 
 pub struct TestSecondaryStorage {
-    values: Mutex<BTreeMap<String, String>>,
-    deleted: Mutex<Vec<String>>,
-    ttl: Mutex<BTreeMap<String, Option<u64>>>,
+    inner: MemorySecondaryStorage,
     delay_millis: AtomicU64,
     active_gets: AtomicUsize,
     max_active_gets: AtomicUsize,
@@ -206,9 +204,7 @@ pub struct TestSecondaryStorage {
 impl Default for TestSecondaryStorage {
     fn default() -> Self {
         Self {
-            values: Mutex::new(BTreeMap::new()),
-            deleted: Mutex::new(Vec::new()),
-            ttl: Mutex::new(BTreeMap::new()),
+            inner: MemorySecondaryStorage::tracking_deletes(),
             delay_millis: AtomicU64::new(0),
             active_gets: AtomicUsize::new(0),
             max_active_gets: AtomicUsize::new(0),
@@ -240,14 +236,11 @@ impl TestSecondaryStorage {
     }
 
     pub fn deleted_keys(&self) -> Vec<String> {
-        self.deleted
-            .lock()
-            .map(|keys| keys.clone())
-            .unwrap_or_default()
+        self.inner.deleted_keys()
     }
 
     pub fn ttl_for(&self, key: &str) -> Option<Option<u64>> {
-        self.ttl.lock().ok().and_then(|ttl| ttl.get(key).copied())
+        self.inner.ttl_for(key)
     }
 
     pub fn max_active_gets(&self) -> usize {
@@ -255,22 +248,15 @@ impl TestSecondaryStorage {
     }
 
     pub fn insert_raw(&self, key: impl Into<String>, value: impl Into<String>) {
-        if let Ok(mut values) = self.values.lock() {
-            values.insert(key.into(), value.into());
-        }
+        self.inner.insert_raw(key, value);
     }
 
     pub fn remove_raw(&self, key: &str) {
-        if let Ok(mut values) = self.values.lock() {
-            values.remove(key);
-        }
+        self.inner.remove_raw(key);
     }
 
     pub fn value_for(&self, key: &str) -> Option<String> {
-        self.values
-            .lock()
-            .ok()
-            .and_then(|values| values.get(key).cloned())
+        self.inner.value_for(key)
     }
 
     async fn maybe_delay_get(&self) {
@@ -319,12 +305,7 @@ impl SecondaryStorage for TestSecondaryStorage {
     > {
         Box::pin(async move {
             self.maybe_delay_get().await;
-            let value = self
-                .values
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .get(key)
-                .cloned();
+            let value = self.inner.value(key).ok().flatten();
             // Release the snapshot only once enough concurrent readers have taken
             // theirs, so every gated reader observes the same pre-write value.
             self.gate_ref_get(key).await;
@@ -339,17 +320,9 @@ impl SecondaryStorage for TestSecondaryStorage {
         ttl_seconds: Option<u64>,
     ) -> Pin<Box<dyn Future<Output = Result<(), openauth_core::error::OpenAuthError>> + Send + 'a>>
     {
-        Box::pin(async move {
-            self.values
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .insert(key.to_owned(), value);
-            self.ttl
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .insert(key.to_owned(), ttl_seconds);
-            Ok(())
-        })
+        let inner = self.inner.clone();
+        let key = key.to_owned();
+        Box::pin(async move { inner.set(&key, value, ttl_seconds).await })
     }
 
     fn set_if_not_exists<'a>(
@@ -359,22 +332,9 @@ impl SecondaryStorage for TestSecondaryStorage {
         ttl_seconds: Option<u64>,
     ) -> Pin<Box<dyn Future<Output = Result<bool, openauth_core::error::OpenAuthError>> + Send + 'a>>
     {
-        Box::pin(async move {
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?;
-            if values.contains_key(key) {
-                return Ok(false);
-            }
-            values.insert(key.to_owned(), value);
-            drop(values);
-            self.ttl
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .insert(key.to_owned(), ttl_seconds);
-            Ok(true)
-        })
+        let inner = self.inner.clone();
+        let key = key.to_owned();
+        Box::pin(async move { inner.set_if_not_exists(&key, value, ttl_seconds).await })
     }
 
     fn delete<'a>(
@@ -382,17 +342,9 @@ impl SecondaryStorage for TestSecondaryStorage {
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), openauth_core::error::OpenAuthError>> + Send + 'a>>
     {
-        Box::pin(async move {
-            self.values
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .remove(key);
-            self.deleted
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .push(key.to_owned());
-            Ok(())
-        })
+        let inner = self.inner.clone();
+        let key = key.to_owned();
+        Box::pin(async move { inner.delete(&key).await })
     }
 
     fn take<'a>(
@@ -405,22 +357,9 @@ impl SecondaryStorage for TestSecondaryStorage {
                 + 'a,
         >,
     > {
-        Box::pin(async move {
-            let value = self
-                .values
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .remove(key);
-            if value.is_some() {
-                self.deleted
-                    .lock()
-                    .map_err(|error| {
-                        openauth_core::error::OpenAuthError::Adapter(error.to_string())
-                    })?
-                    .push(key.to_owned());
-            }
-            Ok(value)
-        })
+        let inner = self.inner.clone();
+        let key = key.to_owned();
+        Box::pin(async move { inner.take(&key).await })
     }
 
     fn compare_and_set<'a>(
@@ -431,34 +370,12 @@ impl SecondaryStorage for TestSecondaryStorage {
         ttl_seconds: Option<u64>,
     ) -> Pin<Box<dyn Future<Output = Result<bool, openauth_core::error::OpenAuthError>> + Send + 'a>>
     {
+        let inner = self.inner.clone();
+        let key = key.to_owned();
         Box::pin(async move {
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?;
-            if values.get(key).cloned() != expected {
-                return Ok(false);
-            }
-            if ttl_seconds == Some(0) {
-                values.remove(key);
-                drop(values);
-                self.deleted
-                    .lock()
-                    .map_err(|error| {
-                        openauth_core::error::OpenAuthError::Adapter(error.to_string())
-                    })?
-                    .push(key.to_owned());
-            } else {
-                values.insert(key.to_owned(), value);
-                drop(values);
-                self.ttl
-                    .lock()
-                    .map_err(|error| {
-                        openauth_core::error::OpenAuthError::Adapter(error.to_string())
-                    })?
-                    .insert(key.to_owned(), ttl_seconds);
-            }
-            Ok(true)
+            inner
+                .compare_and_set(&key, expected, value, ttl_seconds)
+                .await
         })
     }
 
@@ -468,25 +385,9 @@ impl SecondaryStorage for TestSecondaryStorage {
         expected: Option<String>,
     ) -> Pin<Box<dyn Future<Output = Result<bool, openauth_core::error::OpenAuthError>> + Send + 'a>>
     {
-        Box::pin(async move {
-            let Some(expected) = expected else {
-                return Ok(false);
-            };
-            let mut values = self
-                .values
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?;
-            if values.get(key).map(String::as_str) != Some(expected.as_str()) {
-                return Ok(false);
-            }
-            values.remove(key);
-            drop(values);
-            self.deleted
-                .lock()
-                .map_err(|error| openauth_core::error::OpenAuthError::Adapter(error.to_string()))?
-                .push(key.to_owned());
-            Ok(true)
-        })
+        let inner = self.inner.clone();
+        let key = key.to_owned();
+        Box::pin(async move { inner.delete_if_value(&key, expected).await })
     }
 }
 

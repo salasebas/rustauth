@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -14,9 +13,9 @@ use openauth_core::db::{
 };
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{
-    AdvancedOptions, EmailPasswordOptions, OpenAuthOptions, SecondaryStorage,
-    SecondaryStorageFuture, SessionOptions,
+    AdvancedOptions, EmailPasswordOptions, OpenAuthOptions, SessionOptions,
 };
+use openauth_core::test_utils::MemorySecondaryStorage;
 
 fn with_test_defaults(mut options: OpenAuthOptions) -> OpenAuthOptions {
     if !options.production {
@@ -128,129 +127,7 @@ pub async fn seeded_router_with_auth_options(
     Ok((adapter, router, backend))
 }
 
-/// In-memory `SecondaryStorage` test double that records keys for assertions.
-#[derive(Default)]
-pub struct InMemorySecondaryStorage {
-    entries: Mutex<HashMap<String, String>>,
-}
-
-impl InMemorySecondaryStorage {
-    pub fn keys_with_prefix(&self, prefix: &str) -> Vec<String> {
-        self.entries
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .keys()
-            .filter(|key| key.starts_with(prefix))
-            .cloned()
-            .collect()
-    }
-}
-
-impl SecondaryStorage for InMemorySecondaryStorage {
-    fn get<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
-        Box::pin(async move {
-            let entries = self.entries.lock().map_err(|_| {
-                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
-            })?;
-            Ok(entries.get(key).cloned())
-        })
-    }
-
-    fn set<'a>(
-        &'a self,
-        key: &'a str,
-        value: String,
-        _ttl_seconds: Option<u64>,
-    ) -> SecondaryStorageFuture<'a, ()> {
-        Box::pin(async move {
-            self.entries
-                .lock()
-                .map_err(|_| OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned()))?
-                .insert(key.to_owned(), value);
-            Ok(())
-        })
-    }
-
-    fn set_if_not_exists<'a>(
-        &'a self,
-        key: &'a str,
-        value: String,
-        _ttl_seconds: Option<u64>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            let mut entries = self.entries.lock().map_err(|_| {
-                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
-            })?;
-            if entries.contains_key(key) {
-                return Ok(false);
-            }
-            entries.insert(key.to_owned(), value);
-            Ok(true)
-        })
-    }
-
-    fn delete<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, ()> {
-        Box::pin(async move {
-            self.entries
-                .lock()
-                .map_err(|_| OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned()))?
-                .remove(key);
-            Ok(())
-        })
-    }
-
-    fn take<'a>(&'a self, key: &'a str) -> SecondaryStorageFuture<'a, Option<String>> {
-        Box::pin(async move {
-            let mut entries = self.entries.lock().map_err(|_| {
-                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
-            })?;
-            Ok(entries.remove(key))
-        })
-    }
-
-    fn compare_and_set<'a>(
-        &'a self,
-        key: &'a str,
-        expected: Option<String>,
-        value: String,
-        ttl_seconds: Option<u64>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            let mut entries = self.entries.lock().map_err(|_| {
-                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
-            })?;
-            if entries.get(key).cloned() != expected {
-                return Ok(false);
-            }
-            if ttl_seconds == Some(0) {
-                entries.remove(key);
-            } else {
-                entries.insert(key.to_owned(), value);
-            }
-            Ok(true)
-        })
-    }
-
-    fn delete_if_value<'a>(
-        &'a self,
-        key: &'a str,
-        expected: Option<String>,
-    ) -> SecondaryStorageFuture<'a, bool> {
-        Box::pin(async move {
-            let Some(expected) = expected else {
-                return Ok(false);
-            };
-            let mut entries = self.entries.lock().map_err(|_| {
-                OpenAuthError::Adapter("secondary storage mutex poisoned".to_owned())
-            })?;
-            if entries.get(key).map(String::as_str) != Some(expected.as_str()) {
-                return Ok(false);
-            }
-            entries.remove(key);
-            Ok(true)
-        })
-    }
-}
+pub type InMemorySecondaryStorage = MemorySecondaryStorage;
 
 /// Build a seeded router that resolves sessions/challenges from secondary storage only.
 pub async fn seeded_router_with_secondary_storage(

@@ -144,10 +144,6 @@ impl SecondaryStorage for FredSecondaryStorage {
         Box::pin(async move {
             let redis_key = self.prefixed_key(key)?;
             if ttl_seconds == Some(0) {
-                self.client
-                    .del::<u64, _>(redis_key)
-                    .await
-                    .map_err(|error| fred_error("secondary set_if_not_exists", error))?;
                 return Ok(false);
             }
             let expire = ttl_seconds

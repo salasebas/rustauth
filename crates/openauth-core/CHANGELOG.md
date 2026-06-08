@@ -36,6 +36,14 @@ All notable changes to `openauth-core` are documented in this file.
 
 ### Fixed
 
+- Documented and corrected the shared `SecondaryStorage` contract so
+  `set_if_not_exists` with `ttl_seconds = Some(0)` is a non-destructive no-op
+  that returns `Ok(false)` without creating or deleting keys (OPE-163).
+- Added `openauth_core::test_utils::MemorySecondaryStorage`, a shared
+  TTL-aware in-memory `SecondaryStorage` test double for adapter and plugin
+  tests.
+- Aligned in-memory `SecondaryStorage` test doubles with the same
+  `set_if_not_exists` `Some(0)` semantics.
 - Fixed `/sign-in/email` so a successful sign-in with a trusted `callbackURL`
   returns `redirect: true`, the callback URL in the JSON `url` field, and a
   matching `Location` header instead of always reporting `redirect: false`.

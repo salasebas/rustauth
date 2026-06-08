@@ -22,6 +22,8 @@ pub trait SecondaryStorage: Send + Sync + 'static {
     /// Store `value` only when `key` is absent.
     ///
     /// Returns `Ok(true)` when the key was created, or `Ok(false)` when it already existed.
+    /// `ttl_seconds == Some(0)` means the value is already expired: implementations must
+    /// not create or delete the key and must return `Ok(false)`.
     fn set_if_not_exists<'a>(
         &'a self,
         key: &'a str,

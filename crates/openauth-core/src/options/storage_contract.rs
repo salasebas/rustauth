@@ -62,12 +62,26 @@ where
     );
 
     storage
-        .set("ttl-zero", "stale".to_owned(), Some(60))
+        .set("ttl-zero-existing", "stale".to_owned(), Some(60))
         .await?;
-    let _ = storage
-        .set_if_not_exists("ttl-zero", "ignored".to_owned(), Some(0))
-        .await?;
-    assert_eq!(storage.get("ttl-zero").await?, None);
+    assert!(
+        !storage
+            .set_if_not_exists("ttl-zero-existing", "ignored".to_owned(), Some(0))
+            .await?,
+        "set_if_not_exists with ttl=0 should not create or overwrite",
+    );
+    assert_eq!(
+        storage.get("ttl-zero-existing").await?.as_deref(),
+        Some("stale"),
+        "set_if_not_exists with ttl=0 must leave an existing key untouched",
+    );
+    assert!(
+        !storage
+            .set_if_not_exists("ttl-zero-absent", "ignored".to_owned(), Some(0))
+            .await?,
+        "set_if_not_exists with ttl=0 should not create an absent key",
+    );
+    assert_eq!(storage.get("ttl-zero-absent").await?, None);
     Ok(())
 }
 

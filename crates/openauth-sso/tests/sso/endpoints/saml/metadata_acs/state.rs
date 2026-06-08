@@ -33,7 +33,7 @@ async fn saml_callback_endpoint_uses_acs_pipeline() -> Result<(), Box<dyn std::e
 #[tokio::test]
 async fn saml_authn_request_state_uses_secondary_storage_when_configured(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let storage = std::sync::Arc::new(TestSecondaryStorage::default());
+    let storage = std::sync::Arc::new(crate::support::test_secondary_storage());
     let (adapter, router) =
         router_with_options_and_secondary_storage(SsoOptions::default(), storage.clone())?;
     let cookie = seed_session(&adapter).await?;
@@ -67,7 +67,7 @@ async fn saml_authn_request_state_uses_secondary_storage_when_configured(
 #[tokio::test]
 async fn saml_acs_uses_in_response_to_state_when_relay_state_is_missing(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let storage = std::sync::Arc::new(TestSecondaryStorage::default());
+    let storage = std::sync::Arc::new(crate::support::test_secondary_storage());
     let (adapter, router) =
         router_with_options_and_secondary_storage(SsoOptions::default(), storage.clone())?;
     let cookie = seed_session(&adapter).await?;
@@ -368,7 +368,7 @@ async fn saml_acs_rejects_concurrent_duplicate_assertion_id(
 #[tokio::test]
 async fn saml_acs_rejects_concurrent_duplicate_assertion_id_with_secondary_storage(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let storage = std::sync::Arc::new(TestSecondaryStorage::default());
+    let storage = std::sync::Arc::new(crate::support::test_secondary_storage());
     let (adapter, router) =
         router_with_options_and_secondary_storage(SsoOptions::default(), storage.clone())?;
     let cookie = seed_session(&adapter).await?;
@@ -421,7 +421,7 @@ async fn saml_acs_rejects_concurrent_duplicate_assertion_id_with_secondary_stora
 #[tokio::test]
 async fn saml_replay_key_ttl_uses_assertion_expiration_not_request_ttl(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let storage = std::sync::Arc::new(TestSecondaryStorage::default());
+    let storage = std::sync::Arc::new(crate::support::test_secondary_storage());
     let mut options = SsoOptions::default();
     options.saml.request_ttl = time::Duration::seconds(5);
     let (adapter, router) = router_with_options_and_secondary_storage(options, storage.clone())?;
