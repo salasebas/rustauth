@@ -491,6 +491,125 @@ async fn verify_email_auto_signs_in_when_enabled() {
 }
 
 #[tokio::test]
+async fn verify_email_accepts_only_latest_otp_after_resend() {
+    let adapter = Arc::new(MemoryAdapter::new());
+    create_user(&adapter, "ada@example.com", false).await;
+    let sender = CaptureSender::default();
+    let router = router(adapter.clone(), sender.clone(), EmailOtpOptions::default()).unwrap();
+
+    for _ in 0..3 {
+        router
+            .handle_async(
+                json_request(
+                    "/email-otp/send-verification-otp",
+                    r#"{"email":"ada@example.com","type":"email-verification"}"#,
+                    None,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+    let otps = sender.otps();
+    let first_otp = otps.first().unwrap();
+
+    let stale = router
+        .handle_async(
+            json_request(
+                "/email-otp/verify-email",
+                &format!(r#"{{"email":"ada@example.com","otp":"{first_otp}"}}"#),
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let stale_body: Value = serde_json::from_slice(stale.body()).unwrap();
+    assert_eq!(stale.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(stale_body["code"], "INVALID_OTP");
+
+    let response = router
+        .handle_async(
+            json_request(
+                "/email-otp/verify-email",
+                &format!(
+                    r#"{{"email":"ada@example.com","otp":"{}"}}"#,
+                    sender.last_otp()
+                ),
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated = DbUserStore::new(adapter.as_ref())
+        .find_user_by_email("ada@example.com")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(updated.email_verified);
+}
+
+#[tokio::test]
+async fn request_email_change_rejects_same_email_and_skips_sender_for_taken_email() {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let user = create_user(&adapter, "ada@example.com", true).await;
+    create_user(&adapter, "taken@example.com", true).await;
+    let cookie = session_cookie(&adapter, &user.id).await;
+    let sender = CaptureSender::default();
+    let router = router(
+        adapter.clone(),
+        sender.clone(),
+        EmailOtpOptions {
+            change_email: ChangeEmailOptions {
+                enabled: true,
+                verify_current_email: false,
+            },
+            ..EmailOtpOptions::default()
+        },
+    )
+    .unwrap();
+
+    let same_email = router
+        .handle_async(
+            json_request(
+                "/email-otp/request-email-change",
+                r#"{"newEmail":"ada@example.com"}"#,
+                Some(&cookie),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let same_body: Value = serde_json::from_slice(same_email.body()).unwrap();
+    assert_eq!(same_email.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(same_body["code"], "EMAIL_IS_THE_SAME");
+    assert_eq!(sender.count(), 0);
+
+    let before_taken = sender.count();
+    let taken = router
+        .handle_async(
+            json_request(
+                "/email-otp/request-email-change",
+                r#"{"newEmail":"taken@example.com"}"#,
+                Some(&cookie),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(taken.status(), StatusCode::OK);
+    assert_eq!(sender.count(), before_taken);
+    assert!(verification_value(
+        &adapter,
+        "change-email-otp-ada@example.com:taken@example.com"
+    )
+    .await
+    .is_none());
+}
+
+#[tokio::test]
 async fn change_email_requires_session_and_updates_email_with_otp() {
     let adapter = Arc::new(MemoryAdapter::new());
     let user = create_user(&adapter, "ada@example.com", true).await;
