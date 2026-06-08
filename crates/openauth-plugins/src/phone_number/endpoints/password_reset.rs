@@ -10,7 +10,7 @@ use openauth_core::error::OpenAuthError;
 use openauth_core::options::PasswordResetPayload;
 use openauth_core::session::SessionStore;
 use openauth_core::user::{CreateCredentialAccountInput, DbUserStore};
-use openauth_core::verification::{DbVerificationStore, UpdateVerificationInput};
+use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -96,12 +96,6 @@ pub(crate) fn reset_endpoint(
             let options = Arc::clone(&options);
             Box::pin(async move {
                 let body: ResetBody = parse_request_body(&request)?;
-                if let Some(response) =
-                    verify_reset_code(adapter.as_ref(), &options, &body.phone_number, &body.otp)
-                        .await?
-                {
-                    return Ok(response);
-                }
                 if body.new_password.len() < context.password.config.min_password_length {
                     return error_response(
                         StatusCode::BAD_REQUEST,
@@ -120,6 +114,12 @@ pub(crate) fn reset_endpoint(
                         ),
                     );
                 }
+                if let Some(response) =
+                    verify_reset_code(adapter.as_ref(), &options, &body.phone_number, &body.otp)
+                        .await?
+                {
+                    return Ok(response);
+                }
                 let Some(user) = store::find_by_phone(adapter.as_ref(), &body.phone_number).await?
                 else {
                     return error_response(StatusCode::BAD_REQUEST, unexpected_error());
@@ -137,9 +137,6 @@ pub(crate) fn reset_endpoint(
                         ))
                         .await?;
                 }
-                DbVerificationStore::new(adapter.as_ref())
-                    .delete_verification(&reset_identifier(&body.phone_number))
-                    .await?;
                 let user = users.find_user_by_id(&user.id).await?.ok_or_else(|| {
                     OpenAuthError::Adapter("failed to load reset user".to_owned())
                 })?;
@@ -168,7 +165,10 @@ async fn verify_reset_code(
 ) -> Result<Option<openauth_core::api::ApiResponse>, OpenAuthError> {
     let identifier = reset_identifier(phone_number);
     let verifications = DbVerificationStore::new(adapter);
-    let Some(verification) = otp::find_raw(adapter, &identifier).await? else {
+    let Some(verification) = verifications
+        .consume_verification_including_expired(&identifier)
+        .await?
+    else {
         return error_response(StatusCode::BAD_REQUEST, otp_not_found()).map(Some);
     };
     if verification.expires_at <= OffsetDateTime::now_utc() {
@@ -176,16 +176,19 @@ async fn verify_reset_code(
     }
     let (otp_value, attempts) = otp::decode(&verification.value);
     if attempts >= options.allowed_attempts {
-        verifications.delete_verification(&identifier).await?;
         return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
     }
     if otp_value != code {
         let next_attempts = attempts + 1;
+        if next_attempts >= options.allowed_attempts {
+            return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
+        }
         verifications
-            .update_verification(
-                &identifier,
-                UpdateVerificationInput::new().value(otp::encode(otp_value, next_attempts)),
-            )
+            .create_verification(CreateVerificationInput::new(
+                identifier,
+                otp::encode(otp_value, next_attempts),
+                verification.expires_at,
+            ))
             .await?;
         return error_response(
             StatusCode::BAD_REQUEST,

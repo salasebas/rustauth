@@ -8,14 +8,14 @@ use openauth_core::api::{
 use openauth_core::auth::session::{GetSessionInput, SessionAuth};
 use openauth_core::db::{DbAdapter, DbRecord};
 use openauth_core::error::OpenAuthError;
-use openauth_core::verification::DbVerificationStore;
+use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 
 use super::{create_session_cookies, validate_phone_number};
 use crate::phone_number::errors::{
-    error_response, invalid_otp, json_response, otp_expired, otp_not_found, phone_number_exists,
+    error_response, invalid_otp, json_response, otp_expired, phone_number_exists,
     too_many_attempts, unexpected_error,
 };
 use crate::phone_number::options::PhoneNumberOptions;
@@ -178,39 +178,41 @@ async fn verify_code(
 ) -> Result<Option<openauth_core::api::ApiResponse>, OpenAuthError> {
     if let Some(verifier) = &options.verify_otp {
         if verifier(phone_number, code)? {
-            if otp::find_raw(adapter, phone_number).await?.is_some() {
-                DbVerificationStore::new(adapter)
-                    .delete_verification(phone_number)
-                    .await?;
-            }
+            let _ = DbVerificationStore::new(adapter)
+                .consume_verification_including_expired(phone_number)
+                .await?;
             return Ok(None);
         }
         return error_response(StatusCode::BAD_REQUEST, invalid_otp()).map(Some);
     }
     let verifications = DbVerificationStore::new(adapter);
-    let Some(verification) = otp::find_raw(adapter, phone_number).await? else {
-        return error_response(StatusCode::BAD_REQUEST, otp_not_found()).map(Some);
+    let Some(verification) = verifications
+        .consume_verification_including_expired(phone_number)
+        .await?
+    else {
+        return error_response(StatusCode::BAD_REQUEST, invalid_otp()).map(Some);
     };
     if verification.expires_at <= OffsetDateTime::now_utc() {
         return error_response(StatusCode::BAD_REQUEST, otp_expired()).map(Some);
     }
     let (otp_value, attempts) = otp::decode(&verification.value);
     if attempts >= options.allowed_attempts {
-        verifications.delete_verification(phone_number).await?;
         return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
     }
     if otp_value != code {
         let next_attempts = attempts + 1;
+        if next_attempts >= options.allowed_attempts {
+            return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
+        }
         verifications
-            .update_verification(
+            .create_verification(CreateVerificationInput::new(
                 phone_number,
-                openauth_core::verification::UpdateVerificationInput::new()
-                    .value(otp::encode(otp_value, next_attempts)),
-            )
+                otp::encode(otp_value, next_attempts),
+                verification.expires_at,
+            ))
             .await?;
         return error_response(StatusCode::BAD_REQUEST, invalid_otp()).map(Some);
     }
-    verifications.delete_verification(phone_number).await?;
     Ok(None)
 }
 

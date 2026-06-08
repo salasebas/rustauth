@@ -21,6 +21,8 @@ All notable changes to `openauth-plugins` are documented in this file.
 
 ### Fixed
 
+- Phone password-reset and verify OTPs are now consumed atomically before their
+  side effects, so concurrent requests with the same code cannot both succeed.
 - Two-factor enable with `skip_verification_on_enable` and disable now rotate
   the active session after changing the user's 2FA state.
 - Email OTP verification now returns `OTP_EXPIRED` for expired stored OTPs

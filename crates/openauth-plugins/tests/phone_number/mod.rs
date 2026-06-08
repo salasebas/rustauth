@@ -79,6 +79,50 @@ async fn send_otp_stores_code_and_invokes_sender() -> Result<(), Box<dyn std::er
 }
 
 #[tokio::test]
+async fn verify_allows_only_one_concurrent_redeem() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, false).await?;
+    seed_otp(&adapter, PHONE, "123456", 0, 300).await?;
+    let router = router_with_options(PhoneNumberOptions::default(), adapter.clone())?;
+
+    let body = format!(r#"{{"phoneNumber":"{PHONE}","code":"123456","disableSession":true}}"#);
+    let first_request = json_request(Method::POST, "/api/auth/phone-number/verify", &body, None)?;
+    let second_request = json_request(Method::POST, "/api/auth/phone-number/verify", &body, None)?;
+
+    let (first, second) = tokio::join!(
+        router.handle_async(first_request),
+        router.handle_async(second_request),
+    );
+    let first = first?;
+    let second = second?;
+    let successes = [first.status(), second.status()]
+        .into_iter()
+        .filter(|status| *status == StatusCode::OK)
+        .count();
+    assert_eq!(
+        successes,
+        1,
+        "exactly one concurrent verify may succeed: {:?} {:?}",
+        first.status(),
+        second.status()
+    );
+    let failures = [first.status(), second.status()]
+        .into_iter()
+        .filter(|status| *status == StatusCode::BAD_REQUEST)
+        .count();
+    assert_eq!(failures, 1);
+    let failed_body: Value = if first.status() == StatusCode::BAD_REQUEST {
+        serde_json::from_slice(first.body())?
+    } else {
+        serde_json::from_slice(second.body())?
+    };
+    assert_eq!(failed_body["code"], "INVALID_OTP");
+    assert!(find_verification(&adapter, PHONE).await?.is_none());
+    assert_eq!(adapter.len("session").await, 0);
+    Ok(())
+}
+
+#[tokio::test]
 async fn verify_marks_existing_user_and_deletes_otp() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     seed_user_with_phone(&adapter, PHONE, false).await?;
@@ -110,7 +154,7 @@ async fn verify_marks_existing_user_and_deletes_otp() -> Result<(), Box<dyn std:
 #[tokio::test]
 async fn wrong_otp_increments_attempts_and_then_blocks() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    seed_otp(&adapter, PHONE, "123456", 2, 300).await?;
+    seed_otp(&adapter, PHONE, "123456", 1, 300).await?;
     let router = router_with_options(PhoneNumberOptions::default(), adapter.clone())?;
 
     let response = router
@@ -328,6 +372,75 @@ async fn request_and_reset_password_by_phone() -> Result<(), Box<dyn std::error:
         .find_credential_account("user_1")
         .await?
         .is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn reset_password_allows_only_one_concurrent_redeem() -> Result<(), Box<dyn std::error::Error>>
+{
+    let reset_users = Arc::new(Mutex::new(Vec::new()));
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, true).await?;
+    seed_reset_otp(&adapter, PHONE, "123456", 0, 300).await?;
+    let openauth_options = OpenAuthOptions {
+        password: PasswordOptions::default()
+            .on_password_reset(RecordPasswordReset {
+                user_ids: Arc::clone(&reset_users),
+            })
+            .revoke_sessions_on_password_reset(true),
+        ..OpenAuthOptions::default()
+    };
+    let router = router_with_options_and_openauth(
+        PhoneNumberOptions::default(),
+        adapter.clone(),
+        openauth_options,
+    )?;
+
+    let body =
+        format!(r#"{{"phoneNumber":"{PHONE}","otp":"123456","newPassword":"newsecret123"}}"#);
+    let first_request = json_request(
+        Method::POST,
+        "/api/auth/phone-number/reset-password",
+        &body,
+        None,
+    )?;
+    let second_request = json_request(
+        Method::POST,
+        "/api/auth/phone-number/reset-password",
+        &body,
+        None,
+    )?;
+
+    let (first, second) = tokio::join!(
+        router.handle_async(first_request),
+        router.handle_async(second_request),
+    );
+    let first = first?;
+    let second = second?;
+    let successes = [first.status(), second.status()]
+        .into_iter()
+        .filter(|status| *status == StatusCode::OK)
+        .count();
+    assert_eq!(
+        successes,
+        1,
+        "exactly one concurrent reset may succeed: {:?} {:?}",
+        first.status(),
+        second.status()
+    );
+    let failures = [first.status(), second.status()]
+        .into_iter()
+        .filter(|status| *status == StatusCode::BAD_REQUEST)
+        .count();
+    assert_eq!(failures, 1);
+    let failed_body: Value = if first.status() == StatusCode::BAD_REQUEST {
+        serde_json::from_slice(first.body())?
+    } else {
+        serde_json::from_slice(second.body())?
+    };
+    assert_eq!(failed_body["code"], "OTP_NOT_FOUND");
+    assert_eq!(reset_users.lock().map_err(|_| "lock poisoned")?.len(), 1);
+    assert!(find_reset_verification(&adapter, PHONE).await?.is_none());
     Ok(())
 }
 
@@ -617,6 +730,34 @@ async fn seed_otp(
         ))
         .await?;
     Ok(())
+}
+
+async fn seed_reset_otp(
+    adapter: &MemoryAdapter,
+    phone: &str,
+    code: &str,
+    attempts: u32,
+    expires_in_seconds: i64,
+) -> Result<(), OpenAuthError> {
+    seed_otp(
+        adapter,
+        &reset_identifier(phone),
+        code,
+        attempts,
+        expires_in_seconds,
+    )
+    .await
+}
+
+fn reset_identifier(phone_number: &str) -> String {
+    format!("{phone_number}-request-password-reset")
+}
+
+async fn find_reset_verification(
+    adapter: &MemoryAdapter,
+    phone: &str,
+) -> Result<Option<DbRecord>, OpenAuthError> {
+    find_verification(adapter, &reset_identifier(phone)).await
 }
 
 async fn find_user_by_phone(

@@ -141,7 +141,7 @@ async fn verify_rejects_reused_otp_code() -> Result<(), Box<dyn std::error::Erro
         .await?;
     assert_eq!(reused.status(), StatusCode::BAD_REQUEST);
     let body: Value = serde_json::from_slice(reused.body())?;
-    assert_eq!(body["code"], "OTP_NOT_FOUND");
+    assert_eq!(body["code"], "INVALID_OTP");
     Ok(())
 }
 
@@ -160,7 +160,7 @@ async fn verify_rejects_missing_and_expired_otp() -> Result<(), Box<dyn std::err
         .await?;
     assert_eq!(missing.status(), StatusCode::BAD_REQUEST);
     let missing_body: Value = serde_json::from_slice(missing.body())?;
-    assert_eq!(missing_body["code"], "OTP_NOT_FOUND");
+    assert_eq!(missing_body["code"], "INVALID_OTP");
 
     seed_otp(&adapter, PHONE, "123456", 0, -1).await?;
     let expired = router
