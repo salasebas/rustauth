@@ -42,6 +42,10 @@ upstream tests and adapt the relevant scenarios to Rust.
 - Reserve each crate's `tests/` directory for **integration**, **contract**, or
   **end-to-end** coverage that needs a separate test binary (HTTP routes,
   adapters against services, cross-module wiring).
+- **Fast vs slow is not the split between `src/` and `tests/`.** Most OpenAuth
+  `tests/` targets are integration-fast (memory adapter, HTTP fixtures). Slow
+  Docker or e2e tests stay in `tests/` too (`#[ignore]` or the Integration
+  workflow). See `docs/ci/test-placement-audit.md`.
 - Share integration helpers through `openauth_core::test_utils` (behind the
   `test-utils` feature) instead of copying fixture helpers across crates.
 

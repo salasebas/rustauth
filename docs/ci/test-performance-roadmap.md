@@ -98,6 +98,10 @@ See also: [integration-e2e-workflow.md](./integration-e2e-workflow.md).
 | `openauth-cli` | yes | ignored DB | done |
 | `openauth-oauth`, `openauth-saml`, `openauth-stripe`, `openauth-telemetry`, `openauth-social-providers` | yes | — | no action needed |
 
+## Test placement
+
+Audit: [test-placement-audit.md](./test-placement-audit.md). **No bulk moves planned** — `tests/` integration-fast layout is intentional; only obvious duplicates (e.g. `openauth-redis/tests/config.rs`) removed.
+
 ## Next Steps
 
 1. Integration gate green on run `27171536274`; watch for `openauth-cli` telemetry test flakes on fast CI.
