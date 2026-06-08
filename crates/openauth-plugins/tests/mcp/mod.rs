@@ -260,6 +260,73 @@ async fn mcp_authorize_unauthenticated_sets_login_prompt_cookie(
 }
 
 #[tokio::test]
+async fn mcp_authorize_skips_consent_page_without_consent_prompt(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (auth, adapter) = seeded_router_with_options(McpOptions {
+        login_page: "/login".to_owned(),
+        consent_page: Some("/consent".to_owned()),
+        ..McpOptions::default()
+    })
+    .await?;
+    seed_client(
+        &adapter,
+        "client_1",
+        "secret_1",
+        "https://client.example/callback",
+        "web",
+    )
+    .await?;
+    let cookie = signed_session_cookie("session_token_1")?;
+
+    let response = auth
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/mcp/authorize?client_id=client_1&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&response_type=code&scope=openid")
+                .header(header::COOKIE, cookie)
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let location = response.headers()[header::LOCATION].to_str()?;
+    assert!(location.starts_with("https://client.example/callback?code="));
+    assert!(!location.contains("/consent?"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_authorize_omits_state_from_redirect_when_not_provided(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (auth, adapter) = seeded_router().await?;
+    seed_client(
+        &adapter,
+        "client_1",
+        "secret_1",
+        "https://client.example/callback",
+        "web",
+    )
+    .await?;
+    let cookie = signed_session_cookie("session_token_1")?;
+
+    let response = auth
+        .handle_async(
+            Request::builder()
+                .method(Method::GET)
+                .uri("http://localhost:3000/api/auth/mcp/authorize?client_id=client_1&redirect_uri=https%3A%2F%2Fclient.example%2Fcallback&response_type=code&scope=openid")
+                .header(header::COOKIE, cookie)
+                .body(Vec::new())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let location = response.headers()[header::LOCATION].to_str()?;
+    assert!(location.starts_with("https://client.example/callback?code="));
+    assert!(!location.contains("state="));
+    Ok(())
+}
+
+#[tokio::test]
 async fn mcp_authorize_creates_code_and_redirects() -> Result<(), Box<dyn std::error::Error>> {
     let (auth, adapter) = seeded_router().await?;
     seed_client(
