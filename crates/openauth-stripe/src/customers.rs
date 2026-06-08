@@ -290,8 +290,13 @@ async fn find_existing_organization_customer(
     let query = format!(
         "metadata[\"organizationId\"]:\"{escaped_organization_id}\" AND metadata[\"customerType\"]:\"organization\""
     );
-    match stripe_client.search_customers(&query).await {
-        Ok(search_result) => Ok(find_organization_customer(&search_result, organization_id)),
+    match stripe_client
+        .find_customer_from_search(&query, |customer| {
+            matches_organization_customer(customer, organization_id)
+        })
+        .await
+    {
+        Ok(found) => Ok(found),
         Err(error) => {
             logger.warn(
                 "Stripe customers.search failed, falling back to customers.list",
@@ -313,15 +318,6 @@ fn matches_organization_customer(customer: &Value, organization_id: &str) -> boo
     };
     metadata.get("organizationId").and_then(Value::as_str) == Some(organization_id)
         && metadata.get("customerType").and_then(Value::as_str) == Some("organization")
-}
-
-fn find_organization_customer(customers: &Value, organization_id: &str) -> Option<Value> {
-    customers
-        .get("data")?
-        .as_array()?
-        .iter()
-        .find(|customer| matches_organization_customer(customer, organization_id))
-        .cloned()
 }
 
 fn organization_customer_create_params(
@@ -378,12 +374,11 @@ async fn find_existing_user_customer(
     let escaped_email = escape_stripe_search_value(email);
     let query =
         format!("email:\"{escaped_email}\" AND -metadata[\"customerType\"]:\"organization\"");
-    match stripe_client.search_customers(&query).await {
-        Ok(search_result) => {
-            if let Some(customer) = find_user_customer(&search_result, user_id) {
-                return Ok(Some(customer));
-            }
-        }
+    match stripe_client
+        .find_customer_from_search(&query, |customer| matches_user_customer(customer, user_id))
+        .await
+    {
+        Ok(found) => Ok(found),
         Err(error) => {
             logger.warn(
                 "Stripe customers.search failed, falling back to customers.list",
@@ -397,7 +392,6 @@ async fn find_existing_user_customer(
                 .map_err(CustomerEnsureError::Stripe);
         }
     }
-    Ok(None)
 }
 
 /// Returns true when `customer` is safe to link to `user_id`.
@@ -419,15 +413,6 @@ fn matches_user_customer(customer: &Value, user_id: &str) -> bool {
             .and_then(Value::as_str),
         Some(existing) if existing != user_id
     )
-}
-
-fn find_user_customer(customers: &Value, user_id: &str) -> Option<Value> {
-    customers
-        .get("data")?
-        .as_array()?
-        .iter()
-        .find(|customer| matches_user_customer(customer, user_id))
-        .cloned()
 }
 
 async fn persist_user_customer_id(

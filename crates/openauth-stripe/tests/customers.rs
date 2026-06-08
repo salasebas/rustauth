@@ -20,6 +20,30 @@ use std::sync::{
 };
 use time::{Duration, OffsetDateTime};
 
+fn stripe_search_limit(request: &StripeRequest) -> usize {
+    request
+        .body
+        .split('&')
+        .find_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            (key == "limit").then(|| value.parse().unwrap_or(1))
+        })
+        .unwrap_or(1)
+}
+
+fn stripe_search_results(data: Value, request: &StripeRequest) -> Value {
+    let limit = stripe_search_limit(request);
+    let items = data
+        .get("data")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    json!({
+        "object": "search_result",
+        "data": items.into_iter().take(limit).collect::<Vec<_>>(),
+    })
+}
+
 #[derive(Default)]
 struct CustomerTransport {
     requests: Mutex<Vec<StripeRequest>>,
@@ -112,23 +136,26 @@ impl StripeTransport for CustomerTransport {
                 _,
             ) => StripeResponse {
                 status: 200,
-                body: json!({
-                    "object": "search_result",
-                    "data": [
-                        {
-                            "id": "cus_foreign_user",
-                            "object": "customer",
-                            "email": "ada@example.com",
-                            "metadata": { "userId": "user_2", "customerType": "user" }
-                        },
-                        {
-                            "id": "cus_dashboard",
-                            "object": "customer",
-                            "email": "ada@example.com",
-                            "metadata": {}
-                        }
-                    ]
-                }),
+                body: stripe_search_results(
+                    json!({
+                        "object": "search_result",
+                        "data": [
+                            {
+                                "id": "cus_foreign_user",
+                                "object": "customer",
+                                "email": "ada@example.com",
+                                "metadata": { "userId": "user_2", "customerType": "user" }
+                            },
+                            {
+                                "id": "cus_dashboard",
+                                "object": "customer",
+                                "email": "ada@example.com",
+                                "metadata": {}
+                            }
+                        ]
+                    }),
+                    &request,
+                ),
             },
             (
                 CustomerTransportMode::SearchFailsListFindsUserCustomer,
@@ -546,6 +573,12 @@ async fn upgrade_skips_foreign_user_customer_and_reuses_dashboard(
     let (response, adapter, requests) = upgrade_with_transport(Arc::clone(&transport)).await?;
 
     assert_eq!(response.status(), StatusCode::OK);
+    let search = requests
+        .iter()
+        .find(|request| request.path == "/v1/customers/search")
+        .ok_or("search request")?;
+    assert!(search.body.split('&').any(|pair| pair == "limit=100"));
+    assert!(!search.body.split('&').any(|pair| pair == "limit=1"));
     assert!(!requests
         .iter()
         .any(|request| request.method == "POST" && request.path == "/v1/customers"));

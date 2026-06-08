@@ -15,6 +15,9 @@ All notable changes to `openauth-stripe` are documented in this file.
 
 ### Fixed
 
+- Customer search now scans up to 100 results per page (and paginates when needed)
+  before falling back to customer creation, so a foreign same-email customer in the
+  first search slot no longer triggers duplicate customer creation (OPE-156).
 - Customer fallback lookups paginate Stripe `customers.list` responses instead of
   scanning only the first page when `customers.search` is unavailable (OPE-138).
 - Subscription state reconciliation paginates Stripe list calls instead of
