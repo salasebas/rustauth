@@ -46,6 +46,106 @@ async fn validator_rejects_invalid_phone_number() -> Result<(), Box<dyn std::err
 }
 
 #[tokio::test]
+async fn verify_accepts_only_latest_otp_after_multiple_sends(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, false).await?;
+    let router = router_with_options(
+        PhoneNumberOptions::default().send_otp({
+            let sent = Arc::clone(&sent);
+            move |phone_number, code| {
+                sent.lock()
+                    .map_err(|_| OpenAuthError::Api("lock poisoned".to_owned()))?
+                    .push((phone_number.to_owned(), code.to_owned()));
+                Ok(())
+            }
+        }),
+        adapter,
+    )?;
+
+    for _ in 0..3 {
+        let response = router
+            .handle_async(json_request(
+                Method::POST,
+                "/api/auth/phone-number/send-otp",
+                &format!(r#"{{"phoneNumber":"{PHONE}"}}"#),
+                None,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let (first_code, last_code) = {
+        let codes = sent.lock().map_err(|_| "lock poisoned")?;
+        (
+            codes
+                .first()
+                .map(|(_, code)| code.clone())
+                .ok_or("first code")?,
+            codes
+                .last()
+                .map(|(_, code)| code.clone())
+                .ok_or("last code")?,
+        )
+    };
+
+    let stale = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{PHONE}","code":"{first_code}","disableSession":true}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(stale.status(), StatusCode::BAD_REQUEST);
+    let stale_body: Value = serde_json::from_slice(stale.body())?;
+    assert_eq!(stale_body["code"], "INVALID_OTP");
+
+    let verified = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{PHONE}","code":"{last_code}","disableSession":true}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(verified.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn verify_rejects_reused_otp_code() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, false).await?;
+    seed_otp(&adapter, PHONE, "123456", 0, 300).await?;
+    let router = router_with_options(PhoneNumberOptions::default(), adapter.clone())?;
+
+    let first = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{PHONE}","code":"123456","disableSession":true}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let reused = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{PHONE}","code":"123456","disableSession":true}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(reused.status(), StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(reused.body())?;
+    assert_eq!(body["code"], "OTP_NOT_FOUND");
+    Ok(())
+}
+
+#[tokio::test]
 async fn verify_rejects_missing_and_expired_otp() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     let router = router_with_options(PhoneNumberOptions::default(), adapter.clone())?;
