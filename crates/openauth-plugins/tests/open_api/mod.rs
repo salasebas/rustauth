@@ -107,6 +107,23 @@ async fn generated_schema_includes_detailed_plugin_metadata(
 }
 
 #[tokio::test]
+async fn generated_schema_declares_user_id_as_string_type() -> Result<(), Box<dyn std::error::Error>>
+{
+    let router = router(vec![open_api(OpenApiOptions::default())])?;
+    let response = router
+        .handle_async(request(Method::GET, "/api/auth/open-api/generate-schema")?)
+        .await?;
+    let body: Value = serde_json::from_slice(response.body())?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        body["components"]["schemas"]["User"]["properties"]["id"]["type"],
+        "string"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn generated_schema_uses_runtime_database_schema_components(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let router = router_with_options(OpenAuthOptions {
