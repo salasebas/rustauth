@@ -3,6 +3,7 @@ mod helpers;
 mod lifecycle;
 mod metadata;
 mod organization;
+mod rate_limit;
 mod schema;
 mod sessions;
 mod storage;

@@ -473,6 +473,19 @@ async fn update_rejects_empty_patch_and_disabled_keys_do_not_verify(
     assert_eq!(server_only_update.status, StatusCode::BAD_REQUEST);
     assert_eq!(server_only_update.body["code"], SERVER_ONLY_PROPERTY);
 
+    let server_remaining = server_request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/update",
+        json!({"keyId": key_id, "userId": user.user_id, "remaining": 50}),
+        None,
+        None,
+    )
+    .await?;
+    assert_eq!(server_remaining.status, StatusCode::OK);
+    assert_eq!(server_remaining.body["remaining"], 50);
+    assert!(server_remaining.body["lastRequest"].is_null());
+
     let disabled = request_json(
         &router,
         Method::POST,

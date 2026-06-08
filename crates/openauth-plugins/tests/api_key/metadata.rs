@@ -164,6 +164,48 @@ async fn set_legacy_metadata(
     Ok(())
 }
 
+#[tokio::test]
+async fn properly_formatted_metadata_does_not_require_migration(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(
+        adapter.clone(),
+        api_key_with_options(ApiKeyOptions {
+            configuration: ApiKeyConfiguration {
+                enable_metadata: true,
+                ..ApiKeyConfiguration::default()
+            },
+        }),
+    )?;
+    let user = sign_up(&router, "Plain", "plain-meta@example.com").await?;
+    let metadata = json!({ "alreadyCorrect": true, "value": 123 });
+
+    let created = request_json(
+        &router,
+        Method::POST,
+        "/api/auth/api-key/create",
+        json!({"name": "plain-meta", "metadata": metadata}),
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(created.status, StatusCode::OK);
+    let key_id = created.body["id"].as_str().ok_or("missing id")?;
+
+    let fetched = request_json(
+        &router,
+        Method::GET,
+        &format!("/api/auth/api-key/get?id={key_id}"),
+        serde_json::Value::Null,
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(fetched.body["metadata"], metadata);
+    assert_metadata_migrated(&adapter, key_id, metadata).await?;
+    Ok(())
+}
+
 async fn assert_metadata_migrated(
     adapter: &MemoryAdapter,
     id: &str,

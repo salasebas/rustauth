@@ -3,8 +3,8 @@ use std::sync::Arc;
 use http::{Method, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_plugins::api_key::{
-    api_key_with_configurations, ApiKeyConfiguration, ApiKeyRateLimitOptions, ApiKeyReference,
-    UPSTREAM_PLUGIN_ID,
+    api_key, api_key_with_configurations, ApiKeyConfiguration, ApiKeyRateLimitOptions,
+    ApiKeyReference, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::{json, Value};
 
@@ -196,5 +196,45 @@ async fn specific_config_id_controls_create_verify_get_update_and_delete(
     .await?;
     assert_eq!(deleted.status, StatusCode::OK);
     assert_eq!(deleted.body["success"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_combines_sorting_with_pagination() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    let router = test_router(adapter, api_key())?;
+    let user = sign_up(&router, "Pag", "pag-api@example.com").await?;
+
+    for index in 0..5 {
+        let created = request_json(
+            &router,
+            Method::POST,
+            "/api/auth/api-key/create",
+            json!({"name": format!("pag-key-{index}")}),
+            Some(&user.cookie),
+            None,
+        )
+        .await?;
+        assert_eq!(created.status, StatusCode::OK);
+    }
+
+    let listed = request_json(
+        &router,
+        Method::GET,
+        "/api/auth/api-key/list?limit=3&offset=1&sortBy=name&sortDirection=desc",
+        Value::Null,
+        Some(&user.cookie),
+        None,
+    )
+    .await?;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["limit"], 3);
+    assert_eq!(listed.body["offset"], 1);
+    assert_eq!(listed.body["total"], 5);
+    let keys = listed.body["apiKeys"].as_array().ok_or("missing apiKeys")?;
+    assert_eq!(keys.len(), 3);
+    assert_eq!(keys[0]["name"], "pag-key-3");
+    assert_eq!(keys[1]["name"], "pag-key-2");
+    assert_eq!(keys[2]["name"], "pag-key-1");
     Ok(())
 }
