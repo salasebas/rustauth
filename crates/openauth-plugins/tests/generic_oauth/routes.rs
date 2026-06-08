@@ -661,6 +661,76 @@ async fn oauth2_callback_rejects_missing_state() {
 }
 
 #[tokio::test]
+async fn oauth2_callback_rejects_mismatched_oauth_state_cookie() {
+    let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
+    let context = context_with_plugin(adapter, oauth_plugin(oauth_flow_config("oauth-user-6")));
+    let router = AuthRouter::try_new(context, Vec::new()).unwrap();
+    let (sign_in, oauth_state_cookie) =
+        sign_in_url_with_oauth_cookie(&router, "example", "/dashboard", None, false)
+            .await
+            .unwrap();
+    let state = query_value(&sign_in, "state").unwrap();
+    let mismatched_cookie = oauth_state_cookie
+        .split_once('=')
+        .map(|(name, _)| format!("{name}=not-the-issued-state"))
+        .unwrap_or_else(|| "open-auth.oauth_state=not-the-issued-state".to_owned());
+
+    let response = oauth_callback(
+        &router,
+        "example",
+        "code-1",
+        &state_with_oauth_cookie(state, mismatched_cookie),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        location(&response),
+        Some("https://app.example.com/error?error=invalid_state")
+    );
+}
+
+#[tokio::test]
+async fn oauth2_callback_coerces_numeric_provider_ids_without_duplicates() {
+    let memory = Arc::new(MemoryAdapter::new());
+    let adapter = memory.clone() as Arc<dyn DbAdapter>;
+    let mut config = oauth_flow_config("12345");
+    config.get_user_info = Some(Arc::new(|_tokens| {
+        Box::pin(async move {
+            Ok(Some(OAuth2UserInfo {
+                id: "12345".to_owned(),
+                name: Some("Numeric User".to_owned()),
+                email: Some("numeric@example.com".to_owned()),
+                image: None,
+                email_verified: true,
+            }))
+        })
+    }));
+    let context = context_with_plugin(adapter.clone(), oauth_plugin(config));
+    let router = AuthRouter::try_new(context.clone(), Vec::new()).unwrap();
+
+    for _ in 0..2 {
+        let state = sign_in_state(&router, "example", "/dashboard", None, false)
+            .await
+            .unwrap();
+        let response = oauth_callback(&router, "example", "code-1", &state)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(location(&response), Some("/dashboard"));
+    }
+
+    let account = DbUserStore::new(adapter.as_ref())
+        .find_account_by_provider_account("12345", "example")
+        .await
+        .unwrap()
+        .expect("linked account");
+    assert_eq!(account.account_id, "12345");
+    assert_eq!(memory.len("account").await, 1);
+}
+
+#[tokio::test]
 async fn oauth2_callback_rejects_missing_oauth_state_cookie() {
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
     let context = context_with_plugin(adapter, oauth_plugin(oauth_flow_config("oauth-user-6")));
