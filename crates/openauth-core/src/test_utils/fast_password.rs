@@ -43,3 +43,16 @@ pub fn apply_fast_password_defaults(mut options: OpenAuthOptions) -> OpenAuthOpt
     }
     options
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fast_password_callbacks_roundtrip() -> Result<(), OpenAuthError> {
+        let hash = fast_hash_password("secret123")?;
+        assert!(fast_verify_password(&hash, "secret123")?);
+        assert!(!fast_verify_password(&hash, "wrong")?);
+        Ok(())
+    }
+}
