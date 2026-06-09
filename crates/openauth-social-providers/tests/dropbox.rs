@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::dropbox::{
+use openauth_social_providers::advanced::dropbox::{
     DropboxAccessType, DropboxAuthorizationUrlRequest, DropboxName, DropboxProfile,
     DropboxProvider, DropboxProviderOptions,
 };

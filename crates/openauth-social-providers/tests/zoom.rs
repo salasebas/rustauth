@@ -12,8 +12,8 @@ use std::thread;
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
-use openauth_social_providers::http::ProviderHttpClient;
-use openauth_social_providers::zoom::{
+use openauth_social_providers::advanced::http::ProviderHttpClient;
+use openauth_social_providers::advanced::zoom::{
     zoom, ZoomAuthorizationCodeRequest, ZoomAuthorizationUrlRequest, ZoomOptions, ZoomProfile,
     ZoomProvider, ZOOM_AUTHORIZATION_ENDPOINT, ZOOM_ID, ZOOM_NAME, ZOOM_TOKEN_ENDPOINT,
 };

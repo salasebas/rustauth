@@ -9,8 +9,10 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::apple::{apple, AppleName, AppleNonConformUser, AppleOptions};
-use openauth_social_providers::http::ValidationHttpClient;
+use openauth_social_providers::advanced::apple::{
+    apple, AppleName, AppleNonConformUser, AppleOptions,
+};
+use openauth_social_providers::advanced::http::ValidationHttpClient;
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 

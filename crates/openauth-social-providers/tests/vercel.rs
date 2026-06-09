@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use openauth_oauth::oauth2::{ClientId, OAuthError, ProviderOptions};
-use openauth_social_providers::vercel::{
+use openauth_social_providers::advanced::vercel::{
     vercel, VercelAuthorizationUrlRequest, VercelOptions, VercelProfile, VercelUserPatch,
     VERCEL_AUTHORIZATION_ENDPOINT, VERCEL_ID, VERCEL_NAME, VERCEL_TOKEN_ENDPOINT,
 };

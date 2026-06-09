@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::salesforce::{
+use openauth_social_providers::advanced::salesforce::{
     salesforce, SalesforceAuthorizationUrlRequest, SalesforceEnvironment, SalesforceOptions,
     SalesforcePhotos, SalesforceProfile, SalesforceUserInfo,
     SALESFORCE_PRODUCTION_AUTHORIZATION_ENDPOINT, SALESFORCE_PRODUCTION_TOKEN_ENDPOINT,
@@ -306,7 +306,8 @@ fn salesforce_partial_mapper_overrides_selected_user_fields() {
     let provider = salesforce(SalesforceOptions {
         oauth: provider_options(),
         map_profile_to_user: Some(Arc::new(|profile| {
-            let mut patch = openauth_social_providers::salesforce::SalesforceUserPatch::default();
+            let mut patch =
+                openauth_social_providers::advanced::salesforce::SalesforceUserPatch::default();
             patch.id = Some(format!("salesforce:{}", profile.user_id));
             patch.email_verified = Some(true);
             patch.image = Some(None);

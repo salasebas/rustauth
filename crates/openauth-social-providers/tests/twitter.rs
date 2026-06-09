@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::twitter::{
+use openauth_social_providers::advanced::twitter::{
     twitter, TwitterAuthorizationUrlRequest, TwitterOptions, TwitterProfile, TwitterProfileData,
     TwitterProvider, TwitterUserInfo, TwitterUserPatch, TwitterValidateAuthorizationCodeRequest,
     TWITTER_AUTHORIZATION_ENDPOINT, TWITTER_DEFAULT_SCOPES, TWITTER_ID, TWITTER_NAME,

@@ -11,7 +11,7 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, ProviderOptions};
-use openauth_social_providers::facebook::{
+use openauth_social_providers::advanced::facebook::{
     FacebookOptions, FacebookPicture, FacebookPictureData, FacebookProfile, FacebookProvider,
     FACEBOOK_LIMITED_LOGIN_ISSUER,
 };

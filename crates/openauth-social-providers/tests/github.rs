@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, ProviderOptions};
-use openauth_social_providers::github::{
+use openauth_social_providers::advanced::github::{
     github, map_github_user_info, GitHubAuthorizationUrlRequest, GitHubEmail, GitHubProfile,
     GitHubValidateAuthorizationCodeRequest,
 };

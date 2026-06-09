@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions};
-use openauth_social_providers::linear::{
+use openauth_social_providers::advanced::linear::{
     linear, LinearAuthorizationUrlRequest, LinearOptions, LinearUser,
     LinearValidateAuthorizationCodeRequest, LINEAR_AUTHORIZATION_ENDPOINT, LINEAR_ID, LINEAR_NAME,
     LINEAR_TOKEN_ENDPOINT,

@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, ProviderOptions};
-use openauth_social_providers::kakao::{
+use openauth_social_providers::advanced::kakao::{
     kakao, KakaoAccount, KakaoAccountProfile, KakaoAuthorizationUrlRequest, KakaoProfile,
     KakaoProvider, KakaoProviderOptions, KAKAO_AUTHORIZATION_ENDPOINT, KAKAO_ID, KAKAO_NAME,
     KAKAO_TOKEN_ENDPOINT,

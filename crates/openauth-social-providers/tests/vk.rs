@@ -1,5 +1,5 @@
 use openauth_oauth::oauth2::{ClientId, OAuthError, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::vk::{
+use openauth_social_providers::advanced::vk::{
     vk, VkAuthorizationUrlRequest, VkProfile, VkProfileUser, VkProvider, VK_AUTHORIZATION_ENDPOINT,
     VK_ID, VK_NAME, VK_TOKEN_ENDPOINT,
 };
@@ -186,8 +186,8 @@ struct VkOptionsFixture {
 }
 
 impl VkOptionsFixture {
-    fn into_options(self) -> openauth_social_providers::vk::VkOptions {
-        openauth_social_providers::vk::VkOptions {
+    fn into_options(self) -> openauth_social_providers::advanced::vk::VkOptions {
+        openauth_social_providers::advanced::vk::VkOptions {
             oauth: ProviderOptions {
                 client_id: Some(ClientId::from("vk-client")),
                 client_secret: Some("vk-secret".to_owned()),

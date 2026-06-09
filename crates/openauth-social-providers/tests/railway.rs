@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthError, ProviderOptions};
-use openauth_social_providers::railway::{
+use openauth_social_providers::advanced::railway::{
     railway, RailwayAuthorizationUrlRequest, RailwayProfile, RAILWAY_AUTHORIZATION_ENDPOINT,
     RAILWAY_ID, RAILWAY_NAME, RAILWAY_TOKEN_ENDPOINT,
 };

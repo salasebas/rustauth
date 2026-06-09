@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::huggingface::{
+use openauth_social_providers::advanced::huggingface::{
     huggingface, HuggingFaceAuthorizationUrlRequest, HuggingFaceOptions, HuggingFaceOrg,
     HuggingFaceOrgEnterprise, HuggingFaceProfile, HuggingFaceProvider, HuggingFaceResourceGroup,
     HuggingFaceRole, HuggingFaceUserInfo, HUGGINGFACE_AUTHORIZATION_ENDPOINT, HUGGINGFACE_ID,
@@ -184,7 +184,8 @@ fn huggingface_partial_mapper_overrides_selected_user_fields() {
     let provider = huggingface(HuggingFaceOptions {
         oauth: provider_options(),
         map_profile_to_user: Some(Arc::new(|profile| {
-            let mut patch = openauth_social_providers::huggingface::HuggingFaceUserPatch::default();
+            let mut patch =
+                openauth_social_providers::advanced::huggingface::HuggingFaceUserPatch::default();
             patch.name = Some(Some(format!("{} on HF", profile.preferred_username)));
             patch.email_verified = Some(true);
             patch

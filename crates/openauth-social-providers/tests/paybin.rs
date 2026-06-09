@@ -10,7 +10,7 @@ use base64::Engine;
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
-use openauth_social_providers::paybin::{
+use openauth_social_providers::advanced::paybin::{
     paybin, PaybinAuthorizationUrlRequest, PaybinOptions, PAYBIN_AUTHORIZATION_ENDPOINT,
     PAYBIN_DEFAULT_ISSUER, PAYBIN_ID, PAYBIN_NAME, PAYBIN_TOKEN_ENDPOINT,
 };
