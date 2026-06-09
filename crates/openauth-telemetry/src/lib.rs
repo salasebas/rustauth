@@ -62,7 +62,7 @@ use std::sync::Arc;
 
 use openauth_core::options::OpenAuthOptions;
 use serde_json::json;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use crate::project_id::resolve_project_id;
 #[cfg(not(feature = "http"))]
@@ -85,6 +85,7 @@ pub struct TelemetryPublisher {
     base_url: Option<String>,
     test_anonymous_id: Option<String>,
     track: TrackFn,
+    init_done: watch::Receiver<bool>,
 }
 
 impl TelemetryPublisher {
@@ -97,12 +98,17 @@ impl TelemetryPublisher {
             base_url: None,
             test_anonymous_id: None,
             track: Arc::new(|_| Box::pin(async move {})),
+            init_done: watch::channel(true).1,
         }
     }
 
     pub async fn publish(&self, event: TelemetryEvent) {
         if self.hard_noop || !self.enabled {
             return;
+        }
+        if !*self.init_done.borrow() {
+            let mut init_done = self.init_done.clone();
+            let _ = init_done.changed().await;
         }
         let mut guard = self.anonymous_id.lock().await;
         if guard.is_none() {
@@ -262,6 +268,7 @@ pub async fn create_telemetry(
         .and_then(|h| h.anonymous_id.clone());
 
     let anonymous_id_cell = Arc::new(Mutex::new(None));
+    let (init_done_tx, init_done_rx) = watch::channel(!enabled);
 
     if enabled {
         let aid = test_anonymous_id
@@ -290,6 +297,7 @@ pub async fn create_telemetry(
         let track_init = track.clone();
         tokio::spawn(async move {
             track_init(init).await;
+            let _ = init_done_tx.send(true);
         });
     }
 
@@ -300,5 +308,6 @@ pub async fn create_telemetry(
         base_url: options.base_url.clone(),
         test_anonymous_id,
         track,
+        init_done: init_done_rx,
     }
 }
