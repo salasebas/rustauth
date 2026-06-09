@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use openauth_core::db::{Session, User};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::RateLimitRule;
-use openauth_core::plugin::AuthPlugin;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
@@ -1018,27 +1017,6 @@ pub struct ResolvedOAuthProviderOptions {
     pub valid_audiences: Vec<String>,
     pub rate_limits: OAuthProviderRateLimits,
     pub mcp: Option<ResolvedMcpOptions>,
-}
-
-/// OAuth provider extension returned by [`crate::oauth_provider`].
-#[derive(Debug, Clone)]
-pub struct OAuthProviderPlugin {
-    pub id: String,
-    pub version: String,
-    pub options: ResolvedOAuthProviderOptions,
-    pub(crate) auth_plugin: AuthPlugin,
-}
-
-impl OAuthProviderPlugin {
-    /// Convert this typed extension into the generic OpenAuth plugin contract.
-    pub fn into_auth_plugin(self) -> AuthPlugin {
-        self.auth_plugin
-    }
-
-    /// Borrow the generic OpenAuth plugin contract.
-    pub fn as_auth_plugin(&self) -> &AuthPlugin {
-        &self.auth_plugin
-    }
 }
 
 /// OAuth provider configuration errors.

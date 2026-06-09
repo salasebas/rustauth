@@ -82,14 +82,12 @@ pub use openauth_core::{oauth, social_providers};
 pub use openauth_deadpool_postgres as deadpool_postgres;
 #[cfg(feature = "i18n")]
 pub use openauth_i18n as i18n;
-#[cfg(feature = "oidc")]
-pub use openauth_oidc as oidc;
+#[cfg(feature = "oauth-provider")]
+pub use openauth_oauth_provider as oauth_provider;
 #[cfg(feature = "passkey")]
 pub use openauth_passkey as passkey;
 #[cfg(feature = "plugins")]
 pub use openauth_plugins as plugins;
-#[cfg(feature = "saml")]
-pub use openauth_saml as saml;
 #[cfg(feature = "scim")]
 pub use openauth_scim as scim;
 #[cfg(feature = "sqlx")]

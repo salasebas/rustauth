@@ -44,9 +44,12 @@ pub use options::{
 };
 pub use store::Passkey;
 pub use webauthn::{
-    PasskeyAuthenticationStart, PasskeyRegistrationStart, PasskeyWebAuthnBackend,
-    RealPasskeyWebAuthnBackend, VerifiedAuthentication, VerifiedPasskeyCredential, WebAuthnConfig,
+    PasskeyAuthenticationStart, PasskeyRegistrationStart, VerifiedAuthentication,
+    VerifiedPasskeyCredential, WebAuthnConfig,
 };
+
+#[cfg(feature = "test-util")]
+pub use webauthn::{PasskeyWebAuthnBackend, RealPasskeyWebAuthnBackend};
 
 use openauth_core::plugin::{AuthPlugin, PluginRateLimitRule};
 
@@ -61,6 +64,7 @@ pub const RATE_LIMITED_CEREMONY_PATHS: &[&str] = &[
 ];
 
 /// Build the server-side passkey plugin.
+#[must_use]
 pub fn passkey(options: PasskeyOptions) -> AuthPlugin {
     let rate_limit_rule = options.rate_limit_rule();
     let options = std::sync::Arc::new(options);

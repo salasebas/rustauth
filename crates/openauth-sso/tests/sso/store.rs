@@ -100,7 +100,7 @@ fn typed_sso_secrets_redact_debug_output() {
         issuer: "https://idp.example.com".to_owned(),
         pkce: true,
         client_id: "client-123456".to_owned(),
-        client_secret: SecretString::new("super-secret"),
+        client_secret: openauth_oidc::SecretString::new("super-secret"),
         discovery_endpoint: "https://idp.example.com/.well-known/openid-configuration".to_owned(),
         authorization_endpoint: Some("https://idp.example.com/auth".to_owned()),
         token_endpoint: Some("https://idp.example.com/token".to_owned()),

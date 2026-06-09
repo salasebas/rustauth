@@ -3,19 +3,21 @@ use super::common::*;
 #[test]
 fn oauth_provider_uses_upstream_default_scopes_grants_and_expirations(
 ) -> Result<(), OAuthProviderConfigError> {
-    let plugin = oauth_provider(OAuthProviderOptions {
+    let options = OAuthProviderOptions {
         login_page: "/login".into(),
         consent_page: "/consent".into(),
         ..OAuthProviderOptions::default()
-    })?;
+    };
+    let plugin = oauth_provider(options.clone())?;
+    let resolved = resolve_oauth_provider_options(options)?;
 
     assert_eq!(plugin.id, "oauth-provider");
     assert_eq!(
-        plugin.options.scopes,
+        resolved.scopes,
         ["openid", "profile", "email", "offline_access"]
     );
     assert_eq!(
-        plugin.options.claims,
+        resolved.claims,
         [
             "sub",
             "iss",
@@ -33,18 +35,18 @@ fn oauth_provider_uses_upstream_default_scopes_grants_and_expirations(
             "given_name"
         ]
     );
-    assert_eq!(plugin.options.code_expires_in, 600);
-    assert_eq!(plugin.options.access_token_expires_in, 3600);
-    assert_eq!(plugin.options.refresh_token_expires_in, 2_592_000);
+    assert_eq!(resolved.code_expires_in, 600);
+    assert_eq!(resolved.access_token_expires_in, 3600);
+    assert_eq!(resolved.refresh_token_expires_in, 2_592_000);
     assert_eq!(
-        plugin.options.grant_types,
+        resolved.grant_types,
         [
             GrantType::AuthorizationCode,
             GrantType::ClientCredentials,
             GrantType::RefreshToken
         ]
     );
-    assert_eq!(plugin.options.store_client_secret, SecretStorage::Hashed);
+    assert_eq!(resolved.store_client_secret, SecretStorage::Hashed);
     Ok(())
 }
 
@@ -55,7 +57,7 @@ fn oauth_provider_contributes_default_rate_limit_rules() -> Result<(), OAuthProv
         consent_page: "/consent".into(),
         ..OAuthProviderOptions::default()
     })?;
-    let rules = &plugin.as_auth_plugin().rate_limit;
+    let rules = &plugin.rate_limit;
 
     assert_eq!(rules.len(), 6);
     assert!(rules
@@ -94,7 +96,7 @@ fn oauth_provider_rate_limit_options_override_and_disable_endpoint_rules(
         },
         ..OAuthProviderOptions::default()
     })?;
-    let rules = &plugin.as_auth_plugin().rate_limit;
+    let rules = &plugin.rate_limit;
 
     assert_eq!(rules.len(), 4);
     assert!(rules
@@ -155,13 +157,14 @@ fn oauth_provider_contributes_plural_snake_case_schema() -> Result<(), Box<dyn s
 #[test]
 fn oauth_provider_mcp_protected_resource_metadata_rejects_invalid_resource_urls(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = oauth_provider(OAuthProviderOptions {
+    let options = OAuthProviderOptions {
         login_page: "/login".into(),
         consent_page: "/consent".into(),
         grant_types: vec![GrantType::ClientCredentials],
         ..OAuthProviderOptions::default()
-    })?;
-    let resolved = plugin.options.clone();
+    };
+    let plugin = oauth_provider(options.clone())?;
+    let resolved = resolve_oauth_provider_options(options)?;
     let context = create_auth_context_with_adapter(options_with_provider(plugin), adapter())?;
 
     let metadata =
@@ -278,32 +281,30 @@ fn oauth_provider_jwt_plugin_options_fill_advertised_metadata_defaults(
 ) -> Result<(), OAuthProviderConfigError> {
     use openauth_plugins::jwt::{JwkAlgorithm, JwtJwksOptions, JwtOptions};
 
-    let plugin = oauth_provider_with_jwt(
-        OAuthProviderOptions {
-            login_page: "/login".into(),
-            consent_page: "/consent".into(),
-            ..OAuthProviderOptions::default()
+    let options = OAuthProviderOptions {
+        login_page: "/login".into(),
+        consent_page: "/consent".into(),
+        ..OAuthProviderOptions::default()
+    };
+    let jwt_options = JwtOptions {
+        jwks: JwtJwksOptions {
+            remote_url: Some("https://issuer.example/.well-known/jwks.json".into()),
+            key_pair_algorithm: Some(JwkAlgorithm::Es256),
+            jwks_path: "/custom-jwks".into(),
+            ..JwtJwksOptions::default()
         },
-        JwtOptions {
-            jwks: JwtJwksOptions {
-                remote_url: Some("https://issuer.example/.well-known/jwks.json".into()),
-                key_pair_algorithm: Some(JwkAlgorithm::Es256),
-                jwks_path: "/custom-jwks".into(),
-                ..JwtJwksOptions::default()
-            },
-            ..JwtOptions::default()
-        },
-    )?;
+        ..JwtOptions::default()
+    };
+    let _plugin = oauth_provider_with_jwt(options.clone(), jwt_options.clone())?;
+    let resolved =
+        openauth_oauth_provider::resolve_oauth_provider_options_with_jwt(options, jwt_options)?;
 
     assert_eq!(
-        plugin.options.advertised_jwks_uri.as_deref(),
+        resolved.advertised_jwks_uri.as_deref(),
         Some("https://issuer.example/.well-known/jwks.json")
     );
-    assert_eq!(
-        plugin.options.advertised_id_token_signing_algorithms,
-        ["ES256"]
-    );
-    assert_eq!(plugin.options.jwks_path, "/custom-jwks");
+    assert_eq!(resolved.advertised_id_token_signing_algorithms, ["ES256"]);
+    assert_eq!(resolved.jwks_path, "/custom-jwks");
     Ok(())
 }
 

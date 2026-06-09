@@ -27,13 +27,29 @@ mod schema;
 
 pub mod errors;
 pub mod filters;
-pub mod mappings;
 pub mod metadata;
-pub mod patch;
 pub mod resources;
-pub mod store;
-pub mod token;
 pub mod validation;
+
+#[cfg(not(feature = "test-util"))]
+pub(crate) mod mappings;
+#[cfg(feature = "test-util")]
+pub mod mappings;
+
+#[cfg(not(feature = "test-util"))]
+pub(crate) mod patch;
+#[cfg(feature = "test-util")]
+pub mod patch;
+
+#[cfg(not(feature = "test-util"))]
+pub(crate) mod store;
+#[cfg(feature = "test-util")]
+pub mod store;
+
+#[cfg(not(feature = "test-util"))]
+pub(crate) mod token;
+#[cfg(feature = "test-util")]
+pub mod token;
 
 pub use audit::ScimAuditEventResolver;
 pub use options::{
@@ -53,6 +69,7 @@ pub const UPSTREAM_PLUGIN_ID: &str = "scim";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build the server-side SCIM plugin.
+#[must_use]
 pub fn scim(options: ScimOptions) -> AuthPlugin {
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID).with_version(VERSION);
 

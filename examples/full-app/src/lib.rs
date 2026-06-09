@@ -720,6 +720,7 @@ pub async fn build_app(config: ExampleConfig) -> Result<Router, ExampleError> {
 fn example_plugins(
     adapter: Arc<dyn openauth::db::DbAdapter>,
 ) -> Result<Vec<AuthPlugin>, ExampleError> {
+    use openauth::oauth_provider::{oauth_provider, McpOptions, OAuthProviderOptions};
     use openauth::passkey::{passkey, PasskeyOptions};
     use openauth::plugins::{
         admin::{admin, AdminOptions},
@@ -749,7 +750,6 @@ fn example_plugins(
     use openauth::stripe::{
         stripe, OrganizationStripeOptions, StripeClient, StripeOptions, SubscriptionOptions,
     };
-    use openauth_oauth_provider::{oauth_provider, McpOptions, OAuthProviderOptions};
     use std::future;
 
     Ok(vec![
@@ -779,8 +779,7 @@ fn example_plugins(
             mcp: Some(McpOptions::default()),
             ..OAuthProviderOptions::default()
         })
-        .map_err(|error| ExampleError::InvalidConfig(error.to_string()))?
-        .into_auth_plugin(),
+        .map_err(|error| ExampleError::InvalidConfig(error.to_string()))?,
         multi_session(),
         oauth_proxy_default(),
         one_tap(OneTapOptions::default()),

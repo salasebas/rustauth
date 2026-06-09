@@ -10,40 +10,13 @@ mod bridge;
 #[path = "saml/mod.rs"]
 mod saml_impl;
 
-pub mod assertions {
-    pub use crate::saml_impl::assertions::*;
-}
-
-pub mod authn_request {
-    pub use crate::saml_impl::authn_request::*;
-}
-
-pub mod encryption {
-    pub use crate::saml_impl::encryption::*;
-}
-
-pub mod logout {
-    pub use crate::saml_impl::logout::*;
-}
-
 pub mod metadata {
     pub use crate::saml_impl::metadata::*;
 }
 
-pub mod security {
-    pub use crate::saml_impl::security::*;
-}
-
+#[cfg(feature = "test-util")]
 pub mod signature {
     pub use crate::saml_impl::signature::*;
-}
-
-pub mod state {
-    pub use crate::saml_impl::state::*;
-}
-
-pub mod xml {
-    pub use crate::saml_impl::xml::*;
 }
 
 pub use crate::bridge::SpBuildOptions;
@@ -62,7 +35,7 @@ pub use saml_impl::{
 /// Public signature policy placeholder for future backend selection.
 pub type SamlSignaturePolicy<'a> = SamlRuntimeAlgorithmPolicy<'a>;
 /// Public parsed assertion type.
-pub type SamlAssertion = assertions::ParsedSamlAssertion;
+pub type SamlAssertion = saml_impl::assertions::ParsedSamlAssertion;
 /// Public logout state identifier type.
 pub type SamlLogoutState = String;
 /// Public SAML error type for security validation failures.

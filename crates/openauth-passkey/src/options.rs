@@ -201,7 +201,7 @@ pub struct PasskeyOptions {
     pub advanced: PasskeyAdvancedOptions,
     pub rate_limit: PasskeyRateLimit,
     pub challenge_rate_limit: PasskeyChallengeRateLimit,
-    pub backend: Arc<dyn PasskeyWebAuthnBackend>,
+    pub(crate) backend: Arc<dyn PasskeyWebAuthnBackend>,
 }
 
 impl Default for PasskeyOptions {
@@ -301,6 +301,8 @@ impl PasskeyOptions {
         self
     }
 
+    #[cfg(feature = "test-util")]
+    /// Inject a custom WebAuthn backend (test builds only).
     #[must_use]
     pub fn backend(mut self, backend: Arc<dyn PasskeyWebAuthnBackend>) -> Self {
         self.backend = backend;

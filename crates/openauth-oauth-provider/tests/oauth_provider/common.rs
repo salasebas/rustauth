@@ -13,6 +13,7 @@ pub use openauth_core::db::{
 };
 pub use openauth_core::error::OpenAuthError;
 pub use openauth_core::options::{AdvancedOptions, OpenAuthOptions, RateLimitRule};
+pub use openauth_core::plugin::AuthPlugin;
 pub use openauth_oauth_provider::mcp::{
     authorization_server_metadata as mcp_authorization_server_metadata,
     protected_resource_metadata as mcp_protected_resource_metadata, validate_bearer_token,
@@ -20,10 +21,11 @@ pub use openauth_oauth_provider::mcp::{
 };
 pub use openauth_oauth_provider::{
     delete_consent, find_consent, has_granted_scopes, oauth_provider, oauth_provider_with_jwt,
-    upsert_consent, ClientPrivilegeAction, ClientPrivilegesResolver, ClientReferenceResolver,
-    ClientSecretHashResolver, ConsentGrantInput, CustomAccessTokenClaimsResolver,
-    CustomIdTokenClaimsResolver, CustomTokenResponseFieldsResolver, CustomUserInfoClaimsResolver,
-    GrantType, McpMetadataOverrides, McpOptions, OAuthProviderConfigError, OAuthProviderOptions,
+    resolve_oauth_provider_options, upsert_consent, ClientPrivilegeAction,
+    ClientPrivilegesResolver, ClientReferenceResolver, ClientSecretHashResolver, ConsentGrantInput,
+    CustomAccessTokenClaimsResolver, CustomIdTokenClaimsResolver,
+    CustomTokenResponseFieldsResolver, CustomUserInfoClaimsResolver, GrantType,
+    McpMetadataOverrides, McpOptions, OAuthProviderConfigError, OAuthProviderOptions,
     OAuthProviderRateLimit, OAuthProviderRateLimits, OAuthTokenPrefixes, PromptRedirectResolver,
     PromptShouldRedirectResolver, RefreshTokenFormatDecodeOutput, RefreshTokenFormatter,
     RequestUriResolver, SecretStorage, StringGeneratorResolver, TokenHashResolver,
@@ -226,8 +228,7 @@ pub fn signed_oauth_query(exp: i64) -> Result<String, OpenAuthError> {
     Ok(format!("{unsigned}&sig={}", query_encode(&signature)))
 }
 
-pub fn default_provider(
-) -> Result<openauth_oauth_provider::OAuthProviderPlugin, OAuthProviderConfigError> {
+pub fn default_provider() -> Result<AuthPlugin, OAuthProviderConfigError> {
     oauth_provider(default_options())
 }
 
@@ -239,13 +240,11 @@ pub fn default_options() -> OAuthProviderOptions {
     }
 }
 
-pub fn options_with_provider(
-    plugin: openauth_oauth_provider::OAuthProviderPlugin,
-) -> OpenAuthOptions {
+pub fn options_with_provider(plugin: AuthPlugin) -> OpenAuthOptions {
     OpenAuthOptions {
         base_url: Some(BASE_URL.to_owned()),
         secret: Some(SECRET.to_owned()),
-        plugins: vec![plugin.into_auth_plugin()],
+        plugins: vec![plugin],
         advanced: AdvancedOptions {
             disable_csrf_check: true,
             disable_origin_check: true,
@@ -256,7 +255,7 @@ pub fn options_with_provider(
 }
 
 pub fn router(
-    plugin: openauth_oauth_provider::OAuthProviderPlugin,
+    plugin: AuthPlugin,
     adapter: Arc<MemoryAdapter>,
 ) -> Result<AuthRouter, OpenAuthError> {
     let context = create_auth_context_with_adapter(options_with_provider(plugin), adapter.clone())?;

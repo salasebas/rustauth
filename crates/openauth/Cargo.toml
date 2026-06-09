@@ -20,6 +20,7 @@ openauth-core = { workspace = true, features = ["default"] }
 openauth-deadpool-postgres = { workspace = true, optional = true }
 openauth-i18n = { workspace = true, optional = true }
 openauth-oidc = { workspace = true, optional = true }
+openauth-oauth-provider = { workspace = true, optional = true }
 openauth-passkey = { workspace = true, optional = true }
 openauth-plugins = { workspace = true, optional = true }
 openauth-scim = { workspace = true, optional = true }
@@ -37,6 +38,7 @@ default = []
 deadpool-postgres = ["dep:openauth-deadpool-postgres"]
 i18n = ["dep:openauth-i18n"]
 oidc = ["dep:openauth-oidc", "openauth-sso?/oidc"]
+oauth-provider = ["dep:openauth-oauth-provider"]
 passkey = ["dep:openauth-passkey"]
 plugins = ["dep:openauth-plugins"]
 scim = ["dep:openauth-scim"]

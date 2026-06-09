@@ -33,6 +33,13 @@ SP signing and decryption keys (`privateKey`, `decryptionPvk`) must be PEM
 (PKCS#1 or PKCS#8). Passphrases are supported via `spMetadata.privateKeyPass`
 and `spMetadata.encPrivateKeyPass`.
 
+## Public API
+
+Application and plugin code should use config types (`SamlConfig`, metadata
+structs), the `metadata` module, and validation helpers exported from the crate
+root. Low-level XML, signature, and encryption modules are internal; enable the
+`test-util` feature only for integration tests that need direct access.
+
 ## What It Provides
 
 - AuthnRequest generation (unsigned and signed Redirect).

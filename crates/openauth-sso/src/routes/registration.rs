@@ -349,7 +349,7 @@ async fn build_oidc_config(
             revocation_endpoint: hydrated.revocation_endpoint,
             end_session_endpoint: hydrated.end_session_endpoint,
             introspection_endpoint: hydrated.introspection_endpoint,
-            token_endpoint_authentication: Some(hydrated.token_endpoint_authentication.into()),
+            token_endpoint_authentication: Some(hydrated.token_endpoint_authentication),
             scopes: input.scopes,
             mapping: input.mapping,
             override_user_info: override_user_info || options.default_override_user_info,

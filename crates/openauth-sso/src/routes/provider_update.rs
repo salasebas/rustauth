@@ -581,7 +581,7 @@ fn saml_config_changes_trust_boundary(before: &SamlConfig, after: &SamlConfig) -
 #[cfg(test)]
 mod trust_boundary_tests {
     use super::*;
-    use openauth_core::secret::SecretString;
+    use openauth_oidc::SecretString;
 
     #[cfg(feature = "oidc")]
     fn sample_oidc_config() -> OidcConfig {

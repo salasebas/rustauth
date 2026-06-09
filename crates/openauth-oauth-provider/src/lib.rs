@@ -18,19 +18,8 @@ mod utils;
 
 pub mod mcp;
 
-pub use authorize::{decide_authorize, AuthorizeDecision};
-pub use client::{
-    check_oauth_client, oauth_to_schema, schema_to_oauth, CreateOAuthClientInput, OAuthClient,
-};
-pub use consent::{
-    delete_consent, find_consent, has_granted_scopes, upsert_consent, ConsentGrantInput,
-};
 pub use error::OAuthProviderError;
-pub use metadata::{
-    auth_server_metadata, oauth_authorization_server_metadata, oidc_server_metadata,
-    well_known_metadata_response, WELL_KNOWN_METADATA_CACHE_CONTROL,
-};
-pub use models::{OAuthAccessToken, OAuthConsent, OAuthRefreshToken, SchemaClient};
+pub use openauth_plugins::jwt::JwtOptions;
 pub use options::{
     ClientPrivilegeAction, ClientPrivilegesInput, ClientPrivilegesResolver, ClientReferenceInput,
     ClientReferenceResolver, ClientSecretHashInput, ClientSecretHashResolver,
@@ -38,17 +27,37 @@ pub use options::{
     CustomAccessTokenClaimsResolver, CustomIdTokenClaimsInput, CustomIdTokenClaimsResolver,
     CustomTokenResponseFieldsInput, CustomTokenResponseFieldsResolver, CustomUserInfoClaimsInput,
     CustomUserInfoClaimsResolver, GrantType, McpMetadataOverrides, McpOptions,
-    OAuthProviderConfigError, OAuthProviderOptions, OAuthProviderPlugin, OAuthProviderRateLimit,
+    OAuthProviderConfigError, OAuthProviderOptions, OAuthProviderRateLimit,
     OAuthProviderRateLimits, OAuthTokenPrefixes, PromptRedirectInput, PromptRedirectResolver,
     PromptShouldRedirectResolver, RefreshTokenFormatDecodeOutput, RefreshTokenFormatEncodeInput,
     RefreshTokenFormatter, RequestUriResolver, RequestUriResolverInput, ResolvedMcpOptions,
     ResolvedOAuthProviderOptions, SecretStorage, StringGeneratorResolver, TokenEndpointAuthMethod,
     TokenHashInput, TokenHashResolver, TrustedClientCache,
 };
+
+#[cfg(feature = "test-util")]
+pub use authorize::{decide_authorize, AuthorizeDecision};
+#[cfg(feature = "test-util")]
+pub use client::{
+    check_oauth_client, oauth_to_schema, schema_to_oauth, CreateOAuthClientInput, OAuthClient,
+};
+#[cfg(feature = "test-util")]
+pub use consent::{
+    delete_consent, find_consent, has_granted_scopes, upsert_consent, ConsentGrantInput,
+};
+#[cfg(feature = "test-util")]
+pub use metadata::{
+    auth_server_metadata, oauth_authorization_server_metadata, oidc_server_metadata,
+    well_known_metadata_response, WELL_KNOWN_METADATA_CACHE_CONTROL,
+};
+#[cfg(feature = "test-util")]
+pub use models::{OAuthAccessToken, OAuthConsent, OAuthRefreshToken, SchemaClient};
+#[cfg(feature = "test-util")]
 pub use schema::{
     oauth_provider_schema, OAUTH_ACCESS_TOKEN_MODEL, OAUTH_CLIENT_MODEL, OAUTH_CONSENT_MODEL,
     OAUTH_REFRESH_TOKEN_MODEL,
 };
+#[cfg(feature = "test-util")]
 pub use token::{
     create_client_credentials_token, decode_refresh_token, store_client_secret, store_token,
     verify_client_secret, TokenResponse,
@@ -66,29 +75,29 @@ use openauth_core::plugin::{AuthPlugin, PluginRateLimitRule};
 /// Current crate version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Build the OAuth provider extension with default JWT plugin options.
+/// Build the OAuth provider plugin with default JWT plugin options.
 pub fn oauth_provider(
     options: OAuthProviderOptions,
-) -> Result<OAuthProviderPlugin, OAuthProviderConfigError> {
+) -> Result<AuthPlugin, OAuthProviderConfigError> {
     build_oauth_provider(options, None)
 }
 
-/// Build the OAuth provider extension and merge the given JWT plugin configuration.
+/// Build the OAuth provider plugin and merge the given JWT plugin configuration.
 ///
 /// When [`advertised_jwks_uri`](OAuthProviderOptions::advertised_jwks_uri) and
 /// [`advertised_id_token_signing_algorithms`](OAuthProviderOptions::advertised_id_token_signing_algorithms)
 /// are unset, they are derived from `jwt_options`.
 pub fn oauth_provider_with_jwt(
     options: OAuthProviderOptions,
-    jwt_options: openauth_plugins::jwt::JwtOptions,
-) -> Result<OAuthProviderPlugin, OAuthProviderConfigError> {
+    jwt_options: JwtOptions,
+) -> Result<AuthPlugin, OAuthProviderConfigError> {
     build_oauth_provider(options, Some(jwt_options))
 }
 
 fn build_oauth_provider(
     options: OAuthProviderOptions,
-    jwt_plugin_options: Option<openauth_plugins::jwt::JwtOptions>,
-) -> Result<OAuthProviderPlugin, OAuthProviderConfigError> {
+    jwt_plugin_options: Option<JwtOptions>,
+) -> Result<AuthPlugin, OAuthProviderConfigError> {
     let mut resolved = resolve_options(options)?;
     let mut auth_plugin = AuthPlugin::new("oauth-provider").with_version(VERSION);
 
@@ -105,7 +114,7 @@ fn build_oauth_provider(
 
     let shared = Arc::new(resolved);
 
-    for contribution in oauth_provider_schema() {
+    for contribution in schema::oauth_provider_schema() {
         auth_plugin = auth_plugin.with_schema(contribution);
     }
     for endpoint in endpoints::oauth_provider_endpoints(Arc::clone(&shared)) {
@@ -115,18 +124,10 @@ fn build_oauth_provider(
         auth_plugin = auth_plugin.with_rate_limit(rule);
     }
 
-    Ok(OAuthProviderPlugin {
-        id: "oauth-provider".to_owned(),
-        version: VERSION.to_owned(),
-        options: (*shared).clone(),
-        auth_plugin,
-    })
+    Ok(auth_plugin)
 }
 
-fn apply_jwt_metadata_defaults(
-    resolved: &mut ResolvedOAuthProviderOptions,
-    jwt: &openauth_plugins::jwt::JwtOptions,
-) {
+fn apply_jwt_metadata_defaults(resolved: &mut ResolvedOAuthProviderOptions, jwt: &JwtOptions) {
     if resolved.advertised_jwks_uri.is_none() {
         resolved.advertised_jwks_uri = jwt.jwks.remote_url.clone();
     }
@@ -144,7 +145,7 @@ fn apply_jwt_metadata_defaults(
     }
 }
 
-fn resolve_options(
+pub(crate) fn resolve_options(
     options: OAuthProviderOptions,
 ) -> Result<ResolvedOAuthProviderOptions, OAuthProviderConfigError> {
     if options.login_page.is_empty() {
@@ -274,6 +275,25 @@ fn resolve_options(
         rate_limits: options.rate_limits,
         mcp,
     })
+}
+
+/// Resolve and validate OAuth provider options without building the plugin.
+pub fn resolve_oauth_provider_options(
+    options: OAuthProviderOptions,
+) -> Result<ResolvedOAuthProviderOptions, OAuthProviderConfigError> {
+    resolve_options(options)
+}
+
+/// Resolve OAuth provider options and apply JWT-derived metadata defaults.
+pub fn resolve_oauth_provider_options_with_jwt(
+    options: OAuthProviderOptions,
+    jwt_options: JwtOptions,
+) -> Result<ResolvedOAuthProviderOptions, OAuthProviderConfigError> {
+    let mut resolved = resolve_options(options)?;
+    if !resolved.disable_jwt_plugin {
+        apply_jwt_metadata_defaults(&mut resolved, &jwt_options);
+    }
+    Ok(resolved)
 }
 
 fn resolve_mcp_options(

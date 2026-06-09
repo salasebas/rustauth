@@ -14,11 +14,11 @@ openauth = { path = "../../crates/openauth", features = [
     "sso",
     "scim",
     "stripe",
+    "oauth-provider",
 ] }
 openauth-core = { workspace = true, features = ["test-utils"] }
 openauth-axum = { path = "../../crates/openauth-axum" }
 openauth-deadpool-postgres = { path = "../../crates/openauth-deadpool-postgres" }
-openauth-oauth-provider = { path = "../../crates/openauth-oauth-provider" }
 openauth-fred = { path = "../../crates/openauth-fred" }
 openauth-redis = { path = "../../crates/openauth-redis" }
 openauth-sqlx = { path = "../../crates/openauth-sqlx", features = ["mysql", "postgres", "sqlite"] }

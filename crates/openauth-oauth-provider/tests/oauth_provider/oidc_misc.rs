@@ -192,12 +192,13 @@ async fn mcp_helpers_return_metadata_challenge_and_validate_bearer_tokens(
     let adapter = adapter();
     seed_user_session(adapter.as_ref()).await?;
     let cookie = signed_session_cookie("token_1")?;
-    let plugin = oauth_provider(OAuthProviderOptions {
+    let options = OAuthProviderOptions {
         disable_jwt_plugin: true,
         allow_dynamic_client_registration: true,
         ..default_options()
-    })?;
-    let resolved = plugin.options.clone();
+    };
+    let plugin = oauth_provider(options.clone())?;
+    let resolved = resolve_oauth_provider_options(options)?;
     let router = router(plugin, Arc::clone(&adapter))?;
     let context = create_auth_context_with_adapter(
         options_with_provider(oauth_provider(OAuthProviderOptions {

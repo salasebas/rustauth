@@ -21,14 +21,27 @@ credential management endpoints to OpenAuth. It is server-side only and uses
 
 ## Quick Start
 
+Enable the `passkey` feature on the umbrella `openauth` crate (or depend on
+`openauth-passkey` directly):
+
+```toml
+[dependencies]
+openauth = { version = "0.1.1", features = ["passkey"] }
+```
+
 ```rust
 use openauth::OpenAuth;
-use openauth_passkey::{passkey, PasskeyOptions};
+use openauth::passkey::{passkey, PasskeyOptions};
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
     .base_url("https://app.example.com")
-    .plugin(passkey(PasskeyOptions::default()))
+    .plugin(
+        passkey(
+            PasskeyOptions::default()
+                .rp_id("app.example.com"),
+        ),
+    )
     .build()?;
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -37,6 +50,10 @@ let auth = OpenAuth::builder()
 For production deployments, set an explicit public `base_url`, and configure
 `rp_id`/`origin` in `PasskeyOptions` when your auth server runs behind a proxy,
 custom domain, or multi-origin setup.
+
+Integration tests that inject a fake WebAuthn backend should enable the
+`test-util` feature on this crate and call `PasskeyOptions::backend(...)`.
+Production apps use the built-in `webauthn-rs` backend by default.
 
 ## Endpoint Summary
 
