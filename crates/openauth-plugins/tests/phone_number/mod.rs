@@ -79,6 +79,39 @@ async fn send_otp_stores_code_and_invokes_sender() -> Result<(), Box<dyn std::er
 }
 
 #[tokio::test]
+async fn verify_allows_only_one_concurrent_session() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, false).await?;
+    seed_otp(&adapter, PHONE, "123456", 0, 300).await?;
+    let router = router_with_options(PhoneNumberOptions::default(), adapter.clone())?;
+
+    let body = format!(r#"{{"phoneNumber":"{PHONE}","code":"123456"}}"#);
+    let first_request = json_request(Method::POST, "/api/auth/phone-number/verify", &body, None)?;
+    let second_request = json_request(Method::POST, "/api/auth/phone-number/verify", &body, None)?;
+
+    let (first, second) = tokio::join!(
+        router.handle_async(first_request),
+        router.handle_async(second_request),
+    );
+    let first = first?;
+    let second = second?;
+    let successes = [first.status(), second.status()]
+        .into_iter()
+        .filter(|status| *status == StatusCode::OK)
+        .count();
+    assert_eq!(
+        successes,
+        1,
+        "exactly one concurrent verify may mint a session: {:?} {:?}",
+        first.status(),
+        second.status()
+    );
+    assert_eq!(adapter.len("session").await, 1);
+    assert!(find_verification(&adapter, PHONE).await?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
 async fn verify_allows_only_one_concurrent_redeem() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     seed_user_with_phone(&adapter, PHONE, false).await?;
