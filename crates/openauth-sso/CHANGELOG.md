@@ -4,6 +4,17 @@ All notable changes to `openauth-sso` are documented in this file.
 
 ## Unreleased
 
+## [0.1.0] - 2026-06-08
+
+
+
+
+### Changed
+
+- **Breaking:** SSO provider database logical names are now `snake_case`
+  (`sso_provider`, `user_id`, `oidc_config`, `provider_id`, …). HTTP JSON and
+  route contracts remain camelCase (`providerId`, `oidcConfig`, …).
+
 ### Added
 
 - Added audit event `DomainVerificationRevoked` when an update clears a

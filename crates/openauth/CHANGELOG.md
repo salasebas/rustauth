@@ -20,6 +20,14 @@ All notable changes to `openauth` are documented in this file.
 - `open_auth_async` / `OpenAuth::new_async` build without requiring the
   `telemetry` feature.
 
+## [0.1.0] - 2026-06-08
+
+### Changed
+
+- Workspace **0.1.0** release: see repository root `CHANGELOG.md` for MCP
+  unification, `snake_case` logical database schema names, and breaking plugin
+  surface changes.
+
 ## [0.0.6] - 2026-05-24
 
 ### Added

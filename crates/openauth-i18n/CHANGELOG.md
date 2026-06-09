@@ -4,6 +4,7 @@ All notable changes to `openauth-i18n` are documented in this file.
 
 ## Unreleased
 
+
 ### Added
 
 - `AsyncLocaleResolver` and `I18nOptions::get_locale_async` for Better Auth

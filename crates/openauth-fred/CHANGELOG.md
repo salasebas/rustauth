@@ -4,6 +4,7 @@ All notable changes to `openauth-fred` are documented in this file.
 
 ## [Unreleased]
 
+
 ### Added
 
 - `FredOpenAuthStores` shares one `fred` client between rate limiting and

@@ -4,6 +4,7 @@ All notable changes to `openauth-tokio-postgres` are documented in this file.
 
 ## Unreleased
 
+
 ### Fixed
 
 - Fixed standalone `TokioPostgresRateLimitStore` construction bypassing the

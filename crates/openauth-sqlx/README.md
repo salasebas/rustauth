@@ -43,7 +43,7 @@ Enable the matching crate feature for your dialect:
 
 ```toml
 [dependencies]
-openauth-sqlx = { version = "0.0.6", features = ["sqlite"] }
+openauth-sqlx = { version = "0.1.0", features = ["sqlite"] }
 ```
 
 ## Migration Notes

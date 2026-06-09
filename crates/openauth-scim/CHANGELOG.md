@@ -4,6 +4,17 @@ All notable changes to `openauth-scim` are documented in this file.
 
 ## Unreleased
 
+## [0.1.0] - 2026-06-08
+
+
+
+
+### Changed
+
+- **Breaking:** SCIM database logical names are now `snake_case`
+  (`scim_provider`, `scim_user_profile`, `scim_group_profile`, `provider_id`,
+  `user_id`, …). SCIM protocol JSON and management HTTP bodies are unchanged.
+
 ### Added
 
 - `docs/better-auth-design-differences.md` comparing OpenAuth SCIM to Better Auth 1.6.9.

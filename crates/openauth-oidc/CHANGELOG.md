@@ -4,6 +4,7 @@ All notable changes to `openauth-oidc` are documented in this file.
 
 ## Unreleased
 
+
 ### Added
 
 - Exported `REQUIRED_DISCOVERY_FIELDS` and upstream-matching discovery helpers:

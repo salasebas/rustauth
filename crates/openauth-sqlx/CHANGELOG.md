@@ -4,6 +4,7 @@ All notable changes to `openauth-sqlx` are documented in this file.
 
 ## Unreleased
 
+
 ### Fixed
 
 - Fixed rate-limit persistence so negative stored counts are rejected instead

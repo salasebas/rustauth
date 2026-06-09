@@ -1,6 +1,6 @@
 [package]
 name = "openauth-example-stripe-smoke"
-version = "0.0.6"
+version = "0.1.0"
 edition.workspace = true
 publish = false
 

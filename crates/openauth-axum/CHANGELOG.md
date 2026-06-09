@@ -4,6 +4,7 @@ All notable changes to `openauth-axum` are documented in this file.
 
 ## Unreleased
 
+
 ### Added
 
 - Added parity coverage for body-consuming Tower middleware ordered before auth

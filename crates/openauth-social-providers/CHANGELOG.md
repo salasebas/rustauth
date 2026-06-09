@@ -4,6 +4,7 @@ All notable changes to `openauth-social-providers` are documented in this file.
 
 ## Unreleased
 
+
 ### Changed
 
 - Clarified Better Auth 1.6.9 parity status: remaining provider differences are

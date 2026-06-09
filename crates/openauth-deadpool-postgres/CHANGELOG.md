@@ -4,6 +4,7 @@ All notable changes to `openauth-deadpool-postgres` are documented in this file.
 
 ## Unreleased
 
+
 ### Fixed
 
 - Reject schema migrations whose plan carries non-executable warnings before any

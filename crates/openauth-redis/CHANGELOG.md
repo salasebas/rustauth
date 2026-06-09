@@ -4,6 +4,7 @@ All notable changes to `openauth-redis` are documented in this file.
 
 ## [Unreleased]
 
+
 ### Added
 
 - `RedisOpenAuthStores` connects rate limiting and secondary storage through one

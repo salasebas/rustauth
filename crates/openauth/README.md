@@ -32,7 +32,7 @@ or migrations. Enable the matching SQLx dialect on the `openauth` crate
 
 ```toml
 [dependencies]
-openauth = { version = "0.0.6", features = ["sqlx-sqlite"] }
+openauth = { version = "0.1.0", features = ["sqlx-sqlite"] }
 ```
 
 ```rust

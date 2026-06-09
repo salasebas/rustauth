@@ -70,10 +70,10 @@ redis-rs TLS backend is compiled in through one of these crate features:
 
 ```toml
 # rustls backend (pure Rust)
-openauth-redis = { version = "0.0.6", features = ["rustls"] }
+openauth-redis = { version = "0.1.0", features = ["rustls"] }
 
 # or native-tls backend (system TLS)
-openauth-redis = { version = "0.0.6", features = ["native-tls"] }
+openauth-redis = { version = "0.1.0", features = ["native-tls"] }
 ```
 
 Without a TLS feature, opening a `rediss://` or `valkeys://` URL fails with an

@@ -4,6 +4,16 @@ All notable changes to `openauth-cli` are documented in this file.
 
 ## Unreleased
 
+## [0.1.0] - 2026-06-08
+
+
+
+
+### Removed
+
+- MCP standalone plugin schema/generator branch (MCP is configured through
+  `openauth-oauth-provider`).
+
 ### Added
 
 - CLI telemetry documentation in `README.md`: participating commands

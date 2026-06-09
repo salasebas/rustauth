@@ -4,8 +4,16 @@ All notable changes to `openauth-core` are documented in this file.
 
 ## Unreleased
 
+## [0.1.0] - 2026-06-08
+
+
+
+
 ### Changed
 
+- OpenAPI schema naming maps logical `wallet_address` tables to the
+  `WalletAddress` component and continues converting logical snake_case fields to
+  camelCase property names for documented HTTP APIs.
 - **Breaking:** `EmailPasswordOptions::default()` now sets `enabled: false`.
   Email/password routes reject requests until callers opt in with
   `.email_password(EmailPasswordOptions::new().enabled(true))`.

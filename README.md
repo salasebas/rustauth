@@ -7,9 +7,14 @@ plugins, adapters, and integrations that belong on the Rust server side.
 
 ## Status
 
-OpenAuth-RS is in experimental beta. APIs, crate boundaries, endpoint behavior,
-and storage contracts can change before a stable release. Treat it as a project
-for early adopters and contributors, not as a frozen production interface.
+OpenAuth-RS **0.1.0** is the first API-stabilization milestone before 1.0. It
+remains pre-1.0: breaking changes are still possible, but provider/plugin
+surfaces are converging on idiomatic Rust (`snake_case` database logical names,
+`camelCase` HTTP JSON except OAuth protocol fields such as RFC 8628 device
+authorization).
+
+Earlier 0.0.x releases were experimental betas. Treat 0.1.0 as suitable for early
+adopters and contributors, not as a frozen production interface.
 
 ## Basic Usage
 

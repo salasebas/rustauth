@@ -4,8 +4,28 @@ All notable changes to `openauth-plugins` are documented in this file.
 
 ## Unreleased
 
+## [0.1.0] - 2026-06-08
+
+
+
+
+### Removed
+
+- **Breaking:** Standalone MCP authorization-server plugin (`openauth_plugins::mcp`).
+  Use `openauth-oauth-provider` with `OAuthProviderOptions::mcp` instead.
+
 ### Changed
 
+- **Breaking:** Database logical schema names are now `snake_case` across plugins:
+  `two_factor`, `device_code`, `wallet_address`, and JWKS field keys (`public_key`,
+  `created_at`, …). Physical SQL column names are unchanged. `SiweSchemaOptions`
+  and `DeviceAuthorizationSchemaOptions::field_name` still accept legacy camelCase
+  logical aliases when configuring physical column overrides.
+- Plugin options **metadata** JSON (for example SIWE `schema.walletAddress`) stays
+  camelCase for Better Auth parity; only internal adapter logical names changed.
+- HTTP request/response bodies remain camelCase (`walletAddress`, `userId`, …).
+  Device authorization responses keep RFC 8628 snake_case (`device_code`,
+  `user_code`, `expires_in`).
 - Re-audited non-organization plugin parity against Better Auth 1.6.9 and
   clarified that API-key pure secondary-storage listing consistency across
   processes is an intentional storage-contract boundary covered by fallback or

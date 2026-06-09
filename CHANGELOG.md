@@ -7,7 +7,40 @@ Versioning while the API is still pre-1.0.
 
 ## Unreleased
 
+## [0.1.0] - 2026-06-08
+
+
+
+
+### Added
+
+- `openauth-oauth-provider`: optional MCP profile via `OAuthProviderOptions::mcp`
+  (`McpOptions`), protected-resource metadata at
+  `/.well-known/oauth-protected-resource`, and resource-server helpers behind
+  the `mcp-client` feature (`McpAuthClient`, introspect-based verification).
+- `docs/superpowers/plans/2026-06-08-unify-mcp-into-oauth-provider.md` and
+  `docs/superpowers/plans/2026-06-08-snake-case-logical-schema-names.md`.
+
+### Changed
+
+- **Breaking:** Removed the standalone `openauth-plugins::mcp` authorization-server
+  plugin. MCP clients must use `openauth-oauth-provider` with `mcp: Some(...)`;
+  OAuth flows use `/oauth2/*` instead of `/mcp/*`.
+- **Breaking:** Standardized plugin database **logical** table and field names to
+  idiomatic `snake_case` (singular logical tables, plural physical tables).
+  HTTP JSON request/response bodies remain **camelCase** (Better Auth parity);
+  OAuth/OIDC protocol endpoints that follow RFC snake_case (device authorization,
+  token grants) are unchanged.
+- `examples/full-app` wires `oauth_provider` with MCP instead of the removed MCP
+  plugin.
+
+### Removed
+
+- `openauth-plugins::mcp` plugin, CLI wiring, and integration tests (behavior
+  consolidated into `openauth-oauth-provider`).
+
 ### Fixed
+
 
 - `openauth-core`, `openauth-sqlx`, `openauth-tokio-postgres`,
   `openauth-deadpool-postgres`: SQL-backed standalone rate-limit stores now

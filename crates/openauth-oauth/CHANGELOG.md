@@ -4,6 +4,7 @@ All notable changes to `openauth-oauth` are documented in this file.
 
 ## Unreleased
 
+
 ### Added
 
 - Added `validate_authorization_url_invariants` for manual provider URL builders

@@ -31,7 +31,7 @@ Default features preserve HTTP transport:
 Direct consumers must opt in explicitly:
 
 ```toml
-openauth-telemetry = { version = "0.0.6", features = ["oauth"] }
+openauth-telemetry = { version = "0.1.0", features = ["oauth"] }
 ```
 
 The umbrella [`openauth`](../openauth/README.md) `telemetry` feature already

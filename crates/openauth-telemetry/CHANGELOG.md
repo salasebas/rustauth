@@ -4,6 +4,7 @@ All notable changes to `openauth-telemetry` are documented in this file.
 
 ## [Unreleased]
 
+
 ### Changed
 
 - README now documents that [`create_telemetry`](https://docs.rs/openauth-telemetry/latest/openauth_telemetry/fn.create_telemetry.html)

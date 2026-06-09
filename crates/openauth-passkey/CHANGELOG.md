@@ -4,6 +4,7 @@ All notable changes to `openauth-passkey` are documented in this file.
 
 ## [Unreleased]
 
+
 ### Added
 
 - Added `PasskeySchemaOptions` and `PasskeyOptions::schema` to customize the
