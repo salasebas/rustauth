@@ -324,7 +324,7 @@ async fn build_oidc_config(
                 revocation_endpoint: input.revocation_endpoint.as_deref(),
                 end_session_endpoint: input.end_session_endpoint.as_deref(),
                 introspection_endpoint: input.introspection_endpoint.as_deref(),
-                token_endpoint_authentication: input.token_endpoint_authentication.map(Into::into),
+                token_endpoint_authentication: input.token_endpoint_authentication,
                 ..PartialOidcDiscoveryConfig::default()
             },
             super::oidc::ssrf_aware_oidc_origin_validator(

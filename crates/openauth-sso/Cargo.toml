@@ -17,7 +17,13 @@ path = "src/lib.rs"
 [features]
 default = ["oidc"]
 oidc = ["dep:base64", "dep:reqwest"]
-saml = ["dep:base64", "dep:openauth-saml", "openauth-saml/saml-signed", "dep:x509-parser"]
+saml = [
+    "dep:base64",
+    "dep:openauth-saml",
+    "openauth-saml/saml-signed",
+    "openauth-saml/sso-internal",
+    "dep:x509-parser",
+]
 saml-signed = ["saml"]
 
 [dependencies]

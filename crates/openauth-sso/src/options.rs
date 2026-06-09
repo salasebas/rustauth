@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "saml"))]
 use std::collections::BTreeMap;
 use std::future::Future;
 use time::Duration;
@@ -6,6 +7,7 @@ use time::Duration;
 use openauth_core::db::User;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::RateLimitRule;
+#[cfg(not(feature = "saml"))]
 use openauth_core::secret::SecretString;
 
 pub use openauth_oidc::{OidcConfig, OidcMapping, TokenEndpointAuthentication};

@@ -14,9 +14,44 @@ pub mod metadata {
     pub use crate::saml_impl::metadata::*;
 }
 
+#[cfg(any(feature = "sso-internal", feature = "test-util"))]
+pub mod assertions {
+    pub use crate::saml_impl::assertions::*;
+}
+
+#[cfg(any(feature = "sso-internal", feature = "test-util"))]
+pub mod authn_request {
+    pub use crate::saml_impl::authn_request::*;
+}
+
 #[cfg(feature = "test-util")]
+pub mod encryption {
+    pub use crate::saml_impl::encryption::*;
+}
+
+#[cfg(any(feature = "sso-internal", feature = "test-util"))]
+pub mod logout {
+    pub use crate::saml_impl::logout::*;
+}
+
+#[cfg(any(feature = "sso-internal", feature = "test-util"))]
+pub mod security {
+    pub use crate::saml_impl::security::*;
+}
+
+#[cfg(any(feature = "sso-internal", feature = "test-util"))]
 pub mod signature {
     pub use crate::saml_impl::signature::*;
+}
+
+#[cfg(any(feature = "sso-internal", feature = "test-util"))]
+pub mod state {
+    pub use crate::saml_impl::state::*;
+}
+
+#[cfg(feature = "test-util")]
+pub mod xml {
+    pub use crate::saml_impl::xml::*;
 }
 
 pub use crate::bridge::SpBuildOptions;

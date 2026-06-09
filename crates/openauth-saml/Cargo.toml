@@ -17,6 +17,7 @@ path = "src/lib.rs"
 [features]
 default = []
 saml-signed = ["opensaml/crypto-bergshamra"]
+sso-internal = []
 test-util = []
 
 [dependencies]
