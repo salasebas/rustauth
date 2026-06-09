@@ -1,6 +1,131 @@
 use super::*;
 
 #[tokio::test]
+async fn groups_route_rejects_duplicate_external_id_for_same_provider() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
+    let (owner_cookie, owner_id) = session_cookie_with_user(
+        adapter.as_ref(),
+        &context,
+        "duplicate-group-owner@example.com",
+    )
+    .await
+    .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let body = r#"{"displayName":"Engineering","externalId":"eng","members":[]}"#;
+
+    for expected_status in [StatusCode::CREATED, StatusCode::CONFLICT] {
+        let response = router
+            .handle_async(json_request(
+                Method::POST,
+                "/scim/v2/Groups",
+                body,
+                Some(&token),
+            ))
+            .await
+            .expect("request should succeed");
+        assert_eq!(response.status(), expected_status);
+        if expected_status == StatusCode::CONFLICT {
+            let body = json_body(response);
+            assert_eq!(body["detail"], "Group already exists");
+            assert_eq!(body["status"], "409");
+            assert_eq!(body["scimType"], "uniqueness");
+        }
+    }
+
+    let profiles = adapter
+        .find_many(
+            openauth_core::db::FindMany::new("scimGroupProfile")
+                .where_clause(openauth_core::db::Where::new(
+                    "providerId",
+                    openauth_core::db::DbValue::String("okta".to_owned()),
+                ))
+                .where_clause(openauth_core::db::Where::new(
+                    "externalId",
+                    openauth_core::db::DbValue::String("eng".to_owned()),
+                ))
+                .select(["teamId"]),
+        )
+        .await
+        .expect("profiles should list");
+    assert_eq!(profiles.len(), 1);
+
+    let teams = adapter
+        .find_many(
+            openauth_core::db::FindMany::new("team")
+                .where_clause(openauth_core::db::Where::new(
+                    "organization_id",
+                    openauth_core::db::DbValue::String("org_1".to_owned()),
+                ))
+                .where_clause(openauth_core::db::Where::new(
+                    "name",
+                    openauth_core::db::DbValue::String("Engineering".to_owned()),
+                ))
+                .select(["id"]),
+        )
+        .await
+        .expect("teams should list");
+    assert_eq!(teams.len(), 1);
+}
+
+#[tokio::test]
+async fn groups_put_rejects_duplicate_external_id_for_same_provider() {
+    let (adapter, router, context) =
+        router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())
+            .expect("router");
+    let (owner_cookie, owner_id) = session_cookie_with_user(
+        adapter.as_ref(),
+        &context,
+        "put-duplicate-group-owner@example.com",
+    )
+    .await
+    .expect("owner session");
+    seed_organization(adapter.as_ref(), "org_1")
+        .await
+        .expect("org");
+    seed_member(adapter.as_ref(), "org_1", &owner_id, "owner")
+        .await
+        .expect("owner member");
+    let token = generate_scim_token(&router, &owner_cookie, "okta", Some("org_1")).await;
+    let _first_group_id = create_scim_group(&router, &token, "Alpha", "alpha-external", &[]).await;
+    let second_group_id = create_scim_group(&router, &token, "Beta", "beta-external", &[]).await;
+
+    let put = router
+        .handle_async(json_request(
+            Method::PUT,
+            &format!("/scim/v2/Groups/{second_group_id}"),
+            r#"{"displayName":"Beta Renamed","externalId":"alpha-external","members":[]}"#,
+            Some(&token),
+        ))
+        .await
+        .expect("request should succeed");
+    assert_eq!(put.status(), StatusCode::CONFLICT);
+    let body = json_body(put);
+    assert_eq!(body["detail"], "Group already exists");
+    assert_eq!(body["status"], "409");
+    assert_eq!(body["scimType"], "uniqueness");
+
+    let fetched = router
+        .handle_async(auth_request(
+            Method::GET,
+            &format!("/scim/v2/Groups/{second_group_id}"),
+            &token,
+        ))
+        .await
+        .expect("request should succeed");
+    let fetched = json_body(fetched);
+    assert_eq!(fetched["displayName"], "Beta");
+    assert_eq!(fetched["externalId"], "beta-external");
+}
+
+#[tokio::test]
 async fn groups_route_creates_lists_and_returns_team_backed_groups() {
     let (adapter, router, context) =
         router_with_context_and_organization(crate::scim_options_for_manual_provider_tokens())

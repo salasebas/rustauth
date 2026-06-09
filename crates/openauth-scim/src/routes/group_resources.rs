@@ -115,12 +115,77 @@ pub(super) async fn create_scim_group_profile(
     Ok(())
 }
 
+pub(super) async fn ensure_group_external_id_available(
+    adapter: &dyn DbAdapter,
+    provider_id: &str,
+    organization_id: &str,
+    external_id: &str,
+    except_team_id: Option<&str>,
+) -> Result<Option<ScimError>, OpenAuthError> {
+    let Some(team_id) =
+        find_scim_group_team_id_by_external_id(adapter, provider_id, organization_id, external_id)
+            .await?
+    else {
+        return Ok(None);
+    };
+    if except_team_id == Some(team_id.as_str()) {
+        return Ok(None);
+    }
+    Ok(Some(
+        ScimError::conflict("Group already exists").with_scim_type("uniqueness"),
+    ))
+}
+
+async fn find_scim_group_team_id_by_external_id(
+    adapter: &dyn DbAdapter,
+    provider_id: &str,
+    organization_id: &str,
+    external_id: &str,
+) -> Result<Option<String>, OpenAuthError> {
+    let Some(record) = adapter
+        .find_one(
+            FindOne::new("scimGroupProfile")
+                .where_clause(Where::new(
+                    "providerId",
+                    DbValue::String(provider_id.to_owned()),
+                ))
+                .where_clause(Where::new(
+                    "organizationId",
+                    DbValue::String(organization_id.to_owned()),
+                ))
+                .where_clause(Where::new(
+                    "externalId",
+                    DbValue::String(external_id.to_owned()),
+                ))
+                .select(["teamId"]),
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    optional_string(&record, "teamId")
+}
+
 pub(super) async fn create_group_with_profile_and_members(
     adapter: &dyn DbAdapter,
     provider_id: &str,
     organization_id: &str,
     input: ScimGroupInput,
-) -> Result<ScimTeamRecord, OpenAuthError> {
+) -> Result<ScimTeamRecord, ScimErrorOrOpenAuth> {
+    if let Some(external_id) = input.external_id.as_deref() {
+        if let Some(error) = ensure_group_external_id_available(
+            adapter,
+            provider_id,
+            organization_id,
+            external_id,
+            None,
+        )
+        .await
+        .map_err(ScimErrorOrOpenAuth::OpenAuth)?
+        {
+            return Err(ScimErrorOrOpenAuth::Scim(error));
+        }
+    }
     let provider_id = provider_id.to_owned();
     let organization_id = organization_id.to_owned();
     let member_user_ids = input
@@ -164,18 +229,21 @@ pub(super) async fn create_group_with_profile_and_members(
                 Ok(())
             })
         }))
-        .await?;
+        .await
+        .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
     let team = result
         .lock()
         .map_err(|_| {
             OpenAuthError::Adapter("create SCIM group result mutex was poisoned".to_owned())
-        })?
+        })
+        .map_err(ScimErrorOrOpenAuth::OpenAuth)?
         .take()
         .ok_or_else(|| {
             OpenAuthError::Adapter(
                 "create SCIM group transaction completed without a result".to_owned(),
             )
-        })?;
+        })
+        .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
     Ok(team)
 }
 
@@ -376,17 +444,33 @@ pub(super) async fn replace_group(
     organization_id: &str,
     group_id: &str,
     input: ScimGroupInput,
-) -> Result<(), OpenAuthError> {
+) -> Result<(), ScimErrorOrOpenAuth> {
     if input.display_name.trim().is_empty() {
-        return Err(OpenAuthError::Api("displayName is required".to_owned()));
+        return Err(ScimErrorOrOpenAuth::OpenAuth(OpenAuthError::Api(
+            "displayName is required".to_owned(),
+        )));
     }
     reject_nested_group_members(&input.members).map_err(|error| {
-        OpenAuthError::Api(
+        ScimErrorOrOpenAuth::OpenAuth(OpenAuthError::Api(
             error
                 .detail
                 .unwrap_or_else(|| "Invalid group member".to_owned()),
-        )
+        ))
     })?;
+    if let Some(external_id) = input.external_id.as_deref() {
+        if let Some(error) = ensure_group_external_id_available(
+            adapter,
+            provider_id,
+            organization_id,
+            external_id,
+            Some(group_id),
+        )
+        .await
+        .map_err(ScimErrorOrOpenAuth::OpenAuth)?
+        {
+            return Err(ScimErrorOrOpenAuth::Scim(error));
+        }
+    }
     let provider_id = provider_id.to_owned();
     let organization_id = organization_id.to_owned();
     let group_id = group_id.to_owned();
@@ -438,6 +522,8 @@ pub(super) async fn replace_group(
             })
         }))
         .await
+        .map_err(ScimErrorOrOpenAuth::OpenAuth)?;
+    Ok(())
 }
 
 pub(super) async fn upsert_scim_group_profile(

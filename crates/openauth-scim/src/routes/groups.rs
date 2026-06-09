@@ -54,13 +54,17 @@ pub(super) fn create_group_endpoint(
                     return error.into_response();
                 }
 
-                let team = create_group_with_profile_and_members(
+                let team = match create_group_with_profile_and_members(
                     adapter.as_ref(),
                     &provider.provider_id,
                     organization_id,
                     input,
                 )
-                .await?;
+                .await
+                {
+                    Ok(team) => team,
+                    Err(error) => return error.into_response(),
+                };
 
                 let resource = load_group_resource(
                     adapter.as_ref(),
@@ -276,14 +280,18 @@ pub(super) fn put_group_endpoint(
                 {
                     return error.into_response();
                 }
-                replace_group(
+                match replace_group(
                     adapter.as_ref(),
                     &provider.provider_id,
                     organization_id,
                     &group_id,
                     input,
                 )
-                .await?;
+                .await
+                {
+                    Ok(()) => {}
+                    Err(error) => return error.into_response(),
+                }
                 let resource = load_group_resource(
                     adapter.as_ref(),
                     &context.base_url,

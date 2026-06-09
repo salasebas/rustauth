@@ -26,6 +26,10 @@ All notable changes to `openauth-scim` are documented in this file.
 
 ### Fixed
 
+- Reject duplicate SCIM Group `externalId` values for the same provider and
+  organization with `409` / `uniqueness`, including `PUT /Groups` replaces that
+  would collide with another group's key, and preventing retried `POST /Groups`
+  requests from creating multiple teams for the same upstream group key.
 - Advance org-scoped SCIM User `meta.version` / ETag when SCIM-managed group
   memberships change, so cached User representations and stale `If-Match`
   preconditions reflect `groups` updates. Version bumps apply to existing

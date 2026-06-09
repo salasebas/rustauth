@@ -927,13 +927,20 @@ async fn bulk_create_group(
         let (status, body) = scim_or_openauth_value(error)?;
         return Ok((status, body, None));
     }
-    let team = create_group_with_profile_and_members(
+    let team = match create_group_with_profile_and_members(
         adapter,
         &provider.provider_id,
         organization_id,
         input,
     )
-    .await?;
+    .await
+    {
+        Ok(team) => team,
+        Err(error) => {
+            let (status, body) = scim_or_openauth_value(error)?;
+            return Ok((status, body, None));
+        }
+    };
     let resource = load_group_resource(
         adapter,
         base_url,
@@ -1119,14 +1126,21 @@ async fn bulk_replace_group(
     {
         return scim_or_openauth_value(error);
     }
-    replace_group(
+    match replace_group(
         adapter,
         &provider.provider_id,
         organization_id,
         group_id,
         input,
     )
-    .await?;
+    .await
+    {
+        Ok(()) => {}
+        Err(error) => {
+            let (status, body) = scim_or_openauth_value(error)?;
+            return Ok((status, body));
+        }
+    }
     bulk_get_group(adapter, base_url, provider, organization_id, group_id).await
 }
 
