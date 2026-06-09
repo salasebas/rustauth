@@ -67,7 +67,7 @@ async fn completes_without_subscription_id_metadata_when_client_reference_set(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -140,7 +140,7 @@ async fn checkout_completed_ignores_injected_stripe_customer_id_metadata(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -208,7 +208,7 @@ async fn no_op_when_neither_metadata_nor_reference() -> Result<(), Box<dyn std::
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

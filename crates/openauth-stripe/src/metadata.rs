@@ -50,6 +50,7 @@ impl CustomerMetadata {
         self.inner
     }
 
+    #[allow(dead_code)]
     pub fn get(metadata: &BTreeMap<String, String>) -> ExtractedCustomerMetadata {
         ExtractedCustomerMetadata {
             user_id: metadata.get(USER_ID).cloned(),
@@ -126,5 +127,61 @@ fn metadata_value_to_string(value: Value) -> Option<String> {
         Value::Number(number) => Some(number.to_string()),
         Value::Bool(value) => Some(value.to_string()),
         Value::Null | Value::Array(_) | Value::Object(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn customer_metadata_internal_fields_take_precedence() {
+        let metadata = CustomerMetadata::user("real-user")
+            .merge_user_metadata(json!({
+                "userId": "spoofed",
+                "customerType": "organization",
+                "plan": "pro"
+            }))
+            .into_map();
+
+        assert_eq!(
+            metadata.get("userId").map(String::as_str),
+            Some("real-user")
+        );
+        assert_eq!(
+            metadata.get("customerType").map(String::as_str),
+            Some("user")
+        );
+        assert_eq!(metadata.get("plan").map(String::as_str), Some("pro"));
+    }
+
+    #[test]
+    fn customer_metadata_get_extracts_internal_fields() {
+        let metadata = CustomerMetadata::user("real-user").into_map();
+        let extracted = CustomerMetadata::get(&metadata);
+        assert_eq!(extracted.user_id.as_deref(), Some("real-user"));
+        assert_eq!(extracted.customer_type.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn subscription_metadata_internal_fields_take_precedence() {
+        let metadata = SubscriptionMetadata::new("user_1", "sub_1", "ref_1")
+            .merge_user_metadata(json!({
+                "userId": "spoofed",
+                "subscriptionId": "spoofed_sub",
+                "referenceId": "spoofed_ref"
+            }))
+            .into_map();
+
+        assert_eq!(metadata.get("userId").map(String::as_str), Some("user_1"));
+        assert_eq!(
+            metadata.get("subscriptionId").map(String::as_str),
+            Some("sub_1")
+        );
+        assert_eq!(
+            metadata.get("referenceId").map(String::as_str),
+            Some("ref_1")
+        );
     }
 }

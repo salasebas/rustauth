@@ -25,10 +25,10 @@ endpoints exposed by this plugin.
 ## Quick Start
 
 ```rust
-use openauth::OpenAuth;
-use openauth_stripe::{
+use openauth::stripe::{
     stripe, StripeClient, StripeOptions, StripePlan, SubscriptionOptions,
 };
+use openauth::OpenAuth;
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
@@ -46,7 +46,7 @@ let auth = OpenAuth::builder()
                 .annual_discount_price_id("price_team_yearly")
                 .seat_price_id("price_team_seat"),
         ])),
-    ))
+    )?)
     .build()?;
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -89,10 +89,24 @@ application logs if you rely on automatic customer creation.
 ## Organization Billing
 
 ```rust
-use openauth_stripe::{OrganizationStripeOptions, StripeOptions};
+use openauth::stripe::{OrganizationStripeOptions, StripeOptions};
 
 let options = StripeOptions::new(stripe_client, webhook_secret)
     .organization(OrganizationStripeOptions::enabled());
+```
+
+Lifecycle hooks accept plain `async` closures (no `Box::pin` at the call site):
+
+```rust
+use openauth::stripe::{StripeOptions, SubscriptionOptions};
+
+let options = StripeOptions::new(stripe_client, webhook_secret).subscription(
+    SubscriptionOptions::enabled(vec![/* plans */])
+        .on_subscription_complete(|input| async move {
+            let _ = input;
+            Ok(())
+        }),
+);
 ```
 
 Organization support contributes `organization.stripeCustomerId` and uses the

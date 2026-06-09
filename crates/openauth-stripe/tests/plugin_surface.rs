@@ -13,7 +13,8 @@ fn plugin_registers_webhook_without_subscription_endpoints_when_subscription_dis
     let plugin = stripe(StripeOptions::new(
         StripeClient::new("sk_test"),
         "whsec_test",
-    ));
+    ))
+    .unwrap();
 
     let endpoints = plugin
         .endpoints
@@ -32,7 +33,8 @@ fn plugin_registers_subscription_endpoints_and_schema_when_enabled() {
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
 
     let endpoints = plugin
         .endpoints
@@ -48,80 +50,55 @@ fn plugin_registers_subscription_endpoints_and_schema_when_enabled() {
     assert!(endpoints.contains(&(Method::POST, "/subscription/billing-portal")));
     assert!(plugin.schema.iter().any(|contribution| matches!(
         contribution,
-        openauth_core::plugin::PluginSchemaContribution::Table { logical_name, .. }
+        PluginSchemaContribution::Table { logical_name, .. }
             if logical_name == "subscription"
     )));
 }
 
 #[test]
-fn public_option_builders_cover_stripe_callbacks_and_custom_params(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn public_option_builders_compile_with_async_hooks() -> Result<(), Box<dyn std::error::Error>> {
     let options = StripeOptions::new(StripeClient::new("sk_test"), "whsec_test")
-        .get_customer_create_params(|input, _| {
-            Box::pin(async move {
-                assert_eq!(input.user.id, "user_1");
-                Ok(json!({ "address": { "country": "US" } }))
-            })
+        .get_customer_create_params(|input, _| async move {
+            assert_eq!(input.user.id, "user_1");
+            Ok(json!({ "address": { "country": "US" } }))
         })
-        .on_customer_create(|input, _| {
-            Box::pin(async move {
-                assert_eq!(input.user.id, "user_1");
-                assert_eq!(input.stripe_customer["id"], "cus_123");
-                Ok(())
-            })
+        .on_customer_create(|input, _| async move {
+            assert_eq!(input.user.id, "user_1");
+            assert_eq!(input.stripe_customer["id"], "cus_123");
+            Ok(())
         })
         .subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro")
                 .price_id("price_pro")
                 .free_trial(
                     FreeTrialOptions::new(14)
-                        .on_trial_start(|_| Box::pin(async { Ok(()) }))
-                        .on_trial_end(|_, _| Box::pin(async { Ok(()) }))
-                        .on_trial_expired(|_, _| Box::pin(async { Ok(()) })),
+                        .on_trial_start(|_| async { Ok(()) })
+                        .on_trial_end(|_, _| async { Ok(()) })
+                        .on_trial_expired(|_, _| async { Ok(()) }),
                 )])
-            .get_checkout_session_params(|input, _, _| {
-                Box::pin(async move {
-                    assert_eq!(input.plan.name, "pro");
-                    Ok(json!({ "locale": "auto" }))
-                })
+            .get_checkout_session_params(|input, _, _| async move {
+                assert_eq!(input.plan.name(), "pro");
+                Ok(json!({ "locale": "auto" }))
             })
-            .on_subscription_complete(|_| Box::pin(async { Ok(()) }))
-            .on_subscription_created(|_| Box::pin(async { Ok(()) }))
-            .on_subscription_update(|_| Box::pin(async { Ok(()) }))
-            .on_subscription_cancel(|_| Box::pin(async { Ok(()) }))
-            .on_subscription_deleted(|_| Box::pin(async { Ok(()) })),
+            .on_subscription_complete(|_| async { Ok(()) })
+            .on_subscription_created(|_| async { Ok(()) })
+            .on_subscription_update(|_| async { Ok(()) })
+            .on_subscription_cancel(|_| async { Ok(()) })
+            .on_subscription_deleted(|_| async { Ok(()) }),
         )
         .organization(
             OrganizationStripeOptions::enabled()
-                .get_customer_create_params(|input, _| {
-                    Box::pin(async move {
-                        assert_eq!(input.organization["id"], "org_1");
-                        Ok(json!({ "email": "billing@example.com" }))
-                    })
+                .get_customer_create_params(|input, _| async move {
+                    assert_eq!(input.organization["id"], "org_1");
+                    Ok(json!({ "email": "billing@example.com" }))
                 })
-                .on_customer_create(|input, _| {
-                    Box::pin(async move {
-                        assert_eq!(input.stripe_customer["id"], "cus_org");
-                        Ok(())
-                    })
+                .on_customer_create(|input, _| async move {
+                    assert_eq!(input.stripe_customer["id"], "cus_org");
+                    Ok(())
                 }),
         );
 
-    assert!(options.on_customer_create.is_some());
-    assert!(options.get_customer_create_params.is_some());
-    let subscription = options
-        .subscription
-        .as_ref()
-        .ok_or_else(|| std::io::Error::other("subscription options missing"))?;
-    assert!(subscription.get_checkout_session_params.is_some());
-    assert!(subscription.on_subscription_complete.is_some());
-    assert!(subscription.plans[0].free_trial.is_some());
-    let organization = options
-        .organization
-        .as_ref()
-        .ok_or_else(|| std::io::Error::other("organization options missing"))?;
-    assert!(organization.get_customer_create_params.is_some());
-    assert!(organization.on_customer_create.is_some());
+    stripe(options)?;
     Ok(())
 }
 
@@ -147,7 +124,8 @@ fn plugin_merges_custom_schema_but_ignores_subscription_when_disabled() {
                 "externalId",
                 DbField::new("external_id", DbFieldType::String).optional(),
             )),
-    );
+    )
+    .unwrap();
 
     assert!(plugin.schema.iter().any(|contribution| matches!(
         contribution,
@@ -188,7 +166,8 @@ fn plugin_merges_custom_subscription_table_when_enabled() {
                     order: Some(99),
                 },
             )),
-    );
+    )
+    .unwrap();
 
     let subscription_tables = plugin
         .schema
@@ -231,5 +210,20 @@ fn subscription_options_accept_dynamic_plan_provider() {
         })
     });
 
-    assert!(options.enabled);
+    let plugin = stripe(
+        StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(options),
+    )
+    .unwrap();
+
+    assert!(plugin
+        .endpoints
+        .iter()
+        .any(|endpoint| endpoint.path == "/subscription/upgrade"));
+}
+
+#[test]
+fn stripe_rejects_empty_webhook_secret() {
+    let error = stripe(StripeOptions::new(StripeClient::new("sk_test"), "")).unwrap_err();
+
+    assert_eq!(error.to_string(), "stripe_webhook_secret must not be empty");
 }

@@ -8,7 +8,8 @@ async fn subscription_upgrade_rejects_unauthenticated_requests(
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -34,7 +35,7 @@ async fn subscription_upgrade_rejects_unauthenticated_requests(
 async fn subscription_upgrade_creates_local_subscription_and_checkout_session(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -101,7 +102,7 @@ async fn subscription_upgrade_creates_local_subscription_and_checkout_session(
 async fn subscription_upgrade_rejects_other_reference_without_authorizer(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(transport));
+    let plugin = stripe(stripe_options(transport)).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -138,7 +139,7 @@ async fn subscription_upgrade_requires_verified_email_when_configured(
         SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")])
             .require_email_verification(true),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -172,7 +173,7 @@ async fn subscription_upgrade_maps_dynamic_plan_provider_failure(
     .subscription(SubscriptionOptions::enabled_dynamic(|| {
         Box::pin(async { Err::<Vec<StripePlan>, _>(OpenAuthError::Api("plans failed".to_owned())) })
     }));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -198,7 +199,7 @@ async fn subscription_upgrade_maps_dynamic_plan_provider_failure(
 async fn subscription_upgrade_rejects_same_active_plan_and_interval(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -229,7 +230,7 @@ async fn subscription_upgrade_rejects_same_active_plan_and_interval(
 async fn subscription_upgrade_creates_checkout_when_local_active_has_no_stripe_subscription(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -278,7 +279,7 @@ async fn subscription_upgrade_creates_checkout_when_local_active_has_no_stripe_s
 async fn subscription_upgrade_rejects_cross_reference_subscription_id_before_stripe(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -320,7 +321,7 @@ async fn subscription_upgrade_allows_monthly_to_annual_same_plan(
     .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("pro")
         .price_id("price_pro_monthly")
         .annual_discount_price_id("price_pro_yearly")]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -361,7 +362,7 @@ async fn subscription_upgrade_allows_monthly_to_annual_same_plan(
 async fn subscription_upgrade_uses_requested_seats_for_licensed_price(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -408,7 +409,7 @@ async fn subscription_upgrade_omits_quantity_for_metered_base_price(
         "metered",
     )
     .price_id("price_metered")]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -455,7 +456,7 @@ async fn subscription_upgrade_adds_seat_price_line_item() -> Result<(), Box<dyn 
     .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("team")
         .price_id("price_team_base")
         .seat_price_id("price_team_seat")]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -516,7 +517,7 @@ async fn subscription_upgrade_for_organization_uses_member_count_for_seat_quanti
             })
         }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -603,7 +604,7 @@ async fn subscription_upgrade_for_organization_seat_only_plan_does_not_duplicate
             })
         }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -670,7 +671,8 @@ async fn subscription_upgrade_allows_other_reference_with_authorizer(
     let transport = Arc::new(CaptureTransport::default());
     let plugin = stripe(stripe_options_with_authorized_references(Arc::clone(
         &transport,
-    )));
+    )))
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -732,7 +734,7 @@ async fn subscription_upgrade_for_organization_uses_organization_customer(
                 })
             }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -811,7 +813,7 @@ async fn subscription_upgrade_for_organization_returns_not_found_without_stripe_
                 })
             }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -841,7 +843,7 @@ async fn subscription_upgrade_for_organization_returns_not_found_without_stripe_
 async fn subscription_upgrade_forwards_metadata_without_overriding_internal_fields(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -898,7 +900,7 @@ async fn subscription_upgrade_uses_lookup_key_locale_trial_success_wrapper_and_c
         .get_checkout_session_params(|input, _, context| {
             assert_eq!(context.base_url, "http://localhost:3000");
             Box::pin(async move {
-                assert_eq!(input.plan.name, "pro");
+                assert_eq!(input.plan.name(), "pro");
                 assert_eq!(input.subscription.reference_id, "user_1");
                 Ok(json!({
                     "allow_promotion_codes": true,
@@ -917,7 +919,7 @@ async fn subscription_upgrade_uses_lookup_key_locale_trial_success_wrapper_and_c
             })
         }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -995,7 +997,7 @@ async fn subscription_upgrade_resolves_dynamic_plan_provider(
     .subscription(SubscriptionOptions::enabled_dynamic(|| {
         Box::pin(async { Ok(vec![StripePlan::new("pro").price_id("price_pro")]) })
     }));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1036,7 +1038,7 @@ async fn subscription_upgrade_skips_free_trial_after_reference_has_trialed(
     .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("pro")
         .price_id("price_pro")
         .free_trial(FreeTrialOptions::new(14))]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

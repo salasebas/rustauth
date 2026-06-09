@@ -6,6 +6,9 @@ All notable changes to `openauth` are documented in this file.
 
 ### Changed
 
+- **Breaking:** `stripe` / `i18n` / `telemetry` feature re-exports are namespaced
+  (`openauth::stripe`, `openauth::i18n`, `openauth::telemetry`) instead of flat
+  root symbols for telemetry. See crate changelogs for plugin-specific breaks.
 - **Breaking:** Email/password authentication is disabled by default. Enable it
   with `OpenAuthBuilder::email_password(EmailPasswordOptions::new().enabled(true))`.
   `EmailPasswordOptions` is now re-exported from the `openauth` crate.

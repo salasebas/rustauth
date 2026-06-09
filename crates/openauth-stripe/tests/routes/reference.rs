@@ -38,7 +38,7 @@ async fn reference_user_upgrade_rejects_when_authorizer_denies(
         SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")])
             .authorize_reference(|_input, _| Box::pin(async { Ok(false) })),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/upgrade").ok_or("upgrade endpoint")?;
     let (context, _adapter, cookie_header) = authenticated_context().await?;
     let request = upgrade_request(
@@ -70,7 +70,7 @@ async fn reference_org_upgrade_requires_authorize_reference(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/upgrade").ok_or("upgrade endpoint")?;
     let (context, _adapter, cookie_header) = authenticated_context().await?;
     let request = upgrade_request(
@@ -93,7 +93,8 @@ async fn reference_org_upgrade_requires_reference_id() -> Result<(), Box<dyn std
     let plugin = stripe(organization_stripe_options(
         Arc::clone(&transport) as Arc<dyn StripeTransport>,
         true,
-    ));
+    ))
+    .unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/upgrade").ok_or("upgrade endpoint")?;
     let (context, _adapter, cookie_header) = authenticated_context().await?;
     let request = upgrade_request(
@@ -117,7 +118,8 @@ async fn reference_org_upgrade_rejects_when_authorizer_denies(
     let plugin = stripe(organization_stripe_options(
         Arc::clone(&transport) as Arc<dyn StripeTransport>,
         false,
-    ));
+    ))
+    .unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/upgrade").ok_or("upgrade endpoint")?;
     let (context, adapter, cookie_header) = authenticated_context().await?;
     adapter
@@ -163,7 +165,7 @@ async fn reference_org_cancel_passes_when_authorizer_allows(
                 })
             }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/cancel").ok_or("cancel endpoint")?;
     let (context, adapter, cookie_header) = authenticated_context().await?;
     create_subscription_record(&adapter, "sub_org", "org_1", "active", Some("cus_org")).await?;

@@ -166,7 +166,8 @@ async fn stripe_active_subscription_blocks_organization_delete_without_local_row
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -215,7 +216,8 @@ async fn active_subscription_blocks_organization_delete() -> Result<(), Box<dyn 
             .subscription(SubscriptionOptions::enabled(vec![
                 StripePlan::new("pro").price_id("price_pro")
             ])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -269,7 +271,8 @@ async fn organization_delete_allowed_without_active_subscription(
             .subscription(SubscriptionOptions::enabled(vec![
                 StripePlan::new("pro").price_id("price_pro")
             ])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -317,7 +320,8 @@ async fn active_subscription_blocks_bulk_organization_delete(
             .subscription(SubscriptionOptions::enabled(vec![
                 StripePlan::new("pro").price_id("price_pro")
             ])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -385,7 +389,8 @@ async fn organization_name_update_syncs_stripe_customer() -> Result<(), Box<dyn 
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -440,7 +445,8 @@ async fn member_create_syncs_organization_subscription_seats(
             .price_id("price_team")
             .seat_price_id("price_team_seat")
             .proration_behavior("always_invoice")])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -531,7 +537,8 @@ async fn member_create_persists_synced_organization_subscription_seats(
         .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("team")
             .price_id("price_team")
             .seat_price_id("price_team_seat")])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -611,7 +618,8 @@ async fn member_create_adds_missing_stripe_seat_item() -> Result<(), Box<dyn std
         .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("team")
             .price_id("price_team")
             .seat_price_id("price_team_seat")])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -703,7 +711,8 @@ async fn member_delete_syncs_organization_subscription_seats(
         .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("team")
             .price_id("price_team")
             .seat_price_id("price_team_seat")])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -786,7 +795,8 @@ async fn invitation_acceptance_syncs_organization_subscription_seats(
         .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("team")
             .price_id("price_team")
             .seat_price_id("price_team_seat")])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -930,7 +940,8 @@ async fn last_member_delete_clamps_organization_seats_to_one(
         .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("team")
             .price_id("price_team")
             .seat_price_id("price_team_seat")])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
@@ -1017,7 +1028,8 @@ async fn bulk_member_delete_syncs_each_organization_once() -> Result<(), Box<dyn
         .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("team")
             .price_id("price_team")
             .seat_price_id("price_team_seat")])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {

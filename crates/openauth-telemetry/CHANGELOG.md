@@ -4,6 +4,13 @@ All notable changes to `openauth-telemetry` are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `get_telemetry_auth_config`, `TelemetryTestHooks`, `DetectionInfo`,
+  and `RuntimeInfo` are `#[doc(hidden)]` (still available for integration tests).
+- Umbrella `openauth` feature `telemetry` now re-exports through `openauth::telemetry`
+  instead of flattening symbols at the crate root.
+
 ## [0.1.1] - 2026-06-09
 
 ### Fixed

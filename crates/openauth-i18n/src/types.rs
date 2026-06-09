@@ -98,6 +98,7 @@ where
 }
 
 /// Options for [`crate::i18n`].
+#[non_exhaustive]
 #[derive(Clone)]
 pub struct I18nOptions {
     /// Translation dictionaries keyed by locale code (insertion order matters when picking a fallback locale).
@@ -118,33 +119,10 @@ pub struct I18nOptions {
     pub resolve_user_locale: Option<LocaleResolver>,
 }
 
-impl I18nOptions {
-    /// Build options with the given translation tables; other fields use defaults matching Better Auth.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use indexmap::IndexMap;
-    /// use openauth_i18n::{
-    ///     translation_dictionary, I18nOptions, LocaleDetectionStrategy,
-    /// };
-    ///
-    /// let mut translations = IndexMap::new();
-    /// translations.insert(
-    ///     "fr".to_owned(),
-    ///     translation_dictionary([("INVALID_EMAIL", "Email invalide")]),
-    /// );
-    ///
-    /// let options = I18nOptions::new(translations)
-    ///     .default_locale("fr")
-    ///     .detection([LocaleDetectionStrategy::Cookie, LocaleDetectionStrategy::Header])
-    ///     .locale_cookie("lang");
-    ///
-    /// assert_eq!(options.default_locale.as_deref(), Some("fr"));
-    /// ```
-    pub fn new(translations: IndexMap<String, TranslationDictionary>) -> Self {
+impl Default for I18nOptions {
+    fn default() -> Self {
         Self {
-            translations,
+            translations: IndexMap::new(),
             default_locale: None,
             detection: vec![LocaleDetectionStrategy::Header],
             locale_cookie: "locale".to_owned(),
@@ -152,6 +130,49 @@ impl I18nOptions {
             get_locale: None,
             get_locale_async: None,
             resolve_user_locale: None,
+        }
+    }
+}
+
+impl I18nOptions {
+    /// Build options with defaults matching Better Auth; add locales via [`.locale`](Self::locale).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use openauth_i18n::{
+    ///     translation_dictionary, I18nOptions, LocaleDetectionStrategy,
+    /// };
+    ///
+    /// let options = I18nOptions::new()
+    ///     .locale("fr", [("INVALID_EMAIL", "Email invalide")])
+    ///     .default_locale("fr")
+    ///     .detection([LocaleDetectionStrategy::Cookie, LocaleDetectionStrategy::Header])
+    ///     .locale_cookie("lang");
+    ///
+    /// assert_eq!(options.default_locale.as_deref(), Some("fr"));
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add or replace a locale dictionary.
+    pub fn locale<K, V, I>(mut self, code: impl Into<String>, entries: I) -> Self
+    where
+        K: TranslationKey,
+        V: Into<String>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        self.translations
+            .insert(code.into(), translation_dictionary(entries));
+        self
+    }
+
+    /// Build options from a pre-built locale map (used by migrations and tests).
+    pub fn from_translations(translations: IndexMap<String, TranslationDictionary>) -> Self {
+        Self {
+            translations,
+            ..Self::default()
         }
     }
 

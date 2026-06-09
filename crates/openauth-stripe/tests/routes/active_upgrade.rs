@@ -447,7 +447,7 @@ async fn subscription_upgrade_uses_billing_portal_for_simple_active_plan_change(
         StripePlan::new("starter").price_id("price_starter"),
         StripePlan::new("pro").price_id("price_pro"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -546,7 +546,7 @@ async fn subscription_upgrade_org_seat_plan_portal_omits_item_quantity(
             .seat_price_id("price_team_seat")])
         .authorize_reference(|input, _| Box::pin(async move { Ok(input.reference_id == "org_1") })),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -628,7 +628,7 @@ async fn subscription_upgrade_maps_billing_portal_failure_to_plugin_error(
         StripePlan::new("starter").price_id("price_starter"),
         StripePlan::new("pro").price_id("price_pro"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -674,7 +674,7 @@ async fn subscription_upgrade_uses_direct_update_for_line_item_changes(
             .line_item(json!({ "price": "price_pro_events" }))
             .proration_behavior("always_invoice"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -743,7 +743,7 @@ async fn subscription_upgrade_allows_same_local_plan_when_stripe_price_differs(
         StripePlan::new("starter").price_id("price_starter"),
         StripePlan::new("pro").price_id("price_pro"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -796,7 +796,7 @@ async fn subscription_upgrade_allows_same_plan_when_local_period_has_expired(
         "starter",
     )
     .price_id("price_starter")]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -856,7 +856,7 @@ async fn subscription_upgrade_schedules_period_end_change_and_stores_schedule_id
             .price_id("price_pro")
             .line_item(json!({ "price": "price_pro_events" })),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -945,7 +945,7 @@ async fn subscription_upgrade_releases_orphan_schedule_when_period_end_update_fa
             .price_id("price_pro")
             .line_item(json!({ "price": "price_pro_events" })),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1006,7 +1006,7 @@ async fn subscription_upgrade_persists_schedule_id_when_period_end_cleanup_relea
             .price_id("price_pro")
             .line_item(json!({ "price": "price_pro_events" })),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1056,7 +1056,7 @@ async fn subscription_upgrade_omits_quantity_for_metered_price_in_scheduled_phas
         StripePlan::new("starter").price_id("price_starter"),
         StripePlan::new("metered").price_id("price_metered_scheduled"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1111,7 +1111,7 @@ async fn subscription_upgrade_preserves_duplicate_line_item_multiset_delta(
             .price_id("price_pro")
             .line_item(json!({ "price": "price_events" })),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1147,7 +1147,7 @@ async fn subscription_upgrade_does_not_add_destination_line_item_already_present
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(StaleDestinationLineItemTransport::default());
     let options = asymmetric_line_item_options(Arc::clone(&transport) as Arc<dyn StripeTransport>);
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1192,7 +1192,7 @@ async fn subscription_upgrade_does_not_duplicate_destination_line_item_in_schedu
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(StaleDestinationLineItemTransport::default());
     let options = asymmetric_line_item_options(Arc::clone(&transport) as Arc<dyn StripeTransport>);
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1250,7 +1250,7 @@ async fn subscription_upgrade_releases_existing_plugin_schedule_before_immediate
         StripePlan::new("starter").price_id("price_starter"),
         StripePlan::new("pro").price_id("price_pro"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1318,7 +1318,7 @@ async fn subscription_upgrade_does_not_release_external_schedule_before_immediat
         StripePlan::new("starter").price_id("price_starter"),
         StripePlan::new("pro").price_id("price_pro"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1381,7 +1381,7 @@ async fn subscription_upgrade_swaps_seat_item_without_duplicating_base_price(
             .price_id("price_pro")
             .seat_price_id("price_pro_seats"),
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1449,7 +1449,7 @@ async fn subscription_upgrade_allows_same_plan_seat_count_change(
     )
     .price_id("price_starter")
     .seat_price_id("price_starter_seats")]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

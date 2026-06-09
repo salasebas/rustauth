@@ -100,10 +100,7 @@ async fn checkout_completed_hooks_run_without_failing_webhook(
                             .map(|sub| sub.id.as_str()),
                         Some("stripe_sub_complete")
                     );
-                    assert_eq!(
-                        input.plan.as_ref().map(|plan| plan.name.as_str()),
-                        Some("pro")
-                    );
+                    assert_eq!(input.plan.as_ref().map(|plan| plan.name()), Some("pro"));
                     complete_calls.fetch_add(1, Ordering::SeqCst);
                     Err(openauth_core::error::OpenAuthError::Api(
                         "complete hook failed".to_owned(),
@@ -111,7 +108,8 @@ async fn checkout_completed_hooks_run_without_failing_webhook(
                 })
             }),
         ),
-    );
+    )
+    .unwrap();
     let (context, adapter) = context_with_user_customer(plugin).await?;
     create_local_subscription(&adapter, "sub_local", "stripe_sub_complete", "incomplete").await?;
     let endpoint = stripe_webhook_endpoint(&context)?;
@@ -149,10 +147,7 @@ async fn subscription_created_hook_runs_without_failing_webhook(
                                 .map(|sub| sub.id.as_str()),
                             Some("stripe_sub_created")
                         );
-                        assert_eq!(
-                            input.plan.as_ref().map(|plan| plan.name.as_str()),
-                            Some("pro")
-                        );
+                        assert_eq!(input.plan.as_ref().map(|plan| plan.name()), Some("pro"));
                         hook_calls.fetch_add(1, Ordering::SeqCst);
                         Err(openauth_core::error::OpenAuthError::Api(
                             "hook failed".to_owned(),
@@ -160,7 +155,8 @@ async fn subscription_created_hook_runs_without_failing_webhook(
                     })
                 }),
         ),
-    );
+    )
+    .unwrap();
     let (context, adapter) = context_with_user_customer(plugin).await?;
     let endpoint = stripe_webhook_endpoint(&context)?;
     let payload = br#"{"id":"evt_created","type":"customer.subscription.created","data":{"object":{"id":"stripe_sub_created","customer":"cus_123","status":"trialing","metadata":{},"cancel_at_period_end":false,"trial_start":1700000000,"trial_end":1700604800,"items":{"data":[{"id":"si_created","price":{"id":"price_pro","recurring":{"interval":"month","usage_type":"licensed"}},"quantity":3,"current_period_start":1700000000,"current_period_end":1702592000}]}}}}"#;
@@ -206,7 +202,8 @@ async fn subscription_deleted_hook_runs_without_failing_webhook(
                     })
                 }),
         ),
-    );
+    )
+    .unwrap();
     let (context, adapter) = context_with_user_customer(plugin).await?;
     create_local_subscription(&adapter, "sub_local", "stripe_sub_deleted", "active").await?;
     let endpoint = stripe_webhook_endpoint(&context)?;
@@ -244,7 +241,8 @@ async fn subscription_cancel_hook_runs_only_for_new_pending_cancel(
                     })
                 }),
         ),
-    );
+    )
+    .unwrap();
     let (context, adapter) = context_with_user_customer(plugin).await?;
     create_local_subscription(&adapter, "sub_local", "stripe_sub_cancel", "active").await?;
     let endpoint = stripe_webhook_endpoint(&context)?;
@@ -291,7 +289,8 @@ async fn trial_transition_hooks_run_for_trial_end_and_expiration(
                         }),
                 )]),
         ),
-    );
+    )
+    .unwrap();
     let (context, adapter) = context_with_user_customer(plugin).await?;
     create_local_subscription(&adapter, "sub_local", "stripe_sub_trial", "trialing").await?;
     let endpoint = stripe_webhook_endpoint(&context)?;

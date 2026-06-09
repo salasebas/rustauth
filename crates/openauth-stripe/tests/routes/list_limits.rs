@@ -17,7 +17,7 @@ async fn list_includes_nested_limits_object() -> Result<(), Box<dyn std::error::
         .price_id("price_pro")
         .group("teams")
         .limits(json!({ "projects": 10, "nested": { "rate": 5 } }))]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

@@ -365,7 +365,8 @@ async fn upgrade_creates_and_persists_user_customer_before_checkout(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -457,7 +458,8 @@ async fn customer_create_params_merge_safely_and_call_hook(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -618,7 +620,8 @@ async fn linked_existing_customer_invokes_customer_create_hook(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -728,7 +731,8 @@ async fn upgrade_maps_customer_create_params_failure_to_plugin_error(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -770,7 +774,7 @@ async fn upgrade_creates_and_persists_organization_customer_before_checkout(
                     })
                 }),
         ),
-    );
+    ).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -853,7 +857,8 @@ async fn organization_upgrade_maps_customer_create_failure_to_plugin_error(
                     Box::pin(async move { Ok(input.reference_id == "org_1") })
                 }),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -907,7 +912,8 @@ async fn organization_upgrade_maps_customer_create_params_failure_to_plugin_erro
                     Box::pin(async move { Ok(input.reference_id == "org_1") })
                 }),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -958,7 +964,8 @@ async fn signup_and_upgrade_call_customers_create_only_once(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
     let context = create_auth_context_with_adapter(
@@ -1034,7 +1041,8 @@ async fn subscription_upgrade_checkout_error_returns_stripe_code(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1066,7 +1074,8 @@ async fn create_customer_on_sign_up_creates_and_links_user_customer(
             "whsec_test",
         )
         .create_customer_on_sign_up(true),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
     let context = create_auth_context_with_adapter(
@@ -1121,7 +1130,7 @@ async fn organization_upgrade_falls_back_to_paginated_customer_list(
                     })
                 }),
         ),
-    );
+    ).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1191,7 +1200,8 @@ async fn create_customer_on_sign_up_reuses_list_fallback_customer(
             "whsec_test",
         )
         .create_customer_on_sign_up(true),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
     let context = create_auth_context_with_adapter(
@@ -1233,7 +1243,8 @@ async fn user_email_update_syncs_existing_stripe_customer() -> Result<(), Box<dy
     let plugin = stripe(StripeOptions::new(
         StripeClient::with_transport("sk_test", client_transport),
         "whsec_test",
-    ));
+    ))
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let adapter_arc: Arc<dyn DbAdapter> = Arc::new(adapter.clone());
     let context = create_auth_context_with_adapter(
@@ -1289,7 +1300,8 @@ async fn upgrade_with_transport(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

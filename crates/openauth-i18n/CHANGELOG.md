@@ -4,6 +4,14 @@ All notable changes to `openauth-i18n` are documented in this file.
 
 ## Unreleased
 
+## [0.1.1] - 2026-06-09
+
+### Changed
+
+- **Breaking:** `I18nOptions::new()` takes no arguments; add locales with
+  `.locale(code, entries)` or `I18nOptions::from_translations(map)` for
+  existing `IndexMap` tables.
+- `I18nOptions` is `#[non_exhaustive]`.
 
 ### Added
 

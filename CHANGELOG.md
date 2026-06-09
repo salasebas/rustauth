@@ -7,6 +7,14 @@ Versioning while the API is still pre-1.0.
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** public API cleanup for plugin crates on the 0.1.1 line:
+  `openauth-stripe` (`stripe()` is fallible, narrower public surface),
+  `openauth-i18n` (`I18nOptions::new()` + `.locale()`), and
+  `openauth-telemetry` / umbrella `openauth` (namespaced `openauth::telemetry`
+  re-exports). See per-crate `CHANGELOG.md` files for migration detail.
+
 ## [0.1.1] - 2026-06-09
 
 ### Added

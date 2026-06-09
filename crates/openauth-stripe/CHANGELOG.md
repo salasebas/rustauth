@@ -4,6 +4,21 @@ All notable changes to `openauth-stripe` are documented in this file.
 
 ## Unreleased
 
+## [0.1.1] - 2026-06-09
+
+### Changed
+
+- **Breaking:** `stripe()` returns `Result<AuthPlugin, StripeConfigError>` and
+  rejects an empty `stripe_webhook_secret` at plugin construction time.
+- **Breaking:** removed `stripe_with_options`; use `stripe` only.
+- **Breaking:** privatized internal modules (`routes`, `customers`, `hooks`,
+  `schema`, `metadata`, `utils`, …). Public integration surface is
+  `stripe()`, `StripeOptions`, hook input types, `StripeClient`, and
+  `stripe_api`.
+- **Breaking:** option structs are `#[non_exhaustive]` with `pub(crate)` fields;
+  configure through builder methods. Hook setters accept plain `async` closures.
+- **Breaking:** removed public `Arc<dyn Fn>` hook type aliases.
+
 ## [0.1.0] - 2026-06-08
 
 

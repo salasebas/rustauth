@@ -223,7 +223,7 @@ async fn restore_subscription_releases_active_schedule_and_clears_local_schedule
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -283,7 +283,7 @@ async fn cancel_subscription_syncs_pending_cancel_when_portal_says_already_cance
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -342,7 +342,7 @@ async fn cancel_subscription_preserves_local_subscriptions_when_stripe_has_no_ac
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -438,7 +438,7 @@ async fn cancel_subscription_preserves_trial_history_for_upgrade_guard(
     .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("pro")
         .price_id("price_pro")
         .free_trial(openauth_stripe::options::FreeTrialOptions::new(7))]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let cancel_endpoint = plugin
         .endpoints
         .iter()
@@ -525,7 +525,7 @@ async fn restore_subscription_skips_release_for_inactive_schedule(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -585,7 +585,7 @@ async fn restore_subscription_rejects_without_pending_cancel_or_schedule(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -639,7 +639,7 @@ async fn billing_portal_maps_stripe_failure_to_plugin_error(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -698,7 +698,7 @@ async fn billing_portal_for_organization_uses_organization_customer(
                 })
             }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -769,7 +769,7 @@ async fn cancel_subscription_rejects_organization_customer_type_when_org_disable
                 })
             }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -830,7 +830,7 @@ async fn list_subscription_rejects_organization_customer_type_when_org_disabled(
                 })
             }),
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -862,7 +862,7 @@ async fn list_subscription_for_organization_uses_active_organization_reference(
         Arc::clone(&transport) as Arc<dyn StripeTransport>,
         openauth_stripe::options::AuthorizeReferenceAction::ListSubscription,
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -897,7 +897,7 @@ async fn cancel_subscription_for_organization_uses_org_subscription_customer(
         Arc::clone(&transport) as Arc<dyn StripeTransport>,
         openauth_stripe::options::AuthorizeReferenceAction::CancelSubscription,
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1019,7 +1019,7 @@ async fn restore_subscription_clears_cancel_at_timestamp() -> Result<(), Box<dyn
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1090,7 +1090,7 @@ async fn restore_subscription_for_organization_clears_pending_cancel(
         Arc::clone(&transport) as Arc<dyn StripeTransport>,
         openauth_stripe::options::AuthorizeReferenceAction::RestoreSubscription,
     );
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

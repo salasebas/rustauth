@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use openauth_core::api::ApiRequest;
@@ -11,25 +12,26 @@ use serde_json::json;
 use crate::models::{StripeEvent, StripeSubscription, Subscription};
 use crate::stripe_api::StripeClient;
 
+#[non_exhaustive]
 #[derive(Clone)]
 pub struct StripeOptions {
-    pub stripe_client: StripeClient,
-    pub stripe_webhook_secret: String,
-    pub create_customer_on_sign_up: bool,
-    pub subscription: Option<SubscriptionOptions>,
-    pub organization: Option<OrganizationStripeOptions>,
-    pub on_event: Option<StripeEventHook>,
-    pub on_customer_create: Option<CustomerCreateHook>,
-    pub get_customer_create_params: Option<GetCustomerCreateParamsHook>,
-    pub schema: Vec<PluginSchemaContribution>,
+    pub(crate) stripe_client: StripeClient,
+    pub(crate) stripe_webhook_secret: String,
+    pub(crate) create_customer_on_sign_up: bool,
+    pub(crate) subscription: Option<SubscriptionOptions>,
+    pub(crate) organization: Option<OrganizationStripeOptions>,
+    pub(crate) on_event: Option<StripeEventHook>,
+    pub(crate) on_customer_create: Option<CustomerCreateHook>,
+    pub(crate) get_customer_create_params: Option<GetCustomerCreateParamsHook>,
+    pub(crate) schema: Vec<PluginSchemaContribution>,
 }
 
-pub type StripeEventHook = Arc<
+type StripeEventHook = Arc<
     dyn Fn(StripeEvent) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
         + Send
         + Sync,
 >;
-pub type CustomerCreateHook = Arc<
+type CustomerCreateHook = Arc<
     dyn Fn(
             CustomerCreateInput,
             CustomerCreateContext,
@@ -37,7 +39,7 @@ pub type CustomerCreateHook = Arc<
         + Send
         + Sync,
 >;
-pub type GetCustomerCreateParamsHook = Arc<
+type GetCustomerCreateParamsHook = Arc<
     dyn Fn(
             CustomerCreateParamsInput,
             CustomerCreateContext,
@@ -128,43 +130,31 @@ impl StripeOptions {
         self
     }
 
-    pub fn on_event<F>(mut self, hook: F) -> Self
+    pub fn on_event<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(StripeEvent) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(StripeEvent) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_event = Some(Arc::new(hook));
+        self.on_event = Some(Arc::new(move |event| Box::pin(hook(event))));
         self
     }
 
-    pub fn on_customer_create<F>(mut self, hook: F) -> Self
+    pub fn on_customer_create<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                CustomerCreateInput,
-                CustomerCreateContext,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(CustomerCreateInput, CustomerCreateContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_customer_create = Some(Arc::new(hook));
+        self.on_customer_create = Some(Arc::new(move |input, ctx| Box::pin(hook(input, ctx))));
         self
     }
 
-    pub fn get_customer_create_params<F>(mut self, hook: F) -> Self
+    pub fn get_customer_create_params<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                CustomerCreateParamsInput,
-                CustomerCreateContext,
-            )
-                -> crate::stripe_api::BoxFuture<'static, Result<serde_json::Value, OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(CustomerCreateParamsInput, CustomerCreateContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<serde_json::Value, OpenAuthError>> + Send + 'static,
     {
-        self.get_customer_create_params = Some(Arc::new(hook));
+        self.get_customer_create_params =
+            Some(Arc::new(move |input, ctx| Box::pin(hook(input, ctx))));
         self
     }
 
@@ -182,28 +172,29 @@ impl StripeOptions {
     }
 }
 
+#[non_exhaustive]
 #[derive(Clone)]
 pub struct SubscriptionOptions {
-    pub enabled: bool,
-    pub plans: Arc<Vec<StripePlan>>,
-    pub get_plans: Option<GetPlansHook>,
-    pub require_email_verification: bool,
-    pub authorize_reference: Option<AuthorizeReferenceHook>,
-    pub on_subscription_complete: Option<SubscriptionLifecycleHook>,
-    pub on_subscription_created: Option<SubscriptionLifecycleHook>,
-    pub on_subscription_update: Option<SubscriptionUpdateHook>,
-    pub on_subscription_cancel: Option<SubscriptionLifecycleHook>,
-    pub on_subscription_deleted: Option<SubscriptionLifecycleHook>,
-    pub get_checkout_session_params: Option<GetCheckoutSessionParamsHook>,
+    pub(crate) enabled: bool,
+    pub(crate) plans: Arc<Vec<StripePlan>>,
+    pub(crate) get_plans: Option<GetPlansHook>,
+    pub(crate) require_email_verification: bool,
+    pub(crate) authorize_reference: Option<AuthorizeReferenceHook>,
+    pub(crate) on_subscription_complete: Option<SubscriptionLifecycleHook>,
+    pub(crate) on_subscription_created: Option<SubscriptionLifecycleHook>,
+    pub(crate) on_subscription_update: Option<SubscriptionUpdateHook>,
+    pub(crate) on_subscription_cancel: Option<SubscriptionLifecycleHook>,
+    pub(crate) on_subscription_deleted: Option<SubscriptionLifecycleHook>,
+    pub(crate) get_checkout_session_params: Option<GetCheckoutSessionParamsHook>,
 }
 
-pub type GetPlansHook = Arc<
+type GetPlansHook = Arc<
     dyn Fn() -> crate::stripe_api::BoxFuture<'static, Result<Vec<StripePlan>, OpenAuthError>>
         + Send
         + Sync,
 >;
 
-pub type AuthorizeReferenceHook = Arc<
+type AuthorizeReferenceHook = Arc<
     dyn Fn(
             AuthorizeReferenceInput,
             &AuthContext,
@@ -212,7 +203,7 @@ pub type AuthorizeReferenceHook = Arc<
         + Sync,
 >;
 
-pub type SubscriptionLifecycleHook = Arc<
+type SubscriptionLifecycleHook = Arc<
     dyn Fn(
             SubscriptionLifecycleInput,
         ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
@@ -220,14 +211,14 @@ pub type SubscriptionLifecycleHook = Arc<
         + Sync,
 >;
 
-pub type SubscriptionUpdateHook = Arc<
+type SubscriptionUpdateHook = Arc<
     dyn Fn(
             SubscriptionUpdateInput,
         ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
         + Send
         + Sync,
 >;
-pub type GetCheckoutSessionParamsHook = Arc<
+type GetCheckoutSessionParamsHook = Arc<
     dyn Fn(
             CheckoutSessionParamsInput,
             &ApiRequest,
@@ -308,27 +299,23 @@ impl SubscriptionOptions {
         }
     }
 
-    pub fn enabled_dynamic<F>(provider: F) -> Self
+    pub fn enabled_dynamic<F, Fut>(provider: F) -> Self
     where
-        F: Fn() -> crate::stripe_api::BoxFuture<'static, Result<Vec<StripePlan>, OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Vec<StripePlan>, OpenAuthError>> + Send + 'static,
     {
         Self {
-            get_plans: Some(Arc::new(provider)),
+            get_plans: Some(Arc::new(move || Box::pin(provider()))),
             ..Self::enabled(Vec::new())
         }
     }
 
-    pub fn plans_provider<F>(mut self, provider: F) -> Self
+    pub fn plans_provider<F, Fut>(mut self, provider: F) -> Self
     where
-        F: Fn() -> crate::stripe_api::BoxFuture<'static, Result<Vec<StripePlan>, OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Vec<StripePlan>, OpenAuthError>> + Send + 'static,
     {
-        self.get_plans = Some(Arc::new(provider));
+        self.get_plans = Some(Arc::new(move || Box::pin(provider())));
         self
     }
 
@@ -347,115 +334,86 @@ impl SubscriptionOptions {
         self
     }
 
-    pub fn authorize_reference<F>(mut self, hook: F) -> Self
+    pub fn authorize_reference<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                AuthorizeReferenceInput,
-                &AuthContext,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<bool, OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(AuthorizeReferenceInput, &AuthContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<bool, OpenAuthError>> + Send + 'static,
     {
-        self.authorize_reference = Some(Arc::new(hook));
+        self.authorize_reference = Some(Arc::new(move |input, ctx| Box::pin(hook(input, ctx))));
         self
     }
 
-    pub fn get_checkout_session_params<F>(mut self, hook: F) -> Self
+    pub fn get_checkout_session_params<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                CheckoutSessionParamsInput,
-                &ApiRequest,
-                &AuthContext,
-            )
-                -> crate::stripe_api::BoxFuture<'static, Result<serde_json::Value, OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(CheckoutSessionParamsInput, &ApiRequest, &AuthContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<serde_json::Value, OpenAuthError>> + Send + 'static,
     {
-        self.get_checkout_session_params = Some(Arc::new(hook));
+        self.get_checkout_session_params = Some(Arc::new(move |input, request, ctx| {
+            Box::pin(hook(input, request, ctx))
+        }));
         self
     }
 
-    pub fn on_subscription_complete<F>(mut self, hook: F) -> Self
+    pub fn on_subscription_complete<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                SubscriptionLifecycleInput,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(SubscriptionLifecycleInput) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_subscription_complete = Some(Arc::new(hook));
+        self.on_subscription_complete = Some(Arc::new(move |input| Box::pin(hook(input))));
         self
     }
 
-    pub fn on_subscription_created<F>(mut self, hook: F) -> Self
+    pub fn on_subscription_created<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                SubscriptionLifecycleInput,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(SubscriptionLifecycleInput) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_subscription_created = Some(Arc::new(hook));
+        self.on_subscription_created = Some(Arc::new(move |input| Box::pin(hook(input))));
         self
     }
 
-    pub fn on_subscription_update<F>(mut self, hook: F) -> Self
+    pub fn on_subscription_update<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                SubscriptionUpdateInput,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(SubscriptionUpdateInput) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_subscription_update = Some(Arc::new(hook));
+        self.on_subscription_update = Some(Arc::new(move |input| Box::pin(hook(input))));
         self
     }
 
-    pub fn on_subscription_cancel<F>(mut self, hook: F) -> Self
+    pub fn on_subscription_cancel<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                SubscriptionLifecycleInput,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(SubscriptionLifecycleInput) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_subscription_cancel = Some(Arc::new(hook));
+        self.on_subscription_cancel = Some(Arc::new(move |input| Box::pin(hook(input))));
         self
     }
 
-    pub fn on_subscription_deleted<F>(mut self, hook: F) -> Self
+    pub fn on_subscription_deleted<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                SubscriptionLifecycleInput,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(SubscriptionLifecycleInput) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_subscription_deleted = Some(Arc::new(hook));
+        self.on_subscription_deleted = Some(Arc::new(move |input| Box::pin(hook(input))));
         self
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct StripePlan {
-    pub name: String,
-    pub price_id: Option<String>,
-    pub lookup_key: Option<String>,
-    pub annual_discount_price_id: Option<String>,
-    pub annual_discount_lookup_key: Option<String>,
-    pub limits: Option<serde_json::Value>,
-    pub group: Option<String>,
-    pub seat_price_id: Option<String>,
-    pub proration_behavior: Option<String>,
-    pub line_items: Vec<serde_json::Value>,
-    pub free_trial: Option<FreeTrialOptions>,
+    pub(crate) name: String,
+    pub(crate) price_id: Option<String>,
+    pub(crate) lookup_key: Option<String>,
+    pub(crate) annual_discount_price_id: Option<String>,
+    pub(crate) annual_discount_lookup_key: Option<String>,
+    pub(crate) limits: Option<serde_json::Value>,
+    pub(crate) group: Option<String>,
+    pub(crate) seat_price_id: Option<String>,
+    pub(crate) proration_behavior: Option<String>,
+    pub(crate) line_items: Vec<serde_json::Value>,
+    pub(crate) free_trial: Option<FreeTrialOptions>,
 }
 
 impl StripePlan {
@@ -473,6 +431,10 @@ impl StripePlan {
             line_items: Vec::new(),
             free_trial: None,
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn price_id(mut self, price_id: impl Into<String>) -> Self {
@@ -526,20 +488,21 @@ impl StripePlan {
     }
 }
 
+#[non_exhaustive]
 #[derive(Clone)]
 pub struct FreeTrialOptions {
-    pub days: i64,
-    pub on_trial_start: Option<TrialStartHook>,
-    pub on_trial_end: Option<TrialLifecycleHook>,
-    pub on_trial_expired: Option<TrialLifecycleHook>,
+    pub(crate) days: i64,
+    pub(crate) on_trial_start: Option<TrialStartHook>,
+    pub(crate) on_trial_end: Option<TrialLifecycleHook>,
+    pub(crate) on_trial_expired: Option<TrialLifecycleHook>,
 }
 
-pub type TrialStartHook = Arc<
+type TrialStartHook = Arc<
     dyn Fn(Subscription) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
         + Send
         + Sync,
 >;
-pub type TrialLifecycleHook = Arc<
+type TrialLifecycleHook = Arc<
     dyn Fn(
             Subscription,
             &AuthContext,
@@ -575,54 +538,47 @@ impl FreeTrialOptions {
         }
     }
 
-    pub fn on_trial_start<F>(mut self, hook: F) -> Self
+    pub fn on_trial_start<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(Subscription) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(Subscription) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_trial_start = Some(Arc::new(hook));
+        self.on_trial_start = Some(Arc::new(move |subscription| Box::pin(hook(subscription))));
         self
     }
 
-    pub fn on_trial_end<F>(mut self, hook: F) -> Self
+    pub fn on_trial_end<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                Subscription,
-                &AuthContext,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(Subscription, &AuthContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_trial_end = Some(Arc::new(hook));
+        self.on_trial_end = Some(Arc::new(move |subscription, ctx| {
+            Box::pin(hook(subscription, ctx))
+        }));
         self
     }
 
-    pub fn on_trial_expired<F>(mut self, hook: F) -> Self
+    pub fn on_trial_expired<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                Subscription,
-                &AuthContext,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(Subscription, &AuthContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_trial_expired = Some(Arc::new(hook));
+        self.on_trial_expired = Some(Arc::new(move |subscription, ctx| {
+            Box::pin(hook(subscription, ctx))
+        }));
         self
     }
 }
 
+#[non_exhaustive]
 #[derive(Clone)]
 pub struct OrganizationStripeOptions {
-    pub enabled: bool,
-    pub get_customer_create_params: Option<GetOrganizationCustomerCreateParamsHook>,
-    pub on_customer_create: Option<OrganizationCustomerCreateHook>,
+    pub(crate) enabled: bool,
+    pub(crate) get_customer_create_params: Option<GetOrganizationCustomerCreateParamsHook>,
+    pub(crate) on_customer_create: Option<OrganizationCustomerCreateHook>,
 }
 
-pub type GetOrganizationCustomerCreateParamsHook = Arc<
+type GetOrganizationCustomerCreateParamsHook = Arc<
     dyn Fn(
             OrganizationCustomerCreateParamsInput,
             CustomerCreateContext,
@@ -631,7 +587,7 @@ pub type GetOrganizationCustomerCreateParamsHook = Arc<
         + Send
         + Sync,
 >;
-pub type OrganizationCustomerCreateHook = Arc<
+type OrganizationCustomerCreateHook = Arc<
     dyn Fn(
             OrganizationCustomerCreateInput,
             CustomerCreateContext,
@@ -660,32 +616,28 @@ impl OrganizationStripeOptions {
         }
     }
 
-    pub fn get_customer_create_params<F>(mut self, hook: F) -> Self
+    pub fn get_customer_create_params<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                OrganizationCustomerCreateParamsInput,
-                CustomerCreateContext,
-            )
-                -> crate::stripe_api::BoxFuture<'static, Result<serde_json::Value, OpenAuthError>>
+        F: Fn(OrganizationCustomerCreateParamsInput, CustomerCreateContext) -> Fut
             + Send
             + Sync
             + 'static,
+        Fut: Future<Output = Result<serde_json::Value, OpenAuthError>> + Send + 'static,
     {
-        self.get_customer_create_params = Some(Arc::new(hook));
+        self.get_customer_create_params =
+            Some(Arc::new(move |input, ctx| Box::pin(hook(input, ctx))));
         self
     }
 
-    pub fn on_customer_create<F>(mut self, hook: F) -> Self
+    pub fn on_customer_create<F, Fut>(mut self, hook: F) -> Self
     where
-        F: Fn(
-                OrganizationCustomerCreateInput,
-                CustomerCreateContext,
-            ) -> crate::stripe_api::BoxFuture<'static, Result<(), OpenAuthError>>
+        F: Fn(OrganizationCustomerCreateInput, CustomerCreateContext) -> Fut
             + Send
             + Sync
             + 'static,
+        Fut: Future<Output = Result<(), OpenAuthError>> + Send + 'static,
     {
-        self.on_customer_create = Some(Arc::new(hook));
+        self.on_customer_create = Some(Arc::new(move |input, ctx| Box::pin(hook(input, ctx))));
         self
     }
 }

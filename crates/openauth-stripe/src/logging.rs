@@ -15,14 +15,6 @@ pub(crate) fn hook_warn(context: &PluginDatabaseHookContext<'_>, message: &str, 
     context.logger.warn(message, &[detail]);
 }
 
-pub(crate) fn init_warn(context: &AuthContext, message: &str, detail: &str) {
-    context.logger.warn(message, &[detail]);
-}
-
-pub(crate) fn init_error(context: &AuthContext, message: &str, detail: &str) {
-    context.logger.error(message, &[detail]);
-}
-
 pub(crate) fn webhook_error(context: &AuthContext, message: &str) {
     context.logger.error(message, &[]);
 }

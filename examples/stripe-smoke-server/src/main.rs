@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .subscription(SubscriptionOptions::enabled(vec![
                 StripePlan::new("pro").price_id(price_pro)
             ])),
-    );
+    )?;
 
     let auth = OpenAuth::builder()
         .base_url(base_url.clone())

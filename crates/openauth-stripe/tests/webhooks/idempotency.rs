@@ -64,7 +64,8 @@ async fn duplicate_event_runs_side_effects_only_once() -> Result<(), Box<dyn std
                 Ok(())
             })
         }),
-    );
+    )
+    .unwrap();
     let (context, adapter) = context().await?;
     let endpoint = plugin
         .endpoints
@@ -106,7 +107,8 @@ async fn failed_on_event_is_not_marked_processed_and_can_be_retried(
                 }
             })
         }),
-    );
+    )
+    .unwrap();
     let (context, adapter) = context().await?;
     let endpoint = plugin
         .endpoints
@@ -183,7 +185,8 @@ async fn failed_built_in_handler_is_not_marked_processed_and_can_be_retried(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     adapter
         .create(

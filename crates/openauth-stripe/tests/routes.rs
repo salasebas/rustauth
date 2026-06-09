@@ -315,7 +315,7 @@ mod upgrade_trial_validation;
 async fn subscription_list_returns_active_records_for_authenticated_reference(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(transport));
+    let plugin = stripe(stripe_options(transport)).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -347,7 +347,7 @@ async fn subscription_list_returns_active_records_for_authenticated_reference(
 async fn subscription_list_uses_authorized_reference_query(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options_with_authorized_references(transport));
+    let plugin = stripe(stripe_options_with_authorized_references(transport)).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -392,7 +392,7 @@ async fn subscription_list_includes_plan_limits_and_interval_price_id(
         .price_id("price_pro_monthly")
         .annual_discount_price_id("price_pro_yearly")
         .limits(json!({ "projects": 10 }))]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -448,7 +448,8 @@ async fn subscription_list_resolves_dynamic_plan_provider() -> Result<(), Box<dy
                     .limits(json!({ "projects": 10 }))])
             })
         })),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -475,7 +476,7 @@ async fn subscription_list_resolves_dynamic_plan_provider() -> Result<(), Box<dy
 async fn subscription_success_reconciles_checkout_session_and_redirects(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -545,7 +546,7 @@ async fn subscription_success_resolves_dynamic_plans() -> Result<(), Box<dyn std
     .subscription(SubscriptionOptions::enabled_dynamic(|| {
         Box::pin(async { Ok(vec![StripePlan::new("dynamic-pro").price_id("price_pro")]) })
     }));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -594,7 +595,7 @@ async fn subscription_success_reconciles_trialing_checkout_session(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -659,7 +660,7 @@ async fn subscription_success_reconciles_trialing_checkout_session(
 async fn subscription_success_redirects_without_checkout_session_id(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -697,7 +698,7 @@ async fn subscription_success_redirects_when_checkout_session_retrieval_fails(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").price_id("price_pro")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -728,7 +729,7 @@ async fn subscription_success_redirects_when_checkout_session_retrieval_fails(
 async fn billing_portal_uses_current_users_subscription_customer(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -767,7 +768,7 @@ async fn billing_portal_uses_current_users_subscription_customer(
 async fn billing_portal_prefers_user_customer_and_forwards_locale(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -813,7 +814,7 @@ async fn billing_portal_prefers_user_customer_and_forwards_locale(
 async fn cancel_subscription_uses_stripe_portal_cancel_flow(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -859,7 +860,7 @@ async fn cancel_subscription_uses_stripe_portal_cancel_flow(
 async fn restore_subscription_clears_pending_cancel_for_owned_subscription(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -908,7 +909,8 @@ async fn webhook_endpoint_rejects_missing_stripe_signature_header(
     let plugin = stripe(StripeOptions::new(
         StripeClient::new("sk_test"),
         "whsec_test",
-    ));
+    ))
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -946,7 +948,7 @@ async fn webhook_endpoint_verifies_signature_and_calls_on_event(
                 Ok(())
             })
         });
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -978,29 +980,8 @@ async fn webhook_endpoint_verifies_signature_and_calls_on_event(
 #[tokio::test]
 async fn webhook_endpoint_rejects_empty_webhook_secret_with_config_error(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = stripe(StripeOptions::new(StripeClient::new("sk_test"), ""));
-    let endpoint = plugin
-        .endpoints
-        .iter()
-        .find(|endpoint| endpoint.path == "/stripe/webhook")
-        .ok_or("webhook endpoint")?;
-    let context = create_auth_context(OpenAuthOptions {
-        secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
-        ..OpenAuthOptions::default()
-    })?;
-    let payload = br#"{"id":"evt_123","type":"invoice.paid","data":{"object":{"id":"in_123"}}}"#;
-    let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-    let request = Request::builder()
-        .method(Method::POST)
-        .uri("http://localhost:3000/api/auth/stripe/webhook")
-        .header("stripe-signature", format!("t={timestamp},v1=bad"))
-        .body(payload.to_vec())?;
-
-    let response = (endpoint.handler)(&context, request).await?;
-
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    let body: Value = serde_json::from_slice(response.body())?;
-    assert_eq!(body["code"], "STRIPE_WEBHOOK_SECRET_NOT_FOUND");
+    let error = stripe(StripeOptions::new(StripeClient::new("sk_test"), "")).unwrap_err();
+    assert_eq!(error.to_string(), "stripe_webhook_secret must not be empty");
     Ok(())
 }
 
@@ -1010,7 +991,8 @@ async fn webhook_endpoint_maps_invalid_signature_to_construct_event_error(
     let plugin = stripe(StripeOptions::new(
         StripeClient::new("sk_test"),
         "whsec_test",
-    ));
+    ))
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1042,7 +1024,8 @@ async fn webhook_endpoint_maps_invalid_json_to_construct_event_error(
     let plugin = stripe(StripeOptions::new(
         StripeClient::new("sk_test"),
         "whsec_test",
-    ));
+    ))
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -1074,7 +1057,7 @@ async fn webhook_endpoint_wraps_event_hook_errors() -> Result<(), Box<dyn std::e
     let options = StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").on_event(|_| {
         Box::pin(async { Err(openauth_core::error::OpenAuthError::Api("boom".to_owned())) })
     });
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

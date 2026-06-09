@@ -40,6 +40,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type CustomTrackFn = Arc<dyn Fn(TelemetryEvent) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Overrides used by integration tests (Vitest mocks replacement).
+#[doc(hidden)]
 #[derive(Clone, Default)]
 pub struct TelemetryTestHooks {
     pub anonymous_id: Option<String>,

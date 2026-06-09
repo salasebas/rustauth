@@ -19,7 +19,7 @@ async fn upgrade_with_explicit_incomplete_subscription_skips_trial_when_referenc
     .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("pro")
         .price_id("price_pro")
         .free_trial(FreeTrialOptions::new(7))]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -91,7 +91,8 @@ async fn upgrade_skips_trial_after_deleted_webhook_propagates_trial_timestamps(
         )
         .price_id("price_pro")
         .free_trial(FreeTrialOptions::new(7))])),
-    );
+    )
+    .unwrap();
     let upgrade_endpoint = plugin
         .endpoints
         .iter()

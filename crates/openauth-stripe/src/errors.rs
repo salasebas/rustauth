@@ -1,5 +1,16 @@
 use openauth_core::plugin::PluginErrorCode;
 
+/// Invalid Stripe plugin configuration detected at build time.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum StripeConfigError {
+    #[error("stripe_webhook_secret must not be empty")]
+    EmptyWebhookSecret,
+    #[error(
+        "seat-based billing requires organization: {{ enabled: true }} in stripe plugin options"
+    )]
+    SeatPricingWithoutOrganization,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StripeErrorCode {
     Unauthorized,

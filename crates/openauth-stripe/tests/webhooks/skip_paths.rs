@@ -22,7 +22,8 @@ async fn webhook_context() -> Result<
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let adapter = MemoryAdapter::new();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {

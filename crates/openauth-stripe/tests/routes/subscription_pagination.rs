@@ -139,7 +139,7 @@ impl StripeTransport for PaginatedActiveSubscriptionTransport {
 async fn subscription_list_finds_active_record_beyond_first_local_page(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(transport));
+    let plugin = stripe(stripe_options(transport)).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -185,7 +185,7 @@ async fn reference_has_ever_trialed_detects_trial_beyond_first_local_page(
     .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("pro")
         .price_id("price_pro")
         .free_trial(FreeTrialOptions::new(7))]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -247,7 +247,8 @@ async fn cancel_subscription_finds_active_stripe_row_on_second_page(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -297,7 +298,8 @@ async fn restore_subscription_finds_active_stripe_row_on_second_page(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -341,7 +343,8 @@ async fn subscription_success_reconciles_active_subscription_from_second_stripe_
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

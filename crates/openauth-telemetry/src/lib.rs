@@ -50,11 +50,13 @@ mod transport;
 pub mod types;
 mod utils;
 
+#[doc(hidden)]
 pub use auth_config::get_telemetry_auth_config;
 pub use types::{
-    CustomTrackFn, DetectionInfo, RuntimeInfo, TelemetryContext, TelemetryEvent,
-    TelemetryHttpError, TelemetryHttpTransport, TelemetryTestHooks,
+    CustomTrackFn, TelemetryContext, TelemetryEvent, TelemetryHttpError, TelemetryHttpTransport,
 };
+#[doc(hidden)]
+pub use types::{DetectionInfo, RuntimeInfo, TelemetryTestHooks};
 
 use std::future::Future;
 use std::pin::Pin;

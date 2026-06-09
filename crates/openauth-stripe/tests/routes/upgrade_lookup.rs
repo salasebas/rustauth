@@ -50,7 +50,7 @@ async fn lookup_transport_failure_returns_failed_to_fetch_plans(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").lookup_key("pro_lookup")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/upgrade").ok_or("upgrade endpoint")?;
     let (context, _adapter, cookie_header) = authenticated_context().await?;
     let request = upgrade_request(
@@ -75,7 +75,7 @@ async fn empty_lookup_result_returns_subscription_plan_not_found(
     .subscription(SubscriptionOptions::enabled(vec![
         StripePlan::new("pro").lookup_key("pro_lookup")
     ]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/upgrade").ok_or("upgrade endpoint")?;
     let (context, _adapter, cookie_header) = authenticated_context().await?;
     let request = upgrade_request(

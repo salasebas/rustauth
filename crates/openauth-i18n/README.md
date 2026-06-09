@@ -19,26 +19,15 @@ preserves the original message as `originalMessage`.
 ## Quick Start
 
 ```rust
-use indexmap::IndexMap;
+use openauth::i18n::{i18n, I18nOptions, LocaleDetectionStrategy};
 use openauth::OpenAuth;
-use openauth_i18n::{
-    i18n, translation_dictionary, I18nOptions, LocaleDetectionStrategy,
-};
-
-let mut translations = IndexMap::new();
-translations.insert(
-    "en".to_owned(),
-    translation_dictionary([("INVALID_EMAIL", "Invalid email")]),
-);
-translations.insert(
-    "es".to_owned(),
-    translation_dictionary([("INVALID_EMAIL", "Email invalido")]),
-);
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
     .plugin(i18n(
-        I18nOptions::new(translations)
+        I18nOptions::new()
+            .locale("en", [("INVALID_EMAIL", "Invalid email")])
+            .locale("es", [("INVALID_EMAIL", "Email invalido")])
             .default_locale("en")
             .detection([
                 LocaleDetectionStrategy::Cookie,
@@ -52,6 +41,8 @@ let auth = OpenAuth::builder()
 
 ## Notes
 
+- For migrations from an existing `IndexMap` of locale tables, use
+  `I18nOptions::from_translations(map)` instead of building dictionaries by hand.
 - `Accept-Language` tries exact tags before base tags, for example `pt-BR`
   before `pt`.
 - Cookie detection defaults to the `locale` cookie.

@@ -55,7 +55,8 @@ async fn checkout_completed_webhook_releases_claim_when_subscription_retrieve_fa
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

@@ -22,27 +22,30 @@ use openauth_i18n::{
 use serde_json::{json, Value};
 use time::OffsetDateTime;
 
+fn base_options() -> I18nOptions {
+    I18nOptions::new()
+        .locale(
+            "en",
+            [("INVALID_EMAIL_OR_PASSWORD", "Invalid email or password")],
+        )
+        .locale(
+            "fr",
+            [(
+                "INVALID_EMAIL_OR_PASSWORD",
+                "Email ou mot de passe invalide",
+            )],
+        )
+        .locale(
+            "de",
+            [(
+                "INVALID_EMAIL_OR_PASSWORD",
+                "Ungültige E-Mail oder Passwort",
+            )],
+        )
+}
+
 fn base_translations() -> IndexMap<String, IndexMap<String, String>> {
-    let mut t = IndexMap::new();
-    let mut en = IndexMap::new();
-    en.insert(
-        "INVALID_EMAIL_OR_PASSWORD".into(),
-        "Invalid email or password".into(),
-    );
-    let mut fr = IndexMap::new();
-    fr.insert(
-        "INVALID_EMAIL_OR_PASSWORD".into(),
-        "Email ou mot de passe invalide".into(),
-    );
-    let mut de = IndexMap::new();
-    de.insert(
-        "INVALID_EMAIL_OR_PASSWORD".into(),
-        "Ungültige E-Mail oder Passwort".into(),
-    );
-    t.insert("en".into(), en);
-    t.insert("fr".into(), fr);
-    t.insert("de".into(), de);
-    t
+    base_options().translations
 }
 
 #[test]
@@ -60,16 +63,8 @@ fn translation_dictionary_accepts_typed_core_error_codes() {
     );
 }
 
-fn translations_with_locale(
-    locale: &str,
-    code: &str,
-    message: &str,
-) -> IndexMap<String, IndexMap<String, String>> {
-    let mut translations = IndexMap::new();
-    let mut dictionary = IndexMap::new();
-    dictionary.insert(code.to_owned(), message.to_owned());
-    translations.insert(locale.to_owned(), dictionary);
-    translations
+fn options_with_locale(locale: &str, code: &str, message: &str) -> I18nOptions {
+    I18nOptions::new().locale(locale, [(code, message)])
 }
 
 fn test_router_with_error_response(
@@ -135,7 +130,7 @@ async fn translates_invalid_sign_in_for_accept_language_fr(
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Header,
@@ -181,7 +176,7 @@ async fn translates_for_accept_language_de() -> Result<(), Box<dyn std::error::E
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![LocaleDetectionStrategy::Header];
 
@@ -222,7 +217,7 @@ async fn falls_back_to_default_when_locale_not_in_catalog() -> Result<(), Box<dy
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
 
     let router = router_with_options(
@@ -262,7 +257,7 @@ async fn accept_language_quality_prefers_first_available() -> Result<(), Box<dyn
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
 
     let router = router_with_options(
@@ -301,7 +296,7 @@ async fn accept_language_region_maps_to_base_locale() -> Result<(), Box<dyn std:
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
 
     let router = router_with_options(
@@ -358,7 +353,7 @@ async fn accept_language_prefers_exact_region_before_base_locale(
         );
         dictionary
     });
-    let mut opts = I18nOptions::new(translations);
+    let mut opts = I18nOptions::from_translations(translations);
     opts.default_locale = Some("en".into());
 
     let router = router_with_options(
@@ -398,7 +393,7 @@ async fn accept_language_matches_locale_case_insensitively(
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
 
     let router = router_with_options(
@@ -439,7 +434,7 @@ async fn cookie_beats_header_when_ordered_first() -> Result<(), Box<dyn std::err
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Cookie,
@@ -492,7 +487,7 @@ async fn cookie_values_containing_equals_are_supported() -> Result<(), Box<dyn s
         );
         dictionary
     });
-    let mut opts = I18nOptions::new(translations);
+    let mut opts = I18nOptions::from_translations(translations);
     opts.default_locale = Some("en".into());
     opts.detection = vec![LocaleDetectionStrategy::Cookie];
     opts.locale_cookie = "lang".into();
@@ -533,7 +528,7 @@ async fn cookie_strategy_falls_through_when_cookie_missing_or_unsupported(
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Cookie,
@@ -578,7 +573,7 @@ async fn cookie_strategy_falls_through_when_cookie_is_missing(
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Cookie,
@@ -624,7 +619,7 @@ async fn callback_custom_header_locale() -> Result<(), Box<dyn std::error::Error
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![LocaleDetectionStrategy::Callback];
     let resolver: LocaleResolver = Arc::new(|_ctx, req| {
@@ -674,7 +669,7 @@ async fn session_resolver_locale_is_used_when_session_detection_is_enabled(
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![LocaleDetectionStrategy::Session];
     opts.resolve_user_locale = Some(Arc::new(|_ctx, _req| Some("fr".into())));
@@ -713,7 +708,7 @@ async fn session_detection_reads_user_locale_field_from_request_state(
         );
         dictionary
     });
-    let mut opts = I18nOptions::new(translations);
+    let mut opts = I18nOptions::from_translations(translations);
     opts.default_locale = Some("en".into());
     opts.detection = vec![LocaleDetectionStrategy::Session];
     opts.user_locale_field = "email".into();
@@ -762,7 +757,7 @@ async fn session_detection_reads_user_locale_field_from_request_state(
 
 #[tokio::test]
 async fn session_detection_reads_default_locale_field() -> Result<(), Box<dyn std::error::Error>> {
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![LocaleDetectionStrategy::Session];
 
@@ -816,7 +811,7 @@ async fn translates_not_found_on_early_router_exit() -> Result<(), Box<dyn std::
         "en".into(),
         translation_dictionary([("NOT_FOUND", "Introuvable")]),
     );
-    let opts = I18nOptions::new(translations).default_locale("en");
+    let opts = I18nOptions::from_translations(translations).default_locale("en");
 
     let context = create_auth_context(OpenAuthOptions {
         secret: Some("test-secret-123456789012345678901234".to_owned()),
@@ -851,7 +846,7 @@ async fn translates_rate_limit_on_early_router_exit() -> Result<(), Box<dyn std:
         "en".into(),
         translation_dictionary([("TOO_MANY_REQUESTS", "Trop de requêtes, réessayez plus tard")]),
     );
-    let opts = I18nOptions::new(translations).default_locale("en");
+    let opts = I18nOptions::from_translations(translations).default_locale("en");
 
     let endpoint = create_auth_endpoint(
         "/limited",
@@ -910,7 +905,7 @@ async fn session_resolver_falls_through_when_absent_or_unsupported(
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Session,
@@ -955,7 +950,7 @@ async fn session_resolver_falls_through_when_it_returns_none(
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Session,
@@ -1000,7 +995,7 @@ async fn session_detection_falls_through_when_no_session_user_is_in_request_stat
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Session,
@@ -1043,7 +1038,7 @@ async fn callback_constant_locale_without_headers() -> Result<(), Box<dyn std::e
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![LocaleDetectionStrategy::Callback];
     opts.get_locale = Some(Arc::new(|_ctx, _req| Some("fr".into())));
@@ -1086,7 +1081,7 @@ async fn async_callback_constant_locale_without_headers() -> Result<(), Box<dyn 
 
     let resolver: AsyncLocaleResolver =
         Arc::new(|_ctx, _req| Box::pin(async { Some("fr".into()) }));
-    let opts = I18nOptions::new(base_translations())
+    let opts = base_options()
         .default_locale("en")
         .detection([LocaleDetectionStrategy::Callback])
         .get_locale_async(resolver);
@@ -1136,7 +1131,7 @@ async fn async_callback_custom_header_locale() -> Result<(), Box<dyn std::error:
             .map(str::to_owned);
         Box::pin(async move { locale })
     });
-    let opts = I18nOptions::new(base_translations())
+    let opts = base_options()
         .default_locale("en")
         .detection([LocaleDetectionStrategy::Callback])
         .get_locale_async(resolver);
@@ -1178,7 +1173,7 @@ async fn callback_falls_through_when_none_or_unsupported() -> Result<(), Box<dyn
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Callback,
@@ -1222,7 +1217,7 @@ async fn callback_falls_through_when_it_returns_none() -> Result<(), Box<dyn std
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Callback,
@@ -1282,7 +1277,7 @@ async fn default_locale_first_inserted_when_no_en() -> Result<(), Box<dyn std::e
     t.insert("fr".into(), fr);
     t.insert("de".into(), de);
 
-    let opts = I18nOptions::new(t);
+    let opts = I18nOptions::from_translations(t);
     let router = router_with_options(
         adapter,
         OpenAuthOptions {
@@ -1332,7 +1327,7 @@ async fn explicit_default_locale_de() -> Result<(), Box<dyn std::error::Error>> 
     t.insert("fr".into(), fr);
     t.insert("de".into(), de);
 
-    let mut opts = I18nOptions::new(t);
+    let mut opts = I18nOptions::from_translations(t);
     opts.default_locale = Some("de".into());
 
     let router = router_with_options(
@@ -1390,7 +1385,7 @@ async fn implicit_default_en_when_present() -> Result<(), Box<dyn std::error::Er
     t.insert("en".into(), en);
     t.insert("fr".into(), fr);
 
-    let opts = I18nOptions::new(t);
+    let opts = I18nOptions::from_translations(t);
     let router = router_with_options(
         adapter,
         OpenAuthOptions {
@@ -1426,7 +1421,7 @@ async fn successful_sign_in_body_not_modified() -> Result<(), Box<dyn std::error
         ))
         .await?;
 
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("en".into());
 
     let router = router_with_options(
@@ -1456,14 +1451,14 @@ async fn successful_sign_in_body_not_modified() -> Result<(), Box<dyn std::error
 #[test]
 fn empty_translations_rejected() {
     assert!(matches!(
-        i18n(I18nOptions::new(IndexMap::new())),
+        i18n(I18nOptions::new()),
         Err(I18nConfigError::EmptyTranslations)
     ));
 }
 
 #[test]
 fn unknown_default_locale_rejected() {
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("es".into());
 
     assert!(matches!(
@@ -1478,14 +1473,14 @@ fn duplicate_locales_after_normalization_are_rejected() {
     translations.insert("EN".into(), translation_dictionary([("OTHER", "Other")]));
 
     assert!(matches!(
-        i18n(I18nOptions::new(translations)),
+        i18n(I18nOptions::from_translations(translations)),
         Err(I18nConfigError::DuplicateLocale(locale)) if locale == "EN"
     ));
 }
 
 #[test]
 fn empty_locale_cookie_is_rejected_when_cookie_detection_is_enabled() {
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.detection = vec![LocaleDetectionStrategy::Cookie];
     opts.locale_cookie.clear();
 
@@ -1497,7 +1492,7 @@ fn empty_locale_cookie_is_rejected_when_cookie_detection_is_enabled() {
 
 #[test]
 fn empty_user_locale_field_is_rejected_when_session_detection_is_enabled() {
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.detection = vec![LocaleDetectionStrategy::Session];
     opts.user_locale_field.clear();
 
@@ -1509,7 +1504,7 @@ fn empty_user_locale_field_is_rejected_when_session_detection_is_enabled() {
 
 #[test]
 fn options_builder_methods_configure_public_options() {
-    let opts = I18nOptions::new(base_translations())
+    let opts = base_options()
         .default_locale("fr")
         .detection([
             LocaleDetectionStrategy::Cookie,
@@ -1536,8 +1531,7 @@ fn options_builder_methods_configure_public_options() {
 
 #[test]
 fn options_debug_hides_callback_internals() {
-    let opts = I18nOptions::new(base_translations())
-        .get_locale(Arc::new(|_ctx, _req| Some("fr".to_owned())));
+    let opts = base_options().get_locale(Arc::new(|_ctx, _req| Some("fr".to_owned())));
 
     assert!(format!("{opts:?}").contains("<locale-resolver>"));
 }
@@ -1551,7 +1545,7 @@ fn detection_strategy_deserialization_rejects_unknown_values() {
 
 #[test]
 fn options_default_user_locale_field_is_locale() {
-    let opts = I18nOptions::new(base_translations());
+    let opts = base_options();
 
     assert_eq!(opts.user_locale_field, "locale");
 }
@@ -1559,7 +1553,7 @@ fn options_default_user_locale_field_is_locale() {
 #[test]
 fn plugin_exposes_resolved_serializable_options_metadata() -> Result<(), Box<dyn std::error::Error>>
 {
-    let mut opts = I18nOptions::new(base_translations());
+    let mut opts = base_options();
     opts.default_locale = Some("fr".into());
     opts.detection = vec![
         LocaleDetectionStrategy::Cookie,
@@ -1585,11 +1579,7 @@ fn plugin_exposes_resolved_serializable_options_metadata() -> Result<(), Box<dyn
 
 #[tokio::test]
 async fn missing_translation_leaves_error_unchanged() -> Result<(), Box<dyn std::error::Error>> {
-    let mut opts = I18nOptions::new(translations_with_locale(
-        "fr",
-        "OTHER_CODE",
-        "Autre message",
-    ));
+    let mut opts = options_with_locale("fr", "OTHER_CODE", "Autre message");
     opts.default_locale = Some("fr".into());
 
     let router = test_router_with_error_response(
@@ -1617,7 +1607,7 @@ async fn missing_translation_leaves_error_unchanged() -> Result<(), Box<dyn std:
 
 #[tokio::test]
 async fn non_string_error_code_leaves_error_unchanged() -> Result<(), Box<dyn std::error::Error>> {
-    let mut opts = I18nOptions::new(translations_with_locale("fr", "123", "Message traduit"));
+    let mut opts = options_with_locale("fr", "123", "Message traduit");
     opts.default_locale = Some("fr".into());
 
     let router = test_router_with_error_response(
@@ -1646,11 +1636,7 @@ async fn non_string_error_code_leaves_error_unchanged() -> Result<(), Box<dyn st
 #[tokio::test]
 async fn translated_response_preserves_original_headers() -> Result<(), Box<dyn std::error::Error>>
 {
-    let mut opts = I18nOptions::new(translations_with_locale(
-        "fr",
-        "NEEDS_HEADER",
-        "Message traduit",
-    ));
+    let mut opts = options_with_locale("fr", "NEEDS_HEADER", "Message traduit");
     opts.default_locale = Some("fr".into());
 
     let router = test_router_with_error_response(
@@ -1685,11 +1671,7 @@ async fn translated_response_preserves_original_headers() -> Result<(), Box<dyn 
 #[tokio::test]
 async fn translated_response_removes_stale_content_length() -> Result<(), Box<dyn std::error::Error>>
 {
-    let mut opts = I18nOptions::new(translations_with_locale(
-        "fr",
-        "NEEDS_HEADER",
-        "Message traduit",
-    ));
+    let mut opts = options_with_locale("fr", "NEEDS_HEADER", "Message traduit");
     opts.default_locale = Some("fr".into());
 
     let router = test_router_with_error_response(
@@ -1718,11 +1700,7 @@ async fn translated_response_removes_stale_content_length() -> Result<(), Box<dy
 
 #[tokio::test]
 async fn text_plain_response_is_not_translated() -> Result<(), Box<dyn std::error::Error>> {
-    let mut opts = I18nOptions::new(translations_with_locale(
-        "fr",
-        "NEEDS_HEADER",
-        "Message traduit",
-    ));
+    let mut opts = options_with_locale("fr", "NEEDS_HEADER", "Message traduit");
     opts.default_locale = Some("fr".into());
 
     let response = http::Response::builder()
@@ -1764,11 +1742,7 @@ async fn text_plain_response_is_not_translated() -> Result<(), Box<dyn std::erro
 #[tokio::test]
 async fn arbitrary_json_with_code_and_message_is_not_translated(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut opts = I18nOptions::new(translations_with_locale(
-        "fr",
-        "NEEDS_HEADER",
-        "Message traduit",
-    ));
+    let mut opts = options_with_locale("fr", "NEEDS_HEADER", "Message traduit");
     opts.default_locale = Some("fr".into());
 
     let router = test_router_with_error_response(
@@ -1796,11 +1770,7 @@ async fn arbitrary_json_with_code_and_message_is_not_translated(
 
 #[tokio::test]
 async fn existing_original_message_is_preserved() -> Result<(), Box<dyn std::error::Error>> {
-    let mut opts = I18nOptions::new(translations_with_locale(
-        "fr",
-        "NEEDS_HEADER",
-        "Message traduit",
-    ));
+    let mut opts = options_with_locale("fr", "NEEDS_HEADER", "Message traduit");
     opts.default_locale = Some("fr".into());
 
     let router = test_router_with_error_response(
@@ -1846,7 +1816,7 @@ async fn session_detection_reads_locale_from_session_cookie_hydration(
         .insert_session(session(now, now + time::Duration::hours(1)))
         .await;
 
-    let opts = I18nOptions::new(base_translations())
+    let opts = base_options()
         .default_locale("en")
         .detection([LocaleDetectionStrategy::Session]);
 
@@ -1920,7 +1890,7 @@ async fn translates_invalid_origin_on_security_short_circuit(
         "en".into(),
         translation_dictionary([("INVALID_ORIGIN", "Origine invalide")]),
     );
-    let opts = I18nOptions::new(translations).default_locale("en");
+    let opts = I18nOptions::from_translations(translations).default_locale("en");
 
     let adapter = Arc::new(RouteAdapter::default());
     let context = create_auth_context(OpenAuthOptions {
@@ -1964,7 +1934,7 @@ async fn translates_error_from_on_request_plugin_short_circuit(
         "en".into(),
         translation_dictionary([("EARLY_PLUGIN_ERROR", "Erreur anticipée")]),
     );
-    let i18n_plugin = i18n(I18nOptions::new(translations).default_locale("en"))?;
+    let i18n_plugin = i18n(I18nOptions::from_translations(translations).default_locale("en"))?;
     let early_plugin = AuthPlugin::new("early-error").with_on_request(|_context, _request| {
         let response = json_response(
             http::StatusCode::BAD_REQUEST,

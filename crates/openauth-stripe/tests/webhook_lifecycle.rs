@@ -79,7 +79,8 @@ async fn checkout_completed_webhook_updates_local_subscription(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -144,7 +145,8 @@ async fn subscription_created_webhook_creates_local_subscription_for_customer(
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -216,7 +218,8 @@ async fn subscription_created_webhook_persists_plan_limits(
                 .price_id("price_pro")
                 .limits(json!({ "projects": 10 }))]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -276,7 +279,8 @@ async fn subscription_created_webhook_verifies_realistic_dashboard_secret(
         StripeOptions::new(StripeClient::new("sk_test"), secret.clone()).subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -343,7 +347,8 @@ async fn subscription_webhook_releases_idempotency_claim_on_handler_failure(
                 })
             }),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -380,7 +385,8 @@ async fn subscription_created_webhook_resolves_dynamic_plans(
                 Box::pin(async { Ok(vec![StripePlan::new("dynamic-pro").price_id("price_pro")]) })
             }),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -440,7 +446,8 @@ async fn subscription_created_webhook_prefers_organization_customer_when_enabled
             .subscription(SubscriptionOptions::enabled(vec![
                 StripePlan::new("pro").price_id("price_pro")
             ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -510,7 +517,8 @@ async fn subscription_updated_webhook_updates_existing_local_subscription(
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -581,7 +589,8 @@ async fn subscription_updated_webhook_falls_back_to_active_customer_subscription
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -658,7 +667,8 @@ async fn subscription_updated_webhook_skips_ambiguous_customer_subscriptions(
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -729,7 +739,8 @@ async fn subscription_updated_webhook_resolves_dynamic_plans(
                 Box::pin(async { Ok(vec![StripePlan::new("dynamic-pro").price_id("price_pro")]) })
             }),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -800,7 +811,8 @@ async fn subscription_update_hook_runs_without_failing_webhook(
                     })
                 }),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -846,7 +858,8 @@ async fn subscription_updated_webhook_sets_and_clears_schedule_id(
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -913,7 +926,8 @@ async fn subscription_deleted_webhook_marks_local_subscription_canceled(
         StripeOptions::new(StripeClient::new("sk_test"), "whsec_test").subscription(
             SubscriptionOptions::enabled(vec![StripePlan::new("pro").price_id("price_pro")]),
         ),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

@@ -16,7 +16,8 @@ the process.
 - Runtime and environment detection hooks.
 - Optional HTTP transport through the default `http` feature.
 - OAuth/social-provider config snapshots when the `oauth` feature is enabled.
-- Test hooks for deterministic telemetry assertions.
+- Test hooks (`TelemetryTestHooks`, `get_telemetry_auth_config`) for integration
+  tests; they are `#[doc(hidden)]` on the public API surface.
 
 ## Feature Flags
 
@@ -41,8 +42,8 @@ enables `openauth-telemetry/oauth` for you, so application code that depends on
 ## Quick Start
 
 ```rust
+use openauth::telemetry::{create_telemetry, TelemetryContext, TelemetryEvent};
 use openauth::{OpenAuthOptions, TelemetryOptions};
-use openauth_telemetry::{create_telemetry, TelemetryContext, TelemetryEvent};
 use serde_json::json;
 
 let options = OpenAuthOptions::new()

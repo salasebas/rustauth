@@ -14,6 +14,7 @@ pub fn is_non_terminal_subscription_status(status: &str) -> bool {
     !matches!(status, "canceled" | "incomplete" | "incomplete_expired")
 }
 
+#[allow(dead_code)]
 pub fn is_pending_cancel(cancel_at_period_end: bool, cancel_at: Option<i64>) -> bool {
     cancel_at_period_end || cancel_at.is_some()
 }
@@ -72,4 +73,53 @@ pub fn resolve_quantity(
         }
     }
     plan_item.quantity.unwrap_or(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{StripePrice, StripeSubscriptionItem};
+
+    #[test]
+    fn escape_stripe_search_value_escapes_double_quotes() {
+        assert_eq!(
+            escape_stripe_search_value(r#""a" and "b""#),
+            r#"\"a\" and \"b\""#
+        );
+    }
+
+    #[test]
+    fn resolve_plan_item_matches_by_price_id_and_lookup_key() {
+        let options = SubscriptionOptions::enabled(vec![
+            StripePlan::new("starter").price_id("price_starter"),
+            StripePlan::new("premium").lookup_key("lookup_premium"),
+        ]);
+        let items = vec![
+            StripeSubscriptionItem::new("si_1", StripePrice::new("price_seat")),
+            StripeSubscriptionItem::new(
+                "si_2",
+                StripePrice::new("price_dynamic").lookup_key("lookup_premium"),
+            ),
+        ];
+
+        let resolved = resolve_plan_item(&options, &items);
+        assert_eq!(
+            resolved.and_then(|item| item.plan.map(|plan| plan.name.as_str())),
+            Some("premium")
+        );
+    }
+
+    #[test]
+    fn is_active_or_trialing_matches_upstream_statuses() {
+        assert!(is_active_or_trialing("active"));
+        assert!(is_active_or_trialing("trialing"));
+        assert!(!is_active_or_trialing("canceled"));
+    }
+
+    #[test]
+    fn is_pending_cancel_matches_upstream_semantics() {
+        assert!(is_pending_cancel(true, None));
+        assert!(is_pending_cancel(false, Some(1)));
+        assert!(!is_pending_cancel(false, None));
+    }
 }

@@ -47,7 +47,8 @@ async fn upgrade_lazy_customer_create_forwards_request_metadata(
         .subscription(SubscriptionOptions::enabled(vec![
             StripePlan::new("pro").price_id("price_pro")
         ])),
-    );
+    )
+    .unwrap();
     let endpoint = plugin
         .endpoints
         .iter()
@@ -82,7 +83,7 @@ async fn upgrade_lazy_customer_create_forwards_request_metadata(
 async fn upgrade_strips_user_injected_stripe_customer_id_from_checkout_metadata(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(CaptureTransport::default());
-    let plugin = stripe(stripe_options(Arc::clone(&transport)));
+    let plugin = stripe(stripe_options(Arc::clone(&transport))).unwrap();
     let endpoint = plugin
         .endpoints
         .iter()

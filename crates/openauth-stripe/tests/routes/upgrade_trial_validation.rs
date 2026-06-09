@@ -16,7 +16,7 @@ async fn rejects_zero_day_trial() -> Result<(), Box<dyn std::error::Error>> {
     .subscription(SubscriptionOptions::enabled(vec![StripePlan::new("pro")
         .price_id("price_pro")
         .free_trial(FreeTrialOptions::new(0))]));
-    let plugin = stripe(options);
+    let plugin = stripe(options).unwrap();
     let endpoint = plugin_endpoint(&plugin, "/subscription/upgrade").ok_or("upgrade endpoint")?;
     let (context, _adapter, cookie_header) = authenticated_context().await?;
     let request = upgrade_request(

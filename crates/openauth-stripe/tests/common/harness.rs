@@ -129,7 +129,7 @@ pub fn plugin_endpoint<'a>(
 }
 
 pub fn stripe_plugin(transport: Arc<dyn StripeTransport>) -> openauth_core::plugin::AuthPlugin {
-    stripe(stripe_options(transport))
+    stripe(stripe_options(transport)).unwrap()
 }
 
 pub async fn session_cookie_for_user(

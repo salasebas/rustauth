@@ -99,10 +99,12 @@ pub use openauth_sso as sso;
 #[cfg(feature = "stripe")]
 pub use openauth_stripe as stripe;
 #[cfg(feature = "telemetry")]
-pub use openauth_telemetry::{
-    create_telemetry, get_telemetry_auth_config, CustomTrackFn, TelemetryContext, TelemetryEvent,
-    TelemetryPublisher, TelemetryTestHooks,
-};
+pub mod telemetry {
+    pub use openauth_telemetry::{
+        create_telemetry, CustomTrackFn, TelemetryContext, TelemetryEvent, TelemetryHttpError,
+        TelemetryHttpTransport, TelemetryPublisher,
+    };
+}
 #[cfg(feature = "tokio-postgres")]
 pub use openauth_tokio_postgres as tokio_postgres;
 
