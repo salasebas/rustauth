@@ -413,7 +413,12 @@ impl SqlDialect {
             .to_owned(),
             Self::MySql => match field.field_type {
                 DbFieldType::Number if field.generated_id == Some(IdGeneration::Serial) => "BIGINT",
-                DbFieldType::String if logical_name == "id" || field.unique || field.index => {
+                DbFieldType::String
+                    if logical_name == "id"
+                        || field.unique
+                        || field.index
+                        || field.foreign_key.is_some() =>
+                {
                     "VARCHAR(255)"
                 }
                 DbFieldType::String => "TEXT",
