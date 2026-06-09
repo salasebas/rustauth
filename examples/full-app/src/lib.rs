@@ -6,7 +6,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::Body;
@@ -428,6 +428,8 @@ struct AppState {
     memory_rate_limit_store: Arc<GovernorMemoryRateLimitStore>,
     profile_cache: Arc<ProfileCache>,
     viewer_adapter_cache: Arc<ViewerAdapterCache>,
+    /// In-process preferences when Redis is unreachable (demo fallback).
+    preferences_store: Arc<Mutex<Option<ExamplePreferences>>>,
     dev_controls: bool,
 }
 
@@ -538,6 +540,17 @@ pub fn app() -> Router {
 /// and as a reference for the secure-by-default behavior.
 pub fn app_hardened() -> Router {
     static_app(demo_runtime(), false)
+}
+
+/// Injects a loopback client IP for integration tests that invoke the router
+/// through `tower::ServiceExt::oneshot` without Axum `ConnectInfo`.
+#[doc(hidden)]
+pub fn smoke_request<B>(mut request: axum::http::Request<B>) -> axum::http::Request<B> {
+    use std::net::{IpAddr, Ipv4Addr};
+    request
+        .extensions_mut()
+        .insert(openauth::RequestClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+    request
 }
 
 fn demo_runtime() -> RuntimeInfo {
@@ -819,6 +832,7 @@ fn static_app_with_data(
         memory_rate_limit_store,
         profile_cache: Arc::new(ProfileCache::default()),
         viewer_adapter_cache: Arc::new(ViewerAdapterCache::default()),
+        preferences_store: Arc::new(Mutex::new(None)),
         dev_controls,
     };
 
@@ -877,10 +891,7 @@ async fn preferences_json(State(state): State<AppState>) -> Response {
     if let Some(rejection) = control_plane_guard(&state) {
         return rejection;
     }
-    match load_preferences(&state.config).await {
-        Ok(preferences) => Json(preferences).into_response(),
-        Err(error) => json_error(StatusCode::BAD_GATEWAY, &error.to_string()),
-    }
+    Json(load_preferences(&state.config, &state.preferences_store).await).into_response()
 }
 
 async fn save_preferences(
@@ -893,9 +904,9 @@ async fn save_preferences(
     if let Err(error) = preferences.validate() {
         return json_error(StatusCode::BAD_REQUEST, &error.to_string());
     }
-    match persist_preferences(&state.config, &preferences).await {
+    match persist_preferences(&state.config, &state.preferences_store, &preferences).await {
         Ok(()) => Json(preferences).into_response(),
-        Err(error) => json_error(StatusCode::BAD_GATEWAY, &error.to_string()),
+        Err(error) => json_error(StatusCode::BAD_REQUEST, &error.to_string()),
     }
 }
 
@@ -1267,27 +1278,53 @@ where
     Ok(())
 }
 
-async fn load_preferences(config: &ExampleConfig) -> Result<ExamplePreferences, ExampleError> {
-    let Some(value) = redis_get(config, PREFERENCES_KEY).await? else {
-        return Ok(ExamplePreferences::from_config(config));
-    };
-    let preferences = serde_json::from_str::<ExamplePreferences>(&value)
-        .unwrap_or_else(|_| ExamplePreferences::from_config(config));
-    if preferences.validate().is_ok() {
-        Ok(preferences)
-    } else {
-        Ok(ExamplePreferences::from_config(config))
+fn local_preferences(
+    config: &ExampleConfig,
+    store: &Arc<Mutex<Option<ExamplePreferences>>>,
+) -> ExamplePreferences {
+    store
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+        .unwrap_or_else(|| ExamplePreferences::from_config(config))
+}
+
+async fn load_preferences(
+    config: &ExampleConfig,
+    store: &Arc<Mutex<Option<ExamplePreferences>>>,
+) -> ExamplePreferences {
+    match redis_get(config, PREFERENCES_KEY).await {
+        Ok(Some(value)) => {
+            let preferences = serde_json::from_str::<ExamplePreferences>(&value)
+                .unwrap_or_else(|_| ExamplePreferences::from_config(config));
+            if preferences.validate().is_ok() {
+                preferences
+            } else {
+                ExamplePreferences::from_config(config)
+            }
+        }
+        Ok(None) => local_preferences(config, store),
+        Err(_) => local_preferences(config, store),
     }
 }
 
 async fn persist_preferences(
     config: &ExampleConfig,
+    store: &Arc<Mutex<Option<ExamplePreferences>>>,
     preferences: &ExamplePreferences,
 ) -> Result<(), ExampleError> {
     let value = serde_json::to_string(preferences).map_err(|error| {
         ExampleError::InvalidConfig(format!("preferences could not be encoded: {error}"))
     })?;
-    redis_set(config, PREFERENCES_KEY, &value).await
+    match redis_set(config, PREFERENCES_KEY, &value).await {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            *store
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(preferences.clone());
+            Ok(())
+        }
+    }
 }
 
 async fn redis_get(config: &ExampleConfig, key: &str) -> Result<Option<String>, ExampleError> {
@@ -3280,8 +3317,30 @@ mod tests {
             memory_rate_limit_store: Arc::new(GovernorMemoryRateLimitStore::new()),
             profile_cache: Arc::new(ProfileCache::default()),
             viewer_adapter_cache: Arc::new(ViewerAdapterCache::default()),
+            preferences_store: Arc::new(Mutex::new(None)),
             config,
         }
+    }
+
+    #[tokio::test]
+    async fn preferences_fall_back_when_redis_is_unreachable() -> Result<(), ExampleError> {
+        let mut config = test_example_config(DbBackend::Sqlite, String::new());
+        config.redis_url = "redis://127.0.0.1:6399".to_owned();
+        let store = Arc::new(Mutex::new(None));
+
+        let preferences = load_preferences(&config, &store).await;
+        assert_eq!(preferences.db, "sqlite");
+        assert_eq!(preferences.rate_limit, "memory");
+
+        let updated = ExamplePreferences {
+            db: "memory".to_owned(),
+            rate_limit: "redis".to_owned(),
+        };
+        persist_preferences(&config, &store, &updated).await?;
+        let preferences = load_preferences(&config, &store).await;
+        assert_eq!(preferences.db, "memory");
+        assert_eq!(preferences.rate_limit, "redis");
+        Ok(())
     }
 
     #[test]

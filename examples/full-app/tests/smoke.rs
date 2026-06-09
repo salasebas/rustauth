@@ -2,6 +2,10 @@ use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
 use tower::ServiceExt;
 
+fn with_client_ip(request: Request<Body>) -> Request<Body> {
+    openauth_example_full_app::smoke_request(request)
+}
+
 #[tokio::test]
 async fn home_page_responds_ok() -> Result<(), Box<dyn std::error::Error>> {
     let response = openauth_example_full_app::app()
@@ -18,7 +22,7 @@ async fn dynamic_profile_sign_up_uses_selected_auth_path() -> Result<(), Box<dyn
     let app = openauth_example_full_app::app();
     let response = app
         .clone()
-        .oneshot(
+        .oneshot(with_client_ip(
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/example/auth/memory/memory/sign-up/email")
@@ -26,7 +30,7 @@ async fn dynamic_profile_sign_up_uses_selected_auth_path() -> Result<(), Box<dyn
                 .body(Body::from(
                     r#"{"name":"Test User","email":"profile@example.com","password":"password123456"}"#,
                 ))?,
-        )
+        ))
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
@@ -39,7 +43,7 @@ async fn dynamic_profile_sign_up_uses_selected_auth_path() -> Result<(), Box<dyn
             .is_ok_and(|cookie| cookie.starts_with("open-auth-memory.session_token="))));
 
     let response = app
-        .oneshot(
+        .oneshot(with_client_ip(
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/example/auth/memory/memory/sign-in/email")
@@ -47,7 +51,7 @@ async fn dynamic_profile_sign_up_uses_selected_auth_path() -> Result<(), Box<dyn
                 .body(Body::from(
                     r#"{"email":"profile@example.com","password":"password123456"}"#,
                 ))?,
-        )
+        ))
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
@@ -75,7 +79,7 @@ async fn database_viewer_reads_and_drops_memory_rows() -> Result<(), Box<dyn std
     let app = openauth_example_full_app::app();
     let response = app
         .clone()
-        .oneshot(
+        .oneshot(with_client_ip(
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/example/auth/memory/memory/sign-up/email")
@@ -83,7 +87,7 @@ async fn database_viewer_reads_and_drops_memory_rows() -> Result<(), Box<dyn std
                 .body(Body::from(
                     r#"{"name":"Table User","email":"table@example.com","password":"password123456"}"#,
                 ))?,
-        )
+        ))
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
@@ -130,13 +134,15 @@ async fn database_viewer_reads_and_drops_memory_rows() -> Result<(), Box<dyn std
 async fn rate_limit_settings_apply_to_dynamic_memory_profile(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app = openauth_example_full_app::app();
-    let request = || {
-        Request::builder()
-            .uri("/api/example/auth/memory/memory/ok")
-            .header("x-openauth-example-rate-enabled", "true")
-            .header("x-openauth-example-rate-window", "60")
-            .header("x-openauth-example-rate-max", "2")
-            .body(Body::empty())
+    let request = || -> Result<Request<Body>, Box<dyn std::error::Error>> {
+        Ok(with_client_ip(
+            Request::builder()
+                .uri("/api/example/auth/memory/memory/ok")
+                .header("x-openauth-example-rate-enabled", "true")
+                .header("x-openauth-example-rate-window", "60")
+                .header("x-openauth-example-rate-max", "2")
+                .body(Body::empty())?,
+        ))
     };
 
     assert_eq!(
@@ -151,6 +157,37 @@ async fn rate_limit_settings_apply_to_dynamic_memory_profile(
         app.oneshot(request()?).await?.status(),
         StatusCode::TOO_MANY_REQUESTS
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn preferences_respond_ok_when_redis_is_unreachable() -> Result<(), Box<dyn std::error::Error>>
+{
+    let app = openauth_example_full_app::app();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/example/preferences")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+    let json: serde_json::Value = serde_json::from_slice(&body)?;
+    assert!(json.get("db").is_some());
+    assert!(json.get("rateLimit").is_some());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/example/preferences")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"db":"memory","rateLimit":"memory"}"#))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
     Ok(())
 }
 
@@ -198,13 +235,15 @@ async fn hardened_mode_ignores_rate_limit_override_headers(
     // A public caller tries to shrink the limit to 1; hardened mode must ignore
     // these headers and keep the configured default (max 120), so repeated
     // probes stay successful instead of returning 429.
-    let request = || {
-        Request::builder()
-            .uri("/api/example/auth/memory/memory/ok")
-            .header("x-openauth-example-rate-enabled", "true")
-            .header("x-openauth-example-rate-window", "60")
-            .header("x-openauth-example-rate-max", "1")
-            .body(Body::empty())
+    let request = || -> Result<Request<Body>, Box<dyn std::error::Error>> {
+        Ok(with_client_ip(
+            Request::builder()
+                .uri("/api/example/auth/memory/memory/ok")
+                .header("x-openauth-example-rate-enabled", "true")
+                .header("x-openauth-example-rate-window", "60")
+                .header("x-openauth-example-rate-max", "1")
+                .body(Body::empty())?,
+        ))
     };
 
     assert_eq!(

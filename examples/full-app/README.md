@@ -15,6 +15,12 @@ Open http://127.0.0.1:3000.
 The default SQLite database is created at `examples/full-app/data/openauth.sqlite`.
 The `data/` directory is local development state and should not be committed.
 
+The demo UI's profile preferences (`/api/example/preferences`) use Redis when it
+is reachable (`REDIS_URL`, default `redis://127.0.0.1:6379`). When Redis is not
+running, preferences fall back to the startup configuration and an in-process
+store for the current server instance, so the default SQLite flow works without a
+Redis sidecar.
+
 ## Run with Docker services
 
 From the repository root:

@@ -9,6 +9,12 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
+- `openauth-example-full-app`: profile preferences no longer return `502` when
+  Redis is unreachable in the default SQLite flow; reads fall back to startup
+  config and writes use an in-process store until Redis is available.
+- `openauth-example-full-app`: smoke tests now inject a loopback client IP so
+  `oneshot` auth probes match production `ConnectInfo` behavior instead of
+  failing closed with `429` under `MissingIpPolicy::Deny`.
 - `openauth-core`, `openauth-sqlx`, `openauth-tokio-postgres`,
   `openauth-deadpool-postgres`: SQL-backed standalone rate-limit stores now
   reject invalid rules (`window = 0`, `max = 0`, and oversized window
