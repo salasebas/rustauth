@@ -717,9 +717,7 @@ pub async fn build_app(config: ExampleConfig) -> Result<Router, ExampleError> {
     }
 }
 
-fn example_plugins(
-    adapter: Arc<dyn openauth::db::DbAdapter>,
-) -> Result<Vec<AuthPlugin>, ExampleError> {
+fn example_plugins() -> Result<Vec<AuthPlugin>, ExampleError> {
     use openauth::passkey::{passkey, PasskeyOptions};
     use openauth::plugins::prelude::*;
     use openauth::scim::{scim, ScimOptions};
@@ -800,10 +798,7 @@ fn example_plugins(
 fn example_db_schema(
     adapter: Arc<dyn openauth::db::DbAdapter>,
 ) -> Result<openauth::db::DbSchema, ExampleError> {
-    Ok(
-        create_auth_context_with_adapter(example_open_auth_options(adapter.clone())?, adapter)?
-            .db_schema,
-    )
+    Ok(create_auth_context_with_adapter(example_open_auth_options()?, adapter)?.db_schema)
 }
 
 /// Plugin-augmented schema used by the example's SQL adapters and viewer.
@@ -852,13 +847,11 @@ async fn connect_sql_adapter(
     Ok(adapter)
 }
 
-fn example_open_auth_options(
-    adapter: Arc<dyn openauth::db::DbAdapter>,
-) -> Result<OpenAuthOptions, ExampleError> {
+fn example_open_auth_options() -> Result<OpenAuthOptions, ExampleError> {
     let mut options = OpenAuthOptions::new()
         .secret(DEFAULT_SECRET.to_owned())
         .email_password(EmailPasswordOptions::new().enabled(true))
-        .plugins(example_plugins(adapter)?);
+        .plugins(example_plugins()?);
     #[cfg(debug_assertions)]
     {
         options = openauth_core::test_utils::apply_fast_password_defaults(options);
@@ -903,7 +896,7 @@ where
         }
     };
 
-    let options = example_open_auth_options(adapter.clone())?
+    let options = example_open_auth_options()?
         .base_url(auth_base_url_for_path(&config.base_url, &auth_base_path)?)
         .base_path(auth_base_path)
         .secret(config.secret.clone())
