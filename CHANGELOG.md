@@ -7,6 +7,48 @@ Versioning while the API is still pre-1.0.
 
 ## Unreleased
 
+## [0.1.1] - 2026-06-09
+
+### Added
+
+- `openauth-example-full-app`: `postgres-deadpool` adapter profile (`deadpool-postgres`
+  over `tokio-postgres`) in the sidebar and database studio, sharing the same
+  Postgres URL as `postgres-sqlx`.
+- `openauth-example-full-app`: adapter labels now expose the SQL driver explicitly
+  as `postgres-sqlx` and `mysql-sqlx` (`postgres` / `mysql` remain accepted aliases).
+
+### Changed
+
+- `openauth-sqlx`, `openauth-tokio-postgres`: Postgres migration planning now
+  loads schema snapshots with a fixed set of batched catalog queries instead of
+  per-column `information_schema` round trips.
+
+### Fixed
+
+- `openauth-sqlx`, `openauth-tokio-postgres`: Postgres migration introspection
+  no longer spends tens of seconds in `constraint_column_usage` lookups during
+  `run_migrations` / seed workflows on large auth schemas.
+- `openauth-example-full-app`: dynamic SQL auth profiles now open adapters with
+  the plugin-augmented example schema, fixing `is_anonymous` / session creation
+  failures on `postgres-sqlx`, `postgres-deadpool`, `mysql-sqlx`, and `sqlite`
+  profiles after seeding or reset.
+- `openauth-core`: MySQL DDL now maps foreign-key string columns to
+  `VARCHAR(255)` so plugin migrations can add referenced columns on existing
+  tables.
+- `openauth-core`: removed the self-referencing `dev-dependencies` entry that
+  blocked `cargo publish` for `0.1.0` on crates.io (integration tests already
+  enable `test-utils` via `--all-features`).
+- `openauth-telemetry`: `TelemetryPublisher::publish` now waits for the async
+  `init` bootstrap event before emitting command-specific events, so CLI debug
+  output and downstream collectors always see `init` precede `cli_generate` /
+  `cli_migrate`.
+- `openauth-example-full-app`: database seeding runs inside one adapter
+  transaction, fills required plugin columns, and skips redundant migration
+  passes for faster Postgres/MySQL studio workflows.
+- `openauth-example-full-app`: MySQL integration coverage now runs seed and
+  schema-reset scenarios in one test to avoid cross-runtime races against the
+  shared dev database.
+
 ## [0.1.0] - 2026-06-08
 
 
@@ -41,7 +83,26 @@ Versioning while the API is still pre-1.0.
 
 ### Fixed
 
-
+- `openauth-example-full-app`: profile preferences no longer return `502` when
+  Redis is unreachable in the default SQLite flow; reads fall back to startup
+  config and writes use an in-process store until Redis is available.
+- `openauth-example-full-app`: smoke tests now inject a loopback client IP so
+  `oneshot` auth probes match production `ConnectInfo` behavior instead of
+  failing closed with `429` under `MissingIpPolicy::Deny`.
+- `openauth-example-full-app`: MySQL schema reset now lists tables through
+  `information_schema` with an explicit `CAST(... AS CHAR)` (recent MySQL builds
+  expose table-name columns as `VARBINARY`), disables foreign-key checks on a
+  single pooled connection, and drops tables in batches so reset works again on
+  busy dev databases.
+- `openauth-example-full-app`: database seeding runs inside one adapter
+  transaction and skips redundant migration passes for faster Postgres/MySQL
+  studio workflows.
+- `openauth-example-full-app`: the database viewer no longer runs full SQL
+  migration planning on read-only table loads; migrations run once per cached
+  adapter when seeding, which avoids Postgres-specific introspection slowness
+  while browsing tables.
+- `openauth-example-full-app`: seed and reset actions now disable each other
+  and show a loading state on the active control until the request completes.
 - `openauth-core`, `openauth-sqlx`, `openauth-tokio-postgres`,
   `openauth-deadpool-postgres`: SQL-backed standalone rate-limit stores now
   reject invalid rules (`window = 0`, `max = 0`, and oversized window

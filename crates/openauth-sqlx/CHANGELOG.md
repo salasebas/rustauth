@@ -4,11 +4,20 @@ All notable changes to `openauth-sqlx` are documented in this file.
 
 ## Unreleased
 
+## [0.1.1] - 2026-06-09
+
+### Changed
+
+- Postgres migration planning now loads schema snapshots with batched catalog
+  queries (`pg_catalog` for constraints and indexes) instead of per-column
+  `information_schema` round trips.
 
 ### Fixed
 
-- Fixed rate-limit persistence so negative stored counts are rejected instead
-  of wrapping to huge values when decoded as `u64`.
+- Postgres migration introspection no longer spends tens of seconds in slow
+  `constraint_column_usage` lookups on large auth schemas.
+- Rate-limit persistence rejects negative stored counts instead of wrapping to
+  huge values when decoded as `u64`.
 
 ## [0.0.6] - 2026-05-24
 

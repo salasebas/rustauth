@@ -4,6 +4,13 @@ All notable changes to `openauth-telemetry` are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-09
+
+### Fixed
+
+- `TelemetryPublisher::publish` waits for the async `init` bootstrap event before
+  emitting later events, preserving documented CLI ordering in debug output and
+  custom sinks.
 
 ### Changed
 

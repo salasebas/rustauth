@@ -4,9 +4,18 @@ All notable changes to `openauth-tokio-postgres` are documented in this file.
 
 ## Unreleased
 
+## [0.1.1] - 2026-06-09
+
+### Changed
+
+- Postgres migration planning now loads schema snapshots with batched catalog
+  queries instead of per-column `information_schema` round trips (shared with
+  `openauth-deadpool-postgres`).
 
 ### Fixed
 
+- Postgres migration introspection no longer spends tens of seconds in slow
+  `constraint_column_usage` lookups on large auth schemas.
 - Fixed standalone `TokioPostgresRateLimitStore` construction bypassing the
   adapter transaction gate when both were built from cloned `Client` handles.
   Introduced `TokioPostgresConnection` as the shared client/gate bundle,

@@ -4,6 +4,16 @@ All notable changes to `openauth-core` are documented in this file.
 
 ## Unreleased
 
+## [0.1.1] - 2026-06-09
+
+### Fixed
+
+- MySQL DDL now maps foreign-key string columns to `VARCHAR(255)` so additive
+  plugin migrations can create referenced columns on existing tables.
+- Removed the self-referencing `dev-dependencies` entry so `cargo publish` can
+  package `openauth-core` without resolving the crate from crates.io during
+  verification.
+
 ## [0.1.0] - 2026-06-08
 
 
