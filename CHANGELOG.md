@@ -23,13 +23,25 @@ Versioning while the API is still pre-1.0.
 
 ### Added
 
+- `openauth`: `oauth-provider` feature re-exports `openauth-oauth-provider` as
+  `openauth::oauth_provider`.
+- `openauth-oauth-provider`: `resolve_oauth_provider_options` and
+  `resolve_oauth_provider_options_with_jwt` for validated config introspection
+  without building the plugin; re-export of `JwtOptions`.
+- `openauth-scim`: consuming builder methods on `ScimOptions` (`.token_storage()`,
+  `.audit_event()`, and related setters).
+- `openauth-passkey`, `openauth-scim`, `openauth-saml`, `openauth-oauth-provider`:
+  `test-util` feature for integration-test helpers (WebAuthn backend injection,
+  SCIM token/patch/store modules, SAML signature helpers, OAuth provider DB
+  helpers).
 - `openauth-social-providers`: application-facing catalog under `providers::*`,
   with `SocialProviderConfig`, `SocialProviderConfigBuilder`, `ProviderId`, and
   `CognitoPoolConfig` for registering built-in social OAuth providers with
   `OpenAuthOptions::social_provider`.
 - `openauth-social-providers`: `advanced::*` module for low-level provider
   request types, profile structs, endpoint constants, and HTTP helpers.
-
+- `openauth-example-full-app`: wires `oauth_provider` through
+  `openauth::oauth_provider` with the umbrella `oauth-provider` feature.
 - `openauth-example-full-app`: `postgres-deadpool` adapter profile (`deadpool-postgres`
   over `tokio-postgres`) in the sidebar and database studio, sharing the same
   Postgres URL as `postgres-sqlx`.
@@ -38,6 +50,28 @@ Versioning while the API is still pre-1.0.
 
 ### Changed
 
+- **Breaking:** `openauth-oauth-provider::oauth_provider()` and
+  `oauth_provider_with_jwt()` now return `Result<AuthPlugin, _>` directly.
+  `OAuthProviderPlugin`, `into_auth_plugin()`, and `as_auth_plugin()` are
+  removed.
+- **Breaking:** `openauth` no longer re-exports `openauth-oidc` or
+  `openauth-saml` at the crate root. Use `openauth::sso::oidc` /
+  `openauth::sso::saml` when needed, or depend on those crates directly.
+- **Breaking:** `openauth-sso::OidcConfig`, `OidcMapping`, and
+  `TokenEndpointAuthentication` are re-exports of `openauth_oidc` types (no
+  duplicate SSO-local definitions). OIDC `client_secret` uses
+  `openauth_oidc::SecretString`.
+- **Breaking:** `openauth-saml` no longer exposes internal protocol modules
+  (`xml`, `signature`, `encryption`, `assertions`, etc.) at the crate root.
+  Public surface is config types, `metadata`, and validation helpers.
+- **Breaking:** `openauth-scim` hides `token`, `patch`, `mappings`, and `store`
+  modules unless the `test-util` feature is enabled.
+- **Breaking:** `openauth-passkey` hides `PasskeyWebAuthnBackend`,
+  `RealPasskeyWebAuthnBackend`, and `PasskeyOptions::backend()` unless
+  `test-util` is enabled.
+- **Breaking:** Low-level `openauth-oauth-provider` DB/token helpers
+  (`store_token`, `decide_authorize`, schema mappers, etc.) are behind
+  `test-util`; application code should use HTTP routes and plugin options.
 - **Breaking:** Storage adapter crates (`openauth-sqlx`, `openauth-deadpool-postgres`,
   `openauth-tokio-postgres`, `openauth-redis`, `openauth-fred`) now lead with
   bundled `*Stores` types and `apply_to_options` for the recommended app-dev

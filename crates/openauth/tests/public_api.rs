@@ -287,16 +287,10 @@ fn sso_feature_reexports_sso_crate() {
     assert_eq!(plugin.version.as_deref(), Some(openauth::sso::VERSION));
 }
 
-#[cfg(feature = "oidc")]
+#[cfg(feature = "oauth-provider")]
 #[test]
-fn oidc_feature_reexports_oidc_crate() {
-    assert_eq!(openauth::oidc::VERSION, env!("CARGO_PKG_VERSION"));
-}
-
-#[cfg(feature = "saml")]
-#[test]
-fn saml_feature_reexports_saml_crate() {
-    assert_eq!(openauth::saml::VERSION, env!("CARGO_PKG_VERSION"));
+fn oauth_provider_feature_reexports_oauth_provider_crate() {
+    assert_eq!(openauth::oauth_provider::VERSION, env!("CARGO_PKG_VERSION"));
 }
 
 #[test]

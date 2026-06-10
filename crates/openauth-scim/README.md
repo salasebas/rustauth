@@ -21,14 +21,27 @@ features.
 
 ## Quick Start
 
+Enable the `scim` feature on the umbrella `openauth` crate (or depend on
+`openauth-scim` directly):
+
+```toml
+[dependencies]
+openauth = { version = "0.1.1", features = ["scim"] }
+```
+
 ```rust
 use openauth::OpenAuth;
-use openauth_scim::{scim, ScimOptions, ScimTokenStorage};
+use openauth::scim::{scim, ScimOptions, ScimTokenStorage};
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
     .base_url("https://app.example.com/api/auth")
-    .plugin(scim(ScimOptions::default()))
+    .plugin(
+        scim(
+            ScimOptions::default()
+                .token_storage(ScimTokenStorage::Hashed),
+        ),
+    )
     .build()?;
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())

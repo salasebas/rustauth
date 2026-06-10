@@ -2,15 +2,13 @@ use super::common::*;
 
 #[test]
 fn oauth_provider_resolves_mcp_options() -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = oauth_provider(OAuthProviderOptions {
+    let options = OAuthProviderOptions {
         mcp: Some(McpOptions::default()),
         ..default_options()
-    })?;
+    };
+    let resolved = resolve_oauth_provider_options(options)?;
 
-    assert_eq!(
-        plugin.options.mcp.as_ref().ok_or("missing mcp")?.resource,
-        None
-    );
+    assert_eq!(resolved.mcp.as_ref().ok_or("missing mcp")?.resource, None);
     Ok(())
 }
 
