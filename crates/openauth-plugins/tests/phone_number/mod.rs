@@ -17,7 +17,7 @@ use openauth_core::test_utils::fast_hash_password;
 use openauth_core::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
 use openauth_plugins::phone_number::{
-    phone_number, PhoneNumberOptions, SignUpOnVerification, UPSTREAM_PLUGIN_ID,
+    phone_number_with, PhoneNumberOptions, SignUpOnVerification, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
@@ -29,8 +29,8 @@ const NEW_PHONE: &str = "+19876543210";
 
 #[tokio::test]
 async fn plugin_metadata_registers_expected_contracts() -> Result<(), Box<dyn std::error::Error>> {
-    let adapter = Arc::new(MemoryAdapter::new());
-    let plugin = phone_number(adapter, PhoneNumberOptions::default());
+    let _adapter = Arc::new(MemoryAdapter::new());
+    let plugin = phone_number_with(PhoneNumberOptions::default());
 
     assert_eq!(UPSTREAM_PLUGIN_ID, "phone-number");
     assert_eq!(plugin.id, "phone-number");
@@ -640,7 +640,7 @@ fn router_with_options_and_openauth(
     openauth_options: OpenAuthOptions,
 ) -> Result<AuthRouter, OpenAuthError> {
     let base_adapter: Arc<dyn DbAdapter> = inner;
-    let plugin = phone_number(Arc::clone(&base_adapter), options.clone());
+    let plugin = phone_number_with(options.clone());
     let mut initial_options = openauth_options.clone();
     initial_options.secret = Some(secret().to_owned());
     initial_options.plugins = vec![plugin.clone()];
@@ -657,7 +657,7 @@ fn router_with_options_and_openauth(
         Arc::new(JoinAdapter::new(initial_context.db_schema, hooked, false));
     let mut final_options = openauth_options;
     final_options.secret = Some(secret().to_owned());
-    final_options.plugins = vec![phone_number(Arc::clone(&adapter), options)];
+    final_options.plugins = vec![phone_number_with(options)];
     final_options.advanced = advanced_options();
     let final_options = openauth_core::test_utils::with_integration_test_defaults(final_options);
     let context = create_auth_context_with_adapter(final_options, Arc::clone(&adapter))?;

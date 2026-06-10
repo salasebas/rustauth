@@ -34,7 +34,13 @@ pub mod access_control {
 
 pub const UPSTREAM_PLUGIN_ID: &str = "admin";
 
-pub fn admin(options: AdminOptions) -> AuthPlugin {
+#[must_use]
+pub fn admin() -> AuthPlugin {
+    admin_with(AdminOptions::default())
+}
+
+#[must_use]
+pub fn admin_with(options: AdminOptions) -> AuthPlugin {
     let options = options.with_defaults();
     let init_options = options.clone();
 

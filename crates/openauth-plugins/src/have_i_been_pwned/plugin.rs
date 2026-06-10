@@ -4,28 +4,21 @@ use std::sync::Arc;
 
 use openauth_core::plugin::{AuthPlugin, PluginErrorCode, PluginPasswordValidationRejection};
 
-use super::checker::{
-    sha1_prefix_suffix, HaveIBeenPwnedCheckError, HaveIBeenPwnedChecker,
-    ReqwestHaveIBeenPwnedChecker,
-};
+use super::checker::{sha1_prefix_suffix, HaveIBeenPwnedCheckError};
 use super::error::{CHECK_FAILED_MESSAGE, PASSWORD_COMPROMISED_CODE, PASSWORD_COMPROMISED_MESSAGE};
 use super::options::HaveIBeenPwnedOptions;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "haveibeenpwned";
 pub const RUNTIME_PLUGIN_ID: &str = "have-i-been-pwned";
 
+#[must_use]
 pub fn have_i_been_pwned() -> AuthPlugin {
-    have_i_been_pwned_with_options(HaveIBeenPwnedOptions::default())
+    have_i_been_pwned_with(HaveIBeenPwnedOptions::default())
 }
 
-pub fn have_i_been_pwned_with_options(options: HaveIBeenPwnedOptions) -> AuthPlugin {
-    have_i_been_pwned_with_checker(options, Arc::new(ReqwestHaveIBeenPwnedChecker::new()))
-}
-
-pub fn have_i_been_pwned_with_checker(
-    options: HaveIBeenPwnedOptions,
-    checker: Arc<dyn HaveIBeenPwnedChecker>,
-) -> AuthPlugin {
+#[must_use]
+pub fn have_i_been_pwned_with(options: HaveIBeenPwnedOptions) -> AuthPlugin {
+    let checker = options.resolved_checker();
     let plugin_options = serde_json::json!({
         "enabled": options.enabled,
         "paths": options.paths,

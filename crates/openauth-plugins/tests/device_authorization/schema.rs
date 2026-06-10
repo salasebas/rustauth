@@ -13,7 +13,7 @@ fn schema_contributes_device_code_table() -> Result<(), Box<dyn std::error::Erro
     let adapter = Arc::new(TestAdapter::default());
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
-            plugins: vec![device_authorization_with_options(
+            plugins: vec![device_authorization_with(
                 DeviceAuthorizationOptions::default(),
             )],
             secret: Some(secret().to_owned()),
@@ -55,7 +55,7 @@ fn schema_options_customize_physical_table_and_field_names(
     let adapter = Arc::new(TestAdapter::default());
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
-            plugins: vec![device_authorization_with_options(
+            plugins: vec![device_authorization_with(
                 DeviceAuthorizationOptions::default().schema(
                     openauth_plugins::device_authorization::DeviceAuthorizationSchemaOptions::new()
                         .table_name("oauth_device_codes")

@@ -726,34 +726,10 @@ pub async fn build_app(config: ExampleConfig) -> Result<Router, ExampleError> {
     }
 }
 
-fn example_plugins(
-    adapter: Arc<dyn openauth::db::DbAdapter>,
-) -> Result<Vec<AuthPlugin>, ExampleError> {
+fn example_plugins() -> Result<Vec<AuthPlugin>, ExampleError> {
     use openauth::oauth_provider::{oauth_provider, McpOptions, OAuthProviderOptions};
     use openauth::passkey::{passkey, PasskeyOptions};
-    use openauth::plugins::{
-        admin::{admin, AdminOptions},
-        anonymous::{anonymous, AnonymousOptions},
-        api_key::api_key,
-        bearer::bearer,
-        custom_session::custom_session,
-        device_authorization::device_authorization,
-        email_otp::{email_otp, EmailOtpOptions},
-        haveibeenpwned::{have_i_been_pwned_with_options, HaveIBeenPwnedOptions},
-        jwt::jwt,
-        last_login_method::{last_login_method, LastLoginMethodOptions},
-        magic_link::{magic_link, MagicLinkOptions},
-        multi_session::multi_session,
-        oauth_proxy::oauth_proxy_default,
-        one_tap::{one_tap, OneTapOptions},
-        one_time_token::one_time_token,
-        open_api::{open_api, OpenApiOptions},
-        organization::organization,
-        phone_number::{phone_number, PhoneNumberOptions},
-        siwe::{siwe, SiweOptions},
-        two_factor::{two_factor, TwoFactorOptions},
-        username::username,
-    };
+    use openauth::plugins::prelude::*;
     use openauth::scim::{scim, ScimOptions};
     use openauth::sso::{sso, SsoOptions};
     use openauth::stripe::{
@@ -762,22 +738,22 @@ fn example_plugins(
     use std::future;
 
     Ok(vec![
-        admin(AdminOptions::default()),
-        anonymous(AnonymousOptions::default()),
+        admin(),
+        anonymous(),
         api_key(),
         bearer(),
         // CAPTCHA is omitted: its `UNKNOWN_ERROR` code conflicts with `passkey`.
         custom_session(|input| Box::pin(future::ready(Ok(input.session)))),
         device_authorization(),
-        email_otp(adapter.clone(), EmailOtpOptions::default()),
+        email_otp_with(EmailOtpOptions::default()),
         // `generic-oauth` is omitted: its `SESSION_REQUIRED` code conflicts with `passkey`.
-        have_i_been_pwned_with_options(HaveIBeenPwnedOptions {
+        have_i_been_pwned_with(HaveIBeenPwnedOptions {
             enabled: false,
             ..HaveIBeenPwnedOptions::default()
         }),
         jwt().map_err(ExampleError::from)?,
-        last_login_method(LastLoginMethodOptions::default()),
-        magic_link(MagicLinkOptions::new(|_email| {
+        last_login_method(),
+        magic_link_with(MagicLinkOptions::new(|_email| {
             Box::pin(future::ready(Ok(())))
         })),
         oauth_provider(OAuthProviderOptions {
@@ -790,19 +766,19 @@ fn example_plugins(
         })
         .map_err(|error| ExampleError::InvalidConfig(error.to_string()))?,
         multi_session(),
-        oauth_proxy_default(),
-        one_tap(OneTapOptions::default()),
+        oauth_proxy(),
+        one_tap(),
         one_time_token(),
-        open_api(OpenApiOptions::default()),
+        open_api(),
         organization(),
-        phone_number(adapter.clone(), PhoneNumberOptions::default()),
-        siwe(SiweOptions::new(
+        phone_number_with(PhoneNumberOptions::default()),
+        siwe_with(SiweOptions::new(
             "localhost",
             || async { Ok("openauth-example-nonce".to_owned()) },
             |_args| async { Ok(true) },
         ))
         .map_err(ExampleError::from)?,
-        two_factor(TwoFactorOptions::default()),
+        two_factor(),
         username(),
         passkey(PasskeyOptions::default()),
         sso(SsoOptions::default()),
@@ -819,10 +795,7 @@ fn example_plugins(
 fn example_db_schema(
     adapter: Arc<dyn openauth::db::DbAdapter>,
 ) -> Result<openauth::db::DbSchema, ExampleError> {
-    Ok(
-        create_auth_context_with_adapter(example_open_auth_options(adapter.clone())?, adapter)?
-            .db_schema,
-    )
+    Ok(create_auth_context_with_adapter(example_open_auth_options()?, adapter)?.db_schema)
 }
 
 /// Plugin-augmented schema used by the example's SQL adapters and viewer.
@@ -873,13 +846,11 @@ async fn connect_sql_adapter(
     Ok(adapter)
 }
 
-fn example_open_auth_options(
-    adapter: Arc<dyn openauth::db::DbAdapter>,
-) -> Result<OpenAuthOptions, ExampleError> {
+fn example_open_auth_options() -> Result<OpenAuthOptions, ExampleError> {
     let mut options = OpenAuthOptions::new()
         .secret(DEFAULT_SECRET.to_owned())
         .email_password(EmailPasswordOptions::new().enabled(true))
-        .plugins(example_plugins(adapter)?);
+        .plugins(example_plugins()?);
     #[cfg(debug_assertions)]
     {
         options = openauth_core::test_utils::apply_fast_password_defaults(options);
@@ -924,7 +895,7 @@ where
         }
     };
 
-    let options = example_open_auth_options(adapter.clone())?
+    let options = example_open_auth_options()?
         .base_url(auth_base_url_for_path(&config.base_url, &auth_base_path)?)
         .base_path(auth_base_path)
         .secret(config.secret.clone())

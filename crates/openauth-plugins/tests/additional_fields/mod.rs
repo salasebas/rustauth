@@ -10,9 +10,9 @@ use openauth_core::options::{OpenAuthOptions, SessionOptions};
 use openauth_core::plugin::AuthPlugin;
 use openauth_core::test_utils::MemorySecondaryStorage as TestSecondaryStorage;
 use openauth_plugins::additional_fields::{
-    additional_fields, AdditionalField, AdditionalFieldsOptions,
+    additional_fields_with, AdditionalField, AdditionalFieldsOptions,
 };
-use openauth_plugins::anonymous::{anonymous, AnonymousOptions};
+use openauth_plugins::anonymous::anonymous;
 use serde_json::Value;
 use time::OffsetDateTime;
 
@@ -42,7 +42,7 @@ fn router_with_options(
 }
 
 fn session_defaults_plugin() -> AuthPlugin {
-    additional_fields(
+    additional_fields_with(
         AdditionalFieldsOptions::new().session_field(
             "new_field",
             AdditionalField::new(DbFieldType::String)
@@ -102,7 +102,7 @@ fn exposes_additional_fields_plugin_id() {
 #[test]
 fn additional_fields_plugin_registers_user_and_session_schema(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = additional_fields(
+    let plugin = additional_fields_with(
         AdditionalFieldsOptions::new()
             .user_field(
                 "role",
@@ -146,7 +146,7 @@ async fn session_additional_field_db_name_is_used_for_defaults_and_returned_outp
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router(
         adapter.clone(),
-        vec![additional_fields(
+        vec![additional_fields_with(
             AdditionalFieldsOptions::new().session_field(
                 "theme",
                 AdditionalField::new(DbFieldType::String)
@@ -192,7 +192,7 @@ async fn sign_up_applies_user_additional_field_default_values(
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router(
         adapter.clone(),
-        vec![additional_fields(
+        vec![additional_fields_with(
             AdditionalFieldsOptions::new().user_field(
                 "plan",
                 AdditionalField::new(DbFieldType::String)
@@ -236,8 +236,8 @@ async fn additional_fields_work_with_other_plugins() -> Result<(), Box<dyn std::
     let router = router(
         adapter.clone(),
         vec![
-            anonymous(AnonymousOptions::default()),
-            additional_fields(
+            anonymous(),
+            additional_fields_with(
                 AdditionalFieldsOptions::new().user_field(
                     "tier",
                     AdditionalField::new(DbFieldType::String)
@@ -360,7 +360,7 @@ async fn sign_up_applies_runtime_computed_default_value_at_sign_up(
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router(
         adapter.clone(),
-        vec![additional_fields(
+        vec![additional_fields_with(
             AdditionalFieldsOptions::new().user_field(
                 "new_field",
                 AdditionalField::new(DbFieldType::String)

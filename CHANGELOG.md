@@ -28,6 +28,10 @@ Versioning while the API is still pre-1.0.
 
 ### Added
 
+- `openauth`: `OpenAuthBuilder::plugins` appends a batch of plugins (mirrors
+  `.endpoints`); `.plugin` still appends one at a time.
+- `openauth-plugins`: `prelude` module re-exporting common plugin factories and
+  options for application wiring.
 - `openauth`: `oauth-provider` feature re-exports `openauth-oauth-provider` as
   `openauth::oauth_provider`.
 - `openauth-oauth-provider`: `resolve_oauth_provider_options` and
@@ -55,6 +59,14 @@ Versioning while the API is still pre-1.0.
 
 ### Changed
 
+- **Breaking:** `openauth-plugins` factory APIs are unified on `name()` /
+  `name_with(Options)` for app developers. Notable collapses include `api_key` /
+  `api_key_with` (with `ApiKeyOptions::builder()`), `custom_session` /
+  `custom_session_with`, and `oauth_proxy` replacing `oauth_proxy_default`.
+- **Breaking:** `openauth_plugins::haveibeenpwned` is now `have_i_been_pwned`
+  (`have_i_been_pwned()`, `have_i_been_pwned_with`).
+- **Breaking:** `email_otp` and `phone_number` no longer take
+  `Arc<dyn DbAdapter>`; the adapter comes from the initialized auth context.
 - **Breaking:** `openauth-oauth-provider::oauth_provider()` and
   `oauth_provider_with_jwt()` now return `Result<AuthPlugin, _>` directly.
   `OAuthProviderPlugin`, `into_auth_plugin()`, and `as_auth_plugin()` are

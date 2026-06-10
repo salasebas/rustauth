@@ -10,29 +10,31 @@ use openauth_core::db::{DbFieldType, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions, UserAdditionalField, UserOptions};
 use openauth_core::plugin::AuthPlugin;
-use openauth_plugins::anonymous::{anonymous, AnonymousOptions};
+use openauth_plugins::anonymous::anonymous;
 use openauth_plugins::api_key::api_key;
-use openauth_plugins::email_otp::{email_otp, EmailOtpOptions};
-use openauth_plugins::generic_oauth::{generic_oauth, GenericOAuthConfig, GenericOAuthOptions};
-use openauth_plugins::jwt::jwt;
-use openauth_plugins::magic_link::{magic_link, MagicLinkEmail, MagicLinkOptions};
-use openauth_plugins::multi_session::multi_session;
-use openauth_plugins::oauth_proxy::oauth_proxy_default;
-use openauth_plugins::one_tap::{one_tap, OneTapOptions};
-use openauth_plugins::one_time_token::one_time_token;
-use openauth_plugins::open_api::{open_api, OpenApiOptions};
-use openauth_plugins::organization::{
-    organization_with_options, DynamicAccessControlOptions, OrganizationOptions, TeamOptions,
+use openauth_plugins::email_otp::{email_otp_with, EmailOtpOptions};
+use openauth_plugins::generic_oauth::{
+    generic_oauth_with, GenericOAuthConfig, GenericOAuthOptions,
 };
-use openauth_plugins::phone_number::{phone_number, PhoneNumberOptions};
-use openauth_plugins::siwe::{siwe, SiweOptions};
-use openauth_plugins::two_factor::{two_factor, TwoFactorOptions};
+use openauth_plugins::jwt::jwt;
+use openauth_plugins::magic_link::{magic_link_with, MagicLinkEmail, MagicLinkOptions};
+use openauth_plugins::multi_session::multi_session;
+use openauth_plugins::oauth_proxy::oauth_proxy;
+use openauth_plugins::one_tap::one_tap;
+use openauth_plugins::one_time_token::one_time_token;
+use openauth_plugins::open_api::{open_api, open_api_with, OpenApiOptions};
+use openauth_plugins::organization::{
+    organization_with, DynamicAccessControlOptions, OrganizationOptions, TeamOptions,
+};
+use openauth_plugins::phone_number::{phone_number_with, PhoneNumberOptions};
+use openauth_plugins::siwe::{siwe_with, SiweOptions};
+use openauth_plugins::two_factor::two_factor;
 use openauth_plugins::username::username;
 use serde_json::Value;
 
 #[test]
 fn exposes_open_api_plugin_builder() {
-    let plugin = open_api(OpenApiOptions::default());
+    let plugin = open_api();
 
     assert_eq!(openauth_plugins::open_api::UPSTREAM_PLUGIN_ID, "open-api");
     assert_eq!(plugin.id, "open-api");
@@ -49,11 +51,7 @@ fn exposes_open_api_plugin_builder() {
 #[tokio::test]
 async fn generate_schema_endpoint_returns_core_and_plugin_paths(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let router = router(vec![
-        open_api(OpenApiOptions::default()),
-        api_key(),
-        anonymous(AnonymousOptions::default()),
-    ])?;
+    let router = router(vec![open_api(), api_key(), anonymous()])?;
 
     let response = router
         .handle_async(request(Method::GET, "/api/auth/open-api/generate-schema")?)
@@ -85,10 +83,7 @@ async fn generate_schema_endpoint_returns_core_and_plugin_paths(
 #[tokio::test]
 async fn generated_schema_includes_detailed_plugin_metadata(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let router = router(vec![
-        open_api(OpenApiOptions::default()),
-        anonymous(AnonymousOptions::default()),
-    ])?;
+    let router = router(vec![open_api(), anonymous()])?;
 
     let response = router
         .handle_async(request(Method::GET, "/api/auth/open-api/generate-schema")?)
@@ -108,7 +103,7 @@ async fn generated_schema_includes_detailed_plugin_metadata(
 #[tokio::test]
 async fn generated_schema_declares_user_id_as_string_type() -> Result<(), Box<dyn std::error::Error>>
 {
-    let router = router(vec![open_api(OpenApiOptions::default())])?;
+    let router = router(vec![open_api()])?;
     let response = router
         .handle_async(request(Method::GET, "/api/auth/open-api/generate-schema")?)
         .await?;
@@ -139,12 +134,9 @@ async fn generated_schema_uses_runtime_database_schema_components(
                 .default_value(DbValue::String("user".to_owned())),
         ),
         plugins: vec![
-            open_api(OpenApiOptions::default()),
-            organization_with_options(OrganizationOptions::default()),
-            phone_number(
-                Arc::new(MemoryAdapter::new()),
-                PhoneNumberOptions::default(),
-            ),
+            open_api(),
+            organization_with(OrganizationOptions::default()),
+            phone_number_with(PhoneNumberOptions::default()),
         ],
         ..OpenAuthOptions::default()
     })?;
@@ -178,15 +170,15 @@ async fn generated_schema_uses_runtime_database_schema_components(
 #[tokio::test]
 async fn generated_schema_audits_all_server_plugin_endpoints(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let adapter = Arc::new(MemoryAdapter::new());
+    let _adapter = Arc::new(MemoryAdapter::new());
     let router = router(vec![
-        open_api(OpenApiOptions::default()),
+        open_api(),
         api_key(),
-        anonymous(AnonymousOptions::default()),
+        anonymous(),
         username(),
         multi_session(),
         one_time_token(),
-        organization_with_options(
+        organization_with(
             OrganizationOptions::builder()
                 .teams(TeamOptions {
                     enabled: true,
@@ -203,15 +195,15 @@ async fn generated_schema_audits_all_server_plugin_endpoints(
                 .build(),
         ),
         jwt()?,
-        phone_number(adapter.clone(), PhoneNumberOptions::default()),
-        email_otp(adapter.clone(), EmailOtpOptions::default()),
-        two_factor(TwoFactorOptions::default()),
-        oauth_proxy_default(),
-        one_tap(OneTapOptions::default()),
-        magic_link(MagicLinkOptions::new(|_email: MagicLinkEmail| {
+        phone_number_with(PhoneNumberOptions::default()),
+        email_otp_with(EmailOtpOptions::default()),
+        two_factor(),
+        oauth_proxy(),
+        one_tap(),
+        magic_link_with(MagicLinkOptions::new(|_email: MagicLinkEmail| {
             Box::pin(async { Ok(()) })
         })),
-        siwe(SiweOptions::new(
+        siwe_with(SiweOptions::new(
             "example.com",
             || async { Ok("nonce".to_owned()) },
             |_args| async { Ok(true) },
@@ -267,7 +259,7 @@ async fn generated_schema_audits_all_server_plugin_endpoints(
         );
     }
 
-    let generic_schema = plugin_only_openapi(generic_oauth(GenericOAuthOptions {
+    let generic_schema = plugin_only_openapi(generic_oauth_with(GenericOAuthOptions {
         config: vec![GenericOAuthConfig::new(
             "example",
             "client-id",
@@ -308,7 +300,7 @@ async fn generated_schema_audits_all_server_plugin_endpoints(
 
 #[tokio::test]
 async fn reference_endpoint_serves_scalar_html() -> Result<(), Box<dyn std::error::Error>> {
-    let router = router(vec![open_api(
+    let router = router(vec![open_api_with(
         OpenApiOptions::default()
             .path("/docs")
             .theme("moon")
@@ -337,10 +329,7 @@ async fn reference_endpoint_serves_scalar_html() -> Result<(), Box<dyn std::erro
 #[tokio::test]
 async fn reference_endpoint_escapes_schema_json_for_script_context(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let router = router(vec![
-        open_api(OpenApiOptions::default()),
-        dangerous_doc_plugin(),
-    ])?;
+    let router = router(vec![open_api(), dangerous_doc_plugin()])?;
 
     let response = router
         .handle_async(request(Method::GET, "/api/auth/reference")?)
@@ -356,7 +345,7 @@ async fn reference_endpoint_escapes_schema_json_for_script_context(
 #[tokio::test]
 async fn reference_endpoint_escapes_theme_for_javascript_context(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let router = router(vec![open_api(
+    let router = router(vec![open_api_with(
         OpenApiOptions::default().theme(r#"</script><script>alert("theme")</script>"#),
     )])?;
 
@@ -375,7 +364,7 @@ async fn reference_endpoint_escapes_theme_for_javascript_context(
 
 #[tokio::test]
 async fn reference_endpoint_can_be_disabled() -> Result<(), Box<dyn std::error::Error>> {
-    let router = router(vec![open_api(
+    let router = router(vec![open_api_with(
         OpenApiOptions::default().disable_default_reference(true),
     )])?;
 

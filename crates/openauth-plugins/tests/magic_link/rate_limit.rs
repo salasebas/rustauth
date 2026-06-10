@@ -5,7 +5,7 @@ use openauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions, RateLimitOptions};
-use openauth_plugins::magic_link::{magic_link, MagicLinkRateLimit};
+use openauth_plugins::magic_link::{magic_link_with, MagicLinkRateLimit};
 
 use super::support::{json_body, options, sent_messages, SECRET};
 
@@ -13,8 +13,9 @@ use super::support::{json_body, options, sent_messages, SECRET};
 async fn applies_magic_link_rate_limit_rule() -> Result<(), Box<dyn std::error::Error>> {
     let sent = sent_messages();
     let adapter = Arc::new(MemoryAdapter::new());
-    let plugin =
-        magic_link(options(sent.clone()).rate_limit(MagicLinkRateLimit { window: 60, max: 1 }));
+    let plugin = magic_link_with(
+        options(sent.clone()).rate_limit(MagicLinkRateLimit { window: 60, max: 1 }),
+    );
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),

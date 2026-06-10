@@ -10,7 +10,13 @@ use openauth_core::plugin::AuthPlugin;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "one-tap";
 
-pub fn one_tap(options: OneTapOptions) -> AuthPlugin {
+#[must_use]
+pub fn one_tap() -> AuthPlugin {
+    one_tap_with(OneTapOptions::default())
+}
+
+#[must_use]
+pub fn one_tap_with(options: OneTapOptions) -> AuthPlugin {
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)
         .with_options(serde_json::to_value(&options).unwrap_or(serde_json::Value::Null))

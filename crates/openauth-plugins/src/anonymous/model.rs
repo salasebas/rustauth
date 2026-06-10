@@ -94,7 +94,7 @@ pub async fn create_session(
         OffsetDateTime::now_utc() + Duration::seconds(context.session_config.expires_in as i64);
     DbSessionStore::new(adapter)
         .create_session(
-            CreateSessionInput::new(user_id, expires_at).additional_fields(additional_fields),
+            CreateSessionInput::new(user_id, expires_at).additional_fields_with(additional_fields),
         )
         .await
 }

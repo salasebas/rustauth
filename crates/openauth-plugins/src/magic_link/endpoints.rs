@@ -434,7 +434,7 @@ async fn resolve_user(
             .create_user(
                 CreateUserInput::new(payload.name.clone().unwrap_or_default(), &payload.email)
                     .email_verified(true)
-                    .additional_fields(additional_user_create_values(context)),
+                    .additional_fields_with(additional_user_create_values(context)),
             )
             .await?;
         return Ok(Some((user, true)));

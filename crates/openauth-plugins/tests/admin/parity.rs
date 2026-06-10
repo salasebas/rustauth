@@ -8,7 +8,7 @@ use openauth_core::cookies::{sign_cookie_value, verify_cookie_value};
 use openauth_core::db::{DbRecord, DbValue, MemoryAdapter, Session};
 use openauth_core::options::OpenAuthOptions;
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
-use openauth_plugins::admin::{admin, AdminOptions, PermissionMap, Role};
+use openauth_plugins::admin::{admin, admin_with, AdminOptions, PermissionMap, Role};
 use serde_json::json;
 use time::{Duration, OffsetDateTime};
 
@@ -395,7 +395,7 @@ async fn core_list_sessions_filters_impersonated_sessions() -> Result<(), Box<dy
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
-            plugins: vec![admin(AdminOptions::default())],
+            plugins: vec![admin()],
             secret: Some(secret()),
             ..OpenAuthOptions::default()
         },
@@ -559,7 +559,7 @@ fn fixture_with_options(
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
-            plugins: vec![admin(options)],
+            plugins: vec![admin_with(options)],
             secret: Some(secret()),
             ..OpenAuthOptions::default()
         },
@@ -601,7 +601,7 @@ async fn create_admin_test_session(
     let mut input =
         CreateSessionInput::new(user_id, OffsetDateTime::now_utc() + Duration::hours(1));
     if let Some(impersonated_by) = impersonated_by {
-        input = input.additional_fields(DbRecord::from([(
+        input = input.additional_fields_with(DbRecord::from([(
             "impersonated_by".to_owned(),
             DbValue::String(impersonated_by.to_owned()),
         )]));

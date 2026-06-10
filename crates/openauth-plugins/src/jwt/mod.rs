@@ -31,10 +31,10 @@ use openauth_core::plugin::{AuthPlugin, PluginAfterHookAction};
 pub const UPSTREAM_PLUGIN_ID: &str = "jwt";
 
 pub fn jwt() -> Result<AuthPlugin, OpenAuthError> {
-    jwt_with_options(JwtOptions::default())
+    jwt_with(JwtOptions::default())
 }
 
-pub fn jwt_with_options(options: JwtOptions) -> Result<AuthPlugin, OpenAuthError> {
+pub fn jwt_with(options: JwtOptions) -> Result<AuthPlugin, OpenAuthError> {
     options.validate()?;
     let options = Arc::new(options);
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID)

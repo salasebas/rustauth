@@ -231,6 +231,16 @@ impl OpenAuthBuilder {
     }
 
     #[must_use]
+    /// Register multiple OpenAuth plugins.
+    ///
+    /// Appends each plugin to the builder list, like chaining [`.plugin`](Self::plugin).
+    /// For a full replacement list, use [`OpenAuthOptions::plugins`].
+    pub fn plugins(mut self, plugins: Vec<openauth_core::plugin::AuthPlugin>) -> Self {
+        self.options.plugins.extend(plugins);
+        self
+    }
+
+    #[must_use]
     /// Register a social OAuth provider.
     pub fn social_provider<P>(mut self, provider: P) -> Self
     where

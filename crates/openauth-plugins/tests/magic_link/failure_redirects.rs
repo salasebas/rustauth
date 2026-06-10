@@ -9,7 +9,7 @@ use openauth_core::db::{
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions, RateLimitOptions};
 use openauth_core::plugin::AuthPlugin;
-use openauth_plugins::magic_link::{magic_link, MagicLinkOptions};
+use openauth_plugins::magic_link::{magic_link_with, MagicLinkOptions};
 
 use super::support::{
     build_router_with_adapter, get, location, post_json, seed_user, sender, sent_messages, SECRET,
@@ -22,7 +22,7 @@ async fn failed_user_creation_redirects_with_upstream_error_code(
     let adapter = Arc::new(FailingCreateAdapter::new("user"));
     let router = router(
         adapter,
-        magic_link(MagicLinkOptions::new(sender(sent.clone()))),
+        magic_link_with(MagicLinkOptions::new(sender(sent.clone()))),
     )?;
 
     post_json(
@@ -57,7 +57,7 @@ async fn failed_session_creation_redirects_with_upstream_error_code(
     seed_user(&adapter.inner, "user_1", "Ada", "ada@example.com", true).await?;
     let router = router(
         adapter,
-        magic_link(MagicLinkOptions::new(sender(sent.clone()))),
+        magic_link_with(MagicLinkOptions::new(sender(sent.clone()))),
     )?;
 
     post_json(

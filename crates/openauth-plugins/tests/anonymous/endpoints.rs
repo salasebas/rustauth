@@ -4,9 +4,9 @@ use http::{Method, StatusCode};
 use openauth_core::db::{DbFieldType, DbValue};
 use openauth_core::options::{AdvancedOptions, CookieCacheOptions, OpenAuthOptions};
 use openauth_plugins::additional_fields::{
-    additional_fields, AdditionalField, AdditionalFieldsOptions,
+    additional_fields_with, AdditionalField, AdditionalFieldsOptions,
 };
-use openauth_plugins::anonymous::{anonymous, AnonymousOptions};
+use openauth_plugins::anonymous::{anonymous, anonymous_with, AnonymousOptions};
 use serde_json::Value;
 
 use super::helpers::{
@@ -17,7 +17,7 @@ use super::helpers::{
 
 #[test]
 fn exposes_plugin_schema_and_error_codes() {
-    let plugin = anonymous(AnonymousOptions::default());
+    let plugin = anonymous();
 
     assert_eq!(openauth_plugins::anonymous::UPSTREAM_PLUGIN_ID, "anonymous");
     assert_eq!(plugin.id, "anonymous");
@@ -35,7 +35,7 @@ fn exposes_plugin_schema_and_error_codes() {
 async fn sign_in_anonymous_creates_user_session_and_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(TestAdapter::default());
-    let router = router(adapter.clone(), anonymous(AnonymousOptions::default()))?;
+    let router = router(adapter.clone(), anonymous())?;
 
     let response = router
         .handle_async(request(Method::POST, "/api/auth/sign-in/anonymous", None)?)
@@ -65,7 +65,7 @@ async fn sign_in_anonymous_sets_cookie_cache_when_enabled() -> Result<(), Box<dy
     let router = router_with_options(
         adapter,
         OpenAuthOptions {
-            plugins: vec![anonymous(AnonymousOptions::default())],
+            plugins: vec![anonymous()],
             secret: Some(secret().to_owned()),
             advanced: AdvancedOptions {
                 disable_csrf_check: true,
@@ -97,7 +97,7 @@ async fn sign_in_anonymous_sets_cookie_cache_when_enabled() -> Result<(), Box<dy
 async fn get_session_after_anonymous_sign_in_returns_is_anonymous(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(TestAdapter::default());
-    let router = router(adapter, anonymous(AnonymousOptions::default()))?;
+    let router = router(adapter, anonymous())?;
 
     let sign_in = router
         .handle_async(request(Method::POST, "/api/auth/sign-in/anonymous", None)?)
@@ -124,7 +124,7 @@ async fn custom_field_name_stores_physical_and_returns_logical(
     let adapter = Arc::new(TestAdapter::default());
     let router = router(
         adapter.clone(),
-        anonymous(AnonymousOptions::default().field_name("is_anon")),
+        anonymous_with(AnonymousOptions::default().field_name("is_anon")),
     )?;
 
     let sign_in = router
@@ -157,8 +157,8 @@ async fn anonymous_sign_in_applies_additional_field_defaults(
     let router = router_with_plugins(
         adapter.clone(),
         vec![
-            anonymous(AnonymousOptions::default().field_name("is_anon")),
-            additional_fields(
+            anonymous_with(AnonymousOptions::default().field_name("is_anon")),
+            additional_fields_with(
                 AdditionalFieldsOptions::new()
                     .user_field(
                         "role",
@@ -213,7 +213,7 @@ async fn anonymous_sign_in_applies_additional_field_defaults(
 async fn regular_user_returns_is_anonymous_false_when_plugin_enabled(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(TestAdapter::default());
-    let router = router(adapter, anonymous(AnonymousOptions::default()))?;
+    let router = router(adapter, anonymous())?;
 
     let response = router
         .handle_async(json_request(
@@ -239,7 +239,7 @@ async fn sign_in_anonymous_uses_email_domain_name() -> Result<(), Box<dyn std::e
     let adapter = Arc::new(TestAdapter::default());
     let router = router(
         adapter,
-        anonymous(AnonymousOptions::default().email_domain_name("example.test")),
+        anonymous_with(AnonymousOptions::default().email_domain_name("example.test")),
     )?;
 
     let response = router
@@ -258,7 +258,7 @@ async fn sign_in_anonymous_uses_custom_email_and_name() -> Result<(), Box<dyn st
     let adapter = Arc::new(TestAdapter::default());
     let router = router(
         adapter,
-        anonymous(
+        anonymous_with(
             AnonymousOptions::default()
                 .generate_random_email(|| "guest@example.test".to_owned())
                 .generate_name(|| "Guest User".to_owned()),
@@ -281,7 +281,7 @@ async fn sign_in_anonymous_supports_async_email_and_name_callbacks(
     let adapter = Arc::new(TestAdapter::default());
     let router = router(
         adapter,
-        anonymous(
+        anonymous_with(
             AnonymousOptions::default()
                 .generate_random_email_async(|| async { "async@example.test".to_owned() })
                 .generate_name_async(|| async { "Async Guest".to_owned() }),
@@ -304,7 +304,9 @@ async fn sign_in_anonymous_rejects_invalid_custom_email() -> Result<(), Box<dyn 
     let adapter = Arc::new(TestAdapter::default());
     let router = router(
         adapter,
-        anonymous(AnonymousOptions::default().generate_random_email(|| "not-an-email".to_owned())),
+        anonymous_with(
+            AnonymousOptions::default().generate_random_email(|| "not-an-email".to_owned()),
+        ),
     )?;
 
     let response = router
@@ -324,7 +326,7 @@ async fn sign_in_anonymous_rejects_existing_anonymous_session(
     let user = anonymous_user("anon_user", true);
     seed_user(&adapter, user).await?;
     seed_session(&adapter, session("session_1", "anon_user", "token_1")).await?;
-    let router = router(adapter, anonymous(AnonymousOptions::default()))?;
+    let router = router(adapter, anonymous())?;
     let cookie = signed_session_cookie("token_1")?;
 
     let response = router
@@ -350,7 +352,7 @@ async fn delete_anonymous_user_deletes_user_and_expires_cookie(
     let adapter = Arc::new(TestAdapter::default());
     seed_user(&adapter, anonymous_user("anon_user", true)).await?;
     seed_session(&adapter, session("session_1", "anon_user", "token_1")).await?;
-    let router = router(adapter.clone(), anonymous(AnonymousOptions::default()))?;
+    let router = router(adapter.clone(), anonymous())?;
     let cookie = signed_session_cookie("token_1")?;
 
     let response = router
@@ -378,7 +380,7 @@ async fn delete_anonymous_user_rejects_non_anonymous_user() -> Result<(), Box<dy
     let adapter = Arc::new(TestAdapter::default());
     seed_user(&adapter, anonymous_user("real_user", false)).await?;
     seed_session(&adapter, session("session_1", "real_user", "token_1")).await?;
-    let router = router(adapter, anonymous(AnonymousOptions::default()))?;
+    let router = router(adapter, anonymous())?;
     let cookie = signed_session_cookie("token_1")?;
 
     let response = router
@@ -401,7 +403,7 @@ async fn delete_anonymous_user_respects_disabled_option() -> Result<(), Box<dyn 
     seed_session(&adapter, session("session_1", "anon_user", "token_1")).await?;
     let router = router(
         adapter,
-        anonymous(AnonymousOptions::default().disable_delete_anonymous_user(true)),
+        anonymous_with(AnonymousOptions::default().disable_delete_anonymous_user(true)),
     )?;
     let cookie = signed_session_cookie("token_1")?;
 

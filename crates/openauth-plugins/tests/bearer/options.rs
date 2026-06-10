@@ -34,7 +34,7 @@ async fn raw_session_token_is_rejected_when_signature_is_required(
     seed_user_and_session(&adapter).await;
     let router = router(
         adapter,
-        openauth_plugins::bearer::bearer_with_options(openauth_plugins::bearer::BearerOptions {
+        openauth_plugins::bearer::bearer_with(openauth_plugins::bearer::BearerOptions {
             require_signature: true,
         }),
     )?;
@@ -56,10 +56,9 @@ async fn raw_session_token_is_rejected_when_signature_is_required(
 
 #[test]
 fn bearer_options_serialize_with_upstream_camel_case() {
-    let plugin =
-        openauth_plugins::bearer::bearer_with_options(openauth_plugins::bearer::BearerOptions {
-            require_signature: true,
-        });
+    let plugin = openauth_plugins::bearer::bearer_with(openauth_plugins::bearer::BearerOptions {
+        require_signature: true,
+    });
 
     assert_eq!(
         plugin.options,

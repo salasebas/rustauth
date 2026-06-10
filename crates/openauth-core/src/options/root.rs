@@ -262,12 +262,17 @@ impl OpenAuthOptions {
     }
 
     #[must_use]
+    /// Append one plugin to the options list.
     pub fn plugin(mut self, plugin: AuthPlugin) -> Self {
         self.plugins.push(plugin);
         self
     }
 
     #[must_use]
+    /// Replace the full plugin list.
+    ///
+    /// To append without discarding earlier entries, use [`.plugin`](Self::plugin)
+    /// repeatedly or `OpenAuthBuilder::plugins` from the `openauth` crate.
     pub fn plugins(mut self, plugins: Vec<AuthPlugin>) -> Self {
         self.plugins = plugins;
         self

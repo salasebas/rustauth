@@ -6,6 +6,7 @@ use openauth_core::api::{
 };
 use openauth_core::context::AuthContext;
 use openauth_core::db::DbAdapter;
+use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::AuthPlugin;
 
 use super::change_email::{change_email, request_email_change};
@@ -45,24 +46,18 @@ pub fn paths() -> &'static [&'static str] {
     ]
 }
 
-pub fn register(
-    plugin: AuthPlugin,
-    adapter: Arc<dyn DbAdapter>,
-    options: EmailOtpOptions,
-) -> AuthPlugin {
+pub fn register(plugin: AuthPlugin, options: EmailOtpOptions) -> AuthPlugin {
     let options = Arc::new(options);
     plugin
         .with_endpoint(endpoint(
             SEND_PATH,
             "sendEmailVerificationOTP",
-            Arc::clone(&adapter),
             options.clone(),
             send_otp,
         ))
         .with_endpoint(endpoint(
             CREATE_PATH,
             "createEmailVerificationOTP",
-            Arc::clone(&adapter),
             options.clone(),
             create_verification_otp,
         ))
@@ -70,63 +65,54 @@ pub fn register(
             GET_PATH,
             Method::GET,
             "getEmailVerificationOTP",
-            Arc::clone(&adapter),
             options.clone(),
             get_verification_otp,
         ))
         .with_endpoint(endpoint(
             CHECK_PATH,
             "checkEmailVerificationOTP",
-            Arc::clone(&adapter),
             options.clone(),
             check_otp,
         ))
         .with_endpoint(endpoint(
             VERIFY_EMAIL_PATH,
             "verifyEmailOTP",
-            Arc::clone(&adapter),
             options.clone(),
             verify_email,
         ))
         .with_endpoint(endpoint(
             SIGN_IN_PATH,
             "signInEmailOTP",
-            Arc::clone(&adapter),
             options.clone(),
             sign_in,
         ))
         .with_endpoint(endpoint(
             REQUEST_RESET_PATH,
             "requestPasswordResetEmailOTP",
-            Arc::clone(&adapter),
             options.clone(),
             request_password_reset,
         ))
         .with_endpoint(endpoint(
             FORGET_PASSWORD_PATH,
             "forgetPasswordEmailOTP",
-            Arc::clone(&adapter),
             options.clone(),
             request_password_reset,
         ))
         .with_endpoint(endpoint(
             RESET_PASSWORD_PATH,
             "resetPasswordEmailOTP",
-            Arc::clone(&adapter),
             options.clone(),
             reset_password,
         ))
         .with_endpoint(endpoint(
             REQUEST_CHANGE_EMAIL_PATH,
             "requestEmailChangeEmailOTP",
-            Arc::clone(&adapter),
             options.clone(),
             request_email_change,
         ))
         .with_endpoint(endpoint(
             CHANGE_EMAIL_PATH,
             "changeEmailEmailOTP",
-            adapter,
             options,
             change_email,
         ))
@@ -135,7 +121,6 @@ pub fn register(
 fn endpoint(
     path: &'static str,
     operation_id: &'static str,
-    adapter: Arc<dyn DbAdapter>,
     options: Arc<EmailOtpOptions>,
     handler: Handler,
 ) -> AsyncAuthEndpoint {
@@ -145,7 +130,12 @@ fn endpoint(
         AuthEndpointOptions::new()
             .operation_id(operation_id)
             .body_schema(common_schema(path)),
-        move |context, request| handler(context, request, Arc::clone(&adapter), options.clone()),
+        {
+            let options = Arc::clone(&options);
+            move |context, request| {
+                endpoint_handler(context, request, Arc::clone(&options), handler)
+            }
+        },
     )
 }
 
@@ -153,7 +143,6 @@ fn endpoint_with_method(
     path: &'static str,
     method: Method,
     operation_id: &'static str,
-    adapter: Arc<dyn DbAdapter>,
     options: Arc<EmailOtpOptions>,
     handler: Handler,
 ) -> AsyncAuthEndpoint {
@@ -161,6 +150,27 @@ fn endpoint_with_method(
         path,
         method,
         AuthEndpointOptions::new().operation_id(operation_id),
-        move |context, request| handler(context, request, Arc::clone(&adapter), options.clone()),
+        {
+            let options = Arc::clone(&options);
+            move |context, request| {
+                endpoint_handler(context, request, Arc::clone(&options), handler)
+            }
+        },
     )
+}
+
+fn endpoint_handler(
+    context: &AuthContext,
+    request: ApiRequest,
+    options: Arc<EmailOtpOptions>,
+    handler: Handler,
+) -> openauth_core::api::EndpointFuture<'_> {
+    let Some(adapter) = context.adapter() else {
+        return Box::pin(async {
+            Err(OpenAuthError::InvalidConfig(
+                "email-otp plugin requires a database adapter".to_owned(),
+            ))
+        });
+    };
+    handler(context, request, adapter, options)
 }

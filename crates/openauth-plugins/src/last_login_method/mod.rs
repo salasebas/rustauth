@@ -16,7 +16,13 @@ pub use resolve::{default_login_method, LoginMethodContext};
 
 pub const UPSTREAM_PLUGIN_ID: &str = "last-login-method";
 
-pub fn last_login_method(options: LastLoginMethodOptions) -> AuthPlugin {
+#[must_use]
+pub fn last_login_method() -> AuthPlugin {
+    last_login_method_with(LastLoginMethodOptions::default())
+}
+
+#[must_use]
+pub fn last_login_method_with(options: LastLoginMethodOptions) -> AuthPlugin {
     let hook_options = options.clone();
     let init_options = options;
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)

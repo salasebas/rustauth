@@ -9,9 +9,9 @@ use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 use openauth_core::plugin::PluginPasswordValidationInput;
 use openauth_core::test_utils::with_integration_test_defaults;
-use openauth_plugins::haveibeenpwned::{
-    have_i_been_pwned_with_checker, have_i_been_pwned_with_options, HaveIBeenPwnedCheckError,
-    HaveIBeenPwnedChecker, HaveIBeenPwnedOptions, UPSTREAM_PLUGIN_ID,
+use openauth_plugins::have_i_been_pwned::{
+    have_i_been_pwned_with, HaveIBeenPwnedCheckError, HaveIBeenPwnedChecker, HaveIBeenPwnedOptions,
+    UPSTREAM_PLUGIN_ID,
 };
 
 #[test]
@@ -22,10 +22,11 @@ fn exposes_haveibeenpwned_upstream_id() {
 #[test]
 fn options_constructor_preserves_upstream_options_shape() -> Result<(), Box<dyn std::error::Error>>
 {
-    let plugin = have_i_been_pwned_with_options(HaveIBeenPwnedOptions {
+    let plugin = have_i_been_pwned_with(HaveIBeenPwnedOptions {
         enabled: false,
         paths: vec!["/change-password".to_owned()],
         custom_password_compromised_message: Some("Use another password.".to_owned()),
+        checker: None,
     });
 
     assert_eq!(plugin.id, "have-i-been-pwned");
@@ -47,7 +48,7 @@ async fn compromised_password_blocks_account_creation() -> Result<(), Box<dyn st
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router_with_adapter(
         adapter.clone(),
-        have_i_been_pwned_with_checker(HaveIBeenPwnedOptions::default(), checker),
+        have_i_been_pwned_with(HaveIBeenPwnedOptions::default().checker(checker)),
     )?;
 
     let response = router
@@ -76,7 +77,7 @@ async fn uncompromised_password_allows_account_creation() -> Result<(), Box<dyn 
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router_with_adapter(
         adapter.clone(),
-        have_i_been_pwned_with_checker(HaveIBeenPwnedOptions::default(), checker),
+        have_i_been_pwned_with(HaveIBeenPwnedOptions::default().checker(checker)),
     )?;
 
     let response = router
@@ -94,12 +95,12 @@ async fn uncompromised_password_allows_account_creation() -> Result<(), Box<dyn 
 #[tokio::test]
 async fn custom_compromised_message_is_returned() -> Result<(), Box<dyn std::error::Error>> {
     let checker = Arc::new(FakeChecker::compromised());
-    let router = router(have_i_been_pwned_with_checker(
+    let router = router(have_i_been_pwned_with(
         HaveIBeenPwnedOptions {
             custom_password_compromised_message: Some("Choose a safer password.".to_owned()),
             ..HaveIBeenPwnedOptions::default()
-        },
-        checker,
+        }
+        .checker(checker),
     ))?;
 
     let response = router
@@ -120,12 +121,12 @@ async fn disabled_plugin_skips_compromised_check() -> Result<(), Box<dyn std::er
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router_with_adapter(
         adapter.clone(),
-        have_i_been_pwned_with_checker(
+        have_i_been_pwned_with(
             HaveIBeenPwnedOptions {
                 enabled: false,
                 ..HaveIBeenPwnedOptions::default()
-            },
-            checker,
+            }
+            .checker(checker),
         ),
     )?;
 
@@ -147,12 +148,12 @@ async fn custom_paths_skip_unmatched_routes() -> Result<(), Box<dyn std::error::
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router_with_adapter(
         adapter.clone(),
-        have_i_been_pwned_with_checker(
+        have_i_been_pwned_with(
             HaveIBeenPwnedOptions {
                 paths: vec!["/change-password".to_owned()],
                 ..HaveIBeenPwnedOptions::default()
-            },
-            checker,
+            }
+            .checker(checker),
         ),
     )?;
 
@@ -172,9 +173,8 @@ async fn custom_paths_skip_unmatched_routes() -> Result<(), Box<dyn std::error::
 async fn checker_receives_hash_prefix_and_suffix_not_raw_password(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let checker = Arc::new(FakeChecker::uncompromised());
-    let router = router(have_i_been_pwned_with_checker(
-        HaveIBeenPwnedOptions::default(),
-        checker.clone(),
+    let router = router(have_i_been_pwned_with(
+        HaveIBeenPwnedOptions::default().checker(checker.clone()),
     ))?;
 
     let response = router
@@ -209,12 +209,12 @@ async fn compromised_password_blocks_change_password() -> Result<(), Box<dyn std
     let adapter = Arc::new(MemoryAdapter::default());
     let router = router_with_adapter(
         adapter,
-        have_i_been_pwned_with_checker(
+        have_i_been_pwned_with(
             HaveIBeenPwnedOptions {
                 paths: vec!["/change-password".to_owned()],
                 ..HaveIBeenPwnedOptions::default()
-            },
-            checker,
+            }
+            .checker(checker),
         ),
     )?;
 
@@ -244,7 +244,7 @@ async fn compromised_password_blocks_change_password() -> Result<(), Box<dyn std
 #[tokio::test]
 async fn empty_password_skips_checker() -> Result<(), Box<dyn std::error::Error>> {
     let checker = Arc::new(FakeChecker::compromised());
-    let plugin = have_i_been_pwned_with_checker(HaveIBeenPwnedOptions::default(), checker.clone());
+    let plugin = have_i_been_pwned_with(HaveIBeenPwnedOptions::default().checker(checker.clone()));
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             secret: Some("test-secret-123456789012345678901234".to_owned()),
@@ -277,9 +277,8 @@ async fn empty_password_skips_checker() -> Result<(), Box<dyn std::error::Error>
 async fn http_status_failure_returns_status_specific_500() -> Result<(), Box<dyn std::error::Error>>
 {
     let checker = Arc::new(FakeChecker::http_status(503));
-    let router = router(have_i_been_pwned_with_checker(
-        HaveIBeenPwnedOptions::default(),
-        checker,
+    let router = router(have_i_been_pwned_with(
+        HaveIBeenPwnedOptions::default().checker(checker),
     ))?;
 
     let response = router
@@ -299,9 +298,8 @@ async fn http_status_failure_returns_status_specific_500() -> Result<(), Box<dyn
 #[tokio::test]
 async fn transport_failure_returns_generic_500() -> Result<(), Box<dyn std::error::Error>> {
     let checker = Arc::new(FakeChecker::transport("connection failed"));
-    let router = router(have_i_been_pwned_with_checker(
-        HaveIBeenPwnedOptions::default(),
-        checker,
+    let router = router(have_i_been_pwned_with(
+        HaveIBeenPwnedOptions::default().checker(checker),
     ))?;
 
     let response = router

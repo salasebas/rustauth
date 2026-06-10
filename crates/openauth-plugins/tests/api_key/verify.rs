@@ -7,9 +7,8 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{DbAdapter, MemoryAdapter};
 use openauth_core::options::{AdvancedOptions, BackgroundTaskRunner, OpenAuthOptions};
 use openauth_plugins::api_key::{
-    api_key, api_key_with_options, ApiKeyConfiguration, ApiKeyExpirationOptions,
-    ApiKeyGeneratorInput, ApiKeyOptions, INVALID_API_KEY, KEY_EXPIRED, KEY_NOT_FOUND,
-    RATE_LIMIT_EXCEEDED,
+    api_key, api_key_with, ApiKeyConfiguration, ApiKeyExpirationOptions, ApiKeyGeneratorInput,
+    ApiKeyOptions, INVALID_API_KEY, KEY_EXPIRED, KEY_NOT_FOUND, RATE_LIMIT_EXCEEDED,
 };
 use serde_json::json;
 
@@ -290,15 +289,17 @@ async fn verification_returns_key_expired_for_expired_key() -> Result<(), Box<dy
     let adapter = Arc::new(MemoryAdapter::new());
     let router = super::helpers::test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                key_expiration: ApiKeyExpirationOptions {
-                    min_expires_in_days: 0,
-                    ..ApiKeyExpirationOptions::default()
-                },
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    key_expiration: ApiKeyExpirationOptions {
+                        min_expires_in_days: 0,
+                        ..ApiKeyExpirationOptions::default()
+                    },
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Exp", "expired-api@example.com").await?;
     let created = server_request_json(
@@ -449,12 +450,14 @@ async fn deferred_updates_use_background_runner_when_configured(
     let runner_for_options: Arc<dyn BackgroundTaskRunner> = runner.clone();
     let context = create_auth_context_with_adapter(
         with_test_defaults(OpenAuthOptions {
-            plugins: vec![api_key_with_options(ApiKeyOptions {
-                configuration: ApiKeyConfiguration {
-                    defer_updates: true,
-                    ..ApiKeyConfiguration::default()
-                },
-            })],
+            plugins: vec![api_key_with(
+                ApiKeyOptions::builder()
+                    .configuration(ApiKeyConfiguration {
+                        defer_updates: true,
+                        ..ApiKeyConfiguration::default()
+                    })
+                    .build()?,
+            )?],
             advanced: AdvancedOptions::default().background_tasks(runner_for_options),
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
@@ -625,12 +628,14 @@ async fn default_permissions_resolver_is_applied_on_create(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = super::helpers::test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                default_permissions_resolver: Some(resolver),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    default_permissions_resolver: Some(resolver),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Resolver", "resolver-api@example.com").await?;
     *user_id
@@ -656,15 +661,17 @@ async fn default_permissions_are_applied_on_create() -> Result<(), Box<dyn std::
     let adapter = Arc::new(MemoryAdapter::new());
     let router = super::helpers::test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                default_permissions: Some(BTreeMap::from([(
-                    "post".to_owned(),
-                    vec!["read".to_owned()],
-                )])),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    default_permissions: Some(BTreeMap::from([(
+                        "post".to_owned(),
+                        vec!["read".to_owned()],
+                    )])),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Ian", "ian-api@example.com").await?;
     let created = request_json(
@@ -699,20 +706,22 @@ async fn custom_key_generator_and_validator_are_used() -> Result<(), Box<dyn std
     let adapter = Arc::new(MemoryAdapter::new());
     let router = super::helpers::test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                custom_key_generator: Some(Arc::new(|input: ApiKeyGeneratorInput| {
-                    Box::pin(
-                        async move { Ok(format!("{}blocked", input.prefix.unwrap_or_default())) },
-                    )
-                })),
-                custom_api_key_validator: Some(Arc::new(|_context, key| {
-                    let key = key.to_owned();
-                    Box::pin(async move { Ok(key != "blocked") })
-                })),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    custom_key_generator: Some(Arc::new(|input: ApiKeyGeneratorInput| {
+                        Box::pin(async move {
+                            Ok(format!("{}blocked", input.prefix.unwrap_or_default()))
+                        })
+                    })),
+                    custom_api_key_validator: Some(Arc::new(|_context, key| {
+                        let key = key.to_owned();
+                        Box::pin(async move { Ok(key != "blocked") })
+                    })),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Ivy", "ivy-api@example.com").await?;
 

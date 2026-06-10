@@ -101,7 +101,7 @@ impl AdditionalField {
     }
 }
 
-pub fn additional_fields(options: AdditionalFieldsOptions) -> AuthPlugin {
+pub fn additional_fields_with(options: AdditionalFieldsOptions) -> AuthPlugin {
     AuthPlugin::new(UPSTREAM_PLUGIN_ID).with_init(move |_context| {
         let mut output = PluginInitOutput::new();
         for (name, field) in &options.user {

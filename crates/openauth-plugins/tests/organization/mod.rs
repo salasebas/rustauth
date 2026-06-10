@@ -10,9 +10,9 @@ use openauth_core::db::{
 use openauth_core::options::OpenAuthOptions;
 use openauth_core::test_utils::with_integration_test_defaults;
 use openauth_plugins::organization::{
-    has_permission, organization, organization_with_options, provision_organization_member,
-    MemberHookData, OrganizationHooks, OrganizationOptions, OrganizationPermission,
-    OrganizationRole, OrganizationSchemaOptions, ProvisionOrganizationMemberInput,
+    has_permission, organization, organization_with, provision_organization_member, MemberHookData,
+    OrganizationHooks, OrganizationOptions, OrganizationPermission, OrganizationRole,
+    OrganizationSchemaOptions, ProvisionOrganizationMemberInput,
 };
 use serde_json::{json, Value};
 
@@ -89,7 +89,7 @@ fn organization_schema_applies_custom_table_field_and_additional_field_metadata(
     };
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
-            plugins: vec![organization_with_options(
+            plugins: vec![organization_with(
                 OrganizationOptions::builder().schema(schema).build(),
             )],
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
@@ -676,7 +676,7 @@ fn test_router(
     let adapter_dyn: Arc<dyn openauth_core::db::DbAdapter> = adapter;
     let context = create_auth_context_with_adapter(
         with_integration_test_defaults(OpenAuthOptions {
-            plugins: vec![organization_with_options(options)],
+            plugins: vec![organization_with(options)],
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             ..OpenAuthOptions::default()

@@ -33,10 +33,7 @@ struct AuthResponse {
     user: store::PhoneUser,
 }
 
-pub(crate) fn endpoint(
-    adapter: Arc<dyn DbAdapter>,
-    options: Arc<PhoneNumberOptions>,
-) -> AsyncAuthEndpoint {
+pub(crate) fn endpoint(options: Arc<PhoneNumberOptions>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/sign-in/phone-number",
         Method::POST,
@@ -49,9 +46,9 @@ pub(crate) fn endpoint(
                 BodyField::optional("rememberMe", JsonSchemaType::Boolean),
             ])),
         move |context, request| {
-            let adapter = Arc::clone(&adapter);
             let options = Arc::clone(&options);
             Box::pin(async move {
+                let adapter = super::require_adapter(context)?;
                 let body: SignInPhoneBody = parse_request_body(&request)?;
                 if let Some(response) = validate_phone_number(&options, &body.phone_number)? {
                     return Ok(response);

@@ -101,7 +101,7 @@ pub async fn create_session_for_user(
     {
         input = input.user_agent(user_agent);
     }
-    input = input.additional_fields(additional_session_create_values(context));
+    input = input.additional_fields_with(additional_session_create_values(context));
     SessionStore::new(adapter, context)
         .create_session(input)
         .await

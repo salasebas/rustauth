@@ -10,13 +10,13 @@ use openauth_core::options::{
     AdvancedOptions, OpenAuthOptions, RateLimitConsumeInput, RateLimitRule, RateLimitStore,
 };
 use openauth_core::plugin::AuthPlugin;
-use openauth_plugins::admin::{admin, AdminOptions};
+use openauth_plugins::admin::admin;
 use openauth_plugins::api_key::api_key;
 use openauth_plugins::jwt::jwt;
 use openauth_plugins::multi_session::multi_session;
 use openauth_plugins::one_time_token::one_time_token;
 use openauth_plugins::organization::organization;
-use openauth_plugins::two_factor::{two_factor, TwoFactorOptions};
+use openauth_plugins::two_factor::two_factor;
 use openauth_redis::RedisRateLimitStore;
 use openauth_sqlx::{MySqlAdapter, PostgresAdapter};
 use serde_json::{json, Value};
@@ -225,13 +225,13 @@ fn matrix_options() -> Result<OpenAuthOptions, OpenAuthError> {
 
 fn matrix_plugins() -> Result<Vec<AuthPlugin>, OpenAuthError> {
     Ok(vec![
-        admin(AdminOptions::default()),
+        admin(),
         organization(),
         api_key(),
         jwt()?,
         one_time_token(),
         multi_session(),
-        two_factor(TwoFactorOptions::default()),
+        two_factor(),
     ])
 }
 

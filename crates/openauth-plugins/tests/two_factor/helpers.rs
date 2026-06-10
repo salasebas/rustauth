@@ -13,7 +13,7 @@ use openauth_core::db::{
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 use openauth_core::test_utils::fast_hash_password;
-use openauth_plugins::two_factor::{totp_code, two_factor, TwoFactorOptions};
+use openauth_plugins::two_factor::{totp_code, two_factor_with, TwoFactorOptions};
 use serde_json::Value;
 use time::OffsetDateTime;
 
@@ -91,7 +91,7 @@ pub(super) fn options_with_two_factor(two_factor_options: TwoFactorOptions) -> O
             disable_origin_check: true,
             ..AdvancedOptions::default()
         },
-        plugins: vec![two_factor(two_factor_options)],
+        plugins: vec![two_factor_with(two_factor_options)],
         ..OpenAuthOptions::default()
     })
 }

@@ -7,7 +7,7 @@ use openauth_core::db::{Create, DbAdapter, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, IpAddressOptions, OpenAuthOptions, SessionOptions};
 use openauth_plugins::api_key::{
-    api_key_with_options, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions, ApiKeyReference,
+    api_key_with, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions, ApiKeyReference,
     API_KEY_MODEL, INVALID_API_KEY, INVALID_REFERENCE_ID_FROM_API_KEY,
 };
 use serde_json::{json, Value};
@@ -22,12 +22,14 @@ async fn api_key_can_mock_get_session_when_enabled() -> Result<(), Box<dyn std::
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_session_for_api_keys: true,
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_session_for_api_keys: true,
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Bea", "bea-api@example.com").await?;
     let created = request_json(
@@ -61,21 +63,23 @@ async fn custom_api_key_getter_can_mock_session() -> Result<(), Box<dyn std::err
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_session_for_api_keys: true,
-                custom_api_key_getter: Some(Arc::new(|_context, request| {
-                    let key = request
-                        .headers()
-                        .get(header::AUTHORIZATION)
-                        .and_then(|value| value.to_str().ok())
-                        .and_then(|value| value.strip_prefix("Bearer "))
-                        .map(str::to_owned);
-                    Box::pin(async move { Ok(key) })
-                })),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_session_for_api_keys: true,
+                    custom_api_key_getter: Some(Arc::new(|_context, request| {
+                        let key = request
+                            .headers()
+                            .get(header::AUTHORIZATION)
+                            .and_then(|value| value.to_str().ok())
+                            .and_then(|value| value.strip_prefix("Bearer "))
+                            .map(str::to_owned);
+                        Box::pin(async move { Ok(key) })
+                    })),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Bev", "bev-api@example.com").await?;
     let created = request_json(
@@ -111,12 +115,14 @@ async fn short_api_key_header_is_rejected_when_session_hook_matches(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_session_for_api_keys: true,
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_session_for_api_keys: true,
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
 
     let session = request_json(
@@ -139,15 +145,17 @@ async fn custom_validator_rejection_fails_api_key_session_mocking(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_session_for_api_keys: true,
-                custom_api_key_validator: Some(Arc::new(|_context, _key| {
-                    Box::pin(async move { Ok(false) })
-                })),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_session_for_api_keys: true,
+                    custom_api_key_validator: Some(Arc::new(|_context, _key| {
+                        Box::pin(async move { Ok(false) })
+                    })),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Val", "val-api@example.com").await?;
     let created = request_json(
@@ -212,13 +220,15 @@ async fn org_owned_key_cannot_mock_user_session() -> Result<(), Box<dyn std::err
         .await?;
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_session_for_api_keys: true,
-                reference: ApiKeyReference::Organization,
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_session_for_api_keys: true,
+                    reference: ApiKeyReference::Organization,
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
 
     let session = request_json(
@@ -243,12 +253,14 @@ async fn api_key_session_hook_records_trusted_request_ip() -> Result<(), Box<dyn
     let router = test_router_with_options(
         adapter.clone(),
         OpenAuthOptions {
-            plugins: vec![api_key_with_options(ApiKeyOptions {
-                configuration: ApiKeyConfiguration {
-                    enable_session_for_api_keys: true,
-                    ..ApiKeyConfiguration::default()
-                },
-            })],
+            plugins: vec![api_key_with(
+                ApiKeyOptions::builder()
+                    .configuration(ApiKeyConfiguration {
+                        enable_session_for_api_keys: true,
+                        ..ApiKeyConfiguration::default()
+                    })
+                    .build()?,
+            )?],
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("test-secret-at-least-32-chars-long!".to_owned()),
             advanced: AdvancedOptions::default()
@@ -289,12 +301,14 @@ async fn api_key_session_hook_rejects_out_of_range_session_expiry(
     let adapter = Arc::new(MemoryAdapter::new());
     let setup_router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_session_for_api_keys: true,
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_session_for_api_keys: true,
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&setup_router, "Bo", "bo-api@example.com").await?;
     let created = request_json(
@@ -315,12 +329,14 @@ async fn api_key_session_hook_rejects_out_of_range_session_expiry(
     let router = test_router_with_options(
         adapter,
         OpenAuthOptions {
-            plugins: vec![api_key_with_options(ApiKeyOptions {
-                configuration: ApiKeyConfiguration {
-                    enable_session_for_api_keys: true,
-                    ..ApiKeyConfiguration::default()
-                },
-            })],
+            plugins: vec![api_key_with(
+                ApiKeyOptions::builder()
+                    .configuration(ApiKeyConfiguration {
+                        enable_session_for_api_keys: true,
+                        ..ApiKeyConfiguration::default()
+                    })
+                    .build()?,
+            )?],
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some("test-secret-at-least-32-chars-long!".to_owned()),
             session: SessionOptions::default().expires_in(u64::MAX),

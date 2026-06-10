@@ -16,12 +16,14 @@ pub struct BearerOptions {
 }
 
 /// Create the bearer plugin with default options.
+#[must_use]
 pub fn bearer() -> AuthPlugin {
-    bearer_with_options(BearerOptions::default())
+    bearer_with(BearerOptions::default())
 }
 
 /// Create the bearer plugin with explicit options.
-pub fn bearer_with_options(options: BearerOptions) -> AuthPlugin {
+#[must_use]
+pub fn bearer_with(options: BearerOptions) -> AuthPlugin {
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)
         .with_options(json!({

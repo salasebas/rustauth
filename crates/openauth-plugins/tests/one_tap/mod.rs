@@ -15,17 +15,17 @@ use openauth_core::options::{
     AccountLinkingOptions, AccountOptions, AdvancedOptions, OpenAuthOptions,
 };
 use openauth_plugins::additional_fields::{
-    additional_fields, AdditionalField, AdditionalFieldsOptions,
+    additional_fields_with, AdditionalField, AdditionalFieldsOptions,
 };
-use openauth_plugins::one_tap::{one_tap, OneTapOptions};
-use openauth_plugins::one_time_token::{one_time_token_with_options, OneTimeTokenOptions};
+use openauth_plugins::one_tap::{one_tap, one_tap_with, OneTapOptions};
+use openauth_plugins::one_time_token::{one_time_token_with, OneTimeTokenOptions};
 use serde_json::Value;
 use time::OffsetDateTime;
 use url::Url;
 
 #[test]
 fn exposes_one_tap_plugin_builder() {
-    let plugin = one_tap(OneTapOptions::default());
+    let plugin = one_tap();
 
     assert_eq!(openauth_plugins::one_tap::UPSTREAM_PLUGIN_ID, "one-tap");
     assert_eq!(plugin.id, "one-tap");
@@ -310,7 +310,7 @@ async fn callback_sets_one_time_token_header_for_new_session(
         adapter,
         OneTapOptions::default(),
         OpenAuthOptions::default(),
-        vec![one_time_token_with_options(
+        vec![one_time_token_with(
             OneTimeTokenOptions::default()
                 .set_ott_header_on_new_session(true)
                 .generate_token(|_, _| Ok("one-tap-ott".to_owned())),
@@ -343,7 +343,7 @@ async fn callback_returns_configured_additional_user_fields(
         adapter,
         OneTapOptions::default(),
         OpenAuthOptions::default(),
-        vec![additional_fields(
+        vec![additional_fields_with(
             AdditionalFieldsOptions::new().user_field(
                 "role",
                 AdditionalField::new(openauth_core::db::DbFieldType::String)
@@ -379,7 +379,7 @@ fn router_with_options(
     options: OpenAuthOptions,
     extra_plugins: Vec<openauth_core::plugin::AuthPlugin>,
 ) -> Result<AuthRouter, OpenAuthError> {
-    let mut plugins = vec![one_tap(one_tap_options)];
+    let mut plugins = vec![one_tap_with(one_tap_options)];
     plugins.extend(extra_plugins);
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {

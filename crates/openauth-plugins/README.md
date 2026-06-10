@@ -27,17 +27,46 @@ store users, sessions, keys, organizations, tokens, or verification state.
 
 ```rust
 use openauth::OpenAuth;
-use openauth_plugins::admin::{admin, AdminOptions};
-use openauth_plugins::jwt;
+use openauth_plugins::prelude::*;
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
-    .plugin(admin(AdminOptions::default()))
-    .plugin(jwt::jwt()?)
+    .plugin(admin())
+    .plugin(jwt()?)
     .build()?;
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+Import factories from [`prelude`](./src/prelude.rs) when wiring several plugins.
+Each module exposes `name()` for defaults and `name_with(Options)` when you need
+configuration. Plugins that require mandatory callbacks (magic link email, CAPTCHA,
+SIWE, and similar) expose only `name_with`.
+
+Register plugins on [`OpenAuth::builder()`](../openauth/README.md):
+
+- `.plugin(x)` — append one plugin (chain as needed).
+- `.plugins(vec![...])` — append a batch (same as chaining `.plugin`).
+
+When building [`OpenAuthOptions`](../openauth-core/README.md) directly,
+`.plugin(x)` appends and `.plugins(vec![...])` **replaces** the full list.
+
+```rust
+use openauth::OpenAuth;
+use openauth_plugins::prelude::*;
+
+let core = vec![admin(), bearer()];
+let auth = OpenAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugins(core)
+    .plugin(jwt()?)
+    .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`email_otp` and `phone_number` resolve the database adapter from the auth
+context at runtime; pass the adapter only to `OpenAuth::builder().adapter(...)`.
 
 Use module-specific options when a plugin needs application callbacks such as
 email sending, OTP delivery, CAPTCHA verification, SIWE verification, or custom

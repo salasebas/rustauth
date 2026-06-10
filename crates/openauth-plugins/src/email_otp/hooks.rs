@@ -24,13 +24,15 @@ pub fn send_verification_after_sign_up<'a>(
     context: &'a AuthContext,
     request: &'a ApiRequest,
     response: PluginResponse,
-    adapter: Arc<dyn DbAdapter>,
     options: Arc<EmailOtpOptions>,
 ) -> openauth_core::plugin::PluginAfterHookFuture<'a> {
     Box::pin(async move {
         if !response.status().is_success() {
             return Ok(PluginAfterHookAction::Continue(response));
         }
+        let adapter = context.adapter().ok_or_else(|| {
+            OpenAuthError::InvalidConfig("email-otp plugin requires a database adapter".to_owned())
+        })?;
         send_email_verification_otp(context, request, adapter.as_ref(), &options).await?;
         Ok(PluginAfterHookAction::Continue(response))
     })
@@ -40,10 +42,12 @@ pub fn override_send_verification_email<'a>(
     context: &'a AuthContext,
     request: &'a ApiRequest,
     response: PluginResponse,
-    adapter: Arc<dyn DbAdapter>,
     options: Arc<EmailOtpOptions>,
 ) -> openauth_core::plugin::PluginAfterHookFuture<'a> {
     Box::pin(async move {
+        let adapter = context.adapter().ok_or_else(|| {
+            OpenAuthError::InvalidConfig("email-otp plugin requires a database adapter".to_owned())
+        })?;
         let response = if send_email_verification_otp(context, request, adapter.as_ref(), &options)
             .await?
             .is_some()

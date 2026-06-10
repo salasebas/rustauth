@@ -77,10 +77,7 @@ pub(super) fn router_with_context_and_organization_options(
 > {
     let adapter = Arc::new(MemoryAdapter::new());
     let context = create_auth_context_with_adapter(
-        test_openauth_options(vec![
-            organization_with_options(organization_options),
-            scim(options),
-        ]),
+        test_openauth_options(vec![organization_with(organization_options), scim(options)]),
         adapter.clone(),
     )?;
     let router = AuthRouter::with_async_endpoints(

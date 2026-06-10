@@ -11,7 +11,7 @@ use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::test_utils::MemorySecondaryStorage as TestSecondaryStorage;
 use openauth_core::user::{CreateUserInput, DbUserStore};
 use openauth_plugins::device_authorization::{
-    device_authorization_with_options, DeviceAuthorizationOptions,
+    device_authorization_with, DeviceAuthorizationOptions,
 };
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
@@ -37,7 +37,7 @@ fn router_with_openauth_options(
     plugin_options: DeviceAuthorizationOptions,
     mut auth_options: OpenAuthOptions,
 ) -> Result<AuthRouter, OpenAuthError> {
-    auth_options.plugins = vec![device_authorization_with_options(plugin_options)];
+    auth_options.plugins = vec![device_authorization_with(plugin_options)];
     auth_options.secret = Some(secret().to_owned());
     auth_options.base_url = Some("http://localhost:3000".to_owned());
     auth_options.advanced = AdvancedOptions {

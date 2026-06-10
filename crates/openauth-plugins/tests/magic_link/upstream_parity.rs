@@ -9,10 +9,10 @@ use openauth_core::options::{
     SessionOptions, TrustedOriginOptions,
 };
 use openauth_plugins::additional_fields::{
-    additional_fields, AdditionalField, AdditionalFieldsOptions,
+    additional_fields_with, AdditionalField, AdditionalFieldsOptions,
 };
 use openauth_plugins::magic_link::{
-    magic_link, MagicLinkEmail, MagicLinkFuture, MagicLinkOptions, MagicLinkSendContext,
+    magic_link_with, MagicLinkEmail, MagicLinkFuture, MagicLinkOptions, MagicLinkSendContext,
 };
 
 use super::support::{
@@ -176,7 +176,7 @@ async fn verify_returns_returned_additional_user_fields() -> Result<(), Box<dyn 
     let field = AdditionalField::new(DbFieldType::String)
         .optional()
         .default_value(DbValue::String("pro".to_owned()));
-    let plugin = additional_fields(AdditionalFieldsOptions::new().user_field("plan", field));
+    let plugin = additional_fields_with(AdditionalFieldsOptions::new().user_field("plan", field));
     let (router, _adapter) = build_router_with_plugins(
         MagicLinkOptions::new(sender(sent.clone())),
         vec![plugin],
@@ -207,7 +207,7 @@ async fn verify_returns_persisted_additional_user_fields() -> Result<(), Box<dyn
     let field = AdditionalField::new(DbFieldType::String)
         .optional()
         .default_value(DbValue::String("free".to_owned()));
-    let plugin = additional_fields(AdditionalFieldsOptions::new().user_field("plan", field));
+    let plugin = additional_fields_with(AdditionalFieldsOptions::new().user_field("plan", field));
     let (router, adapter) = build_router_with_plugins(
         MagicLinkOptions::new(sender(sent.clone())),
         vec![plugin],
@@ -263,7 +263,7 @@ async fn verify_returns_returned_additional_session_fields(
         .optional()
         .default_value(DbValue::String("magic".to_owned()));
     let plugin =
-        additional_fields(AdditionalFieldsOptions::new().session_field("loginKind", field));
+        additional_fields_with(AdditionalFieldsOptions::new().session_field("loginKind", field));
     let (router, adapter) = build_router_with_plugins(
         MagicLinkOptions::new(sender(sent.clone())),
         vec![plugin],
@@ -304,7 +304,7 @@ async fn verify_persists_request_metadata_on_session() -> Result<(), Box<dyn std
             secret: Some(SECRET.to_owned()),
             advanced: test_advanced_options()
                 .ip_address(IpAddressOptions::new().header("x-forwarded-for")),
-            plugins: vec![magic_link(MagicLinkOptions::new(sender(sent.clone())))],
+            plugins: vec![magic_link_with(MagicLinkOptions::new(sender(sent.clone())))],
             rate_limit: RateLimitOptions {
                 enabled: Some(false),
                 ..RateLimitOptions::default()
@@ -358,7 +358,7 @@ async fn verify_session_ip_uses_resolver_not_spoofed_forwarded_for(
             secret: Some(SECRET.to_owned()),
             advanced: test_advanced_options()
                 .ip_address(IpAddressOptions::new().header("x-real-ip")),
-            plugins: vec![magic_link(MagicLinkOptions::new(sender(sent.clone())))],
+            plugins: vec![magic_link_with(MagicLinkOptions::new(sender(sent.clone())))],
             rate_limit: RateLimitOptions {
                 enabled: Some(false),
                 ..RateLimitOptions::default()
@@ -398,7 +398,7 @@ async fn verify_session_ip_uses_resolver_not_spoofed_forwarded_for(
 async fn sign_in_rejects_untrusted_callback_urls() -> Result<(), Box<dyn std::error::Error>> {
     let sent = sent_messages();
     let adapter = Arc::new(MemoryAdapter::new());
-    let plugin = magic_link(MagicLinkOptions::new(sender(sent)));
+    let plugin = magic_link_with(MagicLinkOptions::new(sender(sent)));
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),

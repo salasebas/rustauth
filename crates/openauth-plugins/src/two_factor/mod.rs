@@ -26,7 +26,13 @@ use openauth_core::plugin::AuthPlugin;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "two-factor";
 
-pub fn two_factor(options: TwoFactorOptions) -> AuthPlugin {
+#[must_use]
+pub fn two_factor() -> AuthPlugin {
+    two_factor_with(TwoFactorOptions::default())
+}
+
+#[must_use]
+pub fn two_factor_with(options: TwoFactorOptions) -> AuthPlugin {
     let options = std::sync::Arc::new(options);
     routes::plugin(options)
 }

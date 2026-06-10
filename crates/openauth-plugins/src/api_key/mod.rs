@@ -29,7 +29,7 @@ pub use hashing::default_key_hasher;
 pub use models::{ApiKeyCreateRecord, ApiKeyPublicRecord, ApiKeyRecord};
 pub use options::{
     ApiKeyConfiguration, ApiKeyExpirationOptions, ApiKeyGenerator, ApiKeyGeneratorInput,
-    ApiKeyGetter, ApiKeyOptions, ApiKeyOptionsError, ApiKeyPermissions, ApiKeyPluginBuild,
+    ApiKeyGetter, ApiKeyOptions, ApiKeyOptionsBuilder, ApiKeyOptionsError, ApiKeyPermissions,
     ApiKeyRateLimitOptions, ApiKeyReference, ApiKeyStorageMode, ApiKeyValidator,
     DefaultPermissionsResolver, StartingCharactersConfig,
 };
@@ -43,41 +43,16 @@ pub const UPSTREAM_PLUGIN_ID: &str = "api-key";
 pub const API_KEY_MODEL: &str = "api_key";
 pub const API_KEY_TABLE: &str = "api_keys";
 
+#[must_use]
 pub fn api_key() -> AuthPlugin {
-    api_key_with_options(ApiKeyOptions::default())
-}
-
-pub fn api_key_with_options(options: ApiKeyOptions) -> AuthPlugin {
     build_plugin(options::ResolvedConfigurations::with_schema(
-        options.configuration,
+        ApiKeyConfiguration::default(),
         ApiKeySchemaOptions::default(),
     ))
 }
 
-pub fn api_key_with_build(build: options::ApiKeyPluginBuild) -> AuthPlugin {
-    build_plugin(options::ResolvedConfigurations::with_schema(
-        build.configuration,
-        build.schema,
-    ))
-}
-
-pub fn api_key_with_configurations(
-    configurations: Vec<ApiKeyConfiguration>,
-) -> Result<AuthPlugin, ApiKeyOptionsError> {
-    Ok(build_plugin(options::ResolvedConfigurations::multiple(
-        configurations,
-        ApiKeySchemaOptions::default(),
-    )?))
-}
-
-pub fn api_key_with_configurations_and_schema(
-    configurations: Vec<ApiKeyConfiguration>,
-    schema: ApiKeySchemaOptions,
-) -> Result<AuthPlugin, ApiKeyOptionsError> {
-    Ok(build_plugin(options::ResolvedConfigurations::multiple(
-        configurations,
-        schema,
-    )?))
+pub fn api_key_with(options: ApiKeyOptions) -> Result<AuthPlugin, OpenAuthError> {
+    Ok(build_plugin(options.resolve()?))
 }
 
 fn build_plugin(configurations: options::ResolvedConfigurations) -> AuthPlugin {

@@ -5,7 +5,6 @@ use openauth_core::api::{
     create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
     BodySchema, JsonSchemaType,
 };
-use openauth_core::db::DbAdapter;
 use serde::{Deserialize, Serialize};
 
 use super::validate_phone_number;
@@ -24,10 +23,7 @@ struct MessageResponse {
     message: &'static str,
 }
 
-pub(crate) fn endpoint(
-    adapter: Arc<dyn DbAdapter>,
-    options: Arc<PhoneNumberOptions>,
-) -> AsyncAuthEndpoint {
+pub(crate) fn endpoint(options: Arc<PhoneNumberOptions>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/phone-number/send-otp",
         Method::POST,
@@ -38,10 +34,10 @@ pub(crate) fn endpoint(
                 "phoneNumber",
                 JsonSchemaType::String,
             )])),
-        move |_context, request| {
-            let adapter = Arc::clone(&adapter);
+        move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
+                let adapter = super::require_adapter(context)?;
                 let body: SendOtpBody = parse_request_body(&request)?;
                 let Some(sender) = &options.send_otp else {
                     return error_response(StatusCode::NOT_IMPLEMENTED, send_otp_not_implemented());

@@ -3,13 +3,11 @@ use std::sync::Arc;
 use http::{Method, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_plugins::api_key::{
-    api_key_with_configurations, ApiKeyConfiguration, ApiKeyReference,
+    api_key_with, ApiKeyConfiguration, ApiKeyOptions, ApiKeyReference,
     INSUFFICIENT_API_KEY_PERMISSIONS, INVALID_REFERENCE_ID_FROM_API_KEY, KEY_NOT_FOUND,
     ORGANIZATION_PLUGIN_REQUIRED, USER_NOT_MEMBER_OF_ORGANIZATION,
 };
-use openauth_plugins::organization::{
-    organization, organization_with_options, OrganizationOptions,
-};
+use openauth_plugins::organization::{organization, organization_with, OrganizationOptions};
 use serde_json::{json, Value};
 
 use super::helpers::{request_json, sign_up, test_router_with_plugins};
@@ -18,12 +16,16 @@ use super::helpers::{request_json, sign_up, test_router_with_plugins};
 async fn organization_owned_keys_require_membership_and_do_not_mock_sessions(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    let api_key_plugin = api_key_with_configurations(vec![ApiKeyConfiguration {
-        config_id: Some("org".to_owned()),
-        reference: ApiKeyReference::Organization,
-        enable_session_for_api_keys: true,
-        ..ApiKeyConfiguration::default()
-    }])?;
+    let api_key_plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configuration(ApiKeyConfiguration {
+                config_id: Some("org".to_owned()),
+                reference: ApiKeyReference::Organization,
+                enable_session_for_api_keys: true,
+                ..ApiKeyConfiguration::default()
+            })
+            .build()?,
+    )?;
     let router = test_router_with_plugins(adapter, vec![organization(), api_key_plugin])?;
     let owner = sign_up(&router, "Ira", "ira-api@example.com").await?;
     let outsider = sign_up(&router, "Jia", "jia-api@example.com").await?;
@@ -94,12 +96,16 @@ async fn organization_owned_keys_require_membership_and_do_not_mock_sessions(
 async fn organization_custom_api_key_permission_controls_org_key_access(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    let api_key_plugin = api_key_with_configurations(vec![ApiKeyConfiguration {
-        config_id: Some("org".to_owned()),
-        reference: ApiKeyReference::Organization,
-        ..ApiKeyConfiguration::default()
-    }])?;
-    let organization_plugin = organization_with_options(
+    let api_key_plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configuration(ApiKeyConfiguration {
+                config_id: Some("org".to_owned()),
+                reference: ApiKeyReference::Organization,
+                ..ApiKeyConfiguration::default()
+            })
+            .build()?,
+    )?;
+    let organization_plugin = organization_with(
         OrganizationOptions::builder()
             .custom_role(
                 "api-reader",
@@ -177,18 +183,22 @@ async fn organization_custom_api_key_permission_controls_org_key_access(
 async fn organization_owner_can_crud_org_owned_api_keys() -> Result<(), Box<dyn std::error::Error>>
 {
     let adapter = Arc::new(MemoryAdapter::new());
-    let api_key_plugin = api_key_with_configurations(vec![
-        ApiKeyConfiguration {
-            config_id: Some("user".to_owned()),
-            reference: ApiKeyReference::User,
-            ..ApiKeyConfiguration::default()
-        },
-        ApiKeyConfiguration {
-            config_id: Some("org".to_owned()),
-            reference: ApiKeyReference::Organization,
-            ..ApiKeyConfiguration::default()
-        },
-    ])?;
+    let api_key_plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configurations(vec![
+                ApiKeyConfiguration {
+                    config_id: Some("user".to_owned()),
+                    reference: ApiKeyReference::User,
+                    ..ApiKeyConfiguration::default()
+                },
+                ApiKeyConfiguration {
+                    config_id: Some("org".to_owned()),
+                    reference: ApiKeyReference::Organization,
+                    ..ApiKeyConfiguration::default()
+                },
+            ])
+            .build()?,
+    )?;
     let router = test_router_with_plugins(adapter, vec![organization(), api_key_plugin])?;
     let owner = sign_up(&router, "Owner", "owner-org-key-crud@example.com").await?;
 
@@ -273,11 +283,15 @@ async fn organization_owner_can_crud_org_owned_api_keys() -> Result<(), Box<dyn 
 async fn organization_api_key_denies_non_member_on_all_owner_routes(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    let api_key_plugin = api_key_with_configurations(vec![ApiKeyConfiguration {
-        config_id: Some("org".to_owned()),
-        reference: ApiKeyReference::Organization,
-        ..ApiKeyConfiguration::default()
-    }])?;
+    let api_key_plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configuration(ApiKeyConfiguration {
+                config_id: Some("org".to_owned()),
+                reference: ApiKeyReference::Organization,
+                ..ApiKeyConfiguration::default()
+            })
+            .build()?,
+    )?;
     let router = test_router_with_plugins(adapter, vec![organization(), api_key_plugin])?;
     let owner = sign_up(&router, "Owner", "owner-org-key-deny@example.com").await?;
     let outsider = sign_up(&router, "Out", "outsider-org-key-deny@example.com").await?;
@@ -384,7 +398,11 @@ async fn organization_api_key_reports_missing_org_plugin_and_wrong_config(
 
     let missing_plugin_router = test_router_with_plugins(
         Arc::new(MemoryAdapter::new()),
-        vec![api_key_with_configurations(vec![org_config.clone()])?],
+        vec![api_key_with(
+            ApiKeyOptions::builder()
+                .configurations(vec![org_config.clone()])
+                .build()?,
+        )?],
     )?;
     let user = sign_up(
         &missing_plugin_router,
@@ -408,7 +426,11 @@ async fn organization_api_key_reports_missing_org_plugin_and_wrong_config(
         Arc::new(MemoryAdapter::new()),
         vec![
             organization(),
-            api_key_with_configurations(vec![user_config, org_config])?,
+            api_key_with(
+                ApiKeyOptions::builder()
+                    .configurations(vec![user_config, org_config])
+                    .build()?,
+            )?,
         ],
     )?;
     let owner = sign_up(&router, "Owner", "wrong-config-owner@example.com").await?;
@@ -453,11 +475,15 @@ async fn organization_api_key_reports_missing_org_plugin_and_wrong_config(
 async fn organization_api_key_rejects_member_role_without_api_key_permissions(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    let api_key_plugin = api_key_with_configurations(vec![ApiKeyConfiguration {
-        config_id: Some("org".to_owned()),
-        reference: ApiKeyReference::Organization,
-        ..ApiKeyConfiguration::default()
-    }])?;
+    let api_key_plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configuration(ApiKeyConfiguration {
+                config_id: Some("org".to_owned()),
+                reference: ApiKeyReference::Organization,
+                ..ApiKeyConfiguration::default()
+            })
+            .build()?,
+    )?;
     let router = test_router_with_plugins(adapter, vec![organization(), api_key_plugin])?;
     let owner = sign_up(&router, "Owner", "owner-org-key-member@example.com").await?;
     let member = sign_up(&router, "Member", "member-org-key-member@example.com").await?;

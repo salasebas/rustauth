@@ -5,8 +5,8 @@ use openauth_core::context::create_auth_context;
 use openauth_core::db::{DbValue, MemoryAdapter};
 use openauth_core::options::{AdvancedOptions, CookieConfig, OpenAuthOptions};
 use openauth_plugins::last_login_method::{
-    last_login_method, LastLoginMethodOptions, LoginMethodContext, DEFAULT_COOKIE_MAX_AGE,
-    DEFAULT_COOKIE_NAME, UPSTREAM_PLUGIN_ID,
+    last_login_method, last_login_method_with, LastLoginMethodOptions, LoginMethodContext,
+    DEFAULT_COOKIE_MAX_AGE, DEFAULT_COOKIE_NAME, UPSTREAM_PLUGIN_ID,
 };
 
 mod helpers;
@@ -19,7 +19,7 @@ use helpers::{
 
 #[test]
 fn exposes_last_login_method_plugin_metadata() {
-    let plugin = last_login_method(LastLoginMethodOptions::default());
+    let plugin = last_login_method();
 
     assert_eq!(plugin.id, UPSTREAM_PLUGIN_ID);
     assert_eq!(plugin.version.as_deref(), Some(openauth_plugins::VERSION));
@@ -88,7 +88,7 @@ fn default_resolver_ignores_missing_or_unknown_path() {
 #[tokio::test]
 async fn async_after_hook_sets_last_method_cookie_when_session_cookie_is_created(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(LastLoginMethodOptions::default());
+    let plugin = last_login_method();
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -116,7 +116,7 @@ async fn async_after_hook_sets_last_method_cookie_when_session_cookie_is_created
 #[tokio::test]
 async fn async_after_hook_does_not_set_cookie_without_session_cookie(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(LastLoginMethodOptions::default());
+    let plugin = last_login_method();
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -137,7 +137,7 @@ async fn async_after_hook_does_not_set_cookie_without_session_cookie(
 #[tokio::test]
 async fn async_after_hook_does_not_set_cookie_when_method_is_unknown(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(LastLoginMethodOptions::default());
+    let plugin = last_login_method();
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -159,7 +159,7 @@ async fn async_after_hook_does_not_set_cookie_when_method_is_unknown(
 #[tokio::test]
 async fn async_after_hook_uses_custom_cookie_name_max_age_and_session_attributes(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(
+    let plugin = last_login_method_with(
         LastLoginMethodOptions::default()
             .cookie_name("my-app.last_method")
             .max_age(42),
@@ -204,7 +204,7 @@ async fn async_after_hook_uses_custom_cookie_name_max_age_and_session_attributes
 #[tokio::test]
 async fn async_after_hook_handles_multiple_set_cookie_headers(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(LastLoginMethodOptions::default());
+    let plugin = last_login_method();
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -230,7 +230,7 @@ async fn async_after_hook_handles_multiple_set_cookie_headers(
 #[tokio::test]
 async fn async_after_hook_handles_combined_set_cookie_header(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(LastLoginMethodOptions::default());
+    let plugin = last_login_method();
     let context = create_auth_context(OpenAuthOptions {
         secret: Some(secret().to_owned()),
         ..OpenAuthOptions::default()
@@ -252,7 +252,7 @@ async fn async_after_hook_handles_combined_set_cookie_header(
 #[test]
 fn store_in_database_contributes_optional_generated_user_field(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(LastLoginMethodOptions::default().store_in_database(true));
+    let plugin = last_login_method_with(LastLoginMethodOptions::default().store_in_database(true));
     let context = create_auth_context(OpenAuthOptions {
         plugins: vec![plugin],
         secret: Some(secret().to_owned()),
@@ -270,7 +270,7 @@ fn store_in_database_contributes_optional_generated_user_field(
 
 #[test]
 fn store_in_database_uses_custom_database_field_name() -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = last_login_method(
+    let plugin = last_login_method_with(
         LastLoginMethodOptions::default()
             .store_in_database(true)
             .database_field_name("last_auth_method"),

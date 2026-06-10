@@ -6,8 +6,8 @@ use openauth_core::db::{DbAdapter, DbValue, Delete, MemoryAdapter, Update, Where
 use openauth_core::options::SecondaryStorage;
 use openauth_fred::{FredSecondaryStorage, FredSecondaryStorageOptions};
 use openauth_plugins::api_key::{
-    api_key_with_options, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions,
-    ApiKeyStorageMode, API_KEY_MODEL, INVALID_API_KEY,
+    api_key_with, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions, ApiKeyStorageMode,
+    API_KEY_MODEL, INVALID_API_KEY,
 };
 use openauth_redis::{RedisSecondaryStorage, RedisSecondaryStorageOptions};
 use serde_json::json;
@@ -27,13 +27,15 @@ async fn secondary_storage_mode_does_not_write_database_rows(
     let storage = Arc::new(TestSecondaryStorage::default());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                custom_storage: Some(storage.clone()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    custom_storage: Some(storage.clone()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Cid", "cid-api@example.com").await?;
     let created = request_json(
@@ -74,13 +76,15 @@ async fn malformed_secondary_storage_payload_is_treated_as_missing(
     let storage = Arc::new(TestSecondaryStorage::default());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                custom_storage: Some(storage.clone()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    custom_storage: Some(storage.clone()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Bad Cache", "bad-cache-api@example.com").await?;
     let created = request_json(
@@ -118,14 +122,16 @@ async fn fallback_storage_keeps_database_as_source_and_invalidates_ref_cache(
     let storage = Arc::new(TestSecondaryStorage::default());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                fallback_to_database: true,
-                custom_storage: Some(storage.clone()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    fallback_to_database: true,
+                    custom_storage: Some(storage.clone()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Dom", "dom-api@example.com").await?;
     let created = request_json(
@@ -166,14 +172,16 @@ async fn fallback_storage_list_reads_existing_ref_cache_before_database(
     let storage = Arc::new(TestSecondaryStorage::default());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                fallback_to_database: true,
-                custom_storage: Some(storage),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    fallback_to_database: true,
+                    custom_storage: Some(storage),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Kai", "kai-api@example.com").await?;
     let created = request_json(
@@ -229,13 +237,15 @@ async fn secondary_storage_list_fetches_key_records_concurrently(
     let storage = Arc::new(TestSecondaryStorage::with_get_delay(20));
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                custom_storage: Some(storage.clone()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    custom_storage: Some(storage.clone()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Lux", "lux-api@example.com").await?;
 
@@ -281,14 +291,16 @@ async fn fallback_secondary_storage_keeps_usage_updates_consistent_under_concurr
     let storage = Arc::new(TestSecondaryStorage::default());
     let router = test_router_with_adapter(
         adapter,
-        vec![api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                fallback_to_database: true,
-                custom_storage: Some(storage),
-                ..ApiKeyConfiguration::default()
-            },
-        })],
+        vec![api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    fallback_to_database: true,
+                    custom_storage: Some(storage),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?],
     )?;
     let user = sign_up(&router, "Sec Race", "sec-race-api@example.com").await?;
     let created = server_request_json(
@@ -347,15 +359,17 @@ fn revalidating_router(
 ) -> Result<openauth_core::api::AuthRouter, Box<dyn std::error::Error>> {
     test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                fallback_to_database: true,
-                revalidate_secondary_against_database: true,
-                custom_storage: Some(storage),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    fallback_to_database: true,
+                    revalidate_secondary_against_database: true,
+                    custom_storage: Some(storage),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )
 }
 
@@ -526,15 +540,17 @@ async fn delete_expired_purges_secondary_entries() -> Result<(), Box<dyn std::er
     let storage = Arc::new(TestSecondaryStorage::default());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                fallback_to_database: true,
-                defer_updates: true,
-                custom_storage: Some(storage.clone()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    fallback_to_database: true,
+                    defer_updates: true,
+                    custom_storage: Some(storage.clone()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Exp", "exp-api@example.com").await?;
     let expiring = request_json(
@@ -617,13 +633,15 @@ async fn secondary_storage_concurrent_creates_keep_both_ids_in_ref_index(
     let storage = Arc::new(TestSecondaryStorage::with_ref_index_gate(2));
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                custom_storage: Some(storage.clone()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    custom_storage: Some(storage.clone()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Conc", "conc-api@example.com").await?;
 
@@ -696,13 +714,15 @@ async fn secondary_storage_list_prunes_zombie_ids_from_ref_index(
     let storage = Arc::new(TestSecondaryStorage::default());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                custom_storage: Some(storage.clone()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    custom_storage: Some(storage.clone()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Zombie", "zombie-api@example.com").await?;
 
@@ -840,13 +860,15 @@ async fn assert_concurrent_create_listing_keeps_both_ids(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                storage: ApiKeyStorageMode::SecondaryStorage,
-                custom_storage: Some(storage),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    storage: ApiKeyStorageMode::SecondaryStorage,
+                    custom_storage: Some(storage),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let suffix = now_ms();
     let user = sign_up(

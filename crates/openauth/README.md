@@ -53,6 +53,30 @@ auth.run_migrations().await?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+## Plugins
+
+Enable the `plugins` feature to re-export `openauth-plugins`, then register
+official plugins on the builder:
+
+```rust
+use openauth::OpenAuth;
+use openauth_plugins::prelude::*;
+
+let auth = OpenAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(admin())
+    .plugins(vec![bearer(), jwt()?])
+    .build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+- `.plugin(x)` appends one plugin.
+- `.plugins(vec![...])` appends a batch (like chaining `.plugin`).
+
+When configuring [`OpenAuthOptions`](https://docs.rs/openauth-core/latest/openauth_core/options/struct.OpenAuthOptions.html)
+directly, `.plugins(vec![...])` replaces the entire plugin list instead.
+
 ## Social Sign-In
 
 Built-in OAuth providers live in [`openauth-social-providers`](../openauth-social-providers/README.md)
@@ -70,7 +94,7 @@ let auth = OpenAuth::builder()
     .social_provider(github(SocialProviderConfig::new(
         std::env::var("GITHUB_CLIENT_ID")?,
         std::env::var("GITHUB_CLIENT_SECRET")?,
-    )))
+    ))?)
     .build()?;
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use http::{Method, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_plugins::api_key::{
-    api_key, api_key_with_configurations, ApiKeyConfiguration, ApiKeyRateLimitOptions,
+    api_key, api_key_with, ApiKeyConfiguration, ApiKeyOptions, ApiKeyRateLimitOptions,
     ApiKeyReference, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::{json, Value};
@@ -12,10 +12,16 @@ use super::helpers::{request_json, sign_up, test_router};
 
 #[test]
 fn multiple_configurations_require_unique_config_ids() -> Result<(), Box<dyn std::error::Error>> {
-    let missing = api_key_with_configurations(vec![ApiKeyConfiguration::default()]);
-    assert!(missing.is_err());
+    let missing = ApiKeyOptions::builder().configurations(vec![
+        ApiKeyConfiguration::default(),
+        ApiKeyConfiguration {
+            config_id: Some("second".to_owned()),
+            ..ApiKeyConfiguration::default()
+        },
+    ]);
+    assert!(missing.build().is_err());
 
-    let duplicate = api_key_with_configurations(vec![
+    let duplicate = ApiKeyOptions::builder().configurations(vec![
         ApiKeyConfiguration {
             config_id: Some("default".to_owned()),
             ..ApiKeyConfiguration::default()
@@ -25,20 +31,24 @@ fn multiple_configurations_require_unique_config_ids() -> Result<(), Box<dyn std
             ..ApiKeyConfiguration::default()
         },
     ]);
-    assert!(duplicate.is_err());
+    assert!(duplicate.build().is_err());
 
-    let plugin = api_key_with_configurations(vec![
-        ApiKeyConfiguration {
-            config_id: Some("user-keys".to_owned()),
-            reference: ApiKeyReference::User,
-            ..ApiKeyConfiguration::default()
-        },
-        ApiKeyConfiguration {
-            config_id: Some("org-keys".to_owned()),
-            reference: ApiKeyReference::Organization,
-            ..ApiKeyConfiguration::default()
-        },
-    ])?;
+    let plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configurations(vec![
+                ApiKeyConfiguration {
+                    config_id: Some("user-keys".to_owned()),
+                    reference: ApiKeyReference::User,
+                    ..ApiKeyConfiguration::default()
+                },
+                ApiKeyConfiguration {
+                    config_id: Some("org-keys".to_owned()),
+                    reference: ApiKeyReference::Organization,
+                    ..ApiKeyConfiguration::default()
+                },
+            ])
+            .build()?,
+    )?;
     assert_eq!(plugin.id, UPSTREAM_PLUGIN_ID);
 
     Ok(())
@@ -48,16 +58,20 @@ fn multiple_configurations_require_unique_config_ids() -> Result<(), Box<dyn std
 async fn list_without_config_id_merges_user_keys_from_all_configurations(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    let plugin = api_key_with_configurations(vec![
-        ApiKeyConfiguration {
-            config_id: Some("primary".to_owned()),
-            ..ApiKeyConfiguration::default()
-        },
-        ApiKeyConfiguration {
-            config_id: Some("secondary".to_owned()),
-            ..ApiKeyConfiguration::default()
-        },
-    ])?;
+    let plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configurations(vec![
+                ApiKeyConfiguration {
+                    config_id: Some("primary".to_owned()),
+                    ..ApiKeyConfiguration::default()
+                },
+                ApiKeyConfiguration {
+                    config_id: Some("secondary".to_owned()),
+                    ..ApiKeyConfiguration::default()
+                },
+            ])
+            .build()?,
+    )?;
     let router = test_router(adapter, plugin)?;
     let user = sign_up(&router, "Jay", "jay-api@example.com").await?;
 
@@ -94,26 +108,30 @@ async fn list_without_config_id_merges_user_keys_from_all_configurations(
 async fn specific_config_id_controls_create_verify_get_update_and_delete(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    let plugin = api_key_with_configurations(vec![
-        ApiKeyConfiguration {
-            config_id: Some("default".to_owned()),
-            default_prefix: Some("def_".to_owned()),
-            rate_limit: ApiKeyRateLimitOptions {
-                max_requests: 10,
-                ..ApiKeyRateLimitOptions::default()
-            },
-            ..ApiKeyConfiguration::default()
-        },
-        ApiKeyConfiguration {
-            config_id: Some("public-api".to_owned()),
-            default_prefix: Some("pub_".to_owned()),
-            rate_limit: ApiKeyRateLimitOptions {
-                max_requests: 15,
-                ..ApiKeyRateLimitOptions::default()
-            },
-            ..ApiKeyConfiguration::default()
-        },
-    ])?;
+    let plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configurations(vec![
+                ApiKeyConfiguration {
+                    config_id: Some("default".to_owned()),
+                    default_prefix: Some("def_".to_owned()),
+                    rate_limit: ApiKeyRateLimitOptions {
+                        max_requests: 10,
+                        ..ApiKeyRateLimitOptions::default()
+                    },
+                    ..ApiKeyConfiguration::default()
+                },
+                ApiKeyConfiguration {
+                    config_id: Some("public-api".to_owned()),
+                    default_prefix: Some("pub_".to_owned()),
+                    rate_limit: ApiKeyRateLimitOptions {
+                        max_requests: 15,
+                        ..ApiKeyRateLimitOptions::default()
+                    },
+                    ..ApiKeyConfiguration::default()
+                },
+            ])
+            .build()?,
+    )?;
     let router = test_router(adapter, plugin)?;
     let user = sign_up(&router, "Cfg", "cfg-api@example.com").await?;
 

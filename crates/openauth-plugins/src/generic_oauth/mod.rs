@@ -37,7 +37,7 @@ pub use providers::{
 };
 
 /// Build the Better Auth-compatible generic OAuth plugin.
-pub fn generic_oauth(options: GenericOAuthOptions) -> AuthPlugin {
+pub fn generic_oauth_with(options: GenericOAuthOptions) -> AuthPlugin {
     let init_options = options.clone();
     let discovery_cache = discovery::DiscoveryCache::default();
     let init_discovery_cache = discovery_cache.clone();

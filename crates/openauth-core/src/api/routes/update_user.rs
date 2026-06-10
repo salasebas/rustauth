@@ -184,7 +184,7 @@ pub(super) fn update_user_endpoint(adapter: Arc<dyn DbAdapter>) -> AsyncAuthEndp
                         };
                     input = input.field(db_field.name.clone(), db_value);
                 }
-                input = input.additional_fields(additional_fields);
+                input = input.additional_fields_with(additional_fields);
                 if input.is_empty() {
                     return error_response(
                         StatusCode::BAD_REQUEST,

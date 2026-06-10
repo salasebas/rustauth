@@ -5,8 +5,8 @@ use base64::Engine;
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_plugins::jwt::{
-    jwt, jwt_with_options, sign_jwt, verify_jwt, verify_jwt_with_options, JwtClaims,
-    JwtJwksOptions, JwtOptions, JwtSignHandler, JwtSigningOptions,
+    jwt, jwt_with, sign_jwt, verify_jwt, verify_jwt_with_options, JwtClaims, JwtJwksOptions,
+    JwtOptions, JwtSignHandler, JwtSigningOptions,
 };
 use serde_json::{json, Value};
 
@@ -39,7 +39,7 @@ async fn custom_signer_receives_defaulted_claims() -> Result<(), Box<dyn std::er
         ..JwtOptions::default()
     };
     let context = create_auth_context_with_adapter(
-        options_with_plugin(jwt_with_options(options.clone())?),
+        options_with_plugin(jwt_with(options.clone())?),
         Arc::new(MemoryAdapter::new()),
     )?;
     let mut claims = JwtClaims::new();

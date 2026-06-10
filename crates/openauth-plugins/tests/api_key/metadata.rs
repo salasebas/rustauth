@@ -3,9 +3,7 @@ use std::sync::Arc;
 use http::{Method, StatusCode};
 use openauth_core::db::{DbAdapter, DbValue, FindOne, MemoryAdapter, Update, Where};
 use openauth_plugins::api_key::{api_key, METADATA_DISABLED, NO_VALUES_TO_UPDATE};
-use openauth_plugins::api_key::{
-    api_key_with_options, ApiKeyConfiguration, ApiKeyOptions, API_KEY_MODEL,
-};
+use openauth_plugins::api_key::{api_key_with, ApiKeyConfiguration, ApiKeyOptions, API_KEY_MODEL};
 use serde_json::json;
 
 use super::helpers::{request_json, sign_up, test_router};
@@ -59,12 +57,14 @@ async fn database_backed_reads_migrate_double_stringified_metadata(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_metadata: true,
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_metadata: true,
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Meta", "meta-api@example.com").await?;
     let mut keys = Vec::new();
@@ -170,12 +170,14 @@ async fn properly_formatted_metadata_does_not_require_migration(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_metadata: true,
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_metadata: true,
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Plain", "plain-meta@example.com").await?;
     let metadata = json!({ "alreadyCorrect": true, "value": 123 });

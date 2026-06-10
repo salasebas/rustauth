@@ -18,7 +18,7 @@ pub(crate) fn session_create_input(
     expires_at: OffsetDateTime,
 ) -> CreateSessionInput {
     let mut input = CreateSessionInput::new(user_id, expires_at)
-        .additional_fields(additional_session_create_values(context));
+        .additional_fields_with(additional_session_create_values(context));
     if let Some(ip_address) = resolve_client_ip(context, request) {
         input = input.ip_address(ip_address);
     }
