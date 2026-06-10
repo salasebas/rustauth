@@ -15,7 +15,7 @@ use openauth_oauth::oauth2::{
     OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
     SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
 };
-use openauth_plugins::oauth_proxy::{oauth_proxy, OAuthProxyOptions};
+use openauth_plugins::oauth_proxy::{oauth_proxy_with, OAuthProxyOptions};
 use serde_json::Value;
 use tokio::sync::Mutex;
 use url::Url;
@@ -291,7 +291,7 @@ async fn preview_callback_creates_user_account_and_session(
                 ..AccountOptions::default()
             },
             rate_limit: RateLimitOptions::new().enabled(false),
-            plugins: vec![oauth_proxy(OAuthProxyOptions::new())],
+            plugins: vec![oauth_proxy_with(OAuthProxyOptions::new())],
             ..test_options()
         },
     )?;
@@ -775,7 +775,7 @@ async fn existing_preview_user_links_account_without_duplicate(
                 skip_state_cookie_check: true,
                 ..AccountOptions::default()
             },
-            plugins: vec![oauth_proxy(OAuthProxyOptions::new())],
+            plugins: vec![oauth_proxy_with(OAuthProxyOptions::new())],
             ..test_options()
         },
     )?;
@@ -826,7 +826,7 @@ async fn preview_callback_rejects_unverified_existing_user_when_google_is_not_tr
                 ..AccountOptions::default()
             },
             rate_limit: RateLimitOptions::new().enabled(false),
-            plugins: vec![oauth_proxy(OAuthProxyOptions::new())],
+            plugins: vec![oauth_proxy_with(OAuthProxyOptions::new())],
             ..test_options()
         },
     )?;
@@ -868,7 +868,7 @@ async fn preview_callback_links_unverified_existing_user_when_google_is_trusted(
                 account_linking: AccountLinkingOptions::default().trusted_provider("google"),
                 ..AccountOptions::default()
             },
-            plugins: vec![oauth_proxy(OAuthProxyOptions::new())],
+            plugins: vec![oauth_proxy_with(OAuthProxyOptions::new())],
             ..test_options()
         },
     )?;
@@ -905,7 +905,7 @@ async fn database_state_strategy_packages_proxy_state() -> Result<(), Box<dyn st
                 store_state_strategy: OAuthStateStoreStrategy::Database,
                 ..AccountOptions::default()
             },
-            plugins: vec![oauth_proxy(
+            plugins: vec![oauth_proxy_with(
                 OAuthProxyOptions::new().current_url("http://preview.example.com"),
             )],
             ..test_options()
@@ -1014,7 +1014,7 @@ fn router(
         adapter,
         OpenAuthOptions {
             base_url: Some(base_url.to_owned()),
-            plugins: vec![oauth_proxy(options)],
+            plugins: vec![oauth_proxy_with(options)],
             ..test_options()
         },
     )

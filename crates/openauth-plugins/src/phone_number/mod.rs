@@ -10,7 +10,6 @@ mod store;
 
 use std::sync::Arc;
 
-use openauth_core::db::DbAdapter;
 use openauth_core::options::RateLimitRule;
 use openauth_core::plugin::{AuthPlugin, PluginRateLimitRule};
 
@@ -23,28 +22,26 @@ pub use schema::PhoneNumberSchemaOptions;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "phone-number";
 
-pub fn phone_number(adapter: Arc<dyn DbAdapter>, options: PhoneNumberOptions) -> AuthPlugin {
+/// Build the phone number plugin with default options.
+#[must_use]
+pub fn phone_number() -> AuthPlugin {
+    phone_number_with(PhoneNumberOptions::default())
+}
+
+/// Build the phone number plugin.
+#[must_use]
+pub fn phone_number_with(options: PhoneNumberOptions) -> AuthPlugin {
     let options = Arc::new(options.with_defaults());
     let schema = options.schema.clone();
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)
-        .with_endpoint(endpoints::sign_in::endpoint(
-            Arc::clone(&adapter),
-            Arc::clone(&options),
-        ))
-        .with_endpoint(endpoints::send_otp::endpoint(
-            Arc::clone(&adapter),
-            Arc::clone(&options),
-        ))
-        .with_endpoint(endpoints::verify::endpoint(
-            Arc::clone(&adapter),
-            Arc::clone(&options),
-        ))
-        .with_endpoint(endpoints::password_reset::request_endpoint(
-            Arc::clone(&adapter),
-            Arc::clone(&options),
-        ))
-        .with_endpoint(endpoints::password_reset::reset_endpoint(adapter, options))
+        .with_endpoint(endpoints::sign_in::endpoint(Arc::clone(&options)))
+        .with_endpoint(endpoints::send_otp::endpoint(Arc::clone(&options)))
+        .with_endpoint(endpoints::verify::endpoint(Arc::clone(&options)))
+        .with_endpoint(endpoints::password_reset::request_endpoint(Arc::clone(
+            &options,
+        )))
+        .with_endpoint(endpoints::password_reset::reset_endpoint(options))
         .with_schema(schema::phone_number_field(&schema))
         .with_schema(schema::phone_number_verified_field(&schema))
         .with_rate_limit(PluginRateLimitRule::new(

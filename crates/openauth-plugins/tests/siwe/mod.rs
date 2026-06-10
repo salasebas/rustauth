@@ -17,7 +17,7 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::{DbAdapter, DbValue, FindOne, MemoryAdapter, Where};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
-use openauth_plugins::siwe::{siwe, SiweOptions, SiweVerifyMessageArgs};
+use openauth_plugins::siwe::{siwe_with, SiweOptions, SiweVerifyMessageArgs};
 use serde_json::Value;
 
 const DOMAIN: &str = "example.com";
@@ -55,7 +55,7 @@ fn router(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
-            plugins: vec![siwe(siwe_options)?],
+            plugins: vec![siwe_with(siwe_options)?],
             ..OpenAuthOptions::default()
         },
         adapter.clone(),
@@ -140,7 +140,7 @@ async fn record_by_string(
 
 #[test]
 fn plugin_exposes_serializable_non_callback_options_metadata() -> Result<(), OpenAuthError> {
-    let plugin = siwe(
+    let plugin = siwe_with(
         options()
             .anonymous(false)
             .email_domain_name("wallet.example.com")

@@ -42,7 +42,7 @@ async fn private_key_encryption_can_be_disabled() -> Result<(), Box<dyn std::err
         ..JwtOptions::default()
     };
     let context = create_auth_context_with_adapter(
-        options_with_plugin(openauth_plugins::jwt::jwt_with_options(options.clone())?),
+        options_with_plugin(openauth_plugins::jwt::jwt_with(options.clone())?),
         adapter.clone(),
     )?;
     let mut claims = JwtClaims::new();
@@ -117,7 +117,7 @@ async fn custom_adapter_callbacks_are_used() -> Result<(), Box<dyn std::error::E
         ..JwtOptions::default()
     };
     let context = create_auth_context_with_adapter(
-        options_with_plugin(openauth_plugins::jwt::jwt_with_options(options.clone())?),
+        options_with_plugin(openauth_plugins::jwt::jwt_with(options.clone())?),
         Arc::new(MemoryAdapter::new()),
     )?;
     let mut claims = JwtClaims::new();
@@ -167,7 +167,7 @@ async fn custom_adapter_is_used_by_jwks_endpoint_when_empty(
     };
     let router = router_with_plugin(
         Arc::new(MemoryAdapter::new()),
-        openauth_plugins::jwt::jwt_with_options(options)?,
+        openauth_plugins::jwt::jwt_with(options)?,
     )?;
 
     let response = router

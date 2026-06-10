@@ -7,7 +7,7 @@ use openauth_core::db::{DbAdapter, DbRecord, DbValue, FindOne, MemoryAdapter, Wh
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions, TrustedOriginOptions};
 use openauth_plugins::magic_link::{
-    default_key_hasher, magic_link, MagicLinkEmail, MagicLinkOptions, TokenStorage,
+    default_key_hasher, magic_link_with, MagicLinkEmail, MagicLinkOptions, TokenStorage,
 };
 
 mod failure_redirects;
@@ -24,7 +24,7 @@ use support::{
 #[tokio::test]
 async fn exposes_magic_link_plugin_metadata() -> Result<(), Box<dyn std::error::Error>> {
     let sent = sent_messages();
-    let plugin = magic_link(options(sent.clone()));
+    let plugin = magic_link_with(options(sent.clone()));
 
     assert_eq!(
         openauth_plugins::magic_link::UPSTREAM_PLUGIN_ID,
@@ -417,7 +417,7 @@ async fn supports_token_storage_modes() -> Result<(), Box<dyn std::error::Error>
 async fn rejects_untrusted_verify_callback_urls() -> Result<(), Box<dyn std::error::Error>> {
     let sent = sent_messages();
     let adapter = Arc::new(MemoryAdapter::new());
-    let plugin = magic_link(options(sent.clone()));
+    let plugin = magic_link_with(options(sent.clone()));
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),

@@ -16,7 +16,7 @@ use openauth_core::options::{
 };
 use openauth_core::test_utils::fast_hash_password;
 use openauth_core::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
-use openauth_plugins::captcha::{captcha, CaptchaConfigError, CaptchaOptions, CaptchaProvider};
+use openauth_plugins::captcha::{captcha_with, CaptchaOptions, CaptchaProvider};
 
 #[test]
 fn exposes_captcha_plugin_id() {
@@ -25,14 +25,17 @@ fn exposes_captcha_plugin_id() {
 
 #[test]
 fn captcha_rejects_empty_secret_key() {
-    let result = captcha(CaptchaOptions::cloudflare_turnstile(""));
+    let result = captcha_with(CaptchaOptions::cloudflare_turnstile(""));
 
-    assert!(matches!(result, Err(CaptchaConfigError::MissingSecretKey)));
+    assert!(matches!(
+        result,
+        Err(OpenAuthError::InvalidConfig(message)) if message.contains("secret")
+    ));
 }
 
 #[test]
 fn captcha_options_do_not_serialize_secret_key() -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = captcha(CaptchaOptions::hcaptcha("secret").site_key("site"))?;
+    let plugin = captcha_with(CaptchaOptions::hcaptcha("secret").site_key("site"))?;
     let serialized = plugin
         .options
         .ok_or("captcha plugin should expose serializable options")?
@@ -45,7 +48,7 @@ fn captcha_options_do_not_serialize_secret_key() -> Result<(), Box<dyn std::erro
 
 #[tokio::test]
 async fn captcha_ignores_non_protected_endpoints() -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::cloudflare_turnstile("secret")
             .site_verify_url_override("http://127.0.0.1:1")
             .endpoints(["/sign-up/email"]),
@@ -66,7 +69,8 @@ async fn captcha_ignores_non_protected_endpoints() -> Result<(), Box<dyn std::er
 #[tokio::test]
 async fn captcha_custom_endpoint_matches_containing_request_path(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
+    let plugin =
+        captcha_with(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
     let router = router(plugin, "/sign-up/email")?;
 
     let response = router.handle_async(request("/sign-up/email", &[])?).await?;
@@ -81,7 +85,7 @@ async fn captcha_ignores_protected_path_in_query_string() -> Result<(), Box<dyn 
     // Default endpoints include `/sign-up/email`. A callback/return URL that merely
     // mentions a protected path in the query string must not arm CAPTCHA on an
     // otherwise unprotected route such as `/get-session`.
-    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret"))?;
+    let plugin = captcha_with(CaptchaOptions::cloudflare_turnstile("secret"))?;
     let router = router(plugin, "/get-session")?;
 
     let response = router
@@ -96,7 +100,8 @@ async fn captcha_ignores_protected_path_in_query_string() -> Result<(), Box<dyn 
 async fn captcha_prefix_does_not_match_partial_segment() -> Result<(), Box<dyn std::error::Error>> {
     // `/sign-up` must match on path-segment boundaries only, so `/sign-up-email`
     // is not protected unless configured explicitly.
-    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
+    let plugin =
+        captcha_with(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
     let router = router(plugin, "/sign-up-email")?;
 
     let response = router.handle_async(request("/sign-up-email", &[])?).await?;
@@ -109,7 +114,8 @@ async fn captcha_prefix_does_not_match_partial_segment() -> Result<(), Box<dyn s
 async fn captcha_prefix_does_not_match_nested_path() -> Result<(), Box<dyn std::error::Error>> {
     // The configured endpoint is a prefix anchor, not a substring: a path that
     // contains it deeper down (`/foo/sign-up/email`) must not be protected.
-    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
+    let plugin =
+        captcha_with(CaptchaOptions::cloudflare_turnstile("secret").endpoints(["/sign-up"]))?;
     let router = router(plugin, "/foo/sign-up/email")?;
 
     let response = router
@@ -123,7 +129,7 @@ async fn captcha_prefix_does_not_match_nested_path() -> Result<(), Box<dyn std::
 #[tokio::test]
 async fn captcha_returns_400_when_response_header_is_missing(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret"))?;
+    let plugin = captcha_with(CaptchaOptions::cloudflare_turnstile("secret"))?;
     let router = router(plugin, "/sign-in/email")?;
 
     let response = router.handle_async(request("/sign-in/email", &[])?).await?;
@@ -134,7 +140,7 @@ async fn captcha_returns_400_when_response_header_is_missing(
 
 #[tokio::test]
 async fn captcha_rejection_consumes_route_rate_limit() -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = captcha(CaptchaOptions::cloudflare_turnstile("secret"))?;
+    let plugin = captcha_with(CaptchaOptions::cloudflare_turnstile("secret"))?;
     let router = router_with_rate_limit(plugin, "/sign-in/email")?;
 
     // First rejected CAPTCHA attempt must still consume the route's rate-limit bucket.
@@ -161,7 +167,7 @@ async fn captcha_allows_real_sign_in_when_provider_accepts(
             fast_hash_password("secret123")?,
         ))
         .await?;
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::cloudflare_turnstile("secret").site_verify_url_override(server.url()),
     )?;
     let context = create_auth_context_with_adapter(
@@ -203,7 +209,7 @@ async fn captcha_allows_real_sign_in_when_provider_accepts(
 async fn cloudflare_turnstile_sends_json_payload_and_allows_success(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = JsonServer::spawn(200, r#"{"success":true}"#)?;
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::cloudflare_turnstile("secret").site_verify_url_override(server.url()),
     )?;
     let router = router_trusting_forwarded_for(plugin, "/sign-in/email")?;
@@ -230,7 +236,7 @@ async fn cloudflare_turnstile_sends_json_payload_and_allows_success(
 async fn cloudflare_turnstile_returns_403_when_provider_rejects(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = JsonServer::spawn(200, r#"{"success":false}"#)?;
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::cloudflare_turnstile("secret").site_verify_url_override(server.url()),
     )?;
     let router = router(plugin, "/sign-in/email")?;
@@ -250,8 +256,9 @@ async fn cloudflare_turnstile_returns_403_when_provider_rejects(
 async fn google_recaptcha_sends_form_payload_with_remote_ip(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = JsonServer::spawn(200, r#"{"success":true}"#)?;
-    let plugin =
-        captcha(CaptchaOptions::google_recaptcha("secret").site_verify_url_override(server.url()))?;
+    let plugin = captcha_with(
+        CaptchaOptions::google_recaptcha("secret").site_verify_url_override(server.url()),
+    )?;
     let router = router_trusting_forwarded_for(plugin, "/sign-in/email")?;
 
     let response = router
@@ -276,8 +283,9 @@ async fn google_recaptcha_sends_form_payload_with_remote_ip(
 async fn google_recaptcha_returns_403_when_score_is_too_low(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = JsonServer::spawn(200, r#"{"success":true,"score":0.4}"#)?;
-    let plugin =
-        captcha(CaptchaOptions::google_recaptcha("secret").site_verify_url_override(server.url()))?;
+    let plugin = captcha_with(
+        CaptchaOptions::google_recaptcha("secret").site_verify_url_override(server.url()),
+    )?;
     let router = router(plugin, "/sign-in/email")?;
 
     let response = router
@@ -294,7 +302,7 @@ async fn google_recaptcha_returns_403_when_score_is_too_low(
 #[tokio::test]
 async fn hcaptcha_includes_site_key_and_remote_ip() -> Result<(), Box<dyn std::error::Error>> {
     let server = JsonServer::spawn(200, r#"{"success":true}"#)?;
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::hcaptcha("secret")
             .site_key("site")
             .site_verify_url_override(server.url()),
@@ -321,7 +329,7 @@ async fn hcaptcha_includes_site_key_and_remote_ip() -> Result<(), Box<dyn std::e
 #[tokio::test]
 async fn captchafox_uses_remote_ip_form_field() -> Result<(), Box<dyn std::error::Error>> {
     let server = JsonServer::spawn(200, r#"{"success":true}"#)?;
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::captchafox("secret")
             .site_key("site")
             .site_verify_url_override(server.url()),
@@ -349,7 +357,7 @@ async fn captchafox_uses_remote_ip_form_field() -> Result<(), Box<dyn std::error
 async fn captcha_returns_500_when_provider_is_unavailable() -> Result<(), Box<dyn std::error::Error>>
 {
     let server = JsonServer::spawn(500, r#"{"error":"server_error"}"#)?;
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::with_provider(CaptchaProvider::CloudflareTurnstile, "secret")
             .site_verify_url_override(server.url()),
     )?;
@@ -370,7 +378,7 @@ async fn captcha_returns_500_when_provider_is_unavailable() -> Result<(), Box<dy
 async fn captcha_returns_500_when_provider_returns_invalid_json(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = JsonServer::spawn(200, "not-json")?;
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::cloudflare_turnstile("secret").site_verify_url_override(server.url()),
     )?;
     let router = router(plugin, "/sign-in/email")?;
@@ -389,7 +397,7 @@ async fn captcha_returns_500_when_provider_returns_invalid_json(
 #[tokio::test]
 async fn captcha_returns_500_when_provider_connection_fails(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = captcha(
+    let plugin = captcha_with(
         CaptchaOptions::cloudflare_turnstile("secret")
             .site_verify_url_override("http://127.0.0.1:1"),
     )?;

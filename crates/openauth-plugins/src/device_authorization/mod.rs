@@ -28,12 +28,14 @@ pub use store::{DeviceAuthorizationStatus, DeviceCodeRecord};
 pub const UPSTREAM_PLUGIN_ID: &str = "device-authorization";
 
 /// Build the device authorization plugin with default options.
+#[must_use]
 pub fn device_authorization() -> AuthPlugin {
-    device_authorization_with_options(DeviceAuthorizationOptions::default())
+    device_authorization_with(DeviceAuthorizationOptions::default())
 }
 
 /// Build the device authorization plugin with explicit options.
-pub fn device_authorization_with_options(options: DeviceAuthorizationOptions) -> AuthPlugin {
+#[must_use]
+pub fn device_authorization_with(options: DeviceAuthorizationOptions) -> AuthPlugin {
     let schema_options = options.schema.clone();
     let options = Arc::new(options);
     let init_options = Arc::clone(&options);

@@ -10,7 +10,7 @@ use openauth_oauth::oauth2::{
     OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
     SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
 };
-use openauth_plugins::last_login_method::{last_login_method, LastLoginMethodOptions};
+use openauth_plugins::last_login_method::{last_login_method_with, LastLoginMethodOptions};
 use url::Url;
 
 pub fn request(path: &str) -> Result<Request<Vec<u8>>, http::Error> {
@@ -54,7 +54,7 @@ pub fn router_with_plugin_options(
     let mut openauth_options = openauth_options;
     openauth_options
         .plugins
-        .push(last_login_method(options.store_in_database(true)));
+        .push(last_login_method_with(options.store_in_database(true)));
     openauth_options.secret = Some(secret().to_owned());
     openauth_options.advanced.disable_csrf_check = true;
     openauth_options.advanced.disable_origin_check = true;

@@ -12,7 +12,7 @@ use openauth_core::options::{AdvancedOptions, OpenAuthOptions};
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::test_utils::{with_integration_test_defaults, MemorySecondaryStorage};
 use openauth_core::user::{CreateCredentialAccountInput, CreateUserInput, DbUserStore};
-use openauth_plugins::email_otp::{email_otp, EmailOtpOptions, EmailOtpPayload};
+use openauth_plugins::email_otp::{email_otp_with, EmailOtpOptions, EmailOtpPayload};
 pub use serde_json::Value;
 use time::{Duration, OffsetDateTime};
 
@@ -73,7 +73,7 @@ pub fn router(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
-            plugins: vec![email_otp(adapter.clone(), options)],
+            plugins: vec![email_otp_with(options)],
             ..OpenAuthOptions::default()
         }),
         adapter.clone(),
@@ -96,7 +96,7 @@ pub fn router_with_auth_options(
                 disable_origin_check: true,
                 ..AdvancedOptions::default()
             },
-            plugins: vec![email_otp(adapter.clone(), options)],
+            plugins: vec![email_otp_with(options)],
             ..auth_options
         }),
         adapter.clone(),

@@ -9,6 +9,5 @@ pub use checker::{HaveIBeenPwnedCheckError, HaveIBeenPwnedChecker, ReqwestHaveIB
 pub use error::{PASSWORD_COMPROMISED_CODE, PASSWORD_COMPROMISED_MESSAGE};
 pub use options::HaveIBeenPwnedOptions;
 pub use plugin::{
-    have_i_been_pwned, have_i_been_pwned_with_checker, have_i_been_pwned_with_options,
-    RUNTIME_PLUGIN_ID, UPSTREAM_PLUGIN_ID,
+    have_i_been_pwned, have_i_been_pwned_with, RUNTIME_PLUGIN_ID, UPSTREAM_PLUGIN_ID,
 };

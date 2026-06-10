@@ -11,7 +11,7 @@ use openauth_core::options::{
 };
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::test_utils::{fast_hash_password, with_integration_test_defaults};
-use openauth_plugins::multi_session::{multi_session_with_config, MultiSessionConfig};
+use openauth_plugins::multi_session::{multi_session_with, MultiSessionConfig};
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
 
@@ -54,7 +54,7 @@ impl Fixture {
         let context = create_auth_context_with_adapter(
             with_integration_test_defaults(OpenAuthOptions {
                 secret: Some(secret().to_owned()),
-                plugins: vec![multi_session_with_config(config)],
+                plugins: vec![multi_session_with(config)],
                 advanced: AdvancedOptions {
                     disable_csrf_check: true,
                     disable_origin_check: true,

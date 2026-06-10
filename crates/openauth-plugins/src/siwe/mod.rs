@@ -18,7 +18,7 @@ pub use types::{
 
 pub const UPSTREAM_PLUGIN_ID: &str = "siwe";
 
-pub fn siwe(options: SiweOptions) -> Result<AuthPlugin, OpenAuthError> {
+pub fn siwe_with(options: SiweOptions) -> Result<AuthPlugin, OpenAuthError> {
     options.validate()?;
     Ok(AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)

@@ -24,7 +24,13 @@ use openauth_core::{
 
 pub const UPSTREAM_PLUGIN_ID: &str = "anonymous";
 
-pub fn anonymous(options: AnonymousOptions) -> AuthPlugin {
+#[must_use]
+pub fn anonymous() -> AuthPlugin {
+    anonymous_with(AnonymousOptions::default())
+}
+
+#[must_use]
+pub fn anonymous_with(options: AnonymousOptions) -> AuthPlugin {
     let init_options = options.clone();
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(env!("CARGO_PKG_VERSION"))

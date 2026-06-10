@@ -58,7 +58,13 @@ impl OpenApiOptions {
     }
 }
 
-pub fn open_api(options: OpenApiOptions) -> AuthPlugin {
+#[must_use]
+pub fn open_api() -> AuthPlugin {
+    open_api_with(OpenApiOptions::default())
+}
+
+#[must_use]
+pub fn open_api_with(options: OpenApiOptions) -> AuthPlugin {
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)
         .with_options(serde_json::to_value(&options).unwrap_or(serde_json::Value::Null))

@@ -40,10 +40,7 @@ struct StatusResponse {
     status: bool,
 }
 
-pub(crate) fn request_endpoint(
-    adapter: Arc<dyn DbAdapter>,
-    options: Arc<PhoneNumberOptions>,
-) -> AsyncAuthEndpoint {
+pub(crate) fn request_endpoint(options: Arc<PhoneNumberOptions>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/phone-number/request-password-reset",
         Method::POST,
@@ -54,10 +51,10 @@ pub(crate) fn request_endpoint(
                 "phoneNumber",
                 JsonSchemaType::String,
             )])),
-        move |_context, request| {
-            let adapter = Arc::clone(&adapter);
+        move |context, request| {
             let options = Arc::clone(&options);
             Box::pin(async move {
+                let adapter = super::require_adapter(context)?;
                 let body: RequestResetBody = parse_request_body(&request)?;
                 let code = otp::generate_otp(options.otp_length);
                 let identifier = reset_identifier(&body.phone_number);
@@ -76,10 +73,7 @@ pub(crate) fn request_endpoint(
     )
 }
 
-pub(crate) fn reset_endpoint(
-    adapter: Arc<dyn DbAdapter>,
-    options: Arc<PhoneNumberOptions>,
-) -> AsyncAuthEndpoint {
+pub(crate) fn reset_endpoint(options: Arc<PhoneNumberOptions>) -> AsyncAuthEndpoint {
     create_auth_endpoint(
         "/phone-number/reset-password",
         Method::POST,
@@ -92,9 +86,9 @@ pub(crate) fn reset_endpoint(
                 BodyField::new("newPassword", JsonSchemaType::String),
             ])),
         move |context, request| {
-            let adapter = Arc::clone(&adapter);
             let options = Arc::clone(&options);
             Box::pin(async move {
+                let adapter = super::require_adapter(context)?;
                 let body: ResetBody = parse_request_body(&request)?;
                 if body.new_password.len() < context.password.config.min_password_length {
                     return error_response(

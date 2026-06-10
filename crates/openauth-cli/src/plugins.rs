@@ -1,23 +1,20 @@
 use openauth_core::db::DbSchema;
-use openauth_core::db::MemoryAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::AuthPlugin;
 use openauth_plugins::{
-    admin::{admin, AdminOptions},
-    anonymous::{anonymous, AnonymousOptions},
+    admin::admin,
+    anonymous::anonymous,
     api_key::api_key,
     device_authorization::device_authorization,
     jwt::jwt,
     organization::organization,
-    phone_number::{phone_number, PhoneNumberOptions},
-    siwe::{siwe, SiweOptions},
-    two_factor::{two_factor, TwoFactorOptions},
+    phone_number::{phone_number_with, PhoneNumberOptions},
+    siwe::{siwe_with, SiweOptions},
+    two_factor::two_factor,
     username::username,
     PLUGIN_IDS,
 };
 use serde::Serialize;
-use std::sync::Arc;
-
 #[derive(Debug, Clone, Serialize)]
 pub struct PluginInfo {
     pub id: &'static str,
@@ -61,23 +58,20 @@ pub fn apply_configured_plugins(
 
 pub fn schema_plugin(plugin: &str) -> Option<AuthPlugin> {
     match plugin {
-        "admin" => Some(admin(AdminOptions::default())),
-        "anonymous" => Some(anonymous(AnonymousOptions::default())),
+        "admin" => Some(admin()),
+        "anonymous" => Some(anonymous()),
         "api-key" => Some(api_key()),
         "device-authorization" => Some(device_authorization()),
         "jwt" => jwt().ok(),
         "organization" => Some(organization()),
-        "phone-number" => Some(phone_number(
-            Arc::new(MemoryAdapter::new()),
-            PhoneNumberOptions::default(),
-        )),
-        "siwe" => siwe(SiweOptions::new(
+        "phone-number" => Some(phone_number_with(PhoneNumberOptions::default())),
+        "siwe" => siwe_with(SiweOptions::new(
             "localhost",
             || async { Ok("nonce".to_owned()) },
             |_| async { Ok(true) },
         ))
         .ok(),
-        "two-factor" => Some(two_factor(TwoFactorOptions::default())),
+        "two-factor" => Some(two_factor()),
         "username" => Some(username()),
         _ => None,
     }
@@ -85,17 +79,15 @@ pub fn schema_plugin(plugin: &str) -> Option<AuthPlugin> {
 
 pub fn rust_snippet(plugin: &str) -> Option<&'static str> {
     match plugin {
-        "two-factor" => {
-            Some("openauth::plugins::two_factor::two_factor(TwoFactorOptions::default())")
-        }
+        "two-factor" => Some("openauth::plugins::two_factor::two_factor()"),
         "organization" => Some("openauth::plugins::organization::organization()"),
         "username" => Some("openauth::plugins::username::username()"),
-        "admin" => Some("openauth::plugins::admin::admin(AdminOptions::default())"),
+        "admin" => Some("openauth::plugins::admin::admin()"),
         "api-key" => Some("openauth::plugins::api_key::api_key()"),
         "device-authorization" => {
             Some("openauth::plugins::device_authorization::device_authorization()")
         }
-        "anonymous" => Some("openauth::plugins::anonymous::anonymous(AnonymousOptions::default())"),
+        "anonymous" => Some("openauth::plugins::anonymous::anonymous()"),
         "jwt" => Some("openauth::plugins::jwt::jwt()?"),
         _ => None,
     }

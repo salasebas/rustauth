@@ -356,7 +356,7 @@ async fn approved_token_records_new_session_for_after_hooks(
     );
     let auth_options = OpenAuthOptions {
         plugins: vec![
-            device_authorization_with_options(DeviceAuthorizationOptions::default()),
+            device_authorization_with(DeviceAuthorizationOptions::default()),
             observer,
         ],
         secret: Some(secret().to_owned()),

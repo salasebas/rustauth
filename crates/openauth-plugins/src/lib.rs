@@ -14,7 +14,7 @@ pub mod custom_session;
 pub mod device_authorization;
 pub mod email_otp;
 pub mod generic_oauth;
-pub mod haveibeenpwned;
+pub mod have_i_been_pwned;
 pub mod jwt;
 pub mod last_login_method;
 pub mod magic_link;
@@ -25,6 +25,7 @@ pub mod one_time_token;
 pub mod open_api;
 pub mod organization;
 pub mod phone_number;
+pub mod prelude;
 pub mod siwe;
 pub mod two_factor;
 pub mod username;
@@ -41,7 +42,7 @@ pub const PLUGIN_IDS: &[&str] = &[
     device_authorization::UPSTREAM_PLUGIN_ID,
     email_otp::UPSTREAM_PLUGIN_ID,
     generic_oauth::UPSTREAM_PLUGIN_ID,
-    haveibeenpwned::UPSTREAM_PLUGIN_ID,
+    have_i_been_pwned::UPSTREAM_PLUGIN_ID,
     jwt::UPSTREAM_PLUGIN_ID,
     last_login_method::UPSTREAM_PLUGIN_ID,
     magic_link::UPSTREAM_PLUGIN_ID,

@@ -3,8 +3,12 @@ pub(crate) mod send_otp;
 pub(crate) mod sign_in;
 pub(crate) mod verify;
 
+use std::sync::Arc;
+
 use http::StatusCode;
+use openauth_core::context::AuthContext;
 use openauth_core::cookies::{set_session_cookie, Cookie, CookieOptions, SessionCookieOptions};
+use openauth_core::db::DbAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use time::{Duration, OffsetDateTime};
@@ -12,6 +16,12 @@ use time::{Duration, OffsetDateTime};
 use crate::phone_number::errors::{error_response, invalid_phone_number};
 use crate::phone_number::options::PhoneNumberOptions;
 use crate::phone_number::store::PhoneUser;
+
+pub(crate) fn require_adapter(context: &AuthContext) -> Result<Arc<dyn DbAdapter>, OpenAuthError> {
+    context.adapter().ok_or_else(|| {
+        OpenAuthError::InvalidConfig("phone-number plugin requires a database adapter".to_owned())
+    })
+}
 
 pub(crate) fn validate_phone_number(
     options: &PhoneNumberOptions,

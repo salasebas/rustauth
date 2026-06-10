@@ -8,8 +8,7 @@ use openauth_core::options::{
     UserAdditionalField, UserOptions,
 };
 use openauth_plugins::one_time_token::{
-    default_key_hasher, one_time_token, one_time_token_with_options, OneTimeTokenOptions,
-    StoreToken,
+    default_key_hasher, one_time_token, one_time_token_with, OneTimeTokenOptions, StoreToken,
 };
 use serde_json::Value;
 use time::{Duration, OffsetDateTime};
@@ -62,7 +61,7 @@ async fn endpoints_expose_openapi_metadata() -> Result<(), Box<dyn std::error::E
 #[test]
 fn plugin_options_metadata_uses_upstream_camel_case_names() -> Result<(), Box<dyn std::error::Error>>
 {
-    let plugin = one_time_token_with_options(
+    let plugin = one_time_token_with(
         OneTimeTokenOptions::default()
             .expires_in_minutes(10)
             .disable_client_request(true)
@@ -181,7 +180,7 @@ async fn generated_token_expires_after_configured_ttl() -> Result<(), Box<dyn st
     let options = OneTimeTokenOptions::default()
         .expires_in_minutes(5)
         .generate_token(|_, _| Ok("ttl-token".to_owned()));
-    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let (adapter, router) = router_with_plugin(one_time_token_with(options))?;
     let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
 
     let generate = router
@@ -375,7 +374,7 @@ async fn expired_token_fails_and_is_consumed() -> Result<(), Box<dyn std::error:
 
 #[tokio::test]
 async fn expired_session_fails_with_session_expired() -> Result<(), Box<dyn std::error::Error>> {
-    let (adapter, router) = router_with_plugin(one_time_token_with_options(
+    let (adapter, router) = router_with_plugin(one_time_token_with(
         OneTimeTokenOptions::default().expires_in_minutes(10),
     ))?;
     seed_user_and_session(&adapter, OffsetDateTime::now_utc() - Duration::minutes(1)).await?;
@@ -407,7 +406,7 @@ async fn hashed_storage_uses_default_key_hasher() -> Result<(), Box<dyn std::err
     let options = OneTimeTokenOptions::default()
         .store_token(StoreToken::Hashed)
         .generate_token(|_, _| Ok("123456".to_owned()));
-    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let (adapter, router) = router_with_plugin(one_time_token_with(options))?;
     let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
 
     let generate = router
@@ -439,7 +438,7 @@ async fn custom_storage_hasher_is_used() -> Result<(), Box<dyn std::error::Error
     let options = OneTimeTokenOptions::default()
         .store_token(StoreToken::custom(|token| Ok(format!("{token}:hashed"))))
         .generate_token(|_, _| Ok("custom-token".to_owned()));
-    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let (adapter, router) = router_with_plugin(one_time_token_with(options))?;
     let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
 
     let generate = router
@@ -463,7 +462,7 @@ async fn custom_storage_hasher_is_used() -> Result<(), Box<dyn std::error::Error
 #[tokio::test]
 async fn disable_set_session_cookie_omits_cookie() -> Result<(), Box<dyn std::error::Error>> {
     let options = OneTimeTokenOptions::default().disable_set_session_cookie(true);
-    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let (adapter, router) = router_with_plugin(one_time_token_with(options))?;
     seed_user_and_session(&adapter, default_session_expires_at()).await?;
     seed_verification(
         &adapter,
@@ -491,7 +490,7 @@ async fn disable_set_session_cookie_omits_cookie() -> Result<(), Box<dyn std::er
 async fn disable_client_request_rejects_generate_endpoint() -> Result<(), Box<dyn std::error::Error>>
 {
     let options = OneTimeTokenOptions::default().disable_client_request(true);
-    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let (adapter, router) = router_with_plugin(one_time_token_with(options))?;
     let cookie = seed_authenticated_session(&adapter, default_session_expires_at()).await?;
 
     let response = router
@@ -512,7 +511,7 @@ async fn disable_client_request_rejects_generate_endpoint() -> Result<(), Box<dy
 #[tokio::test]
 async fn set_ott_header_on_new_sign_up_session() -> Result<(), Box<dyn std::error::Error>> {
     let options = OneTimeTokenOptions::default().set_ott_header_on_new_session(true);
-    let (_adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let (_adapter, router) = router_with_plugin(one_time_token_with(options))?;
 
     let response = router
         .handle_async(json_request(
@@ -541,7 +540,7 @@ async fn set_ott_header_on_new_sign_up_session() -> Result<(), Box<dyn std::erro
 #[tokio::test]
 async fn set_ott_header_on_new_sign_in_session() -> Result<(), Box<dyn std::error::Error>> {
     let options = OneTimeTokenOptions::default().set_ott_header_on_new_session(true);
-    let (adapter, router) = router_with_plugin(one_time_token_with_options(options))?;
+    let (adapter, router) = router_with_plugin(one_time_token_with(options))?;
     seed_user_and_credential_account(&adapter).await?;
 
     let response = router

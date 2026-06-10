@@ -76,7 +76,7 @@ impl CreateSessionInput {
     }
 
     #[must_use]
-    pub fn additional_fields(mut self, additional_fields: DbRecord) -> Self {
+    pub fn additional_fields_with(mut self, additional_fields: DbRecord) -> Self {
         self.additional_fields = additional_fields;
         self
     }

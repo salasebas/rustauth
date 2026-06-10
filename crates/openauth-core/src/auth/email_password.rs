@@ -341,7 +341,7 @@ impl<'a> EmailPasswordAuth<'a> {
 
         let password_hash = (self.hash_password)(&input.password)?;
         let mut create_user = CreateUserInput::new(input.name, input.email)
-            .additional_fields(input.additional_user_fields);
+            .additional_fields_with(input.additional_user_fields);
         if let Some(image) = input.image {
             create_user = create_user.image(image);
         }
@@ -522,7 +522,7 @@ async fn create_session_record(
         .map_err(|_| AuthFlowError::new(AuthFlowErrorCode::FailedToCreateSession))?;
     let expires_at = OffsetDateTime::now_utc() + Duration::seconds(seconds);
     let mut input =
-        CreateSessionInput::new(user_id, expires_at).additional_fields(additional_fields);
+        CreateSessionInput::new(user_id, expires_at).additional_fields_with(additional_fields);
     if let Some(ip_address) = ip_address {
         input = input.ip_address(ip_address);
     }

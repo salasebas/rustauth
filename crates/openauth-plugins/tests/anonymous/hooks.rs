@@ -4,7 +4,7 @@ use http::{header, Method, StatusCode};
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::OpenAuthOptions;
-use openauth_plugins::anonymous::{anonymous, AnonymousOptions};
+use openauth_plugins::anonymous::{anonymous_with, AnonymousOptions};
 use serde_json::Value;
 
 use super::helpers::{
@@ -21,7 +21,7 @@ async fn link_hook_calls_callback_and_deletes_previous_anonymous_user(
     seed_session(&adapter, session("session_1", "anon_user", "old_token")).await?;
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));
     let captured = Arc::clone(&calls);
-    let plugin = anonymous(AnonymousOptions::default().on_link_account(move |data| {
+    let plugin = anonymous_with(AnonymousOptions::default().on_link_account(move |data| {
         captured
             .lock()
             .map(|mut calls| {
@@ -71,7 +71,7 @@ async fn route_sign_up_links_and_deletes_previous_anonymous_user(
     let adapter = Arc::new(TestAdapter::default());
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));
     let captured = Arc::clone(&calls);
-    let plugin = anonymous(
+    let plugin = anonymous_with(
         AnonymousOptions::default().on_link_account_async(move |data| {
             let captured = Arc::clone(&captured);
             async move {
@@ -138,7 +138,7 @@ async fn route_sign_in_email_links_and_deletes_previous_anonymous_user(
     let adapter = Arc::new(TestAdapter::default());
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));
     let captured = Arc::clone(&calls);
-    let plugin = anonymous(
+    let plugin = anonymous_with(
         AnonymousOptions::default().on_link_account_async(move |data| {
             let captured = Arc::clone(&captured);
             async move {
@@ -228,7 +228,7 @@ async fn link_hook_keeps_anonymous_user_when_new_user_is_same_anonymous_or_delet
     let adapter = Arc::new(TestAdapter::default());
     seed_user(&adapter, anonymous_user("anon_user", true)).await?;
     seed_session(&adapter, session("session_1", "anon_user", "old_token")).await?;
-    let plugin = anonymous(AnonymousOptions::default().disable_delete_anonymous_user(true));
+    let plugin = anonymous_with(AnonymousOptions::default().disable_delete_anonymous_user(true));
     let hook = plugin.hooks.async_after[0].handler.clone();
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {

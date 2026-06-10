@@ -4,8 +4,8 @@ use http::{header, Method, Response, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_core::plugin::{AuthPlugin, PluginAfterHookAction};
 use openauth_plugins::jwt::{
-    jwt, jwt_with_options, verify_jwt, verify_jwt_with_options, JwkAlgorithm, JwtJwksOptions,
-    JwtOptions, JwtSigningOptions,
+    jwt, jwt_with, verify_jwt, verify_jwt_with_options, JwkAlgorithm, JwtJwksOptions, JwtOptions,
+    JwtSigningOptions,
 };
 use serde_json::Value;
 
@@ -191,13 +191,13 @@ async fn jwks_drops_keys_expired_beyond_grace() -> Result<(), Box<dyn std::error
         ..JwtOptions::default()
     };
     let context = openauth_core::context::create_auth_context_with_adapter(
-        options_with_plugin(jwt_with_options(options.clone())?),
+        options_with_plugin(jwt_with(options.clone())?),
         adapter.clone(),
     )?;
     let mut claims = openauth_plugins::jwt::JwtClaims::new();
     claims.insert("sub".to_owned(), serde_json::json!("user_1"));
     openauth_plugins::jwt::sign_jwt(&context, claims, Some(options.clone())).await?;
-    let router = router_with_plugin(adapter, jwt_with_options(options)?)?;
+    let router = router_with_plugin(adapter, jwt_with(options)?)?;
 
     let response = router
         .handle_async(request(Method::GET, "/api/auth/jwks", "", None)?)
@@ -210,7 +210,7 @@ async fn jwks_drops_keys_expired_beyond_grace() -> Result<(), Box<dyn std::error
 
 #[test]
 fn remote_url_accepts_plain_strings_and_query_params() {
-    let result = jwt_with_options(JwtOptions {
+    let result = jwt_with(JwtOptions {
         jwks: JwtJwksOptions {
             remote_url: Some("not a url ?x=1".to_owned()),
             ..JwtJwksOptions::default()
@@ -286,10 +286,10 @@ async fn remote_url_still_allows_local_signing_without_custom_signer_for_support
             ..JwtOptions::default()
         };
         let context = openauth_core::context::create_auth_context_with_adapter(
-            options_with_plugin(jwt_with_options(options.clone())?),
+            options_with_plugin(jwt_with(options.clone())?),
             adapter.clone(),
         )?;
-        let router = router_with_plugin(adapter, jwt_with_options(options)?)?;
+        let router = router_with_plugin(adapter, jwt_with(options)?)?;
         let cookie = signed_session_cookie("token_1")?;
 
         let response = router
@@ -311,7 +311,7 @@ async fn remote_url_still_allows_local_signing_without_custom_signer_for_support
 
 #[test]
 fn rsa_modulus_length_must_be_at_least_2048() {
-    let result = jwt_with_options(JwtOptions {
+    let result = jwt_with(JwtOptions {
         jwks: JwtJwksOptions {
             key_pair_algorithm: Some(JwkAlgorithm::Rs256),
             rsa_modulus_length: Some(1024),
@@ -327,7 +327,7 @@ fn rsa_modulus_length_must_be_at_least_2048() {
 async fn rsa_modulus_length_can_be_configured() -> Result<(), Box<dyn std::error::Error>> {
     let router = router_with_plugin(
         Arc::new(MemoryAdapter::new()),
-        jwt_with_options(JwtOptions {
+        jwt_with(JwtOptions {
             jwks: JwtJwksOptions {
                 key_pair_algorithm: Some(JwkAlgorithm::Rs256),
                 rsa_modulus_length: Some(2048),

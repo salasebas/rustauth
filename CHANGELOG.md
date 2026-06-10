@@ -32,6 +32,10 @@ Versioning while the API is still pre-1.0.
   (`OpenAuth`, common options, `MemoryAdapter`, `AuthPlugin`, …).
 - `openauth-axum`: `OpenAuthAxumExt::into_router_with` and
   `OpenAuthAxumExt::into_routes_with` for adapter-specific mount options.
+- `openauth`: `OpenAuthBuilder::plugins` appends a batch of plugins (mirrors
+  `.endpoints`); `.plugin` still appends one at a time.
+- `openauth-plugins`: `prelude` module re-exporting common plugin factories and
+  options for application wiring.
 - `openauth`: `oauth-provider` feature re-exports `openauth-oauth-provider` as
   `openauth::oauth_provider`.
 - `openauth-oauth-provider`: `resolve_oauth_provider_options` and
@@ -68,6 +72,14 @@ Versioning while the API is still pre-1.0.
   (`into_router`, `into_routes`, …). Removed `router`, `router_with_options`,
   `routes`, `routes_with_options`, `handle_ref`, and `handle_ref_with_options`.
   Custom wiring uses `handle` / `handle_with_options`.
+- **Breaking:** `openauth-plugins` factory APIs are unified on `name()` /
+  `name_with(Options)` for app developers. Notable collapses include `api_key` /
+  `api_key_with` (with `ApiKeyOptions::builder()`), `custom_session` /
+  `custom_session_with`, and `oauth_proxy` replacing `oauth_proxy_default`.
+- **Breaking:** `openauth_plugins::haveibeenpwned` is now `have_i_been_pwned`
+  (`have_i_been_pwned()`, `have_i_been_pwned_with`).
+- **Breaking:** `email_otp` and `phone_number` no longer take
+  `Arc<dyn DbAdapter>`; the adapter comes from the initialized auth context.
 - **Breaking:** `openauth-oauth-provider::oauth_provider()` and
   `oauth_provider_with_jwt()` now return `Result<AuthPlugin, _>` directly.
   `OAuthProviderPlugin`, `into_auth_plugin()`, and `as_auth_plugin()` are

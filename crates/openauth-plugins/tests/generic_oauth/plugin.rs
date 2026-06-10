@@ -2,7 +2,7 @@ use super::common::*;
 
 #[test]
 fn generic_oauth_plugin_exposes_metadata_endpoints_and_errors() {
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![example_config()],
     });
 
@@ -17,7 +17,7 @@ fn generic_oauth_plugin_exposes_metadata_endpoints_and_errors() {
 
 #[test]
 fn generic_oauth_init_registers_configured_social_providers() {
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![example_config()],
     });
     let context = create_auth_context_with_adapter(
@@ -37,7 +37,7 @@ fn generic_oauth_init_registers_configured_social_providers() {
 fn generic_oauth_duplicate_provider_ids_keep_first_provider() {
     let mut duplicate = example_config();
     duplicate.authorization_url = Some("https://other.example.com/oauth/authorize".to_owned());
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![example_config(), duplicate],
     });
     let context = create_auth_context_with_adapter(
@@ -66,7 +66,7 @@ async fn generic_oauth_registered_provider_refreshes_with_discovery_token_endpoi
         &token_url,
         "https://idp.example.com/oauth/userinfo",
     );
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![loopback_http_config(GenericOAuthConfig::discovery(
             "discovery",
             "client-1",

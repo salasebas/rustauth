@@ -187,7 +187,7 @@ pub(super) async fn create_session(
             )
         })
         .collect();
-    input = input.additional_fields(additional_session_fields);
+    input = input.additional_fields_with(additional_session_fields);
     if let Some(user_agent) = request
         .headers()
         .get(header::USER_AGENT)

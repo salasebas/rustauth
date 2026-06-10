@@ -534,9 +534,7 @@ fn router_with_username_options(
     router_with_options(
         adapter,
         OpenAuthOptions {
-            plugins: vec![openauth_plugins::username::username_with_options(
-                username_options,
-            )],
+            plugins: vec![openauth_plugins::username::username_with(username_options)],
             secret: Some("secret-a-at-least-32-chars-long!!".to_owned()),
             advanced: test_advanced_options(),
             ..OpenAuthOptions::default()

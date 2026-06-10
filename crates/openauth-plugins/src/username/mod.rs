@@ -17,11 +17,13 @@ use openauth_core::plugin::AuthPlugin;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "username";
 
+#[must_use]
 pub fn username() -> AuthPlugin {
-    username_with_options(UsernameOptions::default())
+    username_with(UsernameOptions::default())
 }
 
-pub fn username_with_options(options: UsernameOptions) -> AuthPlugin {
+#[must_use]
+pub fn username_with(options: UsernameOptions) -> AuthPlugin {
     let options = std::sync::Arc::new(options);
     let schema = options.schema.clone();
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID)

@@ -26,8 +26,8 @@ mod device_authorization;
 mod email_otp;
 #[path = "generic_oauth/mod.rs"]
 mod generic_oauth;
-#[path = "haveibeenpwned/mod.rs"]
-mod haveibeenpwned;
+#[path = "have_i_been_pwned/mod.rs"]
+mod have_i_been_pwned;
 #[path = "integration_matrix/mod.rs"]
 mod integration_matrix;
 #[path = "jwt/mod.rs"]

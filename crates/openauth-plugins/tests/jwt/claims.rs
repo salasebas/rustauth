@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use http::Method;
 use openauth_core::db::MemoryAdapter;
-use openauth_plugins::jwt::{
-    jwt_with_options, verify_jwt, JwtClaims, JwtOptions, JwtSigningOptions,
-};
+use openauth_plugins::jwt::{jwt_with, verify_jwt, JwtClaims, JwtOptions, JwtSigningOptions};
 use serde_json::{json, Value};
 
 use super::helpers::*;
@@ -14,7 +12,7 @@ async fn token_endpoint_uses_custom_payload_and_subject() -> Result<(), Box<dyn 
 {
     let adapter = Arc::new(MemoryAdapter::new());
     seed_user_session(adapter.as_ref()).await?;
-    let plugin = jwt_with_options(JwtOptions {
+    let plugin = jwt_with(JwtOptions {
         jwt: JwtSigningOptions {
             define_payload: Some(Arc::new(|session| {
                 let user_id = session.user.id.clone();

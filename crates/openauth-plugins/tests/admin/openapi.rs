@@ -4,13 +4,13 @@ use openauth_core::api::AuthRouter;
 use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::options::OpenAuthOptions;
-use openauth_plugins::admin::{admin, AdminOptions, AdminSchemaOptions};
+use openauth_plugins::admin::{admin, admin_with, AdminOptions, AdminSchemaOptions};
 
 #[test]
 fn custom_schema_overrides_change_physical_field_names() -> Result<(), Box<dyn std::error::Error>> {
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
-            plugins: vec![admin(AdminOptions {
+            plugins: vec![admin_with(AdminOptions {
                 schema: AdminSchemaOptions {
                     user_role_field: "admin_role".to_owned(),
                     user_banned_field: "is_banned".to_owned(),
@@ -48,7 +48,7 @@ fn admin_endpoints_expose_detailed_openapi() -> Result<(), Box<dyn std::error::E
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
-            plugins: vec![admin(AdminOptions::default())],
+            plugins: vec![admin()],
             secret: Some(secret()),
             ..OpenAuthOptions::default()
         },

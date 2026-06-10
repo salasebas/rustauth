@@ -71,7 +71,7 @@ async fn oidc_callback_assigns_user_to_provider_organization(
 async fn oidc_callback_provisions_org_member_through_real_organization_hooks(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use openauth_plugins::organization::{
-        organization_with_options, MemberHookData, OrganizationHooks, OrganizationOptions,
+        organization_with, MemberHookData, OrganizationHooks, OrganizationOptions,
     };
     use std::sync::Arc;
 
@@ -89,7 +89,7 @@ async fn oidc_callback_provisions_org_member_through_real_organization_hooks(
         .build();
     let (adapter, router) = router_with_options_and_extra_plugins(
         SsoOptions::default(),
-        vec![organization_with_options(options)],
+        vec![organization_with(options)],
     )?;
     let cookie = seed_session(&adapter).await?;
     seed_organization(&adapter, "org_1", "hooked").await?;

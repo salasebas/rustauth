@@ -104,7 +104,7 @@ fn build_oauth_provider(
     if !resolved.disable_jwt_plugin {
         let jwt_options = jwt_plugin_options.unwrap_or_default();
         apply_jwt_metadata_defaults(&mut resolved, &jwt_options);
-        let jwt_plugin = openauth_plugins::jwt::jwt_with_options(jwt_options)
+        let jwt_plugin = openauth_plugins::jwt::jwt_with(jwt_options)
             .map_err(|error| OAuthProviderConfigError::JwtPlugin(error.to_string()))?;
         auth_plugin.schema.extend(jwt_plugin.schema);
         auth_plugin.endpoints.extend(jwt_plugin.endpoints);

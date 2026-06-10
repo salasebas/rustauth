@@ -1269,7 +1269,7 @@ async fn user_email_update_syncs_existing_stripe_customer() -> Result<(), Box<dy
             CreateUserInput::new("Ada Lovelace", "ada@example.com")
                 .id("user_1")
                 .email_verified(true)
-                .additional_fields(additional_fields),
+                .additional_fields_with(additional_fields),
         )
         .await?;
 

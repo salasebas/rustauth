@@ -169,7 +169,7 @@ async fn approved_response(
     let expires_at =
         OffsetDateTime::now_utc() + Duration::seconds(context.session_config.expires_in as i64);
     let mut input = CreateSessionInput::new(user.id.clone(), expires_at)
-        .additional_fields(additional_session_create_values(context));
+        .additional_fields_with(additional_session_create_values(context));
     if let Some(ip_address) = request_ip(request) {
         input = input.ip_address(ip_address);
     }

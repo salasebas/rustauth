@@ -45,37 +45,20 @@ type CustomSessionHandler = Arc<
 >;
 
 /// Create a custom session plugin with default options.
+#[must_use]
 pub fn custom_session<F>(handler: F) -> AuthPlugin
 where
     F: Fn(CustomSessionInput) -> CustomSessionFuture<'static> + Send + Sync + 'static,
 {
-    custom_session_with_options(handler, CustomSessionOptions::default())
-}
-
-/// Create a custom session plugin.
-pub fn custom_session_with_options<F>(handler: F, options: CustomSessionOptions) -> AuthPlugin
-where
-    F: Fn(CustomSessionInput) -> CustomSessionFuture<'static> + Send + Sync + 'static,
-{
-    custom_session_with_context_and_options(move |input, _context| handler(input), options)
-}
-
-/// Create a custom session plugin whose handler can inspect request context.
-pub fn custom_session_with_context<F>(handler: F) -> AuthPlugin
-where
-    F: for<'a> Fn(CustomSessionInput, CustomSessionContext<'a>) -> CustomSessionFuture<'a>
-        + Send
-        + Sync
-        + 'static,
-{
-    custom_session_with_context_and_options(handler, CustomSessionOptions::default())
+    custom_session_with(
+        move |input, _context| handler(input),
+        CustomSessionOptions::default(),
+    )
 }
 
 /// Create a custom session plugin with options and request-aware handler.
-pub fn custom_session_with_context_and_options<F>(
-    handler: F,
-    options: CustomSessionOptions,
-) -> AuthPlugin
+#[must_use]
+pub fn custom_session_with<F>(handler: F, options: CustomSessionOptions) -> AuthPlugin
 where
     F: for<'a> Fn(CustomSessionInput, CustomSessionContext<'a>) -> CustomSessionFuture<'a>
         + Send

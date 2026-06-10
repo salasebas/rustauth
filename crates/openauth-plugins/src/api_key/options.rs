@@ -240,34 +240,73 @@ impl fmt::Debug for ApiKeyConfiguration {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ApiKeyOptions {
-    pub configuration: ApiKeyConfiguration,
+    pub configurations: Vec<ApiKeyConfiguration>,
+    pub schema: crate::api_key::schema::ApiKeySchemaOptions,
 }
 
 impl ApiKeyOptions {
     #[must_use]
-    pub fn with_schema(
-        self,
-        schema: crate::api_key::schema::ApiKeySchemaOptions,
-    ) -> ApiKeyPluginBuild {
-        ApiKeyPluginBuild {
-            configuration: self.configuration,
-            schema,
+    pub fn builder() -> ApiKeyOptionsBuilder {
+        ApiKeyOptionsBuilder::default()
+    }
+
+    pub(crate) fn resolve(self) -> Result<ResolvedConfigurations, OpenAuthError> {
+        if self.configurations.is_empty() {
+            return Ok(ResolvedConfigurations::with_schema(
+                ApiKeyConfiguration::default(),
+                self.schema,
+            ));
         }
+        if self.configurations.len() == 1 {
+            return Ok(ResolvedConfigurations::with_schema(
+                self.configurations[0].clone(),
+                self.schema,
+            ));
+        }
+        ResolvedConfigurations::multiple(self.configurations, self.schema).map_err(Into::into)
+    }
+
+    pub fn validate(&self) -> Result<(), OpenAuthError> {
+        if self.configurations.len() <= 1 {
+            return Ok(());
+        }
+        ResolvedConfigurations::multiple(self.configurations.clone(), self.schema.clone())?;
+        Ok(())
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ApiKeyPluginBuild {
-    pub configuration: ApiKeyConfiguration,
-    pub schema: crate::api_key::schema::ApiKeySchemaOptions,
+pub struct ApiKeyOptionsBuilder {
+    configurations: Vec<ApiKeyConfiguration>,
+    schema: crate::api_key::schema::ApiKeySchemaOptions,
 }
 
-impl From<ApiKeyConfiguration> for ApiKeyPluginBuild {
-    fn from(configuration: ApiKeyConfiguration) -> Self {
-        Self {
-            configuration,
-            schema: Default::default(),
-        }
+impl ApiKeyOptionsBuilder {
+    #[must_use]
+    pub fn configuration(mut self, configuration: ApiKeyConfiguration) -> Self {
+        self.configurations = vec![configuration];
+        self
+    }
+
+    #[must_use]
+    pub fn configurations(mut self, configurations: Vec<ApiKeyConfiguration>) -> Self {
+        self.configurations = configurations;
+        self
+    }
+
+    #[must_use]
+    pub fn schema(mut self, schema: crate::api_key::schema::ApiKeySchemaOptions) -> Self {
+        self.schema = schema;
+        self
+    }
+
+    pub fn build(self) -> Result<ApiKeyOptions, OpenAuthError> {
+        let options = ApiKeyOptions {
+            configurations: self.configurations,
+            schema: self.schema,
+        };
+        options.validate()?;
+        Ok(options)
     }
 }
 

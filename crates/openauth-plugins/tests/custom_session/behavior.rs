@@ -19,8 +19,7 @@ use openauth_core::options::{
     UserAdditionalField, UserOptions,
 };
 use openauth_plugins::custom_session::{
-    custom_session, custom_session_with_context, custom_session_with_options, CustomSessionOptions,
-    UPSTREAM_PLUGIN_ID,
+    custom_session, custom_session_with, CustomSessionOptions, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::{json, Value};
 use time::{Duration, OffsetDateTime};
@@ -46,8 +45,8 @@ fn custom_session_registers_plugin_metadata() {
 
 #[test]
 fn custom_session_options_serialize_with_upstream_camel_case() {
-    let plugin = custom_session_with_options(
-        |input| Box::pin(async move { Ok(input.session) }),
+    let plugin = custom_session_with(
+        |input, _context| Box::pin(async move { Ok(input.session) }),
         CustomSessionOptions {
             should_mutate_list_device_sessions_endpoint: true,
         },
@@ -136,20 +135,23 @@ async fn callback_receives_context_and_can_read_request() -> Result<(), Box<dyn 
 {
     let adapter = Arc::new(TestAdapter::default());
     let cookie = seed_authenticated_session(&adapter).await?;
-    let plugin = custom_session_with_context(|_input, context| {
-        Box::pin(async move {
-            Ok(json!({
-                "path": context.request.uri().path(),
-                "marker": context
-                    .request
-                    .headers()
-                    .get("x-custom-marker")
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or(""),
-                "base_path": context.auth_context.base_path
-            }))
-        })
-    });
+    let plugin = custom_session_with(
+        |_input, context| {
+            Box::pin(async move {
+                Ok(json!({
+                    "path": context.request.uri().path(),
+                    "marker": context
+                        .request
+                        .headers()
+                        .get("x-custom-marker")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or(""),
+                    "base_path": context.auth_context.base_path
+                }))
+            })
+        },
+        CustomSessionOptions::default(),
+    );
     let router = router(adapter, plugin, OpenAuthOptions::default())?;
 
     let response = router
@@ -475,8 +477,8 @@ async fn list_device_sessions_is_not_mutated_by_default() -> Result<(), Box<dyn 
 async fn list_device_sessions_is_mutated_when_option_is_true(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(TestAdapter::default());
-    let plugin = custom_session_with_options(
-        |input| Box::pin(async move { Ok(json!({ "user_id": input.user["id"] })) }),
+    let plugin = custom_session_with(
+        |input, _context| Box::pin(async move { Ok(json!({ "user_id": input.user["id"] })) }),
         CustomSessionOptions {
             should_mutate_list_device_sessions_endpoint: true,
         },

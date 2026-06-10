@@ -500,7 +500,7 @@ fn openauth_crate_reexports_plugins_package_behind_feature() {
 #[test]
 fn public_api_openauth_plugins_reexport_exposes_siwe_constructor(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = openauth::plugins::siwe::siwe(openauth::plugins::siwe::SiweOptions::new(
+    let plugin = openauth::plugins::siwe::siwe_with(openauth::plugins::siwe::SiweOptions::new(
         "example.com",
         || async { Ok("nonce".to_owned()) },
         |_args: openauth::plugins::siwe::SiweVerifyMessageArgs| async { Ok(true) },

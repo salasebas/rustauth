@@ -3,7 +3,7 @@ use super::common::*;
 #[tokio::test]
 async fn sign_in_oauth2_route_returns_redirect_url() {
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![example_config()],
     });
     let context = create_auth_context_with_adapter(
@@ -65,7 +65,7 @@ async fn sign_in_oauth2_route_applies_dynamic_authorization_url_params() {
         }));
     let context = context_with_plugin(
         adapter,
-        generic_oauth(GenericOAuthOptions {
+        generic_oauth_with(GenericOAuthOptions {
             config: vec![config],
         }),
     );
@@ -82,7 +82,7 @@ async fn sign_in_oauth2_route_applies_dynamic_authorization_url_params() {
 #[tokio::test]
 async fn sign_in_oauth2_route_rejects_unknown_provider() {
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![example_config()],
     });
     let context = create_auth_context_with_adapter(
@@ -120,7 +120,7 @@ async fn sign_in_oauth2_route_rejects_invalid_client_id() {
     config.client_id.clear();
     let context = context_with_plugin(
         adapter,
-        generic_oauth(GenericOAuthOptions {
+        generic_oauth_with(GenericOAuthOptions {
             config: vec![config],
         }),
     );
@@ -150,7 +150,7 @@ async fn sign_in_oauth2_route_rejects_missing_token_url() {
     config.token_url = None;
     let context = context_with_plugin(
         adapter,
-        generic_oauth(GenericOAuthOptions {
+        generic_oauth_with(GenericOAuthOptions {
             config: vec![config],
         }),
     );
@@ -181,7 +181,7 @@ async fn sign_in_oauth2_route_rejects_required_issuer_without_issuer_config() {
     config.require_issuer_validation = true;
     let context = context_with_plugin(
         adapter,
-        generic_oauth(GenericOAuthOptions {
+        generic_oauth_with(GenericOAuthOptions {
             config: vec![config],
         }),
     );
@@ -763,7 +763,7 @@ async fn sign_in_oauth2_caches_discovery_by_provider() {
     ));
     config.scopes = vec!["openid".to_owned()];
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![config],
     });
     let context = create_auth_context_with_adapter(
@@ -801,7 +801,7 @@ async fn oauth2_callback_rejects_issuer_mismatch() {
     let mut config = example_config();
     config.issuer = Some("https://issuer.example.com".to_owned());
     config.require_issuer_validation = true;
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![config],
     });
     let context = create_auth_context_with_adapter(
@@ -862,7 +862,7 @@ async fn oauth2_callback_rejects_missing_required_issuer() {
     config.require_issuer_validation = true;
     let context = context_with_plugin(
         adapter,
-        generic_oauth(GenericOAuthOptions {
+        generic_oauth_with(GenericOAuthOptions {
             config: vec![config],
         }),
     );
@@ -897,7 +897,7 @@ async fn oauth2_callback_appends_error_to_error_callback_url_with_query() {
     config.require_issuer_validation = true;
     let context = context_with_plugin(
         adapter,
-        generic_oauth(GenericOAuthOptions {
+        generic_oauth_with(GenericOAuthOptions {
             config: vec![config],
         }),
     );
@@ -942,7 +942,7 @@ async fn oauth2_callback_appends_error_to_error_callback_url_with_query() {
 #[tokio::test]
 async fn oauth2_link_requires_session() {
     let adapter = Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>;
-    let plugin = generic_oauth(GenericOAuthOptions {
+    let plugin = generic_oauth_with(GenericOAuthOptions {
         config: vec![example_config()],
     });
     let context = create_auth_context_with_adapter(

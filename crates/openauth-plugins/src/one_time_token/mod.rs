@@ -13,11 +13,13 @@ use openauth_core::plugin::PluginAfterHookAction;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "one-time-token";
 
+#[must_use]
 pub fn one_time_token() -> AuthPlugin {
-    one_time_token_with_options(OneTimeTokenOptions::default())
+    one_time_token_with(OneTimeTokenOptions::default())
 }
 
-pub fn one_time_token_with_options(options: OneTimeTokenOptions) -> AuthPlugin {
+#[must_use]
+pub fn one_time_token_with(options: OneTimeTokenOptions) -> AuthPlugin {
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(crate::VERSION)
         .with_options(options.to_value())

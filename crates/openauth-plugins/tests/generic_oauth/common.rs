@@ -18,7 +18,7 @@ pub(super) use openauth_oauth::oauth2::{
     SocialIdTokenRequest, SocialOAuthProvider,
 };
 pub(super) use openauth_plugins::generic_oauth::{
-    auth0, generic_oauth, gumroad, hubspot, keycloak, line, microsoft_entra_id, okta, patreon,
+    auth0, generic_oauth_with, gumroad, hubspot, keycloak, line, microsoft_entra_id, okta, patreon,
     slack, Auth0Options, BaseOAuthProviderOptions, GenericOAuthConfig, GenericOAuthFlow,
     GenericOAuthOptions, GenericOAuthParamsContext, GenericOAuthTokenRequest, GumroadOptions,
     HubSpotOptions, KeycloakOptions, LineOptions, MicrosoftEntraIdOptions, OktaOptions,
@@ -178,7 +178,7 @@ pub(super) fn oauth_flow_config(user_id: &str) -> GenericOAuthConfig {
 }
 
 pub(super) fn oauth_plugin(config: GenericOAuthConfig) -> AuthPlugin {
-    generic_oauth(GenericOAuthOptions {
+    generic_oauth_with(GenericOAuthOptions {
         config: vec![config],
     })
 }

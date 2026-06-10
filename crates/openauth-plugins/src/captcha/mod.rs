@@ -12,6 +12,7 @@ pub use options::{CaptchaOptions, CaptchaProvider, DEFAULT_ENDPOINTS};
 
 use std::sync::Arc;
 
+use openauth_core::error::OpenAuthError;
 use openauth_core::plugin::{AuthPlugin, PluginErrorCode};
 use openauth_core::utils::url::normalize_pathname;
 use response::error_response;
@@ -20,12 +21,14 @@ use verify_handlers::{verify_captcha, VerifyCaptchaInput};
 pub const UPSTREAM_PLUGIN_ID: &str = "captcha";
 
 /// Create the CAPTCHA plugin.
-pub fn captcha(options: CaptchaOptions) -> Result<AuthPlugin, CaptchaConfigError> {
-    options.validate()?;
+pub fn captcha_with(options: CaptchaOptions) -> Result<AuthPlugin, OpenAuthError> {
+    options
+        .validate()
+        .map_err(|error| OpenAuthError::InvalidConfig(error.to_string()))?;
 
     let options = Arc::new(options.with_defaults());
     let serialized_options = serde_json::to_value(options.as_ref())
-        .map_err(|error| CaptchaConfigError::SerializeOptions(error.to_string()))?;
+        .map_err(|error| OpenAuthError::InvalidConfig(error.to_string()))?;
 
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(env!("CARGO_PKG_VERSION"))

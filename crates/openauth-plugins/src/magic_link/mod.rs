@@ -19,7 +19,7 @@ use crate::VERSION;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "magic-link";
 
-pub fn magic_link(options: MagicLinkOptions) -> AuthPlugin {
+pub fn magic_link_with(options: MagicLinkOptions) -> AuthPlugin {
     let rate_limit = options.rate_limit_rule();
     AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(VERSION)

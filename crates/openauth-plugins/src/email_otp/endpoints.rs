@@ -299,7 +299,7 @@ pub(super) fn sign_in<'a>(
                 body_object,
             ) {
                 Ok(fields) => {
-                    input = input.additional_fields(fields);
+                    input = input.additional_fields_with(fields);
                 }
                 Err(message) => {
                     return response::error(

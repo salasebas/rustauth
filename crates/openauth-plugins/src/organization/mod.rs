@@ -49,11 +49,13 @@ pub mod access;
 
 pub const UPSTREAM_PLUGIN_ID: &str = "organization";
 
+#[must_use]
 pub fn organization() -> AuthPlugin {
-    organization_with_options(OrganizationOptions::default())
+    organization_with(OrganizationOptions::default())
 }
 
-pub fn organization_with_options(options: OrganizationOptions) -> AuthPlugin {
+#[must_use]
+pub fn organization_with(options: OrganizationOptions) -> AuthPlugin {
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID)
         .with_version(env!("CARGO_PKG_VERSION"))
         .with_options(options.to_metadata())

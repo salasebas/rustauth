@@ -7,7 +7,9 @@ use openauth_core::db::{Create, DbAdapter, DbValue, MemoryAdapter};
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::{AdvancedOptions, OpenAuthOptions, RateLimitOptions};
 use openauth_core::plugin::AuthPlugin;
-use openauth_plugins::magic_link::{magic_link, MagicLinkEmail, MagicLinkFuture, MagicLinkOptions};
+use openauth_plugins::magic_link::{
+    magic_link_with, MagicLinkEmail, MagicLinkFuture, MagicLinkOptions,
+};
 use serde_json::Value;
 use time::OffsetDateTime;
 
@@ -46,7 +48,7 @@ pub(super) fn build_router(
             base_url: Some("http://localhost:3000".to_owned()),
             secret: Some(SECRET.to_owned()),
             advanced: test_advanced_options(),
-            plugins: vec![magic_link(options)],
+            plugins: vec![magic_link_with(options)],
             rate_limit: RateLimitOptions {
                 enabled: Some(false),
                 ..RateLimitOptions::default()
@@ -78,7 +80,7 @@ pub(super) fn build_router_with_plugins(
             ..auth_options.rate_limit
         };
     }
-    plugins.push(magic_link(options));
+    plugins.push(magic_link_with(options));
     auth_options.plugins = plugins;
     let router = build_router_with_adapter(adapter.clone(), auth_options)?;
     Ok((router, adapter))

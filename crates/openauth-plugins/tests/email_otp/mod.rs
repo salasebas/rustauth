@@ -15,12 +15,14 @@ use openauth_core::db::MemoryAdapter;
 use openauth_core::options::{EmailVerificationOptions, OpenAuthOptions};
 use openauth_core::user::DbUserStore;
 use openauth_core::verification::{CreateVerificationInput, DbVerificationStore};
-use openauth_plugins::email_otp::{email_otp, ChangeEmailOptions, EmailOtpOptions, OtpStorage};
+use openauth_plugins::email_otp::{
+    email_otp_with, ChangeEmailOptions, EmailOtpOptions, OtpStorage,
+};
 use time::{Duration, OffsetDateTime};
 
 #[test]
 fn exposes_email_otp_plugin_builder() {
-    let plugin = email_otp(Arc::new(MemoryAdapter::new()), EmailOtpOptions::default());
+    let plugin = email_otp_with(EmailOtpOptions::default());
 
     assert_eq!(openauth_plugins::email_otp::UPSTREAM_PLUGIN_ID, "email-otp");
     assert_eq!(plugin.id, "email-otp");

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use openauth_plugins::organization::{
-    organization_with_options, DynamicAccessControlOptions, OrganizationOptions, TeamOptions,
+    organization_with, DynamicAccessControlOptions, OrganizationOptions, TeamOptions,
 };
 
 #[test]
@@ -21,7 +21,7 @@ fn organization_endpoints_register_operation_ids_without_path_conflicts(
             maximum_roles_per_organization: None,
         })
         .build();
-    let plugin = organization_with_options(options);
+    let plugin = organization_with(options);
     let mut paths = BTreeSet::new();
     let mut operation_ids = BTreeSet::new();
 

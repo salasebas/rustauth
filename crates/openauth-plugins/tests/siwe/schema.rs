@@ -1,7 +1,7 @@
 use openauth_core::context::create_auth_context;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::options::OpenAuthOptions;
-use openauth_plugins::siwe::{siwe, SiweSchemaOptions};
+use openauth_plugins::siwe::{siwe_with, SiweSchemaOptions};
 use std::sync::Arc;
 
 use super::{nonce, options, router, verify, WALLET};
@@ -9,7 +9,7 @@ use super::{nonce, options, router, verify, WALLET};
 #[test]
 fn siwe_plugin_adds_wallet_address_schema() -> Result<(), Box<dyn std::error::Error>> {
     let context = create_auth_context(OpenAuthOptions {
-        plugins: vec![siwe(options())?],
+        plugins: vec![siwe_with(options())?],
         ..OpenAuthOptions::default()
     })?;
 
@@ -53,7 +53,7 @@ fn siwe_schema_options_override_table_and_field_names() -> Result<(), Box<dyn st
             .field_name("created_at", "created_at"),
     );
     let context = create_auth_context(OpenAuthOptions {
-        plugins: vec![siwe(opts)?],
+        plugins: vec![siwe_with(opts)?],
         ..OpenAuthOptions::default()
     })?;
 

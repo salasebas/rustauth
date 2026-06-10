@@ -3,11 +3,11 @@ use std::sync::Arc;
 use http::{Method, StatusCode};
 use openauth_core::db::MemoryAdapter;
 use openauth_plugins::api_key::{
-    api_key, api_key_with_configurations, api_key_with_options, ApiKeyConfiguration,
-    ApiKeyExpirationOptions, ApiKeyOptions, ApiKeyReference, StartingCharactersConfig,
-    API_KEY_MODEL, EXPIRES_IN_IS_TOO_LARGE, EXPIRES_IN_IS_TOO_SMALL, INVALID_PREFIX_LENGTH,
-    KEY_NOT_FOUND, NAME_REQUIRED, NO_VALUES_TO_UPDATE, REFILL_INTERVAL_AND_AMOUNT_REQUIRED,
-    SERVER_ONLY_PROPERTY, UNAUTHORIZED_SESSION,
+    api_key, api_key_with, ApiKeyConfiguration, ApiKeyExpirationOptions, ApiKeyOptions,
+    ApiKeyReference, StartingCharactersConfig, API_KEY_MODEL, EXPIRES_IN_IS_TOO_LARGE,
+    EXPIRES_IN_IS_TOO_SMALL, INVALID_PREFIX_LENGTH, KEY_NOT_FOUND, NAME_REQUIRED,
+    NO_VALUES_TO_UPDATE, REFILL_INTERVAL_AND_AMOUNT_REQUIRED, SERVER_ONLY_PROPERTY,
+    UNAUTHORIZED_SESSION,
 };
 use serde_json::{json, Value};
 
@@ -19,12 +19,14 @@ async fn create_verify_get_list_update_and_delete_user_api_key(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                enable_metadata: true,
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    enable_metadata: true,
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Ada", "ada-api@example.com").await?;
 
@@ -231,18 +233,20 @@ async fn create_rejects_sessionless_and_client_only_inputs(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                require_name: true,
-                minimum_prefix_length: 2,
-                maximum_prefix_length: 4,
-                key_expiration: ApiKeyExpirationOptions {
-                    min_expires_in_days: 2,
-                    ..ApiKeyExpirationOptions::default()
-                },
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    require_name: true,
+                    minimum_prefix_length: 2,
+                    maximum_prefix_length: 4,
+                    key_expiration: ApiKeyExpirationOptions {
+                        min_expires_in_days: 2,
+                        ..ApiKeyExpirationOptions::default()
+                    },
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Eve", "eve-api@example.com").await?;
 
@@ -335,13 +339,15 @@ async fn generated_keys_use_upstream_letter_only_default_charset(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                default_key_length: 96,
-                default_prefix: Some("sk_".to_owned()),
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    default_key_length: 96,
+                    default_prefix: Some("sk_".to_owned()),
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Gus", "gus-api@example.com").await?;
 
@@ -371,16 +377,18 @@ async fn hashing_can_be_disabled_and_starting_characters_are_configurable(
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter.clone(),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                disable_key_hashing: true,
-                starting_characters: StartingCharactersConfig {
-                    should_store: true,
-                    characters_length: 3,
-                },
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    disable_key_hashing: true,
+                    starting_characters: StartingCharactersConfig {
+                        should_store: true,
+                        characters_length: 3,
+                    },
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Gia", "gia-api@example.com").await?;
     let created = request_json(
@@ -406,15 +414,17 @@ async fn hashing_can_be_disabled_and_starting_characters_are_configurable(
 
     let no_start_router = test_router(
         Arc::new(MemoryAdapter::new()),
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                starting_characters: StartingCharactersConfig {
-                    should_store: false,
-                    characters_length: 6,
-                },
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    starting_characters: StartingCharactersConfig {
+                        should_store: false,
+                        characters_length: 6,
+                    },
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let no_start_user = sign_up(&no_start_router, "Gia2", "gia2-api@example.com").await?;
     let no_start = request_json(
@@ -552,16 +562,18 @@ async fn update_validates_expiration_bounds() -> Result<(), Box<dyn std::error::
     let adapter = Arc::new(MemoryAdapter::new());
     let router = test_router(
         adapter,
-        api_key_with_options(ApiKeyOptions {
-            configuration: ApiKeyConfiguration {
-                key_expiration: ApiKeyExpirationOptions {
-                    min_expires_in_days: 2,
-                    max_expires_in_days: 3,
-                    ..ApiKeyExpirationOptions::default()
-                },
-                ..ApiKeyConfiguration::default()
-            },
-        }),
+        api_key_with(
+            ApiKeyOptions::builder()
+                .configuration(ApiKeyConfiguration {
+                    key_expiration: ApiKeyExpirationOptions {
+                        min_expires_in_days: 2,
+                        max_expires_in_days: 3,
+                        ..ApiKeyExpirationOptions::default()
+                    },
+                    ..ApiKeyConfiguration::default()
+                })
+                .build()?,
+        )?,
     )?;
     let user = sign_up(&router, "Hal", "hal-api@example.com").await?;
     let created = request_json(
@@ -798,11 +810,15 @@ async fn server_side_create_trusts_body_user_id_and_server_props(
 async fn external_org_create_rejects_body_user_id_before_permission_check(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
-    let api_key_plugin = api_key_with_configurations(vec![ApiKeyConfiguration {
-        config_id: Some("org".to_owned()),
-        reference: ApiKeyReference::Organization,
-        ..ApiKeyConfiguration::default()
-    }])?;
+    let api_key_plugin = api_key_with(
+        ApiKeyOptions::builder()
+            .configuration(ApiKeyConfiguration {
+                config_id: Some("org".to_owned()),
+                reference: ApiKeyReference::Organization,
+                ..ApiKeyConfiguration::default()
+            })
+            .build()?,
+    )?;
     let router = test_router(adapter, api_key_plugin)?;
     let victim = sign_up(&router, "Org", "org-api@example.com").await?;
 

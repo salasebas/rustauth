@@ -45,6 +45,14 @@ let auth = OpenAuth::builder()
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+Plugin registration on `OpenAuthOptions`:
+
+- `.plugin(plugin)` appends one entry.
+- `.plugins(vec![...])` replaces the full list.
+
+The `openauth` builder also exposes `.plugin` and `.plugins`; `.plugins` there
+appends a batch without discarding plugins registered earlier on the builder.
+
 ## Feature Flags
 
 Default features preserve the broad compatibility surface:

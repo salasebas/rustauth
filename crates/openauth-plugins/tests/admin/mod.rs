@@ -8,7 +8,7 @@ use openauth_core::db::{Create, DbValue, MemoryAdapter};
 use openauth_core::options::OpenAuthOptions;
 use openauth_core::session::{CreateSessionInput, DbSessionStore};
 use openauth_core::user::{CreateUserInput, DbUserStore};
-use openauth_plugins::admin::{admin, AdminOptions};
+use openauth_plugins::admin::admin;
 use serde_json::{json, Value};
 use time::{Duration, OffsetDateTime};
 
@@ -20,7 +20,7 @@ mod permissions;
 
 #[test]
 fn exposes_admin_plugin_metadata() -> Result<(), Box<dyn std::error::Error>> {
-    let plugin = admin(AdminOptions::default());
+    let plugin = admin();
     assert_eq!(plugin.id, "admin");
     assert_eq!(plugin.endpoints.len(), 15);
     assert!(plugin
@@ -53,7 +53,7 @@ async fn default_role_hook_applies_to_core_user_creation() -> Result<(), Box<dyn
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
-            plugins: vec![admin(AdminOptions::default())],
+            plugins: vec![admin()],
             secret: Some(secret()),
             ..OpenAuthOptions::default()
         },
@@ -336,7 +336,7 @@ fn fixture() -> Result<Fixture, Box<dyn std::error::Error>> {
     let context = create_auth_context_with_adapter(
         OpenAuthOptions {
             base_url: Some("http://localhost:3000".to_owned()),
-            plugins: vec![admin(AdminOptions::default())],
+            plugins: vec![admin()],
             secret: Some(secret()),
             ..OpenAuthOptions::default()
         },

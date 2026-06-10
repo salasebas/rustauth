@@ -346,7 +346,7 @@ async fn auto_sign_in_after_verification_cookies(
     let expires_at =
         OffsetDateTime::now_utc() + Duration::seconds(context.session_config.expires_in as i64);
     let mut input = CreateSessionInput::new(&user.id, expires_at)
-        .additional_fields(additional_session_create_values(context));
+        .additional_fields_with(additional_session_create_values(context));
     if let Some(user_agent) = request
         .headers()
         .get(header::USER_AGENT)

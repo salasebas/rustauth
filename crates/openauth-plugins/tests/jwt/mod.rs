@@ -11,8 +11,8 @@ use openauth_core::context::create_auth_context_with_adapter;
 use openauth_core::db::MemoryAdapter;
 use openauth_core::error::OpenAuthError;
 use openauth_plugins::jwt::{
-    jwt, jwt_with_options, sign_jwt, to_exp_jwt, verify_jwt, JwkAlgorithm, JwtClaims,
-    JwtJwksOptions, JwtOptions, JwtSigningOptions, TimeInput, UPSTREAM_PLUGIN_ID,
+    jwt, jwt_with, sign_jwt, to_exp_jwt, verify_jwt, JwkAlgorithm, JwtClaims, JwtJwksOptions,
+    JwtOptions, JwtSigningOptions, TimeInput, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::{json, Value};
 
@@ -62,7 +62,7 @@ fn jwt_plugin_contributes_jwks_schema() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn jwt_plugin_rejects_invalid_jwks_path() {
     for jwks_path in ["", "jwks", "/../jwks", "/jwks/../keys"] {
-        let result = jwt_with_options(JwtOptions {
+        let result = jwt_with(JwtOptions {
             jwks: JwtJwksOptions {
                 jwks_path: jwks_path.to_owned(),
                 ..JwtJwksOptions::default()
@@ -78,7 +78,7 @@ fn jwt_plugin_validates_remote_signing_options() {
     let custom_sign = Arc::new(|claims: JwtClaims| {
         Box::pin(async move { Ok(format!("remote.{}.sig", claims.len())) }) as _
     });
-    let result = jwt_with_options(JwtOptions {
+    let result = jwt_with(JwtOptions {
         jwt: JwtSigningOptions {
             sign: Some(custom_sign.clone()),
             ..JwtSigningOptions::default()
@@ -87,7 +87,7 @@ fn jwt_plugin_validates_remote_signing_options() {
     });
     assert!(matches!(result, Err(OpenAuthError::InvalidConfig(_))));
 
-    let result = jwt_with_options(JwtOptions {
+    let result = jwt_with(JwtOptions {
         jwks: JwtJwksOptions {
             remote_url: Some("https://example.com/jwks".to_owned()),
             key_pair_algorithm: None,
@@ -97,7 +97,7 @@ fn jwt_plugin_validates_remote_signing_options() {
     });
     assert!(matches!(result, Err(OpenAuthError::InvalidConfig(_))));
 
-    let result = jwt_with_options(JwtOptions {
+    let result = jwt_with(JwtOptions {
         jwks: JwtJwksOptions {
             remote_url: Some("https://example.com/jwks".to_owned()),
             key_pair_algorithm: Some(JwkAlgorithm::Es256),
@@ -150,7 +150,7 @@ async fn jwks_endpoint_creates_public_key_set() -> Result<(), Box<dyn std::error
         let adapter = Arc::new(MemoryAdapter::new());
         let router = router_with_plugin(
             adapter,
-            jwt_with_options(JwtOptions {
+            jwt_with(JwtOptions {
                 jwks: JwtJwksOptions {
                     key_pair_algorithm: Some(algorithm),
                     ..JwtJwksOptions::default()
@@ -265,7 +265,7 @@ async fn get_session_respects_disable_setting_jwt_header() -> Result<(), Box<dyn
     seed_user_session(adapter.as_ref()).await?;
     let router = router_with_plugin(
         adapter,
-        jwt_with_options(JwtOptions {
+        jwt_with(JwtOptions {
             disable_setting_jwt_header: true,
             ..JwtOptions::default()
         })?,
@@ -291,7 +291,7 @@ async fn custom_jwks_path_replaces_default_jwks_endpoint() -> Result<(), Box<dyn
 {
     let router = router_with_plugin(
         Arc::new(MemoryAdapter::new()),
-        jwt_with_options(JwtOptions {
+        jwt_with(JwtOptions {
             jwks: JwtJwksOptions {
                 jwks_path: "/.well-known/jwks.json".to_owned(),
                 ..JwtJwksOptions::default()
@@ -321,7 +321,7 @@ async fn custom_jwks_path_replaces_default_jwks_endpoint() -> Result<(), Box<dyn
 async fn jwks_rotation_keeps_keys_during_grace_period() -> Result<(), Box<dyn std::error::Error>> {
     let adapter = Arc::new(MemoryAdapter::new());
     let context = create_auth_context_with_adapter(
-        options_with_plugin(jwt_with_options(JwtOptions {
+        options_with_plugin(jwt_with(JwtOptions {
             jwks: JwtJwksOptions {
                 rotation_interval: Some(-1),
                 grace_period: 60,
@@ -348,7 +348,7 @@ async fn jwks_rotation_keeps_keys_during_grace_period() -> Result<(), Box<dyn st
 
     let router = router_with_plugin(
         adapter,
-        jwt_with_options(JwtOptions {
+        jwt_with(JwtOptions {
             jwks: JwtJwksOptions {
                 rotation_interval: Some(-1),
                 grace_period: 60,
@@ -377,7 +377,7 @@ async fn remote_url_disables_local_jwks_but_allows_custom_signer(
             Ok(format!("remote.{sub}.signature"))
         }) as _
     });
-    let plugin = jwt_with_options(JwtOptions {
+    let plugin = jwt_with(JwtOptions {
         jwks: JwtJwksOptions {
             remote_url: Some("https://example.com/.well-known/jwks.json".to_owned()),
             key_pair_algorithm: Some(JwkAlgorithm::Es256),
