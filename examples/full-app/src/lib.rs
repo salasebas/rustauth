@@ -470,7 +470,7 @@ struct AppState {
     endpoints: Vec<EndpointView>,
     openapi: serde_json::Value,
     services: Vec<ServiceStatus>,
-    memory_adapter: openauth::MemoryAdapter,
+    memory_adapter: openauth::db::MemoryAdapter,
     memory_rate_limit_store: Arc<GovernorMemoryRateLimitStore>,
     profile_cache: Arc<ProfileCache>,
     viewer_adapter_cache: Arc<ViewerAdapterCache>,
@@ -600,7 +600,9 @@ pub fn smoke_request<B>(mut request: axum::http::Request<B>) -> axum::http::Requ
     use std::net::{IpAddr, Ipv4Addr};
     request
         .extensions_mut()
-        .insert(openauth::RequestClientIp(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        .insert(openauth::rate_limit::RequestClientIp(IpAddr::V4(
+            Ipv4Addr::LOCALHOST,
+        )));
     request
 }
 
@@ -634,7 +636,7 @@ pub async fn build_app(config: ExampleConfig) -> Result<Router, ExampleError> {
             let auth = build_auth(
                 config.clone(),
                 AUTH_BASE_PATH.to_owned(),
-                openauth::MemoryAdapter::new(),
+                openauth::db::MemoryAdapter::new(),
                 None,
                 memory_rate_limit_store.clone(),
             )
@@ -833,7 +835,7 @@ fn example_db_schema(
 
 /// Plugin-augmented schema used by the example's SQL adapters and viewer.
 fn example_auth_schema() -> Result<openauth::db::DbSchema, ExampleError> {
-    example_db_schema(Arc::new(openauth::MemoryAdapter::new()))
+    example_db_schema(Arc::new(openauth::db::MemoryAdapter::new()))
 }
 
 async fn open_sqlite_adapter(database_url: &str) -> Result<SqliteAdapter, ExampleError> {
@@ -1068,7 +1070,7 @@ fn static_app_with_data(
         endpoints,
         openapi,
         services,
-        memory_adapter: openauth::MemoryAdapter::new(),
+        memory_adapter: openauth::db::MemoryAdapter::new(),
         memory_rate_limit_store,
         profile_cache: Arc::new(ProfileCache::default()),
         viewer_adapter_cache: Arc::new(ViewerAdapterCache::default()),
@@ -1441,7 +1443,7 @@ async fn build_profile_auth(
     db: DbBackend,
     rate_limit: RateLimitBackend,
     auth_base_path: String,
-    memory_adapter: openauth::MemoryAdapter,
+    memory_adapter: openauth::db::MemoryAdapter,
     memory_rate_limit_store: Arc<GovernorMemoryRateLimitStore>,
 ) -> Result<OpenAuth, ExampleError> {
     config.db = db;
@@ -1893,7 +1895,7 @@ async fn drop_adapter_records<A>(adapter: &A) -> Result<u64, ExampleError>
 where
     A: DbAdapter,
 {
-    let schema = example_db_schema(Arc::new(openauth::MemoryAdapter::new()))?;
+    let schema = example_db_schema(Arc::new(openauth::db::MemoryAdapter::new()))?;
     let mut deleted = 0;
     for (logical_name, _) in schema.tables() {
         match adapter.delete_many(DeleteMany::new(logical_name)).await {
@@ -3743,7 +3745,7 @@ mod tests {
         let auth = build_auth(
             config,
             AUTH_BASE_PATH.to_owned(),
-            openauth::MemoryAdapter::new(),
+            openauth::db::MemoryAdapter::new(),
             None,
             Arc::new(GovernorMemoryRateLimitStore::new()),
         )
@@ -3783,7 +3785,7 @@ mod tests {
             DbBackend::Memory,
             RateLimitBackend::Memory,
             profile_path.clone(),
-            openauth::MemoryAdapter::new(),
+            openauth::db::MemoryAdapter::new(),
             Arc::new(GovernorMemoryRateLimitStore::new()),
         )
         .await?;
@@ -3821,7 +3823,7 @@ mod tests {
             DbBackend::Memory,
             RateLimitBackend::FredRedis,
             profile_base_path(DbBackend::Memory, RateLimitBackend::FredRedis),
-            openauth::MemoryAdapter::new(),
+            openauth::db::MemoryAdapter::new(),
             Arc::new(GovernorMemoryRateLimitStore::new()),
         )
         .await?;
@@ -3833,7 +3835,7 @@ mod tests {
         assert!(auth.context().rate_limit.custom_store.is_some());
         assert_eq!(
             auth.context().rate_limit.storage,
-            openauth::RateLimitStorageOption::SecondaryStorage
+            openauth::options::RateLimitStorageOption::SecondaryStorage
         );
         Ok(())
     }
@@ -3921,7 +3923,7 @@ mod tests {
             endpoints: Vec::new(),
             openapi: serde_json::json!({}),
             services: Vec::new(),
-            memory_adapter: openauth::MemoryAdapter::new(),
+            memory_adapter: openauth::db::MemoryAdapter::new(),
             memory_rate_limit_store: Arc::new(GovernorMemoryRateLimitStore::new()),
             profile_cache: Arc::new(ProfileCache::default()),
             viewer_adapter_cache: Arc::new(ViewerAdapterCache::default()),
@@ -4000,7 +4002,7 @@ mod tests {
             DbBackend::Sqlite,
             RateLimitBackend::Memory,
             profile_base_path(DbBackend::Sqlite, RateLimitBackend::Memory),
-            openauth::MemoryAdapter::new(),
+            openauth::db::MemoryAdapter::new(),
             Arc::new(GovernorMemoryRateLimitStore::new()),
         )
         .await?;
@@ -4094,7 +4096,7 @@ mod tests {
 
     #[tokio::test]
     async fn seed_populates_memory_tables() -> Result<(), ExampleError> {
-        let adapter = openauth::MemoryAdapter::new();
+        let adapter = openauth::db::MemoryAdapter::new();
         let schema = viewer_schema();
         let password_hash = seed::seed_password_hash()?;
         let summary = seed::seed_database(&adapter, &schema, &password_hash).await?;
@@ -4305,7 +4307,7 @@ mod tests {
 
         for _ in 0..5 {
             let config_for_build = config.clone();
-            let memory_adapter = openauth::MemoryAdapter::new();
+            let memory_adapter = openauth::db::MemoryAdapter::new();
             let memory_rate_limit_store = memory_rate_limit_store.clone();
             cache
                 .get_or_insert(key.clone(), || async {
@@ -4344,7 +4346,7 @@ mod tests {
         };
 
         let config_for_build = config.clone();
-        let memory_adapter = openauth::MemoryAdapter::new();
+        let memory_adapter = openauth::db::MemoryAdapter::new();
         cache
             .get_or_insert(key.clone(), || async {
                 build_profile_auth(
@@ -4361,7 +4363,7 @@ mod tests {
         cache.invalidate_db(DbBackend::Memory).await;
 
         let config_for_build = config.clone();
-        let memory_adapter = openauth::MemoryAdapter::new();
+        let memory_adapter = openauth::db::MemoryAdapter::new();
         cache
             .get_or_insert(key, || async {
                 build_profile_auth(
@@ -4448,7 +4450,7 @@ mod tests {
             DbBackend::Sqlite,
             RateLimitBackend::Database,
             profile_base_path(DbBackend::Sqlite, RateLimitBackend::Database),
-            openauth::MemoryAdapter::new(),
+            openauth::db::MemoryAdapter::new(),
             Arc::new(GovernorMemoryRateLimitStore::new()),
         )
         .await?;

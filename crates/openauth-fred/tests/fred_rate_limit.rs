@@ -2,10 +2,11 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use http::{header, Method, Request, StatusCode};
-use openauth::{
-    AdvancedOptions, MemoryAdapter, OpenAuth, OpenAuthError, OpenAuthOptions, PasswordOptions,
-    SessionOptions,
+use openauth::db::MemoryAdapter;
+use openauth::options::{
+    AdvancedOptions, OpenAuthOptions, PasswordOptions, RateLimitOptions, SessionOptions,
 };
+use openauth::prelude::*;
 use openauth_core::options::{
     PasswordResetEmail, RateLimitConsumeInput, RateLimitRule, RateLimitStore, SecondaryStorage,
 };
@@ -270,12 +271,13 @@ async fn openauth_handler_async_uses_fred_rate_limit_store(
         let auth = OpenAuth::builder()
             .secret("secret-a-at-least-32-chars-long!!")
             .rate_limit(
-                openauth::RateLimitOptions::secondary_storage(store)
+                RateLimitOptions::secondary_storage(store)
                     .enabled(true)
                     .window(60)
                     .max(1),
             )
-            .build()?;
+            .build()
+            .await?;
 
         let ip = unique_ip(if target.name == "redis" { 0 } else { 1 });
         let first = auth
@@ -329,7 +331,8 @@ async fn openauth_email_signup_uses_fred_secondary_storage_for_sessions(
                 ..OpenAuthOptions::default()
             }))
             .adapter(MemoryAdapter::new())
-            .build()?;
+            .build()
+            .await?;
 
         let signup = auth
             .handler_async(json_request(
@@ -417,7 +420,8 @@ async fn openauth_email_signup_with_database_sessions_still_writes_fred_secondar
                 ..OpenAuthOptions::default()
             }))
             .adapter(MemoryAdapter::new())
-            .build()?;
+            .build()
+            .await?;
 
         let signup = auth
             .handler_async(json_request(
@@ -502,7 +506,8 @@ async fn openauth_password_reset_uses_fred_secondary_storage_for_verification(
                 ..OpenAuthOptions::default()
             }))
             .adapter(MemoryAdapter::new())
-            .build()?;
+            .build()
+            .await?;
 
         let signup = auth
             .handler_async(json_request(

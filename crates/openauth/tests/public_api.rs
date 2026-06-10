@@ -10,6 +10,8 @@ use openauth::db::DbAdapter;
 use openauth::db::{HookedAdapter, MemoryAdapter};
 use openauth::error::OpenAuthError;
 use openauth::oauth::oauth2::{ProviderOptions, SocialOAuthProvider};
+#[cfg(feature = "telemetry")]
+use openauth::options::TelemetryOptions;
 use openauth::options::{
     AdvancedOptions, ChangeEmailOptions, CookieCacheOptions, CookieCacheStrategy,
     DeleteUserOptions, EmailVerificationOptions, HybridRateLimitOptions, OpenAuthOptions,
