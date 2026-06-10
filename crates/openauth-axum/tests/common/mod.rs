@@ -3,7 +3,6 @@
 use axum::body::{to_bytes, Body};
 use axum::http::{header, HeaderValue, Method, Request};
 use openauth::db::DbValue;
-use openauth::oauth::oauth2::ClientSecret;
 use openauth::{
     ApiResponse, AsyncAuthEndpoint, AuthContext, AuthEndpointOptions, MemoryAdapter, OpenAuthError,
 };
@@ -247,13 +246,7 @@ impl FakeProvider {
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_owned(),
-            options: ProviderOptions {
-                client_id: None,
-                client_secret: Some(
-                    ClientSecret::new("client-secret").expect("valid client secret"),
-                ),
-                ..ProviderOptions::default()
-            },
+            options: ProviderOptions::default(),
         }
     }
 }
