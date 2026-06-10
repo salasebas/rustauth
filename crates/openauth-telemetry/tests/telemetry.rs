@@ -18,8 +18,9 @@ use openauth_core::env::logger::{LogLevel, LoggerOptions};
 use openauth_core::error::OpenAuthError;
 #[cfg(feature = "oauth")]
 use openauth_core::oauth::oauth2::{
-    OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions, SocialAuthorizationCodeRequest,
-    SocialAuthorizationUrlRequest, SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
+    ClientSecret, OAuth2Tokens, OAuth2UserInfo, OAuthError, ProviderOptions,
+    SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest, SocialIdTokenRequest,
+    SocialOAuthProvider, SocialProviderFuture,
 };
 use openauth_core::options::{
     AccountLinkingOptions, AccountOptions, AdvancedOptions, ChangeEmailOptions, CookieCacheOptions,
@@ -640,7 +641,7 @@ fn auth_config_snapshot_reports_social_provider_options_without_credentials() {
             client_id: Some(openauth_core::oauth::oauth2::ClientId::from(
                 "github-client",
             )),
-            client_secret: Some("github-secret".into()),
+            client_secret: Some(ClientSecret::new("github-secret").expect("valid client secret")),
             scope: vec!["read:user".into(), "user:email".into()],
             disable_default_scope: true,
             disable_id_token_sign_in: true,

@@ -520,7 +520,8 @@ fn public_api_openauth_plugins_reexport_exposes_siwe_constructor(
 #[test]
 fn openauth_crate_accepts_social_oauth_runtime_providers() {
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(
-        openauth::social_providers::github::github(ProviderOptions::default()),
+        openauth::social_providers::github::github(ProviderOptions::default())
+            .expect("valid github provider"),
     );
     let options = OpenAuthOptions {
         social_providers: vec![provider],
@@ -578,7 +579,8 @@ fn openauth_crate_reexports_core_contract_types() {
         original_message: None,
     };
     let provider: Arc<dyn SocialOAuthProvider> = Arc::new(
-        openauth::social_providers::github::github(ProviderOptions::default()),
+        openauth::social_providers::github::github(ProviderOptions::default())
+            .expect("valid github provider"),
     );
     let _plugin = AuthPlugin::new("test-plugin").with_social_provider(provider.clone());
     let _plugin_endpoint_type: Option<PluginEndpoint> = None;
