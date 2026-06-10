@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, ProviderOptions};
-use openauth_social_providers::linkedin::{
+use openauth_social_providers::advanced::linkedin::{
     linkedin, LinkedInAuthorizationUrlRequest, LinkedInLocale, LinkedInProfile, LinkedInProvider,
     LINKEDIN_AUTHORIZATION_ENDPOINT, LINKEDIN_ID, LINKEDIN_NAME,
 };

@@ -12,10 +12,10 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract};
-use openauth_social_providers::cognito::{
+use openauth_social_providers::advanced::cognito::{
     cognito, cognito_issuer, cognito_jwks_uri, CognitoAuthorizationUrlInput, CognitoOptions,
 };
-use openauth_social_providers::http::ProviderHttpClient;
+use openauth_social_providers::advanced::http::ProviderHttpClient;
 use serde_json::json;
 use time::OffsetDateTime;
 use url::Url;
@@ -286,7 +286,7 @@ fn cognito_verify_id_token_rejects_tokens_missing_standard_claims(
     Ok(())
 }
 
-fn test_provider() -> openauth_social_providers::cognito::CognitoProvider {
+fn test_provider() -> openauth_social_providers::advanced::cognito::CognitoProvider {
     cognito(CognitoOptions::new(
         "client-id",
         "example.auth.us-east-1.amazoncognito.com",

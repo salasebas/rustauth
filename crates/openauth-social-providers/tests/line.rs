@@ -6,7 +6,7 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::line::{
+use openauth_social_providers::advanced::line::{
     line, LineAuthorizationUrlRequest, LineIdTokenPayload, LineOptions, LineProvider, LineUserInfo,
 };
 use serde_json::json;

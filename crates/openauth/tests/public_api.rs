@@ -11,8 +11,8 @@ use openauth::{
     PluginDatabaseBeforeAction, PluginDatabaseBeforeInput, PluginDatabaseHook,
     PluginDatabaseHookContext, PluginDatabaseOperation, PluginEndpoint, PluginEndpointHooks,
     PluginErrorCode, PluginHookMatcher, PluginInitOutput, PluginMigration, PluginRateLimitRule,
-    PluginRequestAction, PluginSchemaContribution, ProviderOptions, RateLimitConsumeInput,
-    RateLimitDecision, RateLimitFuture, RateLimitOptions, RateLimitStorageOption, RateLimitStore,
+    PluginRequestAction, PluginSchemaContribution, RateLimitConsumeInput, RateLimitDecision,
+    RateLimitFuture, RateLimitOptions, RateLimitStorageOption, RateLimitStore,
     SessionAdditionalField, SessionAuth, SessionOptions, SignOutResult, SocialOAuthProvider,
     TrustedOriginOptions, UpdateUserInput, UserOptions, VerificationEmail,
 };
@@ -522,9 +522,10 @@ fn public_api_openauth_plugins_reexport_exposes_siwe_constructor(
 
 #[test]
 fn openauth_crate_accepts_social_oauth_runtime_providers() {
-    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(
-        openauth::social_providers::github::github(ProviderOptions::default()),
-    );
+    let provider: Arc<dyn SocialOAuthProvider> =
+        Arc::new(openauth::social_providers::providers::github(
+            openauth::social_providers::SocialProviderConfig::new("client-id", "client-secret"),
+        ));
     let options = OpenAuthOptions {
         social_providers: vec![provider],
         ..OpenAuthOptions::default()
@@ -580,9 +581,10 @@ fn openauth_crate_reexports_core_contract_types() {
         message: "test".to_owned(),
         original_message: None,
     };
-    let provider: Arc<dyn SocialOAuthProvider> = Arc::new(
-        openauth::social_providers::github::github(ProviderOptions::default()),
-    );
+    let provider: Arc<dyn SocialOAuthProvider> =
+        Arc::new(openauth::social_providers::providers::github(
+            openauth::social_providers::SocialProviderConfig::new("client-id", "client-secret"),
+        ));
     let _plugin = AuthPlugin::new("test-plugin").with_social_provider(provider.clone());
     let _plugin_endpoint_type: Option<PluginEndpoint> = None;
     let _plugin_init = PluginInitOutput::new().social_provider(provider);

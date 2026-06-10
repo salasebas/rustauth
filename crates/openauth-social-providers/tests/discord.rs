@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::discord::{
+use openauth_social_providers::advanced::discord::{
     discord, DiscordAuthorizationUrlRequest, DiscordOptions, DiscordProfile, DiscordPrompt,
     DiscordProvider,
 };

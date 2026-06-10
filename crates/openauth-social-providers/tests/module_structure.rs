@@ -1,8 +1,7 @@
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, ProviderOptions, SocialAuthorizationUrlRequest, SocialOAuthProvider,
 };
-use openauth_social_providers::PROVIDER_IDS;
-use openauth_social_providers::{
+use openauth_social_providers::advanced::{
     apple::AppleProvider, atlassian::AtlassianProvider, cognito::CognitoProvider,
     discord::DiscordProvider, dropbox::DropboxProvider, facebook::FacebookProvider, figma::figma,
     figma::FigmaProvider, github::github, github::GitHubProvider, gitlab::GitlabProvider,
@@ -16,6 +15,8 @@ use openauth_social_providers::{
     tiktok::TiktokProvider, twitch::TwitchProvider, twitter::TwitterProvider,
     vercel::VercelProvider, vk::VkProvider, wechat::WeChatProvider, zoom::ZoomProvider,
 };
+use openauth_social_providers::providers::{github as app_github, google as app_google};
+use openauth_social_providers::{ProviderId, SocialProviderConfig, PROVIDER_IDS};
 
 #[test]
 fn social_provider_registry_contains_upstream_provider_names() {
@@ -100,6 +101,23 @@ fn all_provider_types_implement_social_oauth_runtime_trait() {
     assert_provider::<VkProvider>();
     assert_provider::<WeChatProvider>();
     assert_provider::<ZoomProvider>();
+}
+
+#[test]
+fn app_catalog_builds_runtime_providers() -> Result<(), Box<dyn std::error::Error>> {
+    let config = SocialProviderConfig::new("client-id", "client-secret");
+    let github = app_github(config.clone());
+    let google = app_google(config);
+
+    assert_eq!(
+        SocialOAuthProvider::id(&github),
+        ProviderId::GITHUB.as_str()
+    );
+    assert_eq!(
+        SocialOAuthProvider::id(&google),
+        ProviderId::GOOGLE.as_str()
+    );
+    Ok(())
 }
 
 #[test]

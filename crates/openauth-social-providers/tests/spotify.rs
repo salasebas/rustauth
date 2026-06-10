@@ -7,7 +7,7 @@
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
-use openauth_social_providers::spotify::{
+use openauth_social_providers::advanced::spotify::{
     spotify, SpotifyAuthorizationUrlRequest, SpotifyImage, SpotifyProfile, SpotifyProvider,
     SPOTIFY_AUTHORIZATION_ENDPOINT, SPOTIFY_DEFAULT_SCOPE, SPOTIFY_ID, SPOTIFY_NAME,
     SPOTIFY_TOKEN_ENDPOINT,

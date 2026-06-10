@@ -14,7 +14,7 @@ use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
-use openauth_social_providers::paypal::{
+use openauth_social_providers::advanced::paypal::{
     paypal, PayPalAuthorizationUrlRequest, PayPalEnvironment, PayPalOptions, PayPalProfile,
     PAYPAL_ISSUER, PAYPAL_LIVE_JWKS_ENDPOINT, PAYPAL_SANDBOX_JWKS_ENDPOINT,
 };

@@ -16,7 +16,7 @@ use openauth_core::oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuth2UserInfo, ProviderOptions, SocialIdTokenRequest,
     SocialOAuthProvider,
 };
-use openauth_social_providers::google::{google, GoogleOptions};
+use openauth_social_providers::advanced::google::{google, GoogleOptions};
 use serde::Deserialize;
 use serde_json::json;
 

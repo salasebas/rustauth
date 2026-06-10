@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, ProviderOptions};
-use openauth_social_providers::naver::{
+use openauth_social_providers::advanced::naver::{
     naver, NaverAuthorizationUrlRequest, NaverProfile, NaverProfileResponse, NaverProvider,
     NaverProviderOptions, NAVER_AUTHORIZATION_ENDPOINT, NAVER_ID, NAVER_NAME, NAVER_TOKEN_ENDPOINT,
 };

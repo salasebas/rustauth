@@ -1,7 +1,7 @@
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
-use openauth_social_providers::kick::{
+use openauth_social_providers::advanced::kick::{
     kick, KickAuthorizationUrlRequest, KickProfile, KickProvider, KICK_AUTHORIZATION_ENDPOINT,
     KICK_ID, KICK_NAME, KICK_TOKEN_ENDPOINT,
 };

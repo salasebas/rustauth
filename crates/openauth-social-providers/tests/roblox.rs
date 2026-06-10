@@ -8,7 +8,7 @@
 use openauth_oauth::oauth2::{
     ClientId, OAuth2Tokens, OAuthError, OAuthProviderContract, ProviderOptions,
 };
-use openauth_social_providers::roblox::{
+use openauth_social_providers::advanced::roblox::{
     roblox, RobloxAuthorizationUrlRequest, RobloxOptions, RobloxProfile, RobloxPrompt,
     RobloxProvider, ROBLOX_AUTHORIZATION_ENDPOINT, ROBLOX_ID, ROBLOX_NAME, ROBLOX_TOKEN_ENDPOINT,
 };

@@ -5,7 +5,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, ProviderOptions};
-use openauth_social_providers::slack::{
+use openauth_social_providers::advanced::slack::{
     slack, SlackAuthorizationUrlRequest, SlackOptions, SlackProfile, SlackProvider,
     SLACK_AUTHORIZATION_ENDPOINT, SLACK_ID, SLACK_NAME,
 };

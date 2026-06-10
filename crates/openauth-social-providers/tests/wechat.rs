@@ -5,7 +5,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, ProviderOptions};
-use openauth_social_providers::wechat::{
+use openauth_social_providers::advanced::wechat::{
     wechat, WeChatAuthorizationUrlRequest, WeChatLang, WeChatProfile, WeChatProvider,
     WeChatProviderOptions, WECHAT_AUTHORIZATION_ENDPOINT, WECHAT_ID, WECHAT_NAME,
 };

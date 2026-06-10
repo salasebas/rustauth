@@ -11,8 +11,8 @@ use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
 use openauth_oauth::oauth2::{ClientId, OAuth2Tokens, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::http::ValidationHttpClient;
-use openauth_social_providers::microsoft_entra_id::{
+use openauth_social_providers::advanced::http::ValidationHttpClient;
+use openauth_social_providers::advanced::microsoft_entra_id::{
     microsoft_entra_id, MicrosoftEntraIdAuthorizationCodeRequest,
     MicrosoftEntraIdAuthorizationUrlRequest, MicrosoftEntraIdOptions, MicrosoftEntraIdProfile,
     MicrosoftEntraIdProvider,

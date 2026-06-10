@@ -6,7 +6,7 @@
 )]
 
 use openauth_oauth::oauth2::{ClientId, OAuthProviderContract, ProviderOptions};
-use openauth_social_providers::notion::{
+use openauth_social_providers::advanced::notion::{
     NotionAuthorizationUrlRequest, NotionOwner, NotionOwnerUser, NotionPerson, NotionProfile,
     NotionProvider, NotionUserInfoResponse,
 };
