@@ -17,6 +17,8 @@ path = "src/lib.rs"
 [features]
 default = []
 saml-signed = ["opensaml/crypto-bergshamra"]
+sso-internal = []
+test-util = []
 
 [dependencies]
 base64.workspace = true
@@ -33,6 +35,10 @@ url.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
+
+[[test]]
+name = "security"
+required-features = ["test-util"]
 
 [lints]
 workspace = true

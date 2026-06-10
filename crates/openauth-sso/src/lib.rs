@@ -51,6 +51,7 @@ pub mod linking {
 
 #[cfg(feature = "oidc")]
 pub use openauth_oidc as oidc;
+pub use openauth_oidc::{OidcProfileMapping, OidcProviderConfig};
 #[cfg(feature = "saml")]
 pub use openauth_saml as saml;
 
@@ -88,6 +89,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The returned [`AuthPlugin`] contributes
 /// the `sso_providers` schema, SSO endpoints, rate limit rules, OpenAPI
 /// metadata, and hooks for organization assignment and SAML logout cleanup.
+#[must_use]
 pub fn sso(options: SsoOptions) -> AuthPlugin {
     let options = Arc::new(options);
     let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID).with_version(VERSION);

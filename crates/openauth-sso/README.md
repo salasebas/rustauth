@@ -24,9 +24,17 @@ OAuth/OIDC tokens.
 
 ## Quick Start
 
+Enable the `sso` feature on the umbrella `openauth` crate (or depend on
+`openauth-sso` directly):
+
+```toml
+[dependencies]
+openauth = { version = "0.1.1", features = ["sso"] }
+```
+
 ```rust
 use openauth::OpenAuth;
-use openauth_sso::{sso, SsoOptions};
+use openauth::sso::{sso, SsoOptions};
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
@@ -36,6 +44,10 @@ let auth = OpenAuth::builder()
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+`OidcConfig`, `OidcMapping`, and `TokenEndpointAuthentication` are re-exports of
+`openauth_oidc` types. For low-level discovery helpers, use
+`openauth::sso::oidc` or depend on `openauth-oidc` directly.
 
 The default feature set enables OIDC. Enable the `saml` feature when you need
 SAML metadata, ACS, SLO, or logout routes (it pulls in `saml-signed` for

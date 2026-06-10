@@ -727,6 +727,7 @@ pub async fn build_app(config: ExampleConfig) -> Result<Router, ExampleError> {
 }
 
 fn example_plugins() -> Result<Vec<AuthPlugin>, ExampleError> {
+    use openauth::oauth_provider::{oauth_provider, McpOptions, OAuthProviderOptions};
     use openauth::passkey::{passkey, PasskeyOptions};
     use openauth::plugins::prelude::*;
     use openauth::scim::{scim, ScimOptions};
@@ -734,7 +735,6 @@ fn example_plugins() -> Result<Vec<AuthPlugin>, ExampleError> {
     use openauth::stripe::{
         stripe, OrganizationStripeOptions, StripeClient, StripeOptions, SubscriptionOptions,
     };
-    use openauth_oauth_provider::{oauth_provider, McpOptions, OAuthProviderOptions};
     use std::future;
 
     Ok(vec![
@@ -764,8 +764,7 @@ fn example_plugins() -> Result<Vec<AuthPlugin>, ExampleError> {
             mcp: Some(McpOptions::default()),
             ..OAuthProviderOptions::default()
         })
-        .map_err(|error| ExampleError::InvalidConfig(error.to_string()))?
-        .into_auth_plugin(),
+        .map_err(|error| ExampleError::InvalidConfig(error.to_string()))?,
         multi_session(),
         oauth_proxy(),
         one_tap(),

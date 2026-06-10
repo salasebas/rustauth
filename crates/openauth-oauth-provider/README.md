@@ -24,21 +24,27 @@ This is the provider-side crate. For consuming external IdPs, use
 
 ## Quick Start
 
+Enable the `oauth-provider` feature on the umbrella `openauth` crate (or depend
+on `openauth-oauth-provider` directly):
+
+```toml
+[dependencies]
+openauth = { version = "0.1.1", features = ["oauth-provider", "plugins"] }
+```
+
 ```rust
 use openauth::OpenAuth;
-use openauth_oauth_provider::{oauth_provider, OAuthProviderOptions};
-
-let provider = oauth_provider(OAuthProviderOptions {
-    login_page: "/login".to_owned(),
-    consent_page: "/oauth/consent".to_owned(),
-    scopes: vec!["openid".into(), "profile".into(), "email".into()],
-    ..OAuthProviderOptions::default()
-})?;
+use openauth::oauth_provider::{oauth_provider, OAuthProviderOptions};
 
 let auth = OpenAuth::builder()
     .secret("secret-a-at-least-32-chars-long!!")
     .base_url("https://auth.example.com/api/auth")
-    .plugin(provider.into_auth_plugin())
+    .plugin(oauth_provider(OAuthProviderOptions {
+        login_page: "/login".to_owned(),
+        consent_page: "/oauth/consent".to_owned(),
+        scopes: vec!["openid".into(), "profile".into(), "email".into()],
+        ..OAuthProviderOptions::default()
+    })?)
     .build()?;
 # let _ = auth;
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -53,9 +59,9 @@ MCP is exposed as a profile of the OAuth provider rather than a separate
 authorization server. Enable protected-resource metadata with `McpOptions`:
 
 ```rust
-use openauth_oauth_provider::{oauth_provider, McpOptions, OAuthProviderOptions};
+use openauth::oauth_provider::{oauth_provider, McpOptions, OAuthProviderOptions};
 
-let provider = oauth_provider(OAuthProviderOptions {
+let _plugin = oauth_provider(OAuthProviderOptions {
     login_page: "/login".to_owned(),
     consent_page: "/oauth/consent".to_owned(),
     mcp: Some(McpOptions {
@@ -64,7 +70,6 @@ let provider = oauth_provider(OAuthProviderOptions {
     }),
     ..OAuthProviderOptions::default()
 })?;
-# let _ = provider;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 

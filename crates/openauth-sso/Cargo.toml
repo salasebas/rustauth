@@ -16,8 +16,14 @@ path = "src/lib.rs"
 
 [features]
 default = ["oidc"]
-oidc = ["dep:base64", "dep:openauth-oidc", "dep:reqwest"]
-saml = ["dep:base64", "dep:openauth-saml", "openauth-saml/saml-signed", "dep:x509-parser"]
+oidc = ["dep:base64", "dep:reqwest"]
+saml = [
+    "dep:base64",
+    "dep:openauth-saml",
+    "openauth-saml/saml-signed",
+    "openauth-saml/sso-internal",
+    "dep:x509-parser",
+]
 saml-signed = ["saml"]
 
 [dependencies]
@@ -29,7 +35,7 @@ indexmap.workspace = true
 openauth-core = { workspace = true, default-features = false }
 openidconnect.workspace = true
 openauth-oauth = { workspace = true, default-features = false }
-openauth-oidc = { workspace = true, optional = true }
+openauth-oidc = { workspace = true }
 openauth-plugins.workspace = true
 openauth-saml = { workspace = true, optional = true }
 publicsuffix2.workspace = true
@@ -46,6 +52,7 @@ x509-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
 openauth-core = { workspace = true, default-features = false, features = ["test-utils"] }
+openauth-saml = { workspace = true, features = ["test-util", "saml-signed"] }
 base64.workspace = true
 flate2.workspace = true
 josekit.workspace = true

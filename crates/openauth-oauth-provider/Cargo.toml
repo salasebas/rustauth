@@ -17,6 +17,7 @@ path = "src/lib.rs"
 [features]
 default = []
 mcp-client = ["dep:reqwest"]
+test-util = []
 
 [dependencies]
 base64.workspace = true
@@ -39,6 +40,10 @@ url.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
+
+[[test]]
+name = "oauth_provider"
+required-features = ["test-util"]
 
 [lints]
 workspace = true

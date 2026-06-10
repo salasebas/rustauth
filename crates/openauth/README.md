@@ -108,10 +108,14 @@ separate steps. Low-level provider types remain under
 
 - `i18n`: re-export `openauth-i18n`.
 - `plugins`: re-export `openauth-plugins`.
+- `oauth-provider`: re-export `openauth-oauth-provider` as `openauth::oauth_provider`.
 - `passkey`: re-export `openauth-passkey`.
-- `sso`: re-export `openauth-sso`.
-- `oidc`: re-export relying-party OIDC helpers.
-- `saml` and `saml-signed`: re-export experimental SAML helpers.
+- `sso`: re-export `openauth-sso` (includes `openauth::sso::oidc` and, with the
+  `saml` feature, `openauth::sso::saml`).
+- `oidc`: enable OIDC route support on `openauth-sso` (does not add a top-level
+  `openauth::oidc` re-export).
+- `saml` and `saml-signed`: enable SAML routes on `openauth-sso` (does not add a
+  top-level `openauth::saml` re-export).
 - `scim`: re-export server-side SCIM provisioning.
 - `stripe`: re-export server-side Stripe billing integration.
 - `telemetry`: re-export the telemetry surface from
@@ -131,8 +135,42 @@ separate steps. Low-level provider types remain under
 - Start with `openauth` for applications.
 - Use `openauth-core` for adapter/plugin internals.
 - Use `openauth-sso` to consume external enterprise IdPs.
-- Use `openauth-oauth-provider` when your app must issue OAuth/OIDC tokens.
+- Enable `oauth-provider` on `openauth` (or depend on `openauth-oauth-provider`
+  directly) when your app must issue OAuth/OIDC tokens.
 - Use `openauth-axum` to mount OpenAuth in Axum.
+
+## Enterprise plugins (quick start)
+
+```toml
+[dependencies]
+openauth = { version = "0.1.1", features = ["sso", "scim", "passkey", "oauth-provider"] }
+```
+
+```rust
+use openauth::{OpenAuth, OpenAuthOptions};
+use openauth::oauth_provider::{oauth_provider, OAuthProviderOptions};
+use openauth::passkey::{passkey, PasskeyOptions};
+use openauth::scim::{scim, ScimOptions};
+use openauth::sso::{sso, SsoOptions};
+
+let options = OpenAuthOptions::new()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .plugins(vec![
+        sso(SsoOptions::default()),
+        scim(ScimOptions::default().token_storage(openauth::scim::ScimTokenStorage::Hashed)),
+        passkey(PasskeyOptions::default().rp_id("app.example.com")),
+        oauth_provider(OAuthProviderOptions {
+            login_page: "/login".to_owned(),
+            consent_page: "/consent".to_owned(),
+            ..OAuthProviderOptions::default()
+        })?,
+    ]);
+
+let auth = OpenAuth::builder().options(options).build()?;
+# let _ = auth;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ## Status
 

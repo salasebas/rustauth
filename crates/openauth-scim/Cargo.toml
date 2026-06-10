@@ -14,6 +14,10 @@ categories.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+test-util = []
+
 [dependencies]
 base64.workspace = true
 http.workspace = true
@@ -34,6 +38,10 @@ openauth-plugins.workspace = true
 openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
 openauth-tokio-postgres.workspace = true
 sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+
+[[test]]
+name = "scim"
+required-features = ["test-util"]
 
 [lints]
 workspace = true

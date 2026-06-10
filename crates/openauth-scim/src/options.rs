@@ -184,6 +184,76 @@ impl Default for ScimOptions {
     }
 }
 
+impl ScimOptions {
+    /// Create default SCIM plugin options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    /// Configure provider ownership rules.
+    pub fn provider_ownership(mut self, ownership: ProviderOwnershipOptions) -> Self {
+        self.provider_ownership = ownership;
+        self
+    }
+
+    #[must_use]
+    /// Set organization roles allowed to manage org-scoped SCIM providers.
+    pub fn required_role(mut self, roles: Vec<String>) -> Self {
+        self.required_role = Some(roles);
+        self
+    }
+
+    #[must_use]
+    /// Add statically configured SCIM providers.
+    pub fn default_scim(mut self, providers: Vec<DefaultScimProvider>) -> Self {
+        self.default_scim = providers;
+        self
+    }
+
+    #[must_use]
+    /// Set how generated SCIM tokens are stored.
+    pub fn token_storage(mut self, storage: ScimTokenStorage) -> Self {
+        self.token_storage = storage;
+        self
+    }
+
+    #[must_use]
+    /// Set the hook invoked before a SCIM token is persisted.
+    pub fn before_token_generated(mut self, hook: BeforeScimTokenGeneratedHook) -> Self {
+        self.before_token_generated = Some(hook);
+        self
+    }
+
+    #[must_use]
+    /// Set the hook invoked after a SCIM token is persisted.
+    pub fn after_token_generated(mut self, hook: AfterScimTokenGeneratedHook) -> Self {
+        self.after_token_generated = Some(hook);
+        self
+    }
+
+    #[must_use]
+    /// Set bulk commit strategy.
+    pub fn bulk_mode(mut self, mode: ScimBulkMode) -> Self {
+        self.bulk_mode = mode;
+        self
+    }
+
+    #[must_use]
+    /// Set user delete semantics for SCIM deprovision.
+    pub fn deprovision_mode(mut self, mode: ScimDeprovisionMode) -> Self {
+        self.deprovision_mode = mode;
+        self
+    }
+
+    #[must_use]
+    /// Set an async audit event sink.
+    pub fn audit_event(mut self, resolver: crate::audit::ScimAuditEventResolver) -> Self {
+        self.audit_event = Some(resolver);
+        self
+    }
+}
+
 impl std::fmt::Debug for ScimOptions {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter

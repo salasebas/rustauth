@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "saml"))]
 use std::collections::BTreeMap;
 use std::future::Future;
 use time::Duration;
@@ -6,7 +7,10 @@ use time::Duration;
 use openauth_core::db::User;
 use openauth_core::error::OpenAuthError;
 use openauth_core::options::RateLimitRule;
+#[cfg(not(feature = "saml"))]
 use openauth_core::secret::SecretString;
+
+pub use openauth_oidc::{OidcConfig, OidcMapping, TokenEndpointAuthentication};
 
 #[cfg(feature = "saml")]
 pub use openauth_saml::{
@@ -481,145 +485,6 @@ pub struct SsoProvider {
     /// SAML configuration, when the provider supports SAML.
     pub saml_config: Option<SamlConfig>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// OIDC configuration for an SSO provider.
-pub struct OidcConfig {
-    /// OIDC issuer URL.
-    pub issuer: String,
-    /// Whether authorization requests should use PKCE.
-    pub pkce: bool,
-    /// OAuth/OIDC client id.
-    pub client_id: String,
-    /// OAuth/OIDC client secret. Debug output is redacted.
-    pub client_secret: SecretString,
-    /// OIDC discovery document URL.
-    pub discovery_endpoint: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Explicit authorization endpoint override.
-    pub authorization_endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Explicit token endpoint override.
-    pub token_endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Explicit UserInfo endpoint override.
-    pub user_info_endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Explicit JWKS endpoint override.
-    pub jwks_endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Optional OAuth token revocation endpoint discovered from the IdP.
-    pub revocation_endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Optional OIDC end-session endpoint discovered from the IdP.
-    pub end_session_endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Optional OAuth token introspection endpoint discovered from the IdP.
-    pub introspection_endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Token endpoint authentication method.
-    pub token_endpoint_authentication: Option<TokenEndpointAuthentication>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Authorization request scopes.
-    pub scopes: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    /// Provider claim mapping.
-    pub mapping: Option<OidcMapping>,
-    /// Override existing OpenAuth user fields with mapped OIDC values on login.
-    pub override_user_info: bool,
-}
-
-#[allow(dead_code)]
-pub type OidcProviderConfig = OidcConfig;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-/// Supported OAuth token endpoint authentication methods.
-pub enum TokenEndpointAuthentication {
-    /// Send client credentials through HTTP Basic authentication.
-    ClientSecretBasic,
-    /// Send client credentials in the token request body.
-    ClientSecretPost,
-}
-
-#[cfg(feature = "oidc")]
-impl From<TokenEndpointAuthentication> for openauth_oidc::TokenEndpointAuthentication {
-    fn from(value: TokenEndpointAuthentication) -> Self {
-        match value {
-            TokenEndpointAuthentication::ClientSecretBasic => Self::ClientSecretBasic,
-            TokenEndpointAuthentication::ClientSecretPost => Self::ClientSecretPost,
-        }
-    }
-}
-
-#[cfg(feature = "oidc")]
-impl From<openauth_oidc::TokenEndpointAuthentication> for TokenEndpointAuthentication {
-    fn from(value: openauth_oidc::TokenEndpointAuthentication) -> Self {
-        match value {
-            openauth_oidc::TokenEndpointAuthentication::ClientSecretBasic => {
-                Self::ClientSecretBasic
-            }
-            openauth_oidc::TokenEndpointAuthentication::ClientSecretPost => Self::ClientSecretPost,
-        }
-    }
-}
-
-#[cfg(feature = "oidc")]
-impl openauth_oidc::OidcEndpointConfig for OidcConfig {
-    fn discovery_endpoint(&self) -> &str {
-        &self.discovery_endpoint
-    }
-
-    fn authorization_endpoint(&self) -> Option<&str> {
-        self.authorization_endpoint.as_deref()
-    }
-
-    fn token_endpoint(&self) -> Option<&str> {
-        self.token_endpoint.as_deref()
-    }
-
-    fn user_info_endpoint(&self) -> Option<&str> {
-        self.user_info_endpoint.as_deref()
-    }
-
-    fn jwks_endpoint(&self) -> Option<&str> {
-        self.jwks_endpoint.as_deref()
-    }
-
-    fn revocation_endpoint(&self) -> Option<&str> {
-        self.revocation_endpoint.as_deref()
-    }
-
-    fn end_session_endpoint(&self) -> Option<&str> {
-        self.end_session_endpoint.as_deref()
-    }
-
-    fn introspection_endpoint(&self) -> Option<&str> {
-        self.introspection_endpoint.as_deref()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// Mapping from OIDC claims to OpenAuth profile fields.
-pub struct OidcMapping {
-    /// Claim used as the external account id.
-    pub id: Option<String>,
-    /// Claim used as email.
-    pub email: Option<String>,
-    /// Claim used as email verification status.
-    pub email_verified: Option<String>,
-    /// Claim used as display name.
-    pub name: Option<String>,
-    /// Claim used as avatar URL.
-    pub image: Option<String>,
-    /// Additional claim mappings exposed to hooks as raw attributes.
-    pub extra_fields: Option<BTreeMap<String, String>>,
-}
-
-#[allow(dead_code)]
-pub type OidcProfileMapping = OidcMapping;
 
 #[cfg(feature = "saml")]
 #[allow(dead_code)]

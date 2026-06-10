@@ -14,6 +14,10 @@ categories.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+test-util = []
+
 [dependencies]
 base64.workspace = true
 http.workspace = true
@@ -33,6 +37,10 @@ openauth-core = { workspace = true, features = ["test-utils"] }
 openauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
 sqlx.workspace = true
 tokio.workspace = true
+
+[[test]]
+name = "passkey"
+required-features = ["test-util"]
 
 [lints]
 workspace = true

@@ -10,7 +10,13 @@ or Keycloak.
 
 It is not an OAuth/OIDC authorization server. If you want your OpenAuth
 application to issue OAuth access tokens, ID tokens, discovery metadata, JWKS,
-userinfo, or client credentials, use `openauth-oauth-provider` instead.
+userinfo, or client credentials, enable `oauth-provider` on the `openauth` crate
+or use `openauth-oauth-provider` directly.
+
+The umbrella `openauth` crate does not re-export `openauth-oidc` at the root.
+Enterprise SSO apps typically use `openauth::sso` (which re-exports
+`openauth::sso::oidc`) or depend on `openauth-oidc` when building custom
+relying-party flows.
 
 ## What It Provides
 
