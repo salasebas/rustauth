@@ -5,7 +5,9 @@ on:
   push:
     branches:
       - main
+      - release/0.2.0
   merge_group:
+  workflow_dispatch:
   workflow_dispatch:
 
 concurrency:
@@ -17,8 +19,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTAUTH_TEST_POSTGRES_URL: postgres://user:password@localhost:5432/rustauth
-  RUSTAUTH_TEST_MYSQL_URL: mysql://user:password@localhost:3306/rustauth
   RUSTAUTH_TEST_POSTGRES_URL: postgres://user:password@localhost:5432/rustauth
   RUSTAUTH_TEST_MYSQL_URL: mysql://user:password@localhost:3306/rustauth
 
