@@ -1,0 +1,28 @@
+---
+title: account_not_linked
+description: Provider account cannot be linked to an existing user under current rules.
+---
+
+During OAuth sign-in, a matching user exists but the provider account is not linked and implicit linking is disallowed (untrusted provider, linking disabled, or email mismatch).
+
+## Rust implementation
+
+**Emitted by RustAuth:** yes
+
+| Location | When |
+| -------- | ---- |
+| `crates/rustauth-core/src/auth/oauth/account_linking.rs:133` | `handle_oauth_user_info` returns `OAuthUserInfoError::AccountNotLinked` |
+| `crates/rustauth-core/src/auth/oauth/errors.rs:18` | Stable code string `account_not_linked` |
+| `crates/rustauth-core/src/api/routes/social/flow.rs:196-197` | Redirect when sign-in handler returns this error |
+
+Redirect shape: `{errorCallbackURL}?error=account_not_linked`.
+
+## Handling in Rust
+
+OAuth redirect: parse `error=account_not_linked` from the callback redirect URL.
+
+## How to fix
+
+- Enable [account linking](/docs/concepts/users-accounts#account-linking) and add providers to trusted providers when appropriate.
+- Ask users to sign in with their original method, then link the provider from an authenticated session.
+- Ensure the provider returns a verified email matching the existing user when linking is email-based.

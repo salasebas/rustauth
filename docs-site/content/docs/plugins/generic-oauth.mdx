@@ -1,0 +1,88 @@
+---
+title: Generic OAuth
+description: Custom OAuth 2.0 social providers for RustAuth server plugin.
+---
+
+The generic OAuth plugin registers one or more custom OAuth 2.0 providers (Auth0, Okta, Keycloak, or fully manual endpoints) alongside built-in social providers. It handles authorization redirects, token exchange, userinfo mapping, and account linking.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::generic_oauth::{generic_oauth, GenericOAuthOptions};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(generic_oauth(GenericOAuthOptions::default()))
+    .build()
+    .await?;
+```
+
+Configure providers in `GenericOAuthOptions::config`:
+
+```rust
+use rustauth::plugins::generic_oauth::{GenericOAuthConfig, GenericOAuthOptions};
+
+let options = GenericOAuthOptions {
+    config: vec![GenericOAuthConfig {
+        provider_id: "auth0".into(),
+        discovery_url: Some("https://tenant.auth0.com/.well-known/openid-configuration".into()),
+        client_id: "client-id".into(),
+        client_secret: "client-secret".into(),
+        scopes: vec!["openid".into(), "email".into(), "profile".into()],
+        ..GenericOAuthConfig::default()
+    }],
+};
+```
+
+Built-in helpers on `GenericOAuthConfig` include `auth0`, `okta`, and `keycloak` constructors.
+
+## Configuration
+
+Each **`GenericOAuthConfig`** entry:
+
+| Field | Description |
+| --- | --- |
+| `provider_id` | Unique provider identifier used in routes |
+| `discovery_url` | OIDC discovery document URL |
+| `issuer` | Expected token issuer (RFC 9207 validation) |
+| `require_issuer_validation` | Enforce issuer checks (default `true`) |
+| `authorization_url` / `token_url` / `user_info_url` | Manual endpoints when discovery is omitted |
+| `client_id` / `client_secret` | OAuth client credentials |
+| `scopes` | Requested scopes |
+| `redirect_uri` | Override redirect URI |
+| `pkce` | PKCE settings |
+| `disable_implicit_sign_up` / `disable_sign_up` | Control auto-registration |
+| `authentication` | Token endpoint auth method |
+| Custom hooks | `get_token`, `get_user_info`, `refresh_token`, `revoke_token`, `verify_id_token` |
+
+Issuer validation failures return `ISSUER_MISMATCH` or `ISSUER_MISSING`.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/sign-in/oauth2` | Start OAuth sign-in for a configured provider |
+| GET | `/oauth2/callback/:providerId` | OAuth callback |
+| POST | `/oauth2/link` | Link provider to the current session (requires session) |
+
+Each configured provider is registered as a social OAuth provider at init time. Linked accounts use the core `accounts` table — no plugin-specific tables.
+
+## Database
+
+No dedicated plugin tables. OAuth accounts are stored in the core **`accounts`** table via the standard account-linking flow.
+
+Run migrations for the core auth schema if you have not already:
+
+```bash
+rustauth db migrate
+```

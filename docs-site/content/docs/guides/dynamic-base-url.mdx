@@ -1,0 +1,176 @@
+---
+title: Dynamic Base URL
+description: Configure RustAuth for preview deployments, multiple domains, and reverse proxies with explicit base_url, trusted origins, and Axum inference.
+---
+
+Use this guide when your auth server is reachable from more than one public hostname:
+
+- Production and staging domains (`myapp.com`, `staging.myapp.com`)
+- Preview deployments (`my-app-abc123.vercel.app`)
+- Multiple regional domains (`myapp.com`, `myapp.eu`)
+
+RustAuth does **not** expose a Better Auth-style `baseURL.allowedHosts` object. Configure a fixed [`base_url`](/docs/reference/options#base_url-and-base_path) in production, extend [`trusted_origins`](/docs/reference/options#trustedorigins) for CSRF and redirect validation, and optionally enable **Axum-only** per-request URL inference behind a trusted proxy.
+
+<Callout type="warn">
+  Prefer an explicit `base_url` in production. Request inference is opt-in, Axum-only, and easy to misconfigure if proxy headers are forged.
+</Callout>
+
+## Recommended: fixed base URL
+
+Set the full public auth prefix (origin + path):
+
+```rust
+use rustauth::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://myapp.com/api/auth")
+    .base_path("/api/auth")
+    .build()
+    .await?;
+```
+
+Integrators often load this from `RUSTAUTH_BASE_URL`. See [Options](/docs/reference/options#base_url-and-base_path) and `examples/backend-reference/src/auth/options.rs`.
+
+## Trusted origins (multi-host CSRF / redirects)
+
+`trusted_origins` controls which frontend origins may call auth routes and which redirect/callback URLs are accepted. It is separate from `base_url`.
+
+### Static allowlist
+
+```rust
+use rustauth::options::TrustedOriginOptions;
+
+let options = RustAuthOptions::new()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://myapp.com/api/auth")
+    .trusted_origins(TrustedOriginOptions::Static(vec![
+        "https://myapp.com".into(),
+        "https://www.myapp.com".into(),
+        "https://my-app-abc123.vercel.app".into(),
+        "http://localhost:3000".into(),
+    ]));
+
+let auth = RustAuth::builder().options(options).build().await?;
+```
+
+### Wildcard preview hosts
+
+RustAuth supports wildcard patterns in trusted-origin entries (for example Vercel preview URLs):
+
+```rust
+TrustedOriginOptions::Static(vec![
+    "https://myapp.com".into(),
+    "https://*.vercel.app".into(),
+])
+```
+
+See [Security — wildcard origins](/docs/reference/security#wildcard-origins). Remove `localhost` entries in production.
+
+### Dynamic provider
+
+When the allowlist depends on the incoming request (tenant subdomains, per-deploy config), implement [`TrustedOriginsProvider`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.TrustedOriginsProvider.html):
+
+```rust
+use http::Request;
+use rustauth::error::RustAuthError;
+use rustauth::options::TrustedOriginOptions;
+
+#[derive(Clone)]
+struct StaticOrigins(Vec<String>);
+
+impl rustauth::options::TrustedOriginsProvider for StaticOrigins {
+    fn trusted_origins(
+        &self,
+        _request: Option<&Request<Vec<u8>>>,
+    ) -> Result<Vec<String>, RustAuthError> {
+        Ok(self.0.clone())
+    }
+}
+
+fn trusted_origins(origins: Vec<String>) -> TrustedOriginOptions {
+    TrustedOriginOptions::dynamic_with_static(origins.clone(), StaticOrigins(origins))
+}
+```
+
+The backend reference uses this pattern in `examples/backend-reference/src/auth/options.rs`.
+
+## Axum: opt-in base URL inference
+
+When `base_url` is **empty**, the Axum adapter can derive a per-request public URL from the incoming request. This affects OAuth callbacks, verification links, and redirects.
+
+```rust
+use rustauth_axum::{RustAuthAxumExt, RustAuthAxumOptions};
+
+let app = auth.mount_at_base_path(
+    RustAuthAxumOptions::new()
+        .infer_base_url_from_request(true)
+        .trust_proxy_headers_for_base_url(true), // only behind a trusted reverse proxy
+)?;
+```
+
+Defaults: both flags are `false`. Public `x-forwarded-host` / `x-forwarded-proto` headers are **ignored** unless inference and proxy trust are enabled.
+
+### Resolution order
+
+When inference is active (`crates/rustauth-axum/src/router.rs`):
+
+1. Static `base_url` from options — if set, inference is skipped
+2. `RUSTAUTH_BASE_URL` environment variable
+3. Forwarded headers (when `trust_proxy_headers_for_base_url(true)`)
+4. Request `Host` header or absolute URI origin
+
+Full security notes: [Security — base URL behind a reverse proxy](/docs/reference/security#base-url-behind-a-reverse-proxy).
+
+### Preview + production together
+
+Typical pattern:
+
+1. Leave `base_url` unset **or** set a canonical fallback via env in CI only
+2. Enable Axum inference + proxy trust behind your edge
+3. List every frontend origin (including `*.vercel.app`) in `trusted_origins`
+
+<Callout type="info">
+  Base URL inference is implemented in `rustauth-axum` only. Other Rust web frameworks must set `base_url` explicitly or inject [`RequestBaseUrl`](https://docs.rs/rustauth-core/latest/rustauth_core/api/struct.RequestBaseUrl.html) on each request before calling `handler_async`.
+</Callout>
+
+## Cross-subdomain cookies
+
+If the API and frontend live on different subdomains of the same registrable domain, enable cross-subdomain cookies and list both origins in `trusted_origins`. Details and examples live in [Cookies — cross-subdomain cookies](/docs/concepts/cookies#cross-subdomain-cookies):
+
+```rust
+use rustauth::prelude::*;
+
+RustAuth::builder()
+    .options(
+        RustAuthOptions::new()
+            .trusted_origins(TrustedOriginOptions::Static(vec![
+                "https://auth.example.com".into(),
+                "https://app.example.com".into(),
+            ]))
+            .advanced(
+                AdvancedOptions::builder().cross_subdomain_cookies(
+                    CookieConfig::builder()
+                        .enabled(true)
+                        .domain("example.com"),
+                ),
+            ),
+    )
+    // ...
+```
+
+## Common deployment patterns
+
+| Pattern | `base_url` | Axum inference | `trusted_origins` |
+| --- | --- | --- | --- |
+| Single production domain | Fixed `https://myapp.com/api/auth` | Off | Production frontend origins |
+| Staging + production | Fixed per environment | Off | Both frontends |
+| Vercel previews | Env or inference | Optional on | `https://*.vercel.app` + production |
+| Local + production dev | Fixed in prod; `http://localhost:3000` in dev | Off locally | Include localhost only in dev |
+
+## Reference
+
+- [`base_url` / `base_path`](/docs/reference/options#base_url-and-base_path)
+- [`trusted_origins`](/docs/reference/options#trustedorigins)
+- [Security](/docs/reference/security)
+- [Axum integration](/docs/integrations/axum)

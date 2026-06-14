@@ -1,0 +1,145 @@
+---
+title: Rate Limit
+description: Configure rate limiting in RustAuth with memory, Redis, or database storage, custom rules, and HTTP 429 handling.
+---
+
+RustAuth rate-limits HTTP requests through the auth router. In production posture, defaults are roughly **100 requests per 60 seconds** per client key (IP-based unless configured otherwise). Development defaults are more permissive unless you force limits on.
+
+Configure with [`RateLimitOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RateLimitOptions.html):
+
+```rust
+use rustauth::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .rate_limit(
+        RateLimitOptions::memory()
+            .enabled(true)
+            .window(Duration::seconds(60))
+            .max(100),
+    )
+    .build()
+    .await?;
+```
+
+Sensitive routes (sign-in, sign-up, two-factor, and plugin routes) ship stricter built-in rules in addition to your global settings.
+
+## IP address detection
+
+Rate limits key on the client IP resolved from request headers. Configure headers and IPv6 subnet grouping in [`AdvancedOptions::ip_address`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.IpAddressOptions.html):
+
+```rust
+AdvancedOptions::builder().ip_address(
+    IpAddressOptions::builder()
+        .ip_address_headers(vec!["cf-connecting-ip".into()])
+        .ipv6_subnet(64),
+)
+```
+
+IPv6 addresses are normalized to prevent bypass via alternate representations.
+
+## Custom rules
+
+```rust
+RateLimitOptions::memory()
+    .enabled(true)
+    .custom_rule("/sign-in/email", RateLimitRule::new(Duration::seconds(10), 3))
+    .custom_rule("/sign-up/*", RateLimitRule::new(Duration::seconds(60), 10))
+```
+
+Disable limiting for a path by omitting a rule or using plugin-specific overrides. Dynamic rules are available via [`DynamicRateLimitPathRule`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.DynamicRateLimitPathRule.html).
+
+## Storage backends
+
+### Memory (default)
+
+```rust
+RateLimitOptions::memory()
+```
+
+Suitable for single-process deployments. Not shared across instances.
+
+### Database
+
+```rust
+RateLimitOptions::database_arc(my_store)
+```
+
+Requires a [`RateLimitStore`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.RateLimitStore.html) implementation and the `rate_limits` table from migrations. Run `rustauth db migrate` after enabling database-backed limits.
+
+### Secondary storage (Redis / Valkey)
+
+With the `redis` feature:
+
+```toml
+rustauth = { version = "0.1", features = ["redis"] }
+```
+
+```rust
+use rustauth::redis::RedisStores;
+
+let stores = RedisStores::connect("redis://127.0.0.1:6379").await?;
+let options = stores.apply_to_options(
+    RustAuthOptions::new().rate_limit(RateLimitOptions::memory().enabled(true)),
+);
+```
+
+`RedisStores` can wire secondary storage and rate-limit backends together.
+
+With the `fred` feature (Fred client):
+
+```toml
+rustauth = { version = "0.1", features = ["fred"] }
+```
+
+```rust
+use rustauth::fred::FredRateLimitStore;
+
+let store = FredRateLimitStore::connect("redis://127.0.0.1:6379").await?;
+let options = RustAuthOptions::new().rate_limit(
+    RateLimitOptions::secondary_storage_arc(store).enabled(true),
+);
+```
+
+Use distributed storage for multi-instance production deployments.
+
+## Handling 429 responses
+
+When limited, RustAuth returns HTTP 429 with an `X-Retry-After` header (seconds until retry). Handle this in your BFF or frontend HTTP client:
+
+```rust
+if response.status() == http::StatusCode::TOO_MANY_REQUESTS {
+    let retry = response
+        .headers()
+        .get("X-Retry-After")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("60");
+    eprintln!("rate limited; retry after {retry}s");
+}
+```
+
+## Rate limit schema
+
+When using database storage, migrations create a `rate_limits` table:
+
+export const rateLimitTableFields = [
+	{
+		name: "key",
+		type: "string",
+		description: "Unique rate limit bucket key",
+		isPrimaryKey: true,
+	},
+	{
+		name: "count",
+		type: "integer",
+		description: "Requests in the current window",
+	},
+	{
+		name: "last_request",
+		type: "bigint",
+		description: "Last request timestamp (epoch ms)",
+	},
+];
+
+<DatabaseTable name="rate_limits" fields={rateLimitTableFields} />

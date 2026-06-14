@@ -1,0 +1,49 @@
+[package]
+name = "rustauth-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-core"
+readme = "README.md"
+description = "Core types and primitives for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+jose = ["dep:josekit"]
+oauth = ["dep:rustauth-oauth", "rustauth-oauth/jose"]
+social-providers = ["oauth", "dep:rustauth-social-providers"]
+test-utils = []
+
+[dependencies]
+base64.workspace = true
+chacha20poly1305.workspace = true
+hex.workspace = true
+hkdf.workspace = true
+hmac.workspace = true
+http.workspace = true
+governor.workspace = true
+indexmap.workspace = true
+josekit = { workspace = true, optional = true }
+rustauth-oauth = { workspace = true, default-features = false, optional = true }
+rustauth-social-providers = { workspace = true, optional = true }
+rand.workspace = true
+scrypt.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+unicode-normalization.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

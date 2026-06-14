@@ -1,0 +1,28 @@
+---
+title: unable_to_get_user_info
+description: OAuth tokens were obtained but user profile fetch failed.
+---
+
+Token exchange succeeded, but the provider did not return usable user info (network failure, missing profile endpoint, or empty response).
+
+## Rust implementation
+
+**Emitted by RustAuth:** yes
+
+| Location | When |
+| -------- | ---- |
+| `crates/rustauth-core/src/api/routes/social/flow.rs:154` | `get_user_info` returns `None` on social callback |
+| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:219` | OAuth Proxy profile fetch returns `None` |
+| `crates/rustauth-sso/src/routes/oidc.rs:201,217` | SSO OIDC userinfo/id_token parsing fails |
+
+Redirect shape: `{errorCallbackURL}?error=unable_to_get_user_info`.
+
+## Handling in Rust
+
+Parse `?error=unable_to_get_user_info` from the OAuth redirect URL or `Location` header.
+
+## How to fix
+
+- Confirm requested OAuth scopes include profile/email where required.
+- Verify provider API status and rate limits.
+- For providers without email, configure profile mapping (see [OAuth concepts](/docs/concepts/oauth)).

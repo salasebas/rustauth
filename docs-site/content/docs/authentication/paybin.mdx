@@ -1,0 +1,40 @@
+---
+title: Paybin
+description: Paybin OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Paybin. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/paybin`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::paybin::{paybin, PaybinOptions};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(paybin(PaybinOptions {
+    oauth: SocialProviderConfig::from_env("PAYBIN")?.into_provider_options(),
+    issuer: std::env::var("PAYBIN_ISSUER").ok(),
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `PAYBIN_CLIENT_ID`, `PAYBIN_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=paybin
+```
+
+Callback: `GET {base_url}/callback/paybin`.

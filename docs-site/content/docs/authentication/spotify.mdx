@@ -1,0 +1,33 @@
+---
+title: Spotify
+description: Spotify OAuth provider for RustAuth.
+---
+
+Register a Spotify application and set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/spotify`.
+
+## Configure RustAuth
+
+Use `SocialProviderConfig::builder()` when you need explicit scopes:
+
+```rust
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+
+let spotify_config = SocialProviderConfig::builder()
+    .client_id(std::env::var("SPOTIFY_CLIENT_ID")?)
+    .client_secret(std::env::var("SPOTIFY_CLIENT_SECRET")?)
+    .scope(["user-read-email", "user-read-private"])
+    .build()?;
+
+RustAuth::builder()
+    // ...
+    .social_provider(providers::spotify(spotify_config)?)
+    .build()
+    .await?;
+```
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=spotify
+```

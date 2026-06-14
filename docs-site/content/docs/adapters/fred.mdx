@@ -1,0 +1,107 @@
+---
+title: Fred
+description: Rate limiting and secondary storage for RustAuth via rustauth-fred.
+---
+
+[`rustauth-fred`](https://docs.rs/rustauth-fred) provides the same Redis-compatible RustAuth integration points as [`rustauth-redis`](/docs/adapters/redis), but through the [`fred`](https://docs.rs/fred) client. Use it when your application already uses `fred` or wants Valkey/Redis support through that ecosystem.
+
+Like `rustauth-redis`, this crate handles **rate limiting** and **secondary storage** — not primary SQL persistence. Pair it with a [`DbAdapter`](/docs/concepts/database#adapters) for users, sessions, and plugin tables.
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["fred"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-fred = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Optional TLS features are forwarded to `fred`:
+
+```toml title="Cargo.toml"
+rustauth-fred = { version = "0.1", features = ["rustls"] }
+# or: features = ["native-tls"]
+```
+
+## Quick start
+
+[`FredStores`](https://docs.rs/rustauth-fred/latest/rustauth_fred/struct.FredStores.html) shares one `fred` client for rate limiting and secondary storage:
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_fred::FredStores;
+
+let stores = FredStores::connect("valkey://127.0.0.1:6379").await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new()
+            .secret("secret-a-at-least-32-chars-long!!")
+            .base_url("http://127.0.0.1:3000/api/auth"),
+    ))
+    .adapter(my_sql_adapter) // primary DbAdapter still required
+    .build()?;
+```
+
+`apply_to_options` wires both `secondary_storage` and distributed rate limiting in one call.
+
+### Individual store
+
+When you need only rate limiting:
+
+```rust
+use rustauth::{RustAuth, RateLimitOptions};
+use rustauth_fred::FredRateLimitStore;
+
+let store = FredRateLimitStore::connect("redis://127.0.0.1:6379").await?;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .rate_limit(
+        RateLimitOptions::secondary_storage(store)
+            .enabled(true)
+            .window(60)
+            .max(100),
+    )
+    .adapter(my_sql_adapter)
+    .build()?;
+```
+
+Secondary storage uses raw string values and TTLs in seconds. Operational helpers such as `list_keys()` and `clear()` use `SCAN` instead of `KEYS`.
+
+## When to use
+
+| Choose `rustauth-fred` | Choose `rustauth-redis` |
+| --- | --- |
+| App already uses `fred` | App already uses `redis-rs` |
+| Valkey/Redis through the `fred` ecosystem | Smaller dependency when `redis-rs` is sufficient |
+| Need `fred`-specific TLS or client configuration | Prefer the widely used `redis` crate |
+
+Both crates expose [`RedisStores`](/docs/adapters/redis)-equivalent bundled types, Lua-backed atomic rate limiting, and secondary storage with the same RustAuth contracts. See [Rate limit](/docs/concepts/rate-limit) for configuration.
+
+## CLI migrate
+
+Fred is secondary storage — run migrations on your primary SQL adapter:
+
+```bash title="Terminal"
+rustauth db migrate --yes
+```
+
+See [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+## Related
+
+- [Redis](/docs/adapters/redis) — `redis-rs` integration
+- [Rate limit](/docs/concepts/rate-limit) — storage backends and custom rules
+- [Database](/docs/concepts/database) — primary adapter and secondary storage
+- [SQLx adapters](/docs/adapters/sqlx) — primary persistence

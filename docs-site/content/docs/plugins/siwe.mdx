@@ -1,0 +1,101 @@
+---
+title: SIWE
+description: Sign-In with Ethereum (SIWE) for RustAuth server plugin.
+---
+
+The SIWE plugin authenticates users with Sign-In with Ethereum (EIP-4361) messages. It issues nonces, verifies signed messages, and stores wallet addresses linked to user accounts.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+Production configuration with required callbacks:
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use rustauth::plugins::siwe::SiweVerifyMessageArgs;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(siwe(
+        SiweOptions::new(
+            "app.example.com",
+            || async { Ok(generate_nonce()) },
+            |args: SiweVerifyMessageArgs| async move {
+                Ok(verify_siwe_signature(&args.message, &args.signature)?)
+            },
+        )
+        .email_domain_name("wallets.example.com")
+        .anonymous(true),
+    )?)
+    .build()
+    .await?;
+```
+
+For local development only, the reference stack uses `siwe_dev()`:
+
+```rust
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(siwe_dev()?)
+    .build()
+    .await?;
+```
+
+<Callout type="warn">
+  `siwe_dev()` and `siwe_dev_domain()` are for development only. Never use them in production.
+</Callout>
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `domain` | Expected SIWE domain (required in production) |
+| `email_domain_name` | Domain for synthetic user emails |
+| `anonymous` | Allow wallet-only users without prior account (default `true`) |
+| `get_nonce` | Async nonce generator (required) |
+| `verify_message` | Async signature verifier (required) |
+| `ens_lookup` | Optional ENS name resolver |
+| `schema` | Table and column overrides via `SiweSchemaOptions` |
+
+Builder API: `SiweOptions::builder()` with `domain`, `email_domain_name`, `anonymous`, `get_nonce`, `verify_message`, `ens_lookup`, `schema`, and `build()`.
+
+Nonces are stored in the verification store with a 15-minute TTL.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/siwe/nonce` | Request a sign-in nonce |
+| POST | `/siwe/verify` | Verify a signed SIWE message and create a session |
+
+Typical flow: fetch a nonce, construct the SIWE message in the wallet, sign it, then POST the message and signature to `/siwe/verify`.
+
+## Database
+
+The plugin adds **`wallet_addresses`** (customizable via schema options):
+
+| Column | Description |
+| --- | --- |
+| `id` | Record ID |
+| `user_id` | Linked user |
+| `address` | Wallet address |
+| `chain_id` | Chain identifier |
+| `is_primary` | Primary wallet flag |
+| `created_at` | Creation timestamp |
+
+Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

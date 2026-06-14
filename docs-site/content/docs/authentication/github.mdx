@@ -1,0 +1,48 @@
+---
+title: GitHub
+description: GitHub OAuth provider for RustAuth.
+---
+
+Register an OAuth application in the GitHub developer console. Set the redirect URL to:
+
+```
+{RUSTAUTH_BASE_URL}/callback/github
+```
+
+For local development, when `RUSTAUTH_BASE_URL` is `http://127.0.0.1:3000/api/auth`, use `http://127.0.0.1:3000/api/auth/callback/github`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(providers::github(
+        SocialProviderConfig::from_env("GITHUB")?,
+    )?)
+    .build()
+    .await?;
+```
+
+Environment variables: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`.
+
+Request the `user:email` scope in your GitHub OAuth app.
+
+## Sign in
+
+Redirect browsers to:
+
+```
+GET {base_url}/sign-in/social?provider=github
+```
+
+RustAuth completes the flow at `GET {base_url}/callback/github`. RustAuth does not ship a browser client — use your app's BFF or direct redirects. See [basic usage](/docs/basic-usage).

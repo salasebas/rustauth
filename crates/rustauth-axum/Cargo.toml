@@ -1,0 +1,37 @@
+[package]
+name = "rustauth-axum"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-axum"
+readme = "README.md"
+description = "Axum integration for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+test-utils = []
+
+[dependencies]
+axum.workspace = true
+http-body-util.workspace = true
+rustauth.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+rustauth = { workspace = true, features = ["oauth", "social-providers", "jose"] }
+rustauth-core = { workspace = true, features = ["test-utils"] }
+time.workspace = true
+tower = { version = "0.5", features = ["util"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+url.workspace = true
+
+[lints]
+workspace = true

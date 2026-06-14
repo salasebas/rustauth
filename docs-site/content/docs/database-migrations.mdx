@@ -1,0 +1,107 @@
+---
+title: Database migrations
+description: Apply RustAuth schema with the CLI, keep rustauth.toml aligned with your app, and understand incremental plugin migrations and error guards.
+---
+
+RustAuth schema changes are applied with the **CLI**, not at application startup.
+
+## `rustauth.toml` vs application code
+
+| | Better Auth (upstream) | RustAuth |
+| --- | --- | --- |
+| CLI config source | Executable TypeScript auth config | Static `rustauth.toml` + `.env` |
+| Runtime config | Same TS auth module | `RustAuth::builder()` in Rust |
+| Plugin discovery for migrations | From live TS config | From `[plugins].enabled` in TOML |
+
+You need **`rustauth.toml`** for `rustauth db status`, `db generate`, and
+`db migrate`. The CLI does not compile your application. Keep `[database]` and
+`[plugins].enabled` aligned with the adapter and plugin ids you register in Rust.
+
+```bash
+rustauth init --seed-secrets
+```
+
+Manual playground: [`examples/cli-migrate-playground`](https://github.com/salasebas/rustauth/tree/main/examples/cli-migrate-playground).
+
+## Workflow
+
+```bash
+rustauth db status
+rustauth db generate --yes    # optional: write migrations/rustauth/*.sql
+rustauth db migrate --yes
+```
+
+Use `rustauth db status --check` in CI to fail when pending schema changes exist.
+
+## Supported adapters
+
+| `database.adapter` | Providers |
+| --- | --- |
+| `sqlx` | `sqlite`, `postgres`, `mysql` |
+| `tokio-postgres` | `postgres` |
+| `deadpool-postgres` | `postgres` |
+
+Use the same adapter in `rustauth.toml` that your application uses at runtime.
+
+## Behavior guarantees
+
+### Additive-only
+
+Migrations create missing tables, columns, and indexes. Removing a plugin id
+from `rustauth.toml` **does not** drop its tables.
+
+### Incremental plugins
+
+1. Migrate the core schema.
+2. Add a plugin id to `[plugins].enabled` (or `rustauth plugins add … --yes`).
+3. `db status` — only new objects appear.
+4. `db migrate --yes` again.
+
+### App-configured plugins (additional-fields)
+
+Some plugins depend on **per-app configuration** in Rust. The CLI enables the plugin id in `rustauth.toml` but uses default stubs — it cannot see your builder options.
+
+| Plugin | CLI `db migrate` | You must |
+| --- | --- | --- |
+| [additional-fields](/docs/plugins/additional-fields) | Does **not** create your custom `user` / `session` columns | Add columns via your own SQL migration (or schema export from app code) |
+
+Runtime behavior (validation, API fields) still comes from `additional_fields(...)` in Rust. See the [Additional Fields](/docs/plugins/additional-fields#database) database section.
+
+### Idempotence
+
+When the database matches the target schema, `db migrate` prints
+`No migrations needed.`
+
+### No rollback command
+
+There is no `rustauth db rollback`. Reset dev databases manually (delete SQLite
+files, drop Postgres schemas, etc.).
+
+## Error and guard behavior
+
+| Situation | `db status` | `db migrate` |
+| --- | --- | --- |
+| Pending schema changes | Lists plan; `--check` exits `1` | Applies when safe |
+| Column / FK type mismatch | `WARNING: …` | **Blocked** (non-executable warnings) |
+| Missing `rustauth.toml` or `DATABASE_URL` | Error | Error |
+| Plugin in TOML without matching CLI feature | Error | Error |
+| Duplicate generated SQL for same plan | — | Error unless `--force` |
+| SQLite UNIQUE column add to existing table | May plan adds | **Fails at apply** |
+
+Fix mismatches manually, then re-run migrate. Unsafe plans fail before
+`--dry-run` completes.
+
+## Testing
+
+```bash
+cargo nextest run -p rustauth-cli --all-features --test migration_flows
+```
+
+Test matrix and Docker-backed Postgres cases:
+[`crates/rustauth-cli/tests/README.md`](https://github.com/salasebas/rustauth/tree/main/crates/rustauth-cli/tests/README.md).
+
+## Related
+
+- [CLI](/docs/concepts/cli)
+- [Database concept](/docs/concepts/database)
+- [Installation](/docs/installation)

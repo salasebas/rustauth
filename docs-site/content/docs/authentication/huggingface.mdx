@@ -1,0 +1,46 @@
+---
+title: Hugging Face
+description: Hugging Face OAuth provider for RustAuth.
+---
+
+Register an OAuth application in the Hugging Face developer console. Set the redirect URL to:
+
+```
+{RUSTAUTH_BASE_URL}/callback/huggingface
+```
+
+For local development, when `RUSTAUTH_BASE_URL` is `http://127.0.0.1:3000/api/auth`, use `http://127.0.0.1:3000/api/auth/callback/huggingface`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(providers::huggingface(
+        SocialProviderConfig::from_env("HUGGINGFACE")?,
+    )?)
+    .build()
+    .await?;
+```
+
+Environment variables: `HUGGINGFACE_CLIENT_ID`, `HUGGINGFACE_CLIENT_SECRET`.
+
+## Sign in
+
+Redirect browsers to:
+
+```
+GET {base_url}/sign-in/social?provider=huggingface
+```
+
+RustAuth completes the flow at `GET {base_url}/callback/huggingface`. RustAuth does not ship a browser client — use your app's BFF or direct redirects. See [basic usage](/docs/basic-usage).

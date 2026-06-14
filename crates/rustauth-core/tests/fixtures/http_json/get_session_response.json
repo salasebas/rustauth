@@ -1,0 +1,21 @@
+{
+  "session": {
+    "id": "sess_1",
+    "userId": "user_1",
+    "token": "token_1",
+    "expiresAt": "2026-06-11T12:00:00.000Z",
+    "ipAddress": null,
+    "userAgent": "Test",
+    "createdAt": "2026-06-01T00:00:00.000Z",
+    "updatedAt": "2026-06-01T00:00:00.000Z"
+  },
+  "user": {
+    "id": "user_1",
+    "name": "Ada Lovelace",
+    "email": "ada@example.com",
+    "emailVerified": true,
+    "image": null,
+    "createdAt": "2026-06-01T00:00:00.000Z",
+    "updatedAt": "2026-06-01T00:00:00.000Z"
+  }
+}

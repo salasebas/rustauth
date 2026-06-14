@@ -1,0 +1,242 @@
+---
+title: SAML SSO with Okta
+description: Configure Okta SAML single sign-on with the RustAuth SSO plugin (experimental).
+---
+
+This guide walks through SAML single sign-on (SSO) with Okta as the identity provider (IdP) and RustAuth as the service provider (SP). For endpoint tables, feature flags, and provider management APIs, see the [SSO plugin](/docs/plugins/sso).
+
+<Callout type="info">
+  The SSO plugin — and SAML routes in particular — are **experimental**. Route shapes and SAML behavior may change. Prefer OIDC for new integrations when your IdP supports it.
+</Callout>
+
+<Callout type="warn">
+  Production SAML with signed AuthnRequests, encrypted assertions, or strict algorithm policies may still be incomplete. Read the [`rustauth-sso` README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-sso/README.md) and run integration tests against your IdP before promising production readiness.
+</Callout>
+
+## What is SAML?
+
+SAML (Security Assertion Markup Language) exchanges authentication data between an IdP (Okta, Azure AD, OneLogin, and others) and your application. In this setup:
+
+- **IdP (Okta)** authenticates users and sends signed assertions about their identity.
+- **SP (RustAuth)** validates assertions, provisions or links accounts, and creates a session.
+
+RustAuth has **no browser auth client SDK**. Frontends start SSO over HTTP and follow redirects; the browser completes the SAML dance with Okta.
+
+<Steps>
+  <Step>
+    ## Create a SAML application in Okta
+
+    1. Sign in to the Okta Admin Console.
+    2. Go to **Applications → Applications**.
+    3. Click **Create App Integration**.
+    4. Choose **SAML 2.0** as the sign-in method.
+    5. Configure URLs under your RustAuth `base_path` (default `/api/auth`). Replace `app.example.com` and `{providerId}` with your values (for example `okta-prod`):
+
+    | Okta field | Example value |
+    | --- | --- |
+    | **Single sign-on URL** | `https://app.example.com/api/auth/sso/saml2/sp/acs/{providerId}` |
+    | **Audience URI (SP Entity ID)** | `https://app.example.com/api/auth/sso/saml2/sp/metadata` |
+    | **Name ID format** | Email Address (or your policy) |
+
+    6. Download the IdP metadata XML and signing certificate from Okta.
+
+    <Callout type="info">
+      **IdP-initiated SSO** (Okta dashboard tile): point the **Single sign-on URL** at the callback route instead: `https://app.example.com/api/auth/sso/saml2/callback/{providerId}`. RustAuth supports SP-initiated (AuthnRequest → ACS) and IdP-initiated flows when `SamlOptions::allow_idp_initiated` is enabled (default).
+    </Callout>
+  </Step>
+
+  <Step>
+    ## Enable SAML in RustAuth
+
+    Add the SSO and SAML features:
+
+    ```toml title="Cargo.toml"
+    [dependencies]
+    rustauth = { version = "0.1", features = ["sso", "saml"] }
+    tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+    ```
+
+    Wire the SSO plugin with a static provider in `default_sso`. Field names are Rust `snake_case`; HTTP JSON bodies use `camelCase` (see sign-in examples below).
+
+    ```rust title="src/auth.rs"
+    use rustauth::RustAuth;
+    use rustauth::sso::{sso, SamlConfig, SamlSpMetadata, SsoOptions, SsoProvider};
+
+    let provider_id = "okta-prod";
+
+    let auth = RustAuth::builder()
+        .secret("secret-a-at-least-32-chars-long!!")
+        .base_url("https://app.example.com/api/auth")
+        .plugin(sso(SsoOptions {
+            default_sso: vec![SsoProvider {
+                provider_id: provider_id.to_owned(),
+                issuer: "https://YOUR_OKTA_DOMAIN".to_owned(), // IdP issuer / entity ID
+                domain: "example.com".to_owned(),
+                organization_id: None,
+                oidc_config: None,
+                saml_config: Some(SamlConfig {
+                    issuer: "https://app.example.com/api/auth/sso/saml2/sp/metadata".to_owned(),
+                    entry_point: "https://YOUR_OKTA_DOMAIN/app/APP_ID/sso/saml".to_owned(),
+                    cert: std::env::var("OKTA_IDP_CERT")?, // PEM or base64 body; load from file in production
+                    callback_url: format!(
+                        "https://app.example.com/api/auth/sso/saml2/sp/acs/{provider_id}"
+                    ),
+                    acs_url: None,
+                    audience: None,
+                    idp_metadata: None, // optional: parse Okta metadata XML into SamlIdpMetadata
+                    sp_metadata: SamlSpMetadata::default(),
+                    mapping: None,
+                    want_assertions_signed: true,
+                    authn_requests_signed: false,
+                    signature_algorithm: None,
+                    digest_algorithm: None,
+                    identifier_format: None,
+                    private_key: None,
+                    decryption_pvk: None,
+                    additional_params: None,
+                }),
+            }],
+            ..SsoOptions::default()
+        }))
+        .build()
+        .await?;
+    ```
+
+    **Certificates:** load the IdP signing certificate from a secret store or file. Do not paste multi-line PEM blocks into source control.
+
+    Run migrations after enabling the plugin:
+
+    ```bash
+    rustauth db migrate
+    ```
+
+    Confirm SP metadata is reachable:
+
+    ```bash
+    curl -sS 'https://app.example.com/api/auth/sso/saml2/sp/metadata'
+    ```
+  </Step>
+
+  <Step>
+    ## Multiple default providers (optional)
+
+    Seed more than one SAML provider when different email domains map to different IdPs:
+
+    ```rust
+    default_sso: vec![
+        SsoProvider {
+            provider_id: "company-okta".into(),
+            issuer: "https://company.okta.com".into(),
+            domain: "company.com".into(),
+            organization_id: None,
+            oidc_config: None,
+            saml_config: Some(/* company Okta SamlConfig */),
+        },
+        SsoProvider {
+            provider_id: "partner-adfs".into(),
+            issuer: "https://adfs.partner.com".into(),
+            domain: "partner.com".into(),
+            organization_id: None,
+            oidc_config: None,
+            saml_config: Some(/* partner ADFS SamlConfig */),
+        },
+    ],
+    ```
+
+    Sign-in resolution for `default_sso` entries:
+
+    - **`providerId`** — explicit provider (recommended).
+    - **`email`** — domain taken from the address (`user@company.com` → `company.com`).
+    - **`domain`** — explicit domain match against each provider's `domain` field (comma-separated domains are supported on stored providers).
+  </Step>
+
+  <Step>
+    ## Start sign-in (HTTP)
+
+    `POST /sign-in/sso` returns JSON with a redirect `url` for SP-initiated SAML. The user's browser follows that URL to Okta; Okta posts the assertion to your ACS route; RustAuth redirects to `callbackURL` on success.
+
+    **By `providerId` (recommended):**
+
+    ```bash
+    curl -sS -X POST 'https://app.example.com/api/auth/sign-in/sso' \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "providerId": "okta-prod",
+        "providerType": "saml",
+        "callbackURL": "/dashboard",
+        "errorCallbackURL": "/login-error"
+      }'
+    ```
+
+    **By email domain** (matches `default_sso` or registered providers for that domain):
+
+    ```bash
+    curl -sS -X POST 'https://app.example.com/api/auth/sign-in/sso' \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "email": "user@example.com",
+        "providerType": "saml",
+        "callbackURL": "/dashboard"
+      }'
+    ```
+
+    **By explicit domain:**
+
+    ```bash
+    curl -sS -X POST 'https://app.example.com/api/auth/sign-in/sso' \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "domain": "example.com",
+        "providerType": "saml",
+        "callbackURL": "/dashboard"
+      }'
+    ```
+
+    Notes:
+
+    - Paths are relative to your configured `base_path`.
+    - `callbackURL` is the post-login destination in your app, not the SAML ACS URL. The ACS URL is `callback_url` in `SamlConfig` (defaults to `{base_url}/sso/saml2/sp/acs/{providerId}` when omitted in some flows).
+    - When domain verification is enabled on the plugin, unverified provider domains return `DOMAIN_NOT_VERIFIED` until DNS TXT verification completes ([SSO plugin](/docs/plugins/sso)).
+  </Step>
+
+  <Step>
+    ## Register providers dynamically
+
+    Tenants can register their own SAML providers with `POST /sso/register`. The caller must already have an authenticated session (session cookie from a signed-in user).
+
+    ```bash
+    curl -sS -X POST 'https://app.example.com/api/auth/sso/register' \
+      -H 'Content-Type: application/json' \
+      -H 'Cookie: rustauth.session_token=YOUR_SESSION' \
+      -d '{
+        "providerId": "okta-prod",
+        "issuer": "https://YOUR_OKTA_DOMAIN",
+        "domain": "example.com",
+        "samlConfig": {
+          "issuer": "https://app.example.com/api/auth/sso/saml2/sp/metadata",
+          "entryPoint": "https://YOUR_OKTA_DOMAIN/app/APP_ID/sso/saml",
+          "cert": "BASE64_OR_PEM_CERT_BODY",
+          "callbackUrl": "https://app.example.com/api/auth/sso/saml2/sp/acs/okta-prod",
+          "spMetadata": {}
+        }
+      }'
+    ```
+
+    JSON field names for registration and sign-in use **camelCase** on the wire (`providerId`, `samlConfig`, `callbackURL`). See the [SSO plugin](/docs/plugins/sso) endpoint table and `rustauth-sso` tests under `crates/rustauth-sso/tests/sso/endpoints/` for full payloads.
+  </Step>
+</Steps>
+
+## Related routes
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/sign-in/sso` | Start SSO (returns IdP redirect URL for SAML) |
+| POST | `/sso/saml2/sp/acs/:providerId` | Assertion Consumer Service (Okta POST target) |
+| GET | `/sso/saml2/callback/:providerId` | IdP-initiated callback |
+| GET | `/sso/saml2/sp/metadata` | SP metadata for Okta Audience URI |
+
+## Additional resources
+
+- [SSO plugin documentation](/docs/plugins/sso)
+- [Okta SAML documentation](https://developer.okta.com/docs/concepts/saml/)
+- [SAML 2.0 core specification](https://docs.oasis-open.org/security/saml/v2.0/saml-core-2.0-os.pdf)

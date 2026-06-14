@@ -1,0 +1,24 @@
+{
+  "providerId": "saml-google-prod",
+  "issuer": "https://accounts.google.com/o/saml2?idpid=C01234567",
+  "domain": "example.com",
+  "samlConfig": {
+    "issuer": "https://app.example.com/sso/saml2/sp/metadata",
+    "entryPoint": "https://accounts.google.com/o/saml2/idp?idpid=C01234567",
+    "callbackUrl": "https://app.example.com/sso/saml2/sp/acs/saml-google-prod",
+    "audience": "https://app.example.com/saml/sp",
+    "spMetadata": { "entityId": "https://app.example.com/saml/sp" },
+    "idpMetadata": {
+      "entityId": "https://accounts.google.com/o/saml2?idpid=C01234567"
+    },
+    "wantAssertionsSigned": true,
+    "authnRequestsSigned": false,
+    "mapping": {
+      "id": "email",
+      "email": "email",
+      "extraFields": {
+        "hostedDomain": "hd"
+      }
+    }
+  }
+}

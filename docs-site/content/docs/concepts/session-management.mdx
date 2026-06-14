@@ -1,0 +1,133 @@
+---
+title: Session Management
+description: Configure session expiration, freshness, cookie cache, secondary storage, and session HTTP endpoints in RustAuth.
+---
+
+RustAuth uses cookie-based sessions backed by a database or secondary storage by default. Each request sends the session cookie; the server validates the token and returns user data from `GET /get-session`.
+
+RustAuth has no reactive `useSession` hook—frontends poll or call `/get-session` through a BFF.
+
+## Session table
+
+Persisted sessions include:
+
+| Field | Description |
+| --- | --- |
+| `id` | Unique session id |
+| `token` | Session token (cookie value) |
+| `user_id` | Owning user |
+| `expires_at` | Expiration time |
+| `ip_address` | Optional client IP |
+| `user_agent` | Optional user agent |
+| `created_at` / `updated_at` | Timestamps |
+
+## Session options
+
+Configure [`SessionOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.SessionOptions.html):
+
+```rust
+use rustauth::prelude::*;
+use time::Duration;
+
+RustAuth::builder()
+    .session(
+        SessionOptions::new()
+            .expires_in(Duration::days(7))
+            .update_age(Duration::hours(24))
+            .fresh_age(Duration::days(1)),
+    )
+    // ...
+```
+
+Defaults: **7-day** expiry, **24-hour** refresh window (`update_age`), **1-day** freshness (`fresh_age`).
+
+### Disable session refresh
+
+```rust
+SessionOptions::new().disable_session_refresh(true)
+```
+
+### Defer session refresh
+
+When `defer_session_refresh` is true, `GET /get-session` stays read-only and may return `needsRefresh: true`; clients POST to `/get-session` to refresh (useful with read replicas):
+
+```rust
+SessionOptions::new().defer_session_refresh(true)
+```
+
+## Session freshness
+
+Some sensitive routes require a **fresh** session (created within `fresh_age`). Disable the check with `fresh_age(Duration::seconds(0))`.
+
+## HTTP session endpoints
+
+All routes are under your auth base path. Forward the session cookie on authenticated calls.
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/get-session` | GET / POST | Current session and user |
+| `/list-sessions` | GET | Active sessions for the user |
+| `/revoke-session` | POST | Revoke one session by token |
+| `/revoke-sessions` | POST | Revoke all sessions |
+| `/revoke-other-sessions` | POST | Revoke all except current |
+| `/update-session` | POST | Update custom session fields |
+
+Example:
+
+```rust
+use http::{Method, Request};
+
+let request = Request::builder()
+    .method(Method::GET)
+    .uri("https://app.example.com/api/auth/get-session")
+    .header(http::header::COOKIE, session_cookie)
+    .body(Vec::new())?;
+
+let response = auth.handler_async(request).await?;
+```
+
+### Revoke on password change
+
+POST `/change-password` with `"revokeOtherSessions": true` in the JSON body.
+
+## Cookie cache
+
+Reduce database reads by caching session payload in a short-lived signed cookie:
+
+```rust
+SessionOptions::new().cookie_cache(
+    CookieCacheOptions::builder()
+        .enabled(true)
+        .max_age(Duration::minutes(5))
+        .strategy(CookieCacheStrategy::Compact),
+)
+```
+
+Strategies: `Compact` (default, smallest), `Jwt` (interoperable signed JWT), `Jwe` (encrypted).
+
+<Callout type="info">
+  Revoked sessions may appear valid on other devices until the cookie cache expires. Use shorter `max_age`, disable cache, or pass `disableCookieCache=true` on `/get-session` when immediate revocation matters.
+</Callout>
+
+Invalidate all sessions after deploy by bumping cache version:
+
+```rust
+CookieCacheOptions::builder().version("2")
+```
+
+## Secondary storage
+
+Provide [`SecondaryStorage`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.SecondaryStorage.html) (Redis via `rustauth-redis` / `rustauth-fred`) to store sessions outside the primary database.
+
+```rust
+SessionOptions::new().store_session_in_database(true) // keep DB copy when using secondary storage
+SessionOptions::new().preserve_session_in_database(true) // keep revoked rows for audit
+```
+
+## Stateless sessions
+
+Without a database adapter, RustAuth can operate in a cookie-only mode suitable for edge or demo setups. Enable cookie cache with a long `max_age` and configure [`AccountOptions::store_account_cookie`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AccountOptions.html) for OAuth account payloads. Production apps should use a durable adapter and run `rustauth db migrate`.
+
+## Custom session responses
+
+Use the [Custom Session](/docs/plugins/custom-session) plugin to enrich `/get-session` JSON. Custom fields are recomputed when the session is fetched; they are not stored in cookie cache payloads.

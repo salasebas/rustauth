@@ -1,0 +1,732 @@
+#![allow(clippy::expect_used)]
+
+use assert_cmd::Command;
+use predicates::prelude::*;
+use rustauth_cli::secret::{assess_secret, SecretSeverity};
+use std::fs;
+
+fn write_sqlite_config(dir: &std::path::Path, adapter: &str, plugins: &[&str]) {
+    let plugins = plugins
+        .iter()
+        .map(|plugin| format!("\"{plugin}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    fs::write(
+        dir.join("rustauth.toml"),
+        format!(
+            r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "{adapter}"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+enabled = [{plugins}]
+"#
+        ),
+    )
+    .expect("write config");
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn migrate_dry_run_does_not_apply_changes() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let database_url = format!("sqlite://{}", temp.path().join("auth.sqlite").display());
+    write_sqlite_config(temp.path(), "sqlx", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--from-empty",
+            "--yes",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success();
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--dry-run",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dry run complete"))
+        .stderr(predicate::str::contains("\"outcome\": \"dry_run\"").not());
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--check",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .failure();
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn generate_force_overwrites_duplicate_plan() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let database_url = format!("sqlite://{}", temp.path().join("auth.sqlite").display());
+    write_sqlite_config(temp.path(), "sqlx", &[]);
+
+    for _ in 0..2 {
+        Command::cargo_bin("rustauth")
+            .expect("binary")
+            .args([
+                "db",
+                "generate",
+                "--cwd",
+                temp.path().to_str().expect("utf8 path"),
+                "--from-empty",
+                "--force",
+                "--yes",
+            ])
+            .env("DATABASE_URL", &database_url)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Generated migration:"));
+    }
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn doctor_strict_fails_on_warnings() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        temp.path().join("rustauth.toml"),
+        r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "sqlx"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+enabled = []
+"#,
+    )
+    .expect("write config");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "doctor",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--strict",
+        ])
+        .env_remove("RUSTAUTH_SECRET")
+        .env("DATABASE_URL", "sqlite::memory:")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("[WARN]"));
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn plugins_remove_updates_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "sqlx", &["username"]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "plugins",
+            "remove",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "username",
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "does not generate destructive migrations",
+        ));
+
+    let config = fs::read_to_string(temp.path().join("rustauth.toml")).expect("config");
+    assert!(!config.contains("\"username\""));
+}
+
+#[test]
+fn schema_print_json_format() {
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args(["schema", "print", "--format", "json", "--dialect", "sqlite"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"tables\""));
+}
+
+#[test]
+fn completions_prints_script_for_bash() {
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("rustauth"));
+}
+
+#[test]
+fn init_force_overwrites_existing_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        temp.path().join("rustauth.toml"),
+        "[project]\nframework = \"actix-web\"\n",
+    )
+    .expect("write config");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "init",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--force",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let config = fs::read_to_string(temp.path().join("rustauth.toml")).expect("config");
+    assert!(config.contains("framework = \"axum\""));
+}
+
+#[test]
+fn init_merges_missing_keys_into_existing_env_without_overwriting() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        temp.path().join(".env"),
+        "RUSTAUTH_SECRET=existing-secret\nCUSTOM_VAR=keep-me\n",
+    )
+    .expect("write env");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "init",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Synced .env.example and .env"));
+
+    let env = fs::read_to_string(temp.path().join(".env")).expect(".env");
+    assert!(env.contains("RUSTAUTH_SECRET=existing-secret"));
+    assert!(env.contains("CUSTOM_VAR=keep-me"));
+    assert!(env.contains("DATABASE_URL="));
+}
+
+#[test]
+fn init_creates_env_when_missing() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "init",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let env = fs::read_to_string(temp.path().join(".env")).expect(".env");
+    assert!(env.contains("RUSTAUTH_SECRET="));
+    assert!(env.contains("DATABASE_URL="));
+}
+
+#[test]
+fn secret_check_dev_mode_allows_development_placeholder() {
+    let assessment = assess_secret("rustauth-secret-123456789012345678901", false);
+    assert_eq!(assessment.severity, SecretSeverity::Ok);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "secret",
+            "--check",
+            "rustauth-secret-123456789012345678901",
+            "--dev",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn migrate_unsupported_prisma_adapter_exits_successfully() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "prisma", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", "sqlite::memory:")
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains("sqlx adapter"));
+}
+
+#[test]
+fn migrate_tokio_postgres_adapter_does_not_print_sqlx_guidance() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "tokio-postgres", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", "sqlite::memory:")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Set `database.adapter = \"sqlx\"`").not());
+}
+
+#[test]
+fn migrate_deadpool_postgres_adapter_does_not_print_sqlx_guidance() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "deadpool-postgres", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", "sqlite::memory:")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Set `database.adapter = \"sqlx\"`").not());
+}
+
+#[test]
+#[cfg(feature = "tokio-postgres")]
+fn doctor_tokio_postgres_adapter_reports_migration_support() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        temp.path().join("rustauth.toml"),
+        r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "tokio-postgres"
+provider = "postgres"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+enabled = []
+"#,
+    )
+    .expect("write config");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "doctor",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .env_remove("DATABASE_URL")
+        .env("RUSTAUTH_SECRET", "RustAuthSecretForCliTests-1234567890!")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"migration_support\": true"))
+        .stdout(predicate::str::contains("database.migrations_unsupported").not());
+}
+
+#[test]
+#[cfg(not(feature = "tokio-postgres"))]
+fn doctor_tokio_postgres_without_cli_feature_reports_disabled() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::create_dir_all(temp.path().join("src")).expect("create src dir");
+    fs::write(
+        temp.path().join("Cargo.toml"),
+        r#"
+[package]
+name = "rustauth-doctor-cli-feature-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+"#,
+    )
+    .expect("write Cargo.toml");
+    fs::write(temp.path().join("src/main.rs"), "fn main() {}\n").expect("write main.rs");
+    fs::write(
+        temp.path().join("rustauth.toml"),
+        r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "tokio-postgres"
+provider = "postgres"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+enabled = []
+"#,
+    )
+    .expect("write config");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "doctor",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .env_remove("DATABASE_URL")
+        .env("RUSTAUTH_SECRET", "RustAuthSecretForCliTests-1234567890!")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("database.cli_feature_disabled"))
+        .stdout(predicate::str::contains("database.adapter_mismatch").not());
+}
+
+#[test]
+#[cfg(feature = "telemetry")]
+fn migrate_unsupported_adapter_emits_telemetry_when_debug_enabled() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "memory", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("RUSTAUTH_TELEMETRY", "true")
+        .env("RUSTAUTH_TELEMETRY_DEBUG", "true")
+        .env(
+            "RUSTAUTH_TELEMETRY_ENDPOINT",
+            "http://telemetry.invalid/collect",
+        )
+        .env("DATABASE_URL", "sqlite::memory:")
+        .env("RUSTAUTH_SECRET", "super-secret-value-67890")
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains("\"type\": \"init\""))
+        .stderr(predicate::str::contains("\"type\": \"cli_migrate\""))
+        .stderr(predicate::str::contains(
+            "\"outcome\": \"unsupported_adapter\"",
+        ))
+        .stderr(predicate::str::contains("http://localhost:3000/api/auth").not())
+        .stderr(predicate::str::contains("super-secret-value-67890").not())
+        .stderr(predicate::str::contains("RUSTAUTH_SECRET").not())
+        .stderr(predicate::str::contains("sqlite::memory:").not());
+}
+
+fn write_config_at(path: &std::path::Path, adapter: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create config parent");
+    }
+    fs::write(
+        path,
+        format!(
+            r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "{adapter}"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+enabled = []
+"#
+        ),
+    )
+    .expect("write config");
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn custom_config_loads_env_from_config_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config/auth.toml");
+    write_config_at(&config_path, "sqlx");
+    let database_url = format!(
+        "sqlite://{}",
+        temp.path().join("from-config-env.sqlite").display()
+    );
+    fs::write(
+        config_path.parent().expect("config dir").join(".env"),
+        format!(
+            "DATABASE_URL={database_url}\nRUSTAUTH_SECRET=RustAuthSecretForCliTests-1234567890!\n"
+        ),
+    )
+    .expect("write config env");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--config",
+            "config/auth.toml",
+        ])
+        .env_remove("DATABASE_URL")
+        .env_remove("RUSTAUTH_SECRET")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Tables to create:"));
+}
+
+#[test]
+fn doctor_reads_env_from_custom_config_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config/auth.toml");
+    write_config_at(&config_path, "sqlx");
+    fs::write(
+        config_path.parent().expect("config dir").join(".env"),
+        "DATABASE_URL=sqlite::memory:\nRUSTAUTH_SECRET=RustAuthSecretForCliTests-1234567890!\n",
+    )
+    .expect("write config env");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "doctor",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--config",
+            "config/auth.toml",
+        ])
+        .env_remove("DATABASE_URL")
+        .env_remove("RUSTAUTH_SECRET")
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn cwd_env_takes_precedence_over_custom_config_directory_env() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config/auth.toml");
+    write_config_at(&config_path, "sqlx");
+    let config_db = temp.path().join("from-config-dir.sqlite");
+    let cwd_db = temp.path().join("from-cwd.sqlite");
+    fs::write(
+        config_path.parent().expect("config dir").join(".env"),
+        format!("DATABASE_URL=sqlite://{}\n", config_db.display()),
+    )
+    .expect("write config env");
+    fs::write(
+        temp.path().join(".env"),
+        format!(
+            "DATABASE_URL=sqlite://{}\nRUSTAUTH_SECRET=RustAuthSecretForCliTests-1234567890!\n",
+            cwd_db.display()
+        ),
+    )
+    .expect("write cwd env");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--config",
+            "config/auth.toml",
+        ])
+        .env_remove("DATABASE_URL")
+        .env_remove("RUSTAUTH_SECRET")
+        .assert()
+        .success();
+
+    assert!(!config_db.exists());
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn env_local_is_loaded_without_overriding_existing_variables() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "sqlx", &[]);
+    fs::write(
+        temp.path().join(".env.local"),
+        "DATABASE_URL=sqlite://from-local.sqlite\n",
+    )
+    .expect("write env local");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", "sqlite://from-process.sqlite")
+        .assert()
+        .success();
+
+    assert!(!temp.path().join("from-local.sqlite").exists());
+}
+
+#[test]
+#[cfg(feature = "sqlx")]
+fn global_cwd_short_flag_is_equivalent_to_long_flag() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "sqlx", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "-c",
+            temp.path().to_str().expect("utf8 path"),
+            "plugins",
+            "list",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"username\""));
+}
+
+#[test]
+fn info_json_includes_cli_version() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "sqlx", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "info",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"cli_version\""))
+        .stdout(predicate::str::contains("\"config_loaded\": true"));
+}
+
+#[test]
+fn init_seed_secrets_writes_generated_secret_to_new_env() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "init",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+            "--seed-secrets",
+        ])
+        .assert()
+        .success();
+
+    let example = fs::read_to_string(temp.path().join(".env.example")).expect("example");
+    assert!(example.contains("RUSTAUTH_SECRET=<generate-with-rustauth-secret>"));
+
+    let env = fs::read_to_string(temp.path().join(".env")).expect("env");
+    let secret_line = env
+        .lines()
+        .find(|line| line.starts_with("RUSTAUTH_SECRET="))
+        .expect("secret line");
+    let secret = secret_line.trim_start_matches("RUSTAUTH_SECRET=");
+    assert!(!secret.is_empty());
+    assert_ne!(secret, "<generate-with-rustauth-secret>");
+}
+
+#[test]
+fn plugins_add_requires_existing_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "plugins",
+            "add",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "username",
+            "--yes",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("rustauth init"));
+}

@@ -1,0 +1,41 @@
+---
+title: Apple
+description: Apple OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Apple. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/apple`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::apple::{apple, AppleOptions};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(apple(AppleOptions {
+    oauth: SocialProviderConfig::from_env("APPLE")?.into_provider_options(),
+    app_bundle_identifier: std::env::var("APPLE_APP_BUNDLE_ID").ok(),
+    audience: std::env::var("APPLE_AUDIENCE").map(|v| vec![v]).unwrap_or_default(),
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `APPLE_CLIENT_ID`, `APPLE_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=apple
+```
+
+Callback: `GET {base_url}/callback/apple`.

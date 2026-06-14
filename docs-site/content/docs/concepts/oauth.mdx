@@ -1,0 +1,104 @@
+---
+title: OAuth
+description: Configure social OAuth providers, sign-in and account linking, and server-side OAuth flows in RustAuth.
+---
+
+RustAuth supports OAuth 2.0 and OpenID Connect for social sign-in. Enable the `social-providers` feature on the `rustauth` crate, then register providers on [`RustAuthOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html).
+
+<Callout>
+  RustAuth does not ship a browser auth client. Social sign-in starts with an HTTP request from your frontend or BFF; the server responds with redirects and sets session cookies on callback.
+</Callout>
+
+## Configuring providers
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers", "sqlx-sqlite"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .social_provider(providers::google(SocialProviderConfig::new(
+        std::env::var("GOOGLE_CLIENT_ID")?,
+        std::env::var("GOOGLE_CLIENT_SECRET")?,
+    )))
+    .social_provider(providers::github(SocialProviderConfig::from_env("GITHUB")?))
+    .build()
+    .await?;
+```
+
+Load credentials from the environment with `SocialProviderConfig::from_env("GITHUB")` or the builder API on `SocialProviderConfig`.
+
+Provider-specific options live under `rustauth::social_providers::advanced` (Google, Apple, Microsoft Entra ID, and others).
+
+## Sign in
+
+POST `/sign-in/social` with JSON:
+
+```json
+{
+  "provider": "google",
+  "callbackURL": "https://app.example.com/dashboard"
+}
+```
+
+The handler returns a redirect URL or navigates the user through the provider authorization page. After callback at `/callback/{provider}`, RustAuth creates or links the user and sets session cookies.
+
+Example in-process call:
+
+```rust
+use http::{Method, Request};
+
+let body = serde_json::json!({
+    "provider": "google",
+    "callbackURL": "https://app.example.com/"
+});
+let request = Request::builder()
+    .method(Method::POST)
+    .uri("https://app.example.com/api/auth/sign-in/social")
+    .header(http::header::CONTENT_TYPE, "application/json")
+    .body(serde_json::to_vec(&body)?)?;
+
+let response = auth.handler_async(request).await?;
+```
+
+## Link and unlink accounts
+
+Authenticated users link additional providers with POST `/link-social`:
+
+```json
+{ "provider": "google", "callbackURL": "https://app.example.com/settings" }
+```
+
+Forward the session cookie on the request. Unlink with POST `/unlink-account`:
+
+```json
+{ "providerId": "google", "accountId": "optional-specific-id" }
+```
+
+Account linking defaults are configured in [`AccountLinkingOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AccountLinkingOptions.html) (`enabled`, `trusted_providers`, `allow_different_emails`, and related flags).
+
+## Access tokens
+
+Retrieve or refresh provider tokens with POST `/get-access-token` (session required). Token storage lives in the [`Account`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.Account.html) record.
+
+## OAuth state and cookies
+
+OAuth state is stored in the signed `oauth_state` cookie (or database when configured via [`OAuthStateStoreStrategy`](https://docs.rs/rustauth-core/latest/rustauth_core/options/enum.OAuthStateStoreStrategy.html)). Set [`AccountOptions::store_state_strategy`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AccountOptions.html) for cookie- vs database-backed state.
+
+## Providers without email
+
+Some providers omit email on later sign-ins. Map profiles in provider-specific advanced options or synthesize a placeholder email you control (never a real third-party inbox). Plugins that send mail cannot deliver to placeholder addresses.
+
+## Trusted origins and redirects
+
+Social flows validate `callbackURL` against [`TrustedOriginOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/enum.TrustedOriginOptions.html). Register every frontend origin that initiates OAuth.
+
+For custom or enterprise IdPs, see the [Generic OAuth](/docs/plugins/generic-oauth) and [SSO](/docs/plugins/sso) plugin docs.

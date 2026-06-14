@@ -1,0 +1,29 @@
+[package]
+name = "rustauth-social-providers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-social-providers"
+readme = "README.md"
+description = "Social OAuth provider definitions for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+base64.workspace = true
+josekit.workspace = true
+rustauth-oauth = { workspace = true, features = ["jose"] }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

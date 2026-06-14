@@ -1,0 +1,145 @@
+---
+title: SQLx
+description: SQLx database adapters for SQLite, PostgreSQL, and MySQL in RustAuth.
+---
+
+[`rustauth-sqlx`](https://docs.rs/rustauth-sqlx) provides [`DbAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html) implementations for SQLite, PostgreSQL, and MySQL through [SQLx](https://github.com/launchbadge/sqlx). Use it when your application already uses SQLx, or when SQLite is a good fit for local development and small deployments.
+
+Enable the matching dialect on the `rustauth` crate (`sqlx-sqlite`, `sqlx-postgres`, or `sqlx-mysql`) or depend on `rustauth-sqlx` directly with the crate's own feature flags.
+
+## Install
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["sqlx-sqlite"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly (no default features — enable exactly one dialect):
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-sqlx = { version = "0.1", default-features = false, features = ["sqlite"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+### Feature flags
+
+`rustauth-sqlx` ships with `default = []`. Enable the dialect(s) you need:
+
+| Feature | Dialect | Types |
+| --- | --- | --- |
+| `sqlite` | SQLite | `SqliteAdapter`, `SqliteStores`, `SqliteRateLimitStore` |
+| `postgres` | PostgreSQL | `PostgresAdapter`, `PostgresStores`, `PostgresRateLimitStore` |
+| `mysql` | MySQL | `MySqlAdapter`, `MySqlStores`, `MySqlRateLimitStore` |
+
+On the `rustauth` facade, use `sqlx-sqlite`, `sqlx-postgres`, or `sqlx-mysql` — each enables the matching `rustauth-sqlx` feature.
+
+## Quick start
+
+RustAuth storage backends share one vocabulary:
+
+| Type | Role |
+| --- | --- |
+| `XAdapter` | `DbAdapter` implementation |
+| `XStores` | Adapter + SQL-backed rate-limit store sharing one pool |
+| `XStoresBuilder` or `XStores::builder()` | Configure schema, pool, and connection |
+| `apply_to_options` | Wire the rate-limit store into [`RustAuthOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html) |
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_sqlx::SqliteStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = SqliteStores::connect_with_schema("sqlite://rustauth.db", schema).await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new().secret("secret-a-at-least-32-chars-long!!"),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+Swap `SqliteStores` for [`PostgresStores`](/docs/adapters/postgresql) or [`MySqlStores`](/docs/adapters/mysql) when targeting those databases.
+
+### Bring your own pool
+
+When the application already owns a `SqlitePool`, `PgPool`, or `MySqlPool`:
+
+```rust
+use rustauth_sqlx::{SqliteAdapter, SqliteRateLimitStore};
+
+let adapter = SqliteAdapter::with_schema(pool, schema);
+let rate_limit = SqliteRateLimitStore::from(&adapter);
+```
+
+## When to use
+
+| Scenario | Recommendation |
+| --- | --- |
+| Local dev, tests, small SQLite deployments | SQLx with [`sqlite`](/docs/adapters/sqlite) |
+| App already uses SQLx for Postgres or MySQL | SQLx with [`postgres`](/docs/adapters/postgresql) or [`mysql`](/docs/adapters/mysql) |
+| Production Postgres **without** SQLx | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) (pooled) or [`tokio-postgres`](/docs/adapters/tokio-postgres) (single client) |
+| Distributed rate limits or session offload | [`redis`](/docs/adapters/redis) or [`fred`](/docs/adapters/fred) as secondary storage (primary adapter still required for most plugins) |
+
+For Postgres production deployments that do not otherwise use SQLx, [`rustauth-deadpool-postgres`](/docs/adapters/deadpool-postgres) is usually a smaller operational fit than pulling in SQLx.
+
+## What it provides
+
+- Bundled `*Stores` types: adapter + SQL-backed rate-limit store sharing one pool (recommended entry point).
+- Matching `*Adapter` and `*RateLimitStore` types for BYO-pool setups.
+- Schema creation, migration planning, and additive migration execution.
+- SQL filter, sort, pagination, and transaction support used by RustAuth core and plugins.
+
+Migration planning types (`SchemaMigrationPlan`, `MigrationStatementKind`, …) live in [`rustauth_core::db`](https://docs.rs/rustauth-core/latest/rustauth_core/db/index.html), not in this crate.
+
+### Migration behavior
+
+Applications should apply schema with the CLI (see below). At the adapter layer, `DbAdapter::run_migrations` applies executable additive plans only:
+
+- Type mismatches, destructive rewrites, renames, and unsafe changes are reported as warnings or errors instead of being applied automatically.
+- `plan_migrations` and `compile_migrations` let you inspect generated SQL before applying it.
+- **Postgres and SQLite** run each plan inside a single database transaction.
+- **MySQL** cannot roll back DDL through a transaction; the adapter best-effort undoes successful statements in reverse order on failure.
+
+`SqliteAdapter::connect` enables `PRAGMA foreign_keys = ON` on every pooled connection.
+
+## CLI migrate
+
+Configure `rustauth.toml` with `database.adapter = "sqlx"` and the matching `provider` (`sqlite`, `postgres`, or `mysql`), then apply schema **before serving traffic**:
+
+```toml title="rustauth.toml"
+[database]
+adapter = "sqlx"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+```
+
+```bash title="Terminal"
+cargo install rustauth-cli --features sqlx
+rustauth db status
+rustauth db migrate --yes
+```
+
+Migrations are **CLI-only** — do not call a runtime migrate helper at application startup. See [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+Use the same adapter and provider in `rustauth.toml` that your application uses at runtime.
+
+## Dialect guides
+
+- [SQLite](/docs/adapters/sqlite) — local development and embedded deployments
+- [PostgreSQL](/docs/adapters/postgresql) — SQLx Postgres adapter
+- [MySQL](/docs/adapters/mysql) — SQLx MySQL adapter
+
+## Related
+
+- [Database](/docs/concepts/database) — core schema and adapter overview
+- [Rate limit](/docs/concepts/rate-limit) — memory, database, and Redis backends
+- [Installation](/docs/installation) — end-to-end setup

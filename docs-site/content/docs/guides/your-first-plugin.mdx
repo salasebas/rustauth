@@ -1,0 +1,202 @@
+---
+title: Create your first plugin
+description: Build a custom RustAuth server plugin with schema and before hooks.
+---
+
+In this guide you will create a small **birthday plugin** that stores a user's birth date and rejects sign-ups for users younger than five years old.
+
+<Callout type="warn">
+  This guide assumes you have [installed RustAuth](/docs/installation) and read [Plugins](/docs/concepts/plugins). RustAuth is **server-only**—there is no browser auth client SDK and no client-side plugin layer. Frontends call your plugin routes over HTTP.
+</Callout>
+
+<Steps>
+  <Step>
+    ## Plan your plugin
+
+    Pick a unique plugin id (kebab-case or lowercase, for example `birthday`). Decide what you need:
+
+    - Extra columns on core tables (schema contribution)
+    - Validation on existing routes (before hooks)
+    - New HTTP routes (optional; not needed for this tutorial)
+
+    We will add a required `birthday` timestamp on `user` and validate it on `POST /sign-up/email`.
+  </Step>
+
+  <Step>
+    ## Add dependencies
+
+    Enable the plugins feature on the `rustauth` crate:
+
+    ```toml title="Cargo.toml"
+    [dependencies]
+    rustauth = { version = "0.1", features = ["plugins", "sqlx-sqlite"] }
+    serde_json = "1"
+    time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
+    http = "1"
+    tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+    ```
+
+    Official plugins live in `rustauth-plugins`; custom plugins can live in your application crate (for example `src/auth/plugins/birthday.rs`).
+  </Step>
+
+  <Step>
+    ## Define the schema contribution
+
+    Plugins extend the merged database schema with [`PluginSchemaContribution`](/docs/concepts/plugins#schema). Add a `birthday` field on the core `user` model:
+
+    ```rust title="src/auth/plugins/birthday.rs"
+    use rustauth::db::{DbField, DbFieldType};
+    use rustauth::plugin::PluginSchemaContribution;
+
+    fn birthday_field() -> PluginSchemaContribution {
+        PluginSchemaContribution::field(
+            "user",
+            "birthday",
+            DbField::new("birthday", DbFieldType::Timestamp),
+        )
+    }
+    ```
+
+    The pattern matches shipped plugins such as [`username_field`](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-plugins/src/username/schema.rs) in `rustauth-plugins`.
+  </Step>
+
+  <Step>
+    ## Add a before hook
+
+    Use a [before hook](/docs/concepts/hooks) to validate the JSON body before sign-up runs. This follows the same request parsing approach as the [username plugin](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-plugins/src/username/hooks.rs):
+
+    ```rust title="src/auth/plugins/birthday.rs"
+    use http::StatusCode;
+    use rustauth::api::{json_response, parse_request_body};
+    use rustauth::context::AuthContext;
+    use rustauth::error::RustAuthError;
+    use rustauth::plugin::{PluginBeforeHookAction, PluginRequest};
+    use serde_json::{json, Value};
+    use time::{Duration, OffsetDateTime};
+
+    const MIN_AGE_YEARS: i64 = 5;
+
+    fn sign_up_birthday_before_hook(
+        _ctx: &AuthContext,
+        request: PluginRequest,
+    ) -> Result<PluginBeforeHookAction, RustAuthError> {
+        let body: Value = parse_request_body(&request)?;
+        let Some(birthday_raw) = body.get("birthday") else {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "code": "BAD_REQUEST", "message": "Birthday is required." }),
+                vec![],
+            )
+            .map(PluginBeforeHookAction::Respond);
+        };
+
+        let birthday = parse_birthday(birthday_raw)?;
+        let cutoff = OffsetDateTime::now_utc() - Duration::days(MIN_AGE_YEARS * 365);
+        if birthday > cutoff {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "code": "BAD_REQUEST", "message": "User must be at least 5 years old." }),
+                vec![],
+            )
+            .map(PluginBeforeHookAction::Respond);
+        }
+
+        Ok(PluginBeforeHookAction::Continue(request))
+    }
+
+    fn parse_birthday(value: &Value) -> Result<OffsetDateTime, RustAuthError> {
+        let text = value
+            .as_str()
+            .ok_or_else(|| RustAuthError::Api("birthday must be an RFC 3339 string".into()))?;
+        OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+            .map_err(|error| RustAuthError::Api(error.to_string()))
+    }
+    ```
+
+    Clients send `birthday` as an ISO 8601 / RFC 3339 string in the sign-up JSON body alongside `email`, `password`, and `name`.
+  </Step>
+
+  <Step>
+    ## Build the plugin
+
+    Combine schema and hooks into an [`AuthPlugin`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.AuthPlugin.html):
+
+    ```rust title="src/auth/plugins/birthday.rs"
+    use rustauth::plugin::AuthPlugin;
+
+    pub fn birthday_plugin() -> AuthPlugin {
+        AuthPlugin::new("birthday")
+            .with_schema(birthday_field())
+            .with_before_hook("/sign-up/email", sign_up_birthday_before_hook)
+    }
+    ```
+
+    For async work (external API calls, database lookups before the handler), use `.with_async_before_hook` instead.
+  </Step>
+
+  <Step>
+    ## Register on RustAuth
+
+    Append the plugin when building your server:
+
+    ```rust title="src/auth/mod.rs"
+    use rustauth::prelude::*;
+
+    mod plugins;
+
+    pub async fn build_auth() -> Result<RustAuth, RustAuthError> {
+        RustAuth::builder()
+            .secret("secret-a-at-least-32-chars-long!!")
+            .base_url("http://localhost:3000/api/auth")
+            .adapter(/* your DbAdapter */)
+            .plugin(plugins::birthday::birthday_plugin())
+            .build()
+            .await
+    }
+    ```
+
+    See [Axum integration](/docs/integrations/axum) for mounting routes after `build()`.
+  </Step>
+
+  <Step>
+    ## Apply schema changes
+
+    Plugin fields are merged into the auth schema. Apply them with the CLI (same workflow as core tables):
+
+    ```bash
+    rustauth db status
+    rustauth db generate --yes
+    rustauth db migrate --yes
+    ```
+
+    Configure `rustauth.toml` with the same adapter, dialect, and enabled plugins as your application. See [CLI](/docs/concepts/cli) and [database migrations](/docs/database-migrations).
+  </Step>
+
+  <Step>
+    ## Call the route from a frontend
+
+    There is no generated TypeScript client. Sign up over HTTP:
+
+    ```bash
+    curl -X POST 'http://localhost:3000/api/auth/sign-up/email' \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "email": "ada@example.com",
+        "password": "correct-horse-battery-staple",
+        "name": "Ada",
+        "birthday": "2010-06-15T00:00:00Z"
+      }'
+    ```
+
+    Use [`RustAuth::openapi_schema`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.openapi_schema) or [`endpoint_registry`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.endpoint_registry) to discover paths in larger apps.
+  </Step>
+</Steps>
+
+## Wrapping up
+
+You added a server plugin with schema and validation—no client plugin required. Next steps:
+
+- [Plugins concept](/docs/concepts/plugins) — endpoints, database hooks, rate limits
+- [Hooks](/docs/concepts/hooks) — global vs plugin hooks
+- [Plugin index](/docs/plugins) — official modules in `rustauth-plugins`
+- [Contributing](https://github.com/salasebas/rustauth/pulls) — share reusable plugins via pull request

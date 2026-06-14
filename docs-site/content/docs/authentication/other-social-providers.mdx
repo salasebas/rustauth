@@ -1,0 +1,54 @@
+---
+title: Other Social Providers
+description: Extend RustAuth with catalog providers, env-based config, and generic OAuth.
+---
+
+RustAuth ships **35 catalog providers** in `rustauth-social-providers`. Each has a dedicated page under [Authentication](/docs/authentication/email-password) with setup steps.
+
+## Catalog providers
+
+Use `rustauth::social_providers::providers::*` with [`SocialProviderConfig`](https://docs.rs/rustauth-social-providers/latest/rustauth_social_providers/struct.SocialProviderConfig.html):
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+
+let auth = RustAuth::builder()
+    .social_provider(providers::github(
+        SocialProviderConfig::from_env("GITHUB")?,
+    )?)
+    .build()
+    .await?;
+```
+
+`from_env("GITHUB")` reads `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. For custom scopes or staged credentials, use `SocialProviderConfig::builder()`.
+
+## Provider-specific options
+
+Some providers need extra fields (Google `hd`, Microsoft `tenant_id`, Apple audience, Cognito pool metadata). Use factories under `rustauth::social_providers::advanced::*` — see the provider page or `examples/backend-reference/src/auth/social_providers.rs`.
+
+## Generic OAuth plugin
+
+For providers **not** in the catalog, use the [generic OAuth plugin](/docs/plugins/generic-oauth). It registers arbitrary authorization and token endpoints without a first-party catalog entry.
+
+| Layer | When to use |
+| ----- | ----------- |
+| **Catalog** (`providers::github`, etc.) | Official supported provider with tested defaults |
+| **Advanced** (`advanced::google`, etc.) | Catalog provider with extra OAuth parameters |
+| **Generic OAuth plugin** | Custom or niche IdPs not in `PROVIDER_IDS` |
+
+## Callback URLs
+
+All social providers use:
+
+```
+{RUSTAUTH_BASE_URL}/callback/{provider_id}
+```
+
+`provider_id` matches `PROVIDER_IDS` in `rustauth-social-providers` (for example `github`, `microsoft`, `tiktok`).
+
+## Reference
+
+- Full wiring: [`examples/backend-reference/src/auth/social_providers.rs`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference/src/auth/social_providers.rs)
+- Provider IDs: `crates/rustauth-social-providers/src/lib.rs`

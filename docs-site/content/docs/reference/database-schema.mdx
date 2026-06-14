@@ -1,0 +1,32 @@
+---
+title: Database schema
+description: Complete RustAuth database schema reference — core tables, plugin tables, and columns generated from rustauth schema print.
+---
+
+This page lists every table and column RustAuth can create when you enable the full [backend-reference](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference) plugin set. It is generated from the CLI schema planner so it stays aligned with `rustauth db migrate`.
+
+<Callout type="info">
+  Your deployed schema is the union of **core tables** plus only the plugins you register in Rust and list under `[plugins].enabled` in `rustauth.toml`. Inspect your project with `rustauth schema print --format json` (add `--config path/to/rustauth.toml` when needed).
+</Callout>
+
+## Quick reference
+
+```bash
+# JSON schema for your rustauth.toml plugin list
+rustauth schema print --format json --config rustauth.toml
+
+# SQL preview (no database connection)
+rustauth schema print --format sql --dialect postgres --config rustauth.toml
+```
+
+See [CLI](/docs/concepts/cli) and [Database migrations](/docs/database-migrations) for the migration workflow.
+
+## All tables
+
+<SchemaCatalog />
+
+## Related
+
+- [Database](/docs/concepts/database) — adapters, migrations, and core model overview
+- [Plugins](/docs/plugins) — enable/disable plugins that add schema
+- [Rate limit](/docs/concepts/rate-limit) — `rate_limits` table when using database storage

@@ -1,0 +1,51 @@
+---
+title: Multi Session
+description: Multiple concurrent device sessions for RustAuth server plugin.
+---
+
+The multi-session plugin stores signed session tokens in a multi-session cookie so users can stay signed in on several devices. When the session limit is exceeded, the oldest session is revoked.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(multi_session(MultiSessionOptions {
+        maximum_sessions: 10,
+        ..MultiSessionOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+The plugin hooks all successful auth responses to append multi-session cookies and cleans them up on sign-out.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `maximum_sessions` | Maximum concurrent device sessions per browser (default 5) |
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/multi-session/list-device-sessions` | List sessions from multi-session cookies |
+| POST | `/multi-session/set-active` | Switch the active session |
+| POST | `/multi-session/revoke` | Revoke a device session |
+
+## Database
+
+No plugin-specific tables. Session records use the core `sessions` table; the plugin manages signed multi-session cookies.

@@ -1,0 +1,40 @@
+---
+title: Gitlab
+description: Gitlab OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Gitlab. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/gitlab`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::gitlab::{gitlab, GitlabOptions};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(gitlab(GitlabOptions {
+    oauth: SocialProviderConfig::from_env("GITLAB")?.into_provider_options(),
+    issuer: std::env::var("GITLAB_ISSUER").ok(),
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=gitlab
+```
+
+Callback: `GET {base_url}/callback/gitlab`.

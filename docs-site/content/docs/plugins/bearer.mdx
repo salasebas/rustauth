@@ -1,0 +1,52 @@
+---
+title: Bearer
+description: Authorization header bearer token session auth for RustAuth server plugin.
+---
+
+The bearer plugin lets clients authenticate with `Authorization: Bearer <session-token>` instead of session cookies. It runs on every request and response cycle.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(bearer(BearerOptions {
+        require_signature: false,
+        ..BearerOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `require_signature` | Require bearer values to be signed session-cookie tokens (default `false`) |
+
+When `require_signature` is `false`, the raw session token from the database is accepted. When `true`, only signed cookie-format tokens are valid.
+
+## HTTP endpoints
+
+This plugin does not register routes. Clients authenticate existing endpoints by sending:
+
+```bash
+curl "$BASE_PATH/get-session" \
+  -H "Authorization: Bearer <session-token>"
+```
+
+The plugin also sets bearer tokens on responses when appropriate for API clients.
+
+## Database
+
+No schema changes.

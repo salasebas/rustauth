@@ -1,0 +1,76 @@
+---
+title: Passkey
+description: WebAuthn passkey registration and authentication for RustAuth server plugin.
+---
+
+The passkey plugin exposes WebAuthn ceremony endpoints for registering and signing in with passkeys. Credentials are stored server-side in a dedicated table; challenge state lives in signed cookies and verification storage.
+
+## Install
+
+Enable both the plugins and passkey features:
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins", "passkey"] }
+```
+
+## Enable
+
+Passkey lives in the `rustauth::passkey` crate (re-exported by RustAuth):
+
+```rust
+use rustauth::RustAuth;
+use rustauth::passkey::{passkey, PasskeyOptions};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com")
+    .plugin(passkey(
+        PasskeyOptions::default()
+            .rp_id("app.example.com")
+            .origin("https://app.example.com"),
+    ))
+    .build()
+    .await?;
+```
+
+When `rp_id` and `origin` are omitted, the plugin derives them from `base_url` or the request `Origin` header.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `rp_id` | WebAuthn relying party ID (typically your site hostname) |
+| `rp_name` | Human-readable relying party name (defaults to app name) |
+| `origin` | Allowed WebAuthn origins (repeat `.origin(...)` for multiple) |
+| `passkey_table` | Physical table name (default `passkeys`) |
+| `schema` | Table and column name overrides via `PasskeySchemaOptions` |
+| `authenticator_selection` | Resident key, user verification, and attachment hints |
+| `registration` | Session requirement, user resolver, and post-verification hooks |
+| `authentication` | Post-verification hooks and WebAuthn extensions |
+| `management` | `require_fresh_session` for delete/rename mutations |
+| `rate_limit` | Rate limit for ceremony endpoints |
+| `challenge_rate_limit` | Per-challenge verification attempt limits |
+| `advanced` | Challenge cookie name override |
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/passkey/generate-register-options` | Start passkey registration |
+| POST | `/passkey/verify-registration` | Finish passkey registration |
+| POST | `/passkey/generate-authenticate-options` | Start passkey sign-in |
+| POST | `/passkey/verify-authentication` | Finish passkey sign-in |
+| GET | `/passkey/list-user-passkeys` | List passkeys for the signed-in user |
+| POST | `/passkey/delete-passkey` | Delete a passkey |
+| POST | `/passkey/update-passkey` | Rename a passkey |
+
+## Database
+
+The plugin adds a `passkeys` table. Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

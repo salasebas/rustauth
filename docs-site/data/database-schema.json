@@ -1,0 +1,3133 @@
+{
+  "generatedAt": "2026-06-14T07:17:55.416Z",
+  "source": {
+    "command": "rustauth schema print --format json --config examples/backend-reference/rustauth.toml",
+    "config": "examples/backend-reference/rustauth.toml"
+  },
+  "summary": {
+    "tableCount": 27,
+    "coreTableCount": 5,
+    "pluginTableCount": 22
+  },
+  "coreTables": [
+    {
+      "logical": "user",
+      "name": "users",
+      "order": 1,
+      "plugin": null,
+      "fields": [
+        {
+          "logical": "id",
+          "name": "id",
+          "type": "string",
+          "description": "Primary key",
+          "isPrimaryKey": true,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "name",
+          "name": "name",
+          "type": "string",
+          "description": "Name",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "email",
+          "name": "email",
+          "type": "string",
+          "description": "Email",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": true,
+          "isForeignKey": false
+        },
+        {
+          "logical": "email_verified",
+          "name": "email_verified",
+          "type": "boolean",
+          "description": "Email Verified",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "image",
+          "name": "image",
+          "type": "string",
+          "description": "Image",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "created_at",
+          "name": "created_at",
+          "type": "Date",
+          "description": "Created At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "updated_at",
+          "name": "updated_at",
+          "type": "Date",
+          "description": "Updated At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "role",
+          "name": "role",
+          "type": "string",
+          "description": "Role (from admin plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "banned",
+          "name": "banned",
+          "type": "boolean",
+          "description": "Banned (from admin plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "ban_reason",
+          "name": "ban_reason",
+          "type": "string",
+          "description": "Ban Reason (from admin plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "ban_expires",
+          "name": "ban_expires",
+          "type": "Date",
+          "description": "Ban Expires (from admin plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "is_anonymous",
+          "name": "is_anonymous",
+          "type": "boolean",
+          "description": "Is Anonymous (from anonymous plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "last_login_method",
+          "name": "last_login_method",
+          "type": "string",
+          "description": "Last Login Method (from last-login-method plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "phone_number",
+          "name": "phone_number",
+          "type": "string",
+          "description": "Phone Number (from phone-number plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": true,
+          "isForeignKey": false
+        },
+        {
+          "logical": "phone_number_verified",
+          "name": "phone_number_verified",
+          "type": "boolean",
+          "description": "Phone Number Verified (from phone-number plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "stripe_customer_id",
+          "name": "stripe_customer_id",
+          "type": "string",
+          "description": "Stripe Customer Id (from stripe plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "two_factor_enabled",
+          "name": "two_factor_enabled",
+          "type": "boolean",
+          "description": "Two Factor Enabled (from two-factor plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "username",
+          "name": "username",
+          "type": "string",
+          "description": "Username (from username plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": true,
+          "isForeignKey": false
+        },
+        {
+          "logical": "display_username",
+          "name": "display_username",
+          "type": "string",
+          "description": "Display Username (from username plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "logical": "session",
+      "name": "sessions",
+      "order": 2,
+      "plugin": null,
+      "fields": [
+        {
+          "logical": "id",
+          "name": "id",
+          "type": "string",
+          "description": "Primary key",
+          "isPrimaryKey": true,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "expires_at",
+          "name": "expires_at",
+          "type": "Date",
+          "description": "Expires At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "token",
+          "name": "token",
+          "type": "string",
+          "description": "Token",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": true,
+          "isForeignKey": false
+        },
+        {
+          "logical": "created_at",
+          "name": "created_at",
+          "type": "Date",
+          "description": "Created At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "updated_at",
+          "name": "updated_at",
+          "type": "Date",
+          "description": "Updated At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "ip_address",
+          "name": "ip_address",
+          "type": "string",
+          "description": "Ip Address",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "user_agent",
+          "name": "user_agent",
+          "type": "string",
+          "description": "User Agent",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "user_id",
+          "name": "user_id",
+          "type": "string",
+          "description": "User Id",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": true,
+          "references": {
+            "model": "users",
+            "field": "id",
+            "onDelete": "cascade"
+          }
+        },
+        {
+          "logical": "impersonated_by",
+          "name": "impersonated_by",
+          "type": "string",
+          "description": "Impersonated By (from admin plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "activeOrganizationId",
+          "name": "active_organization_id",
+          "type": "string",
+          "description": "Active Organization Id (from organization plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "activeTeamId",
+          "name": "active_team_id",
+          "type": "string",
+          "description": "Active Team Id (from organization plugin)",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "logical": "account",
+      "name": "accounts",
+      "order": 3,
+      "plugin": null,
+      "fields": [
+        {
+          "logical": "id",
+          "name": "id",
+          "type": "string",
+          "description": "Primary key",
+          "isPrimaryKey": true,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "account_id",
+          "name": "account_id",
+          "type": "string",
+          "description": "Account Id",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "provider_id",
+          "name": "provider_id",
+          "type": "string",
+          "description": "Provider Id",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "user_id",
+          "name": "user_id",
+          "type": "string",
+          "description": "User Id",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": true,
+          "references": {
+            "model": "users",
+            "field": "id",
+            "onDelete": "cascade"
+          }
+        },
+        {
+          "logical": "access_token",
+          "name": "access_token",
+          "type": "string",
+          "description": "Access Token",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "refresh_token",
+          "name": "refresh_token",
+          "type": "string",
+          "description": "Refresh Token",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "id_token",
+          "name": "id_token",
+          "type": "string",
+          "description": "Id Token",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "access_token_expires_at",
+          "name": "access_token_expires_at",
+          "type": "Date",
+          "description": "Access Token Expires At",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "refresh_token_expires_at",
+          "name": "refresh_token_expires_at",
+          "type": "Date",
+          "description": "Refresh Token Expires At",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "scope",
+          "name": "scope",
+          "type": "string",
+          "description": "Scope",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "password",
+          "name": "password",
+          "type": "string",
+          "description": "Password",
+          "isPrimaryKey": false,
+          "isOptional": true,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "created_at",
+          "name": "created_at",
+          "type": "Date",
+          "description": "Created At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "updated_at",
+          "name": "updated_at",
+          "type": "Date",
+          "description": "Updated At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "logical": "verification",
+      "name": "verifications",
+      "order": 4,
+      "plugin": null,
+      "fields": [
+        {
+          "logical": "id",
+          "name": "id",
+          "type": "string",
+          "description": "Primary key",
+          "isPrimaryKey": true,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "identifier",
+          "name": "identifier",
+          "type": "string",
+          "description": "Identifier",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "value",
+          "name": "value",
+          "type": "string",
+          "description": "Value",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "expires_at",
+          "name": "expires_at",
+          "type": "Date",
+          "description": "Expires At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "created_at",
+          "name": "created_at",
+          "type": "Date",
+          "description": "Created At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "updated_at",
+          "name": "updated_at",
+          "type": "Date",
+          "description": "Updated At",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        }
+      ]
+    },
+    {
+      "logical": "rate_limit",
+      "name": "rate_limits",
+      "order": 5,
+      "plugin": null,
+      "fields": [
+        {
+          "logical": "key",
+          "name": "key",
+          "type": "string",
+          "description": "Unique rate limit bucket key",
+          "isPrimaryKey": true,
+          "isOptional": false,
+          "isUnique": true,
+          "isForeignKey": false
+        },
+        {
+          "logical": "count",
+          "name": "count",
+          "type": "integer",
+          "description": "Requests in the current window",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        },
+        {
+          "logical": "last_request",
+          "name": "last_request",
+          "type": "bigint",
+          "description": "Last request timestamp (epoch ms)",
+          "isPrimaryKey": false,
+          "isOptional": false,
+          "isUnique": false,
+          "isForeignKey": false
+        }
+      ],
+      "note": "Created when rate_limit.storage is Database."
+    }
+  ],
+  "pluginSections": [
+    {
+      "plugin": "api-key",
+      "docHref": "/docs/plugins/api-key",
+      "tables": [
+        {
+          "logical": "api_key",
+          "name": "api_keys",
+          "order": 30,
+          "plugin": "api-key",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "config_id",
+              "name": "config_id",
+              "type": "string",
+              "description": "Config Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "name",
+              "name": "name",
+              "type": "string",
+              "description": "Name",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "start",
+              "name": "start",
+              "type": "string",
+              "description": "Start",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "prefix",
+              "name": "prefix",
+              "type": "string",
+              "description": "Prefix",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "key",
+              "name": "key",
+              "type": "string",
+              "description": "Key",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "reference_id",
+              "name": "reference_id",
+              "type": "string",
+              "description": "Reference Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "refill_interval",
+              "name": "refill_interval",
+              "type": "integer",
+              "description": "Refill Interval",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "refill_amount",
+              "name": "refill_amount",
+              "type": "integer",
+              "description": "Refill Amount",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "last_refill_at",
+              "name": "last_refill_at",
+              "type": "Date",
+              "description": "Last Refill At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "enabled",
+              "name": "enabled",
+              "type": "boolean",
+              "description": "Enabled",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "rate_limit_enabled",
+              "name": "rate_limit_enabled",
+              "type": "boolean",
+              "description": "Rate Limit Enabled",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "rate_limit_time_window",
+              "name": "rate_limit_time_window",
+              "type": "integer",
+              "description": "Rate Limit Time Window",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "rate_limit_max",
+              "name": "rate_limit_max",
+              "type": "integer",
+              "description": "Rate Limit Max",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "request_count",
+              "name": "request_count",
+              "type": "integer",
+              "description": "Request Count",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "remaining",
+              "name": "remaining",
+              "type": "integer",
+              "description": "Remaining",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "last_request",
+              "name": "last_request",
+              "type": "Date",
+              "description": "Last Request",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "expires_at",
+              "name": "expires_at",
+              "type": "Date",
+              "description": "Expires At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "metadata",
+              "name": "metadata",
+              "type": "json",
+              "description": "Metadata",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "permissions",
+              "name": "permissions",
+              "type": "json",
+              "description": "Permissions",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "device-authorization",
+      "docHref": "/docs/plugins/device-authorization",
+      "tables": [
+        {
+          "logical": "device_code",
+          "name": "device_codes",
+          "order": 10,
+          "plugin": "device-authorization",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "device_code",
+              "name": "device_code",
+              "type": "string",
+              "description": "Device Code",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_code",
+              "name": "user_code",
+              "type": "string",
+              "description": "User Code",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "expires_at",
+              "name": "expires_at",
+              "type": "Date",
+              "description": "Expires At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "status",
+              "name": "status",
+              "type": "string",
+              "description": "Status",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "last_polled_at",
+              "name": "last_polled_at",
+              "type": "Date",
+              "description": "Last Polled At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "polling_interval",
+              "name": "polling_interval",
+              "type": "integer",
+              "description": "Polling Interval",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "client_id",
+              "name": "client_id",
+              "type": "string",
+              "description": "Client Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "scope",
+              "name": "scope",
+              "type": "string",
+              "description": "Scope",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "jwt",
+      "docHref": "/docs/plugins/jwt",
+      "tables": [
+        {
+          "logical": "jwks",
+          "name": "jwks",
+          "order": 999,
+          "plugin": "jwt",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "public_key",
+              "name": "public_key",
+              "type": "string",
+              "description": "Public Key",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "private_key",
+              "name": "private_key",
+              "type": "string",
+              "description": "Private Key",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "expires_at",
+              "name": "expires_at",
+              "type": "Date",
+              "description": "Expires At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "alg",
+              "name": "alg",
+              "type": "string",
+              "description": "Alg",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "crv",
+              "name": "crv",
+              "type": "string",
+              "description": "Crv",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "oauth-provider",
+      "docHref": "/docs/plugins/oauth-provider",
+      "tables": [
+        {
+          "logical": "oauth_client",
+          "name": "oauth_clients",
+          "order": 20,
+          "plugin": "oauth-provider",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "client_id",
+              "name": "client_id",
+              "type": "string",
+              "description": "Client Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "client_secret",
+              "name": "client_secret",
+              "type": "string",
+              "description": "Client Secret",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "client_secret_expires_at",
+              "name": "client_secret_expires_at",
+              "type": "Date",
+              "description": "Client Secret Expires At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "disabled",
+              "name": "disabled",
+              "type": "boolean",
+              "description": "Disabled",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "skip_consent",
+              "name": "skip_consent",
+              "type": "boolean",
+              "description": "Skip Consent",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "enable_end_session",
+              "name": "enable_end_session",
+              "type": "boolean",
+              "description": "Enable End Session",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "subject_type",
+              "name": "subject_type",
+              "type": "string",
+              "description": "Subject Type",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "scopes",
+              "name": "scopes",
+              "type": "string[]",
+              "description": "Scopes",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "set null"
+              }
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "name",
+              "name": "name",
+              "type": "string",
+              "description": "Name",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "uri",
+              "name": "uri",
+              "type": "string",
+              "description": "Uri",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "icon",
+              "name": "icon",
+              "type": "string",
+              "description": "Icon",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "contacts",
+              "name": "contacts",
+              "type": "string[]",
+              "description": "Contacts",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "tos",
+              "name": "tos",
+              "type": "string",
+              "description": "Tos",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "policy",
+              "name": "policy",
+              "type": "string",
+              "description": "Policy",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "software_id",
+              "name": "software_id",
+              "type": "string",
+              "description": "Software Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "software_version",
+              "name": "software_version",
+              "type": "string",
+              "description": "Software Version",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "software_statement",
+              "name": "software_statement",
+              "type": "string",
+              "description": "Software Statement",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "redirect_uris",
+              "name": "redirect_uris",
+              "type": "string[]",
+              "description": "Redirect Uris",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "post_logout_redirect_uris",
+              "name": "post_logout_redirect_uris",
+              "type": "string[]",
+              "description": "Post Logout Redirect Uris",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "token_endpoint_auth_method",
+              "name": "token_endpoint_auth_method",
+              "type": "string",
+              "description": "Token Endpoint Auth Method",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "grant_types",
+              "name": "grant_types",
+              "type": "string[]",
+              "description": "Grant Types",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "response_types",
+              "name": "response_types",
+              "type": "string[]",
+              "description": "Response Types",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "public",
+              "name": "public",
+              "type": "boolean",
+              "description": "Public",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "type",
+              "name": "type",
+              "type": "string",
+              "description": "Type",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "require_pkce",
+              "name": "require_pkce",
+              "type": "boolean",
+              "description": "Require Pkce",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "reference_id",
+              "name": "reference_id",
+              "type": "string",
+              "description": "Reference Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "metadata",
+              "name": "metadata",
+              "type": "json",
+              "description": "Metadata",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "oauth_refresh_token",
+          "name": "oauth_refresh_tokens",
+          "order": 21,
+          "plugin": "oauth-provider",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "token",
+              "name": "token",
+              "type": "string",
+              "description": "Token",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "client_id",
+              "name": "client_id",
+              "type": "string",
+              "description": "Client Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "oauth_clients",
+                "field": "client_id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "session_id",
+              "name": "session_id",
+              "type": "string",
+              "description": "Session Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "sessions",
+                "field": "id",
+                "onDelete": "set null"
+              }
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "reference_id",
+              "name": "reference_id",
+              "type": "string",
+              "description": "Reference Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "expires_at",
+              "name": "expires_at",
+              "type": "Date",
+              "description": "Expires At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "revoked",
+              "name": "revoked",
+              "type": "Date",
+              "description": "Revoked",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "auth_time",
+              "name": "auth_time",
+              "type": "Date",
+              "description": "Auth Time",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "scopes",
+              "name": "scopes",
+              "type": "string[]",
+              "description": "Scopes",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "oauth_access_token",
+          "name": "oauth_access_tokens",
+          "order": 22,
+          "plugin": "oauth-provider",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "token",
+              "name": "token",
+              "type": "string",
+              "description": "Token",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "client_id",
+              "name": "client_id",
+              "type": "string",
+              "description": "Client Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "oauth_clients",
+                "field": "client_id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "session_id",
+              "name": "session_id",
+              "type": "string",
+              "description": "Session Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "sessions",
+                "field": "id",
+                "onDelete": "set null"
+              }
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "set null"
+              }
+            },
+            {
+              "logical": "reference_id",
+              "name": "reference_id",
+              "type": "string",
+              "description": "Reference Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "refresh_id",
+              "name": "refresh_id",
+              "type": "string",
+              "description": "Refresh Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "oauth_refresh_tokens",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "expires_at",
+              "name": "expires_at",
+              "type": "Date",
+              "description": "Expires At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "scopes",
+              "name": "scopes",
+              "type": "string[]",
+              "description": "Scopes",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "oauth_consent",
+          "name": "oauth_consents",
+          "order": 23,
+          "plugin": "oauth-provider",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "client_id",
+              "name": "client_id",
+              "type": "string",
+              "description": "Client Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "oauth_clients",
+                "field": "client_id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "reference_id",
+              "name": "reference_id",
+              "type": "string",
+              "description": "Reference Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "scopes",
+              "name": "scopes",
+              "type": "string[]",
+              "description": "Scopes",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "organization",
+      "docHref": "/docs/plugins/organization",
+      "tables": [
+        {
+          "logical": "organization",
+          "name": "organizations",
+          "order": 20,
+          "plugin": "organization",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "name",
+              "name": "name",
+              "type": "string",
+              "description": "Name",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "slug",
+              "name": "slug",
+              "type": "string",
+              "description": "Slug",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "logo",
+              "name": "logo",
+              "type": "string",
+              "description": "Logo",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "metadata",
+              "name": "metadata",
+              "type": "json",
+              "description": "Metadata",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "stripe_customer_id",
+              "name": "stripe_customer_id",
+              "type": "string",
+              "description": "Stripe Customer Id (from stripe plugin)",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "member",
+          "name": "members",
+          "order": 21,
+          "plugin": "organization",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "organization_id",
+              "name": "organization_id",
+              "type": "string",
+              "description": "Organization Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "organizations",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "role",
+              "name": "role",
+              "type": "string",
+              "description": "Role (from admin plugin)",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "invitation",
+          "name": "invitations",
+          "order": 22,
+          "plugin": "organization",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "organization_id",
+              "name": "organization_id",
+              "type": "string",
+              "description": "Organization Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "organizations",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "email",
+              "name": "email",
+              "type": "string",
+              "description": "Email",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "role",
+              "name": "role",
+              "type": "string",
+              "description": "Role (from admin plugin)",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "status",
+              "name": "status",
+              "type": "string",
+              "description": "Status",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "expires_at",
+              "name": "expires_at",
+              "type": "Date",
+              "description": "Expires At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "inviter_id",
+              "name": "inviter_id",
+              "type": "string",
+              "description": "Inviter Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "team_id",
+              "name": "team_id",
+              "type": "string",
+              "description": "Team Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "team",
+          "name": "teams",
+          "order": 23,
+          "plugin": "organization",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "name",
+              "name": "name",
+              "type": "string",
+              "description": "Name",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "organization_id",
+              "name": "organization_id",
+              "type": "string",
+              "description": "Organization Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "organizations",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "team_member",
+          "name": "team_members",
+          "order": 24,
+          "plugin": "organization",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "team_id",
+              "name": "team_id",
+              "type": "string",
+              "description": "Team Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "teams",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "organization_role",
+          "name": "organization_roles",
+          "order": 25,
+          "plugin": "organization",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "organization_id",
+              "name": "organization_id",
+              "type": "string",
+              "description": "Organization Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "organizations",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "role",
+              "name": "role",
+              "type": "string",
+              "description": "Role (from admin plugin)",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "permission",
+              "name": "permission",
+              "type": "json",
+              "description": "Permission",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "passkey",
+      "docHref": "/docs/plugins/passkey",
+      "tables": [
+        {
+          "logical": "passkey",
+          "name": "passkeys",
+          "order": 20,
+          "plugin": "passkey",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "name",
+              "name": "name",
+              "type": "string",
+              "description": "Name",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "public_key",
+              "name": "public_key",
+              "type": "string",
+              "description": "Public Key",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "credential_id",
+              "name": "credential_id",
+              "type": "string",
+              "description": "Credential Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "counter",
+              "name": "counter",
+              "type": "integer",
+              "description": "Counter",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "device_type",
+              "name": "device_type",
+              "type": "string",
+              "description": "Device Type",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "backed_up",
+              "name": "backed_up",
+              "type": "boolean",
+              "description": "Backed Up",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "transports",
+              "name": "transports",
+              "type": "string",
+              "description": "Transports",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "aaguid",
+              "name": "aaguid",
+              "type": "string",
+              "description": "Aaguid",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "webauthn_credential",
+              "name": "webauthn_credential",
+              "type": "json",
+              "description": "Webauthn Credential",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "scim",
+      "docHref": "/docs/plugins/scim",
+      "tables": [
+        {
+          "logical": "scim_provider",
+          "name": "scim_providers",
+          "order": 30,
+          "plugin": "scim",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "provider_id",
+              "name": "provider_id",
+              "type": "string",
+              "description": "Provider Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "scim_token",
+              "name": "scim_token",
+              "type": "string",
+              "description": "Scim Token",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "organization_id",
+              "name": "organization_id",
+              "type": "string",
+              "description": "Organization Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            }
+          ]
+        },
+        {
+          "logical": "scim_user_profile",
+          "name": "scim_user_profiles",
+          "order": 31,
+          "plugin": "scim",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "provider_id",
+              "name": "provider_id",
+              "type": "string",
+              "description": "Provider Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "external_id",
+              "name": "external_id",
+              "type": "string",
+              "description": "External Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "attributes",
+              "name": "attributes",
+              "type": "json",
+              "description": "Attributes",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "version",
+              "name": "version",
+              "type": "string",
+              "description": "Version",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "scim_group_profile",
+          "name": "scim_group_profiles",
+          "order": 32,
+          "plugin": "scim",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "provider_id",
+              "name": "provider_id",
+              "type": "string",
+              "description": "Provider Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "organization_id",
+              "name": "organization_id",
+              "type": "string",
+              "description": "Organization Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "team_id",
+              "name": "team_id",
+              "type": "string",
+              "description": "Team Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "external_id",
+              "name": "external_id",
+              "type": "string",
+              "description": "External Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "attributes",
+              "name": "attributes",
+              "type": "json",
+              "description": "Attributes",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "version",
+              "name": "version",
+              "type": "string",
+              "description": "Version",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "siwe",
+      "docHref": "/docs/plugins/siwe",
+      "tables": [
+        {
+          "logical": "wallet_address",
+          "name": "wallet_addresses",
+          "order": 20,
+          "plugin": "siwe",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "address",
+              "name": "address",
+              "type": "string",
+              "description": "Address",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "chain_id",
+              "name": "chain_id",
+              "type": "integer",
+              "description": "Chain Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "is_primary",
+              "name": "is_primary",
+              "type": "boolean",
+              "description": "Is Primary",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "sso",
+      "docHref": "/docs/plugins/sso",
+      "tables": [
+        {
+          "logical": "sso_provider",
+          "name": "sso_providers",
+          "order": 30,
+          "plugin": "sso",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "issuer",
+              "name": "issuer",
+              "type": "string",
+              "description": "Issuer",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "oidc_config",
+              "name": "oidc_config",
+              "type": "string",
+              "description": "Oidc Config",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "saml_config",
+              "name": "saml_config",
+              "type": "string",
+              "description": "Saml Config",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "provider_id",
+              "name": "provider_id",
+              "type": "string",
+              "description": "Provider Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": true,
+              "isForeignKey": false
+            },
+            {
+              "logical": "organization_id",
+              "name": "organization_id",
+              "type": "string",
+              "description": "Organization Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "domain",
+              "name": "domain",
+              "type": "string",
+              "description": "Domain",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "updated_at",
+              "name": "updated_at",
+              "type": "Date",
+              "description": "Updated At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "stripe",
+      "docHref": "/docs/plugins/stripe",
+      "tables": [
+        {
+          "logical": "subscription",
+          "name": "subscriptions",
+          "order": 70,
+          "plugin": "stripe",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "plan",
+              "name": "plan",
+              "type": "string",
+              "description": "Plan",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "reference_id",
+              "name": "reference_id",
+              "type": "string",
+              "description": "Reference Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "stripe_customer_id",
+              "name": "stripe_customer_id",
+              "type": "string",
+              "description": "Stripe Customer Id (from stripe plugin)",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "stripe_subscription_id",
+              "name": "stripe_subscription_id",
+              "type": "string",
+              "description": "Stripe Subscription Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "status",
+              "name": "status",
+              "type": "string",
+              "description": "Status",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "period_start",
+              "name": "period_start",
+              "type": "Date",
+              "description": "Period Start",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "period_end",
+              "name": "period_end",
+              "type": "Date",
+              "description": "Period End",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "trial_start",
+              "name": "trial_start",
+              "type": "Date",
+              "description": "Trial Start",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "trial_end",
+              "name": "trial_end",
+              "type": "Date",
+              "description": "Trial End",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "cancel_at_period_end",
+              "name": "cancel_at_period_end",
+              "type": "boolean",
+              "description": "Cancel At Period End",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "cancel_at",
+              "name": "cancel_at",
+              "type": "Date",
+              "description": "Cancel At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "canceled_at",
+              "name": "canceled_at",
+              "type": "Date",
+              "description": "Canceled At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "ended_at",
+              "name": "ended_at",
+              "type": "Date",
+              "description": "Ended At",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "seats",
+              "name": "seats",
+              "type": "integer",
+              "description": "Seats",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "billing_interval",
+              "name": "billing_interval",
+              "type": "string",
+              "description": "Billing Interval",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "stripe_schedule_id",
+              "name": "stripe_schedule_id",
+              "type": "string",
+              "description": "Stripe Schedule Id",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "limits",
+              "name": "limits",
+              "type": "json",
+              "description": "Limits",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        },
+        {
+          "logical": "stripe_webhook_event",
+          "name": "stripe_webhook_events",
+          "order": 71,
+          "plugin": "stripe",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "event_type",
+              "name": "event_type",
+              "type": "string",
+              "description": "Event Type",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "created_at",
+              "name": "created_at",
+              "type": "Date",
+              "description": "Created At",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "plugin": "two-factor",
+      "docHref": "/docs/plugins/2fa",
+      "tables": [
+        {
+          "logical": "two_factor",
+          "name": "two_factors",
+          "order": 20,
+          "plugin": "two-factor",
+          "fields": [
+            {
+              "logical": "id",
+              "name": "id",
+              "type": "string",
+              "description": "Primary key",
+              "isPrimaryKey": true,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "secret",
+              "name": "secret",
+              "type": "string",
+              "description": "Secret",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "backup_codes",
+              "name": "backup_codes",
+              "type": "string",
+              "description": "Backup Codes",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": false
+            },
+            {
+              "logical": "user_id",
+              "name": "user_id",
+              "type": "string",
+              "description": "User Id",
+              "isPrimaryKey": false,
+              "isOptional": false,
+              "isUnique": false,
+              "isForeignKey": true,
+              "references": {
+                "model": "users",
+                "field": "id",
+                "onDelete": "cascade"
+              }
+            },
+            {
+              "logical": "verified",
+              "name": "verified",
+              "type": "boolean",
+              "description": "Verified",
+              "isPrimaryKey": false,
+              "isOptional": true,
+              "isUnique": false,
+              "isForeignKey": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "pluginsWithoutTables": [
+    {
+      "id": "additional-fields",
+      "note": "App-configured user/session columns; not inferred by the CLI from the plugin id alone."
+    },
+    {
+      "id": "bearer",
+      "note": "No schema changes."
+    },
+    {
+      "id": "captcha",
+      "note": "No schema changes."
+    },
+    {
+      "id": "custom-session",
+      "note": "Session cookie shape only; uses core sessions table."
+    },
+    {
+      "id": "email-otp",
+      "note": "Uses core verifications table."
+    },
+    {
+      "id": "generic-oauth",
+      "note": "Uses core accounts table."
+    },
+    {
+      "id": "have-i-been-pwned",
+      "note": "No schema changes."
+    },
+    {
+      "id": "magic-link",
+      "note": "Uses core verifications table."
+    },
+    {
+      "id": "multi-session",
+      "note": "Uses core sessions table."
+    },
+    {
+      "id": "oauth-proxy",
+      "note": "No schema changes."
+    },
+    {
+      "id": "one-tap",
+      "note": "Uses core users, accounts, and sessions tables."
+    },
+    {
+      "id": "one-time-token",
+      "note": "Uses core verifications table."
+    },
+    {
+      "id": "open-api",
+      "note": "No schema changes."
+    }
+  ]
+}

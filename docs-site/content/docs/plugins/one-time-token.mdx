@@ -1,0 +1,58 @@
+---
+title: One-Time Token
+description: Short-lived tokens for cross-app session handoff for RustAuth server plugin.
+---
+
+The one-time-token plugin mints short-lived tokens tied to the current session. Another app or tab can exchange the token once for session credentials — useful for SSO-style handoffs between surfaces.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::one_time_token::StoreToken;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(one_time_token(OneTimeTokenOptions {
+        expires_in: Duration::minutes(5),
+        disable_client_request: false,
+        store_token: StoreToken::Plain,
+        ..OneTimeTokenOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `expires_in` | Token lifetime (default 3 minutes) |
+| `disable_client_request` | Block client-initiated `/one-time-token/generate` |
+| `generate_token` | Custom token generator |
+| `disable_set_session_cookie` | Skip setting session cookies on verify |
+| `store_token` | `Plain`, `Hashed`, or custom hasher |
+| `set_ott_header_on_new_session` | Attach OTT header when new sessions are created |
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/one-time-token/generate` | Generate a token for the current session |
+| POST | `/one-time-token/verify` | Exchange a token for session and user data |
+
+## Database
+
+Tokens are stored in the core `verification` table. No plugin-specific migration is required.

@@ -1,0 +1,6 @@
+{
+  "email": "ada@example.com",
+  "password": "secret123",
+  "rememberMe": false,
+  "callbackURL": "/dashboard"
+}

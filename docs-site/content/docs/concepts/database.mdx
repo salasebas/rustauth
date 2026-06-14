@@ -1,0 +1,331 @@
+---
+title: Database
+description: Connect RustAuth to SQLite, Postgres, or MySQL with DbAdapter, run CLI migrations, and understand the core auth schema.
+---
+
+RustAuth persists users, sessions, accounts, verification tokens, and plugin data through a [`DbAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html). Configure an adapter on [`RustAuth::builder`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuthBuilder.html), then apply schema with the CLI before serving traffic.
+
+<Callout type="info">
+  RustAuth can run without a database for stateless or demo setups. Production apps should use a durable adapter. See [Session Management](/docs/concepts/session-management#stateless-sessions).
+</Callout>
+
+## Adapters
+
+Enable the matching SQLx dialect (or native Postgres adapters) on the `rustauth` crate:
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["sqlx-sqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+### SQLite
+
+```rust
+use rustauth::prelude::*;
+use rustauth::sqlx::SqliteAdapter;
+use sqlx::sqlite::SqlitePoolOptions;
+
+let pool = SqlitePoolOptions::new()
+    .connect("sqlite://rustauth.db")
+    .await?;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("http://localhost:3000/api/auth")
+    .adapter(SqliteAdapter::new(pool))
+    .build()
+    .await?;
+```
+
+Postgres and MySQL use `SqlxAdapter` from `rustauth::sqlx` with `sqlx-postgres` / `sqlx-mysql` features. Native Postgres pools are available via `rustauth::tokio_postgres` and `rustauth::deadpool_postgres`.
+
+## Migrations
+
+Schema changes are **CLI-only**. Do not call a runtime migrate helper on `RustAuth` at startup.
+
+1. Configure `rustauth.toml` with the same adapter, provider, and plugins as your app.
+2. Set `DATABASE_URL` (or the env var named in `[database].url_env`).
+3. Apply schema:
+
+```bash
+rustauth db status
+rustauth db generate --yes
+rustauth db migrate --yes
+```
+
+Full workflow: [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+Integration tests may call [`DbAdapter::run_migrations`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html) directly; production deploys should use `rustauth db migrate` in CI or release jobs.
+
+## Secondary storage
+
+Optional [`SecondaryStorage`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.SecondaryStorage.html) (Redis / Valkey via `rustauth-redis` or `rustauth-fred`) offloads sessions, verification, or rate-limit counters. Sessions still require a primary adapter unless you operate in a stateless cookie-only mode.
+
+```rust
+use rustauth::redis::RedisStores;
+
+let stores = RedisStores::connect("redis://127.0.0.1:6379").await?;
+let options = stores.apply_to_options(rustauth::options::RustAuthOptions::default());
+```
+
+## Core schema
+
+### User
+
+Table: `users`
+
+export const userTableFields = [
+	{
+		name: "id",
+		type: "string",
+		description: "Unique user id",
+		isPrimaryKey: true,
+	},
+	{
+		name: "name",
+		type: "string",
+		description: "Display name",
+	},
+	{
+		name: "email",
+		type: "string",
+		description: "Email address",
+		isUnique: true,
+	},
+	{
+		name: "email_verified",
+		type: "boolean",
+		description: "Whether email is verified",
+	},
+	{
+		name: "image",
+		type: "string",
+		description: "Avatar URL",
+		isOptional: true,
+	},
+	{
+		name: "created_at",
+		type: "Date",
+		description: "Created timestamp",
+	},
+	{
+		name: "updated_at",
+		type: "Date",
+		description: "Updated timestamp",
+	},
+];
+
+<DatabaseTable name="users" fields={userTableFields} />
+
+### Session
+
+Table: `sessions`
+
+export const sessionTableFields = [
+	{
+		name: "id",
+		type: "string",
+		description: "Unique session id",
+		isPrimaryKey: true,
+	},
+	{
+		name: "user_id",
+		type: "string",
+		description: "User id",
+		isForeignKey: true,
+		references: { model: "users", field: "id", onDelete: "cascade" },
+	},
+	{
+		name: "token",
+		type: "string",
+		description: "Session token",
+		isUnique: true,
+	},
+	{
+		name: "expires_at",
+		type: "Date",
+		description: "Expiration time",
+	},
+	{
+		name: "ip_address",
+		type: "string",
+		description: "Client IP",
+		isOptional: true,
+	},
+	{
+		name: "user_agent",
+		type: "string",
+		description: "Client user agent",
+		isOptional: true,
+	},
+	{
+		name: "created_at",
+		type: "Date",
+		description: "Created timestamp",
+	},
+	{
+		name: "updated_at",
+		type: "Date",
+		description: "Updated timestamp",
+	},
+];
+
+<DatabaseTable name="sessions" fields={sessionTableFields} />
+
+### Account
+
+Table: `accounts`
+
+export const accountTableFields = [
+	{
+		name: "id",
+		type: "string",
+		description: "Unique account id",
+		isPrimaryKey: true,
+	},
+	{
+		name: "user_id",
+		type: "string",
+		description: "User id",
+		isForeignKey: true,
+		references: { model: "users", field: "id", onDelete: "cascade" },
+	},
+	{
+		name: "account_id",
+		type: "string",
+		description: "Provider account id (or user id for credential accounts)",
+	},
+	{
+		name: "provider_id",
+		type: "string",
+		description: "Provider id (credential, google, github, …)",
+	},
+	{
+		name: "access_token",
+		type: "string",
+		description: "OAuth access token",
+		isOptional: true,
+	},
+	{
+		name: "refresh_token",
+		type: "string",
+		description: "OAuth refresh token",
+		isOptional: true,
+	},
+	{
+		name: "access_token_expires_at",
+		type: "Date",
+		description: "Access token expiry",
+		isOptional: true,
+	},
+	{
+		name: "refresh_token_expires_at",
+		type: "Date",
+		description: "Refresh token expiry",
+		isOptional: true,
+	},
+	{
+		name: "scope",
+		type: "string",
+		description: "OAuth scope",
+		isOptional: true,
+	},
+	{
+		name: "id_token",
+		type: "string",
+		description: "OIDC id token",
+		isOptional: true,
+	},
+	{
+		name: "password",
+		type: "string",
+		description: "Password hash for credential provider",
+		isOptional: true,
+	},
+	{
+		name: "created_at",
+		type: "Date",
+		description: "Created timestamp",
+	},
+	{
+		name: "updated_at",
+		type: "Date",
+		description: "Updated timestamp",
+	},
+];
+
+<DatabaseTable name="accounts" fields={accountTableFields} />
+
+### Verification
+
+Table: `verifications`
+
+export const verificationTableFields = [
+	{
+		name: "id",
+		type: "string",
+		description: "Unique verification id",
+		isPrimaryKey: true,
+	},
+	{
+		name: "identifier",
+		type: "string",
+		description: "Verification identifier (often email)",
+	},
+	{
+		name: "value",
+		type: "string",
+		description: "Token or code value",
+	},
+	{
+		name: "expires_at",
+		type: "Date",
+		description: "Expiration time",
+	},
+	{
+		name: "created_at",
+		type: "Date",
+		description: "Created timestamp",
+	},
+	{
+		name: "updated_at",
+		type: "Date",
+		description: "Updated timestamp",
+	},
+];
+
+<DatabaseTable name="verifications" fields={verificationTableFields} />
+
+## Custom table and field names
+
+Rename tables or columns with [`ModelSchemaOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.ModelSchemaOptions.html) on `UserOptions`, `SessionOptions`, `AccountOptions`, and plugin schema contributions. Run `rustauth db migrate` after changes.
+
+## Additional fields
+
+Add custom user or session columns:
+
+```rust
+use rustauth_core::db::DbFieldType;
+
+UserOptions::new().additional_field(
+    "role",
+    UserAdditionalField {
+        field_type: DbFieldType::String,
+        required: false,
+        input: false,
+        default: Some(/* DbValue */),
+    },
+)
+```
+
+## Database hooks
+
+Use [`InitDatabaseHooksOptions`](/docs/concepts/hooks) for typed before/after hooks on core models, or [`PluginDatabaseHook`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.PluginDatabaseHook.html) for plugin tables.
+
+## Plugin schema
+
+Enabled plugins add tables or columns. Re-run `rustauth db migrate` with CLI features matching your `rustauth.toml` plugin list. Plugin-specific schema is documented under each plugin.
+
+For a single catalog of all tables and columns (core + plugins), see [Database schema](/docs/reference/database-schema).

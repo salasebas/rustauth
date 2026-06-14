@@ -1,0 +1,36 @@
+[package]
+name = "rustauth-fred"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-fred"
+readme = "README.md"
+description = "Fred-backed Redis and Valkey integrations for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+fred = { version = "10.1", default-features = false, features = ["i-keys", "i-scripts", "sha-1"] }
+rustauth-core.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+http.workspace = true
+rustauth.workspace = true
+rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-redis.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+native-tls = ["fred/enable-native-tls"]
+rustls = ["fred/enable-rustls-ring"]
+
+[lints]
+workspace = true

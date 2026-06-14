@@ -1,0 +1,67 @@
+---
+title: MCP
+description: Connect RustAuth documentation to MCP-capable clients via the remote documentation MCP server.
+---
+
+RustAuth hosts a **remote MCP server** that exposes documentation search, examples, and setup help to any MCP-capable client (Cursor, Claude Code, Open Code, and others).
+
+**Endpoint:** `https://mcp.rustauth.dev/mcp`
+
+This is separate from the [MCP plugin](/docs/plugins/mcp), which adds MCP *provider authentication* to your app. The server above is for **consuming** RustAuth docs inside your editor or agent.
+
+<Callout type="info">
+  The RustAuth CLI does not ship an `mcp` subcommand yet. Configure MCP clients manually with the JSON below.
+</Callout>
+
+## Cursor
+
+Add the server with the one-click control on this site:
+
+<AddToCursor />
+
+Or add to `~/.cursor/mcp.json` (user) or `.cursor/mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "rustauth": {
+      "url": "https://mcp.rustauth.dev/mcp"
+    }
+  }
+}
+```
+
+Restart or reload MCP in Cursor after changes.
+
+## Claude Code
+
+```bash
+claude mcp add rustauth --transport http --url https://mcp.rustauth.dev/mcp
+```
+
+## Open Code
+
+Merge into `opencode.json` in your project:
+
+```json
+{
+  "mcp": {
+    "rustauth": {
+      "type": "http",
+      "url": "https://mcp.rustauth.dev/mcp"
+    }
+  }
+}
+```
+
+## Manual `mcp.json`
+
+```json
+{
+  "rustauth": {
+    "url": "https://mcp.rustauth.dev/mcp"
+  }
+}
+```
+
+Use the shape your MCP client expects for HTTP remote servers (`url` for remote MCP).

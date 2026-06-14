@@ -1,0 +1,28 @@
+---
+title: "email doesn't match"
+description: Provider email does not match the signed-in user being linked.
+---
+
+During an authenticated link flow, the provider returned an email that does not match the current user's email and different-email linking is not allowed.
+
+## Rust implementation
+
+**Emitted by RustAuth:** yes
+
+| Location | When |
+| -------- | ---- |
+| `crates/rustauth-core/src/auth/oauth/account_linking.rs:31` | Constant `EMAIL_DOES_NOT_MATCH_LINKED_USER` (`email_doesn't_match`) |
+| `crates/rustauth-core/src/api/routes/social/flow.rs:507` | Link callback redirect |
+| `crates/rustauth-plugins/src/generic_oauth/account.rs:105` | Generic OAuth link error mapping |
+
+Redirect shape: `{errorCallbackURL}?error=email_doesn%27t_match` (apostrophe URL-encoded).
+
+## Handling in Rust
+
+Compare the decoded `error` query parameter to `email_doesn't_match`.
+
+## How to fix
+
+- Sign in with the user whose email matches the provider profile.
+- Enable `allow_different_emails` in account linking options when your policy allows it.
+- Use a provider account whose verified email matches the RustAuth user record.

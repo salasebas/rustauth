@@ -1,0 +1,46 @@
+[package]
+name = "rustauth-stripe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-stripe"
+readme = "README.md"
+description = "Stripe integration for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+base64.workspace = true
+hex.workspace = true
+hmac.workspace = true
+http.workspace = true
+indexmap.workspace = true
+rustauth-core.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+hex.workspace = true
+hmac.workspace = true
+http.workspace = true
+rustauth-core.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

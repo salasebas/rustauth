@@ -1,0 +1,125 @@
+---
+title: Email
+description: Configure email verification, require verified emails, password reset delivery, and outbound dispatch in RustAuth.
+---
+
+Email flows (verification, password reset, change-email) require you to implement sender hooks. RustAuth does not send mail itself—it calls your hook and returns the HTTP response immediately.
+
+<Callout type="warn">
+  Never `.await` email delivery before returning the HTTP success response. Return an [`OutboundSendFuture`](https://docs.rs/rustauth-core/latest/rustauth_core/outbound/type.OutboundSendFuture.html); RustAuth dispatches it via [`dispatch_outbound`](https://docs.rs/rustauth-core/latest/rustauth_core/outbound/fn.dispatch_outbound.html) on a background task. See [security-outbound-delivery](https://github.com/salasebas/rustauth/blob/main/docs/security-outbound-delivery.md).
+</Callout>
+
+## Email verification
+
+Configure [`EmailVerificationOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.EmailVerificationOptions.html) on the builder:
+
+```rust
+use rustauth::prelude::*;
+use rustauth_core::OutboundSendFuture;
+use time::Duration;
+
+fn send_verification(
+    email: VerificationEmail,
+    _request: Option<&http::Request<Vec<u8>>>,
+) -> OutboundSendFuture {
+    Box::pin(async move {
+        // enqueue email with email.url and email.token — do not block the handler
+        tracing::info!(to = %email.user.email, url = %email.url, "verification email");
+        Ok(())
+    })
+}
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .email_verification(
+        EmailVerificationOptions::new()
+            .send_verification_email(send_verification)
+            .send_on_sign_up(true)
+            .expires_in(Duration::hours(24)),
+    )
+    .build()
+    .await?;
+```
+
+`VerificationEmail` includes `user`, `url`, and `token`.
+
+### Require verification for sign-in
+
+```rust
+EmailPasswordOptions::new()
+    .enabled(true)
+    .require_email_verification(true)
+```
+
+Pair with `send_verification_email` and optionally `EmailVerificationOptions::send_on_sign_in(true)`.
+
+Clients receive a JSON error (for example HTTP 403) when sign-in is blocked pending verification. Handle this in your frontend or BFF by checking the response status and `code` field.
+
+### Manual verification trigger
+
+POST `/send-verification-email` with JSON `{ "email": "…", "callbackURL": "…" }`.
+
+### Verify an address
+
+Users follow the link in `VerificationEmail.url`, or your app POSTs/GETs `/verify-email?token=…`.
+
+### Auto sign-in after verification
+
+```rust
+EmailVerificationOptions::new().auto_sign_in_after_verification(true)
+```
+
+### Lifecycle callbacks
+
+```rust
+EmailVerificationOptions::new()
+    .before_email_verification(|payload, _| {
+        tracing::info!(email = %payload.user.email, "about to verify");
+        Ok(())
+    })
+    .after_email_verification(|payload, _| {
+        tracing::info!(email = %payload.user.email, "verified");
+        Ok(())
+    })
+```
+
+## Password reset
+
+Enable email/password and register [`SendResetPassword`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.SendResetPassword.html):
+
+```rust
+use rustauth::prelude::*;
+use rustauth_core::OutboundSendFuture;
+
+fn send_reset(
+    email: PasswordResetEmail,
+    _request: Option<&http::Request<Vec<u8>>>,
+) -> OutboundSendFuture {
+    Box::pin(async move {
+        tracing::info!(to = %email.user.email, url = %email.url, "password reset");
+        Ok(())
+    })
+}
+
+RustAuth::builder()
+    .email_password(
+        EmailPasswordOptions::new()
+            .enabled(true)
+            .send_reset_password(send_reset),
+    )
+    // ...
+```
+
+HTTP routes: `POST /request-password-reset`, `POST /reset-password`, and related callback paths. See the [Email and Password](/docs/authentication/email-password) guide.
+
+## Duplicate sign-up notification
+
+When `require_email_verification` is enabled, [`OnExistingUserSignUp`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.OnExistingUserSignUp.html) runs if someone attempts to register with an existing email:
+
+```rust
+EmailPasswordOptions::new()
+    .on_existing_user_sign_up(|payload, _| {
+        tracing::warn!(email = %payload.user.email, "duplicate sign-up attempt");
+        Ok(())
+    })
+```

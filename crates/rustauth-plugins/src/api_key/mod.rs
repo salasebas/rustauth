@@ -1,0 +1,247 @@
+//! API key plugin.
+
+mod cleanup;
+mod errors;
+mod hashing;
+mod models;
+mod options;
+mod organization;
+mod permissions;
+mod rate_limit;
+mod routes;
+mod schema;
+mod storage;
+
+use std::sync::Arc;
+
+use http::{header, StatusCode};
+use rustauth_core::api::output::{session_output_value, user_output_value};
+use rustauth_core::context::request_state;
+use rustauth_core::db::Session;
+use rustauth_core::error::RustAuthError;
+use rustauth_core::plugin::{AuthPlugin, PluginBeforeHookAction};
+use rustauth_core::utils::ip::{is_valid_ip, normalize_ip_with_options, NormalizeIpOptions};
+use serde::Serialize;
+use serde_json::Value;
+use time::OffsetDateTime;
+
+pub use errors::*;
+pub use hashing::default_key_hasher;
+pub use models::{ApiKeyCreateRecord, ApiKeyPublicRecord, ApiKeyRecord};
+pub use options::{
+    ApiKeyConfiguration, ApiKeyExpirationOptions, ApiKeyGenerator, ApiKeyGeneratorInput,
+    ApiKeyGetter, ApiKeyOptions, ApiKeyOptionsBuilder, ApiKeyOptionsError, ApiKeyPermissions,
+    ApiKeyRateLimitOptions, ApiKeyReference, ApiKeyStorageMode, ApiKeyValidator,
+    DefaultPermissionsResolver, StartingCharactersConfig,
+};
+pub use routes::{
+    CreateApiKeyRequest, DeleteApiKeyRequest, GetApiKeyQuery, ListApiKeysQuery,
+    UpdateApiKeyRequest, UpdateField, VerifyApiKeyRequest, VerifyApiKeyResponse,
+};
+pub use schema::ApiKeySchemaOptions;
+
+pub const UPSTREAM_PLUGIN_ID: &str = "api-key";
+pub const API_KEY_MODEL: &str = "api_key";
+pub const API_KEY_TABLE: &str = "api_keys";
+
+pub fn api_key(options: ApiKeyOptions) -> Result<AuthPlugin, RustAuthError> {
+    Ok(build_plugin(options.resolve()?))
+}
+
+fn build_plugin(configurations: options::ResolvedConfigurations) -> AuthPlugin {
+    let schema = configurations.schema().clone();
+    let configurations = Arc::new(configurations);
+    let mut plugin = AuthPlugin::new(UPSTREAM_PLUGIN_ID)
+        .with_version(crate::VERSION)
+        .with_schema(schema::schema_contribution(&schema))
+        .with_endpoint(routes::create_endpoint(Arc::clone(&configurations)))
+        .with_endpoint(routes::verify_endpoint(Arc::clone(&configurations)))
+        .with_endpoint(routes::get_endpoint(Arc::clone(&configurations)))
+        .with_endpoint(routes::update_endpoint(Arc::clone(&configurations)))
+        .with_endpoint(routes::delete_endpoint(Arc::clone(&configurations)))
+        .with_endpoint(routes::list_endpoint(Arc::clone(&configurations)))
+        .with_endpoint(routes::delete_expired_endpoint(Arc::clone(&configurations)))
+        .with_async_before_hook("*", move |context, request| {
+            let configurations = Arc::clone(&configurations);
+            Box::pin(async move { session_hook(context, request, configurations).await })
+        });
+    for error_code in errors::plugin_error_codes() {
+        plugin = plugin.with_error_code(error_code);
+    }
+    plugin
+}
+
+async fn session_hook(
+    context: &rustauth_core::context::AuthContext,
+    request: rustauth_core::plugin::PluginRequest,
+    configurations: Arc<options::ResolvedConfigurations>,
+) -> Result<PluginBeforeHookAction, RustAuthError> {
+    let Some((raw_key, options)) = find_session_key(context, &request, &configurations).await?
+    else {
+        return Ok(PluginBeforeHookAction::Continue(request));
+    };
+    if raw_key.len() < options.default_key_length {
+        return errors::error_response(StatusCode::FORBIDDEN, errors::INVALID_API_KEY)
+            .map(PluginBeforeHookAction::Respond);
+    }
+    if let Some(validator) = &options.custom_api_key_validator {
+        if !validator(context, &raw_key).await? {
+            return errors::error_response(StatusCode::FORBIDDEN, errors::INVALID_API_KEY)
+                .map(PluginBeforeHookAction::Respond);
+        }
+    }
+    let hashed = if options.disable_key_hashing {
+        raw_key.clone()
+    } else {
+        hashing::default_key_hasher(&raw_key)
+    };
+    let api_key = match routes::validate_api_key(context, &options, &hashed, None).await {
+        Ok(api_key) => api_key,
+        Err(error) => {
+            return errors::error_response(error.status, error.code)
+                .map(PluginBeforeHookAction::Respond);
+        }
+    };
+    if options.reference != ApiKeyReference::User {
+        return errors::error_response(
+            StatusCode::UNAUTHORIZED,
+            errors::INVALID_REFERENCE_ID_FROM_API_KEY,
+        )
+        .map(PluginBeforeHookAction::Respond);
+    }
+    let Some(_adapter) = context.adapter() else {
+        return Ok(PluginBeforeHookAction::Continue(request));
+    };
+    let Some(user) = context
+        .users()?
+        .find_user_by_id(&api_key.reference_id)
+        .await?
+    else {
+        return errors::error_response(
+            StatusCode::UNAUTHORIZED,
+            errors::INVALID_REFERENCE_ID_FROM_API_KEY,
+        )
+        .map(PluginBeforeHookAction::Respond);
+    };
+    let now = OffsetDateTime::now_utc();
+    let expires_at = match api_key.expires_at {
+        Some(expires_at) => expires_at,
+        None => session_expiration_from_context(context, now)?,
+    };
+    let session = Session {
+        id: api_key.id.clone(),
+        user_id: api_key.reference_id.clone(),
+        expires_at,
+        token: raw_key,
+        ip_address: request_ip(context, &request),
+        user_agent: request
+            .headers()
+            .get(header::USER_AGENT)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned),
+        created_at: now,
+        updated_at: now,
+    };
+    if request_state::has_request_state() {
+        request_state::set_current_session(session.clone(), user.clone())?;
+    }
+    if request.uri().path().ends_with("/get-session") {
+        return session_response(context, session, user)
+            .await
+            .map(PluginBeforeHookAction::Respond);
+    }
+    Ok(PluginBeforeHookAction::Continue(request))
+}
+
+async fn find_session_key(
+    context: &rustauth_core::context::AuthContext,
+    request: &rustauth_core::plugin::PluginRequest,
+    configurations: &options::ResolvedConfigurations,
+) -> Result<Option<(String, ApiKeyConfiguration)>, RustAuthError> {
+    for configuration in configurations
+        .all()
+        .iter()
+        .filter(|configuration| configuration.enable_session_for_api_keys)
+    {
+        if let Some(getter) = &configuration.custom_api_key_getter {
+            if let Some(key) = getter(context, request).await? {
+                return Ok(Some((key, configuration.clone())));
+            }
+            continue;
+        }
+        for header_name in &configuration.api_key_headers {
+            if let Some(value) = request
+                .headers()
+                .get(header_name)
+                .and_then(|value| value.to_str().ok())
+            {
+                return Ok(Some((value.to_owned(), configuration.clone())));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn request_ip(
+    context: &rustauth_core::context::AuthContext,
+    request: &rustauth_core::plugin::PluginRequest,
+) -> Option<String> {
+    if context.options.advanced.ip_address.disable_ip_tracking {
+        return None;
+    }
+
+    for header_name in &context.options.advanced.ip_address.headers {
+        let Some(value) = request
+            .headers()
+            .get(header_name.as_str())
+            .and_then(|value| value.to_str().ok())
+        else {
+            continue;
+        };
+        for candidate in value.split(',').map(str::trim) {
+            if candidate.is_empty() || !is_valid_ip(candidate) {
+                continue;
+            }
+            return Some(normalize_ip_with_options(
+                candidate,
+                NormalizeIpOptions {
+                    ipv6_subnet: context.options.advanced.ip_address.ipv6_subnet,
+                },
+            ));
+        }
+    }
+
+    None
+}
+
+fn session_expiration_from_context(
+    context: &rustauth_core::context::AuthContext,
+    now: OffsetDateTime,
+) -> Result<OffsetDateTime, RustAuthError> {
+    now.checked_add(context.session_config.expires_in)
+        .ok_or(RustAuthError::NumericOutOfRange {
+            context: "session.expires_in",
+        })
+}
+
+#[derive(Serialize)]
+struct SessionResponse {
+    session: Value,
+    user: Value,
+}
+
+async fn session_response(
+    context: &rustauth_core::context::AuthContext,
+    session: Session,
+    user: rustauth_core::db::User,
+) -> Result<rustauth_core::plugin::PluginResponse, RustAuthError> {
+    let session = session_output_value(context.adapter_ref()?, context, &session).await?;
+    let user = user_output_value(context.adapter_ref()?, context, &user).await?;
+    let body = serde_json::to_vec(&SessionResponse { session, user })
+        .map_err(|error| RustAuthError::Api(error.to_string()))?;
+    http::Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body)
+        .map_err(|error| RustAuthError::Api(error.to_string()))
+}

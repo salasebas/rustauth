@@ -1,0 +1,109 @@
+---
+title: SSO
+description: Enterprise OIDC and SAML single sign-on for RustAuth server plugin.
+---
+
+The SSO plugin stores SSO provider definitions, exposes management routes, and signs users in through external OIDC identity providers. Optional SAML routes are available behind feature flags.
+
+<Callout type="info">
+  The SSO plugin API is **experimental**. Route shapes, provider storage, and SAML/OIDC behavior may change before a stable release. Prefer OIDC for new integrations.
+</Callout>
+
+Use `rustauth-oidc` directly for low-level OIDC helpers. Use [OAuth provider](/docs/plugins/oauth-provider) when your RustAuth server should **issue** OAuth/OIDC tokens (not consume external IdPs).
+
+## Install
+
+Core SSO:
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["sso"] }
+```
+
+Enable OIDC sign-in routes:
+
+```toml
+rustauth = { version = "0.1", features = ["sso", "oidc"] }
+```
+
+Enable SAML compatibility routes:
+
+```toml
+rustauth = { version = "0.1", features = ["sso", "saml"] }
+```
+
+Or depend on `rustauth-sso` directly with `default-features = false` and the features you need.
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::sso::{sso, SsoOptions};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .plugin(sso(SsoOptions::default()))
+    .build()
+    .await?;
+```
+
+`OidcConfig`, `OidcMapping`, and `TokenEndpointAuthentication` are re-exported from `rustauth_oidc`. For organization membership assignment on login, enable the [organization](/docs/plugins/organization) plugin and configure `organization_provisioning`.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `model_name` / `provider_table` | Physical table naming |
+| `providers_limit` | Max providers per scope |
+| `domain_verification` | DNS TXT domain verification settings |
+| `redirect_uri` | Default OAuth redirect URI |
+| `disable_implicit_sign_up` | Block auto-registration on first SSO login |
+| `trust_email_verified` | Trust IdP `email_verified` claims |
+| `oidc` | SSRF controls and OIDC-specific options |
+| `saml` | SAML SP settings (requires `saml` feature) |
+| `organization_provisioning` | Assign users to orgs on login |
+| `provision_user` / `provision_user_on_every_login` | User profile hooks |
+| `rate_limit` | Rate limits on register and callback routes |
+| `audit_event` | Structured audit callback |
+| `default_sso` | Seed providers at startup |
+
+**OIDC vs SAML:** OIDC is plug-and-play with discovery and client credentials. SAML requires per-IdP certificates, entry points, and SP metadata — enable `saml` only when the tenant requires it.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Feature | Description |
+| --- | --- | --- | --- |
+| POST | `/sso/register` | core | Register an SSO provider |
+| GET | `/sso/providers` | core | List providers |
+| GET | `/sso/get-provider` | core | Get one provider |
+| POST | `/sso/update-provider` | core | Update a provider |
+| POST | `/sso/delete-provider` | core | Delete a provider |
+| POST | `/sso/request-domain-verification` | core | Start domain verification |
+| POST | `/sso/verify-domain` | core | Confirm domain ownership |
+| POST | `/sign-in/sso` | core | Start SSO sign-in |
+| GET | `/sso/callback` | `oidc` | OIDC callback |
+| GET | `/sso/callback/:providerId` | `oidc` | OIDC callback (named provider) |
+| GET | `/sso/saml2/callback/:providerId` | `saml` | SAML callback |
+| POST | `/sso/saml2/sp/acs/:providerId` | `saml` | SAML ACS |
+| GET/POST | `/sso/saml2/sp/slo/:providerId` | `saml` | SAML single logout |
+| POST | `/sso/saml2/logout/:providerId` | `saml` | SAML logout |
+| GET | `/sso/saml2/sp/metadata` | `saml` | SP metadata document |
+
+## Database
+
+The plugin adds **`sso_providers`** with issuer, OIDC/SAML config JSON, domain verification state, optional organization linkage, and metadata columns.
+
+Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```
+
+## Related
+
+- [rustauth-sso README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-sso/README.md)
+- [OAuth provider](/docs/plugins/oauth-provider) — when RustAuth is the authorization server
+- [Organization](/docs/plugins/organization) — org provisioning on SSO login

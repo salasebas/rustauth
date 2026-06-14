@@ -1,0 +1,52 @@
+# Deprecated: prefer rustauth.toml. This file remains for backward compatibility.
+
+[project]
+framework = "axum"
+base_url = "http://127.0.0.1:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "deadpool-postgres"
+provider = "postgres"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+# Keep in sync with ENABLED_PLUGIN_IDS in src/auth/plugins.rs.
+# additional-fields is app-configured (see tests/cli_schema_parity.rs) — CLI migrate
+# does not infer its columns from the plugin id alone.
+enabled = [
+  "additional-fields",
+  "admin",
+  "anonymous",
+  "api-key",
+  "bearer",
+  "captcha",
+  "custom-session",
+  "device-authorization",
+  "email-otp",
+  "generic-oauth",
+  "have-i-been-pwned",
+  "jwt",
+  "last-login-method",
+  "magic-link",
+  "oauth-provider",
+  "multi-session",
+  "oauth-proxy",
+  "one-tap",
+  "one-time-token",
+  "open-api",
+  "organization",
+  "passkey",
+  "phone-number",
+  "scim",
+  "siwe",
+  "sso",
+  "stripe",
+  "two-factor",
+  "username",
+]

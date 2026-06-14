@@ -1,0 +1,258 @@
+---
+title: Installation
+description: Install RustAuth with Cargo, configure secrets and adapters, run migrations, and mount on Axum.
+---
+
+<Steps>
+  <Step>
+    ### Add dependencies
+
+    Add RustAuth and the Axum integration to your `Cargo.toml`:
+
+    ```toml title="Cargo.toml"
+    [dependencies]
+    rustauth = { version = "0.1", features = ["sqlx-sqlite"] }
+    rustauth-axum = "0.1"
+    axum = "0.8"
+    tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+    ```
+
+    <Callout type="info">
+      Pick the SQLx dialect feature that matches your database: `sqlx-sqlite`, `sqlx-postgres`, or `sqlx-mysql`. For native Postgres pools, use `rustauth-tokio-postgres` or `rustauth-deadpool-postgres` instead of SQLx — see [adapters](/docs/adapters).
+    </Callout>
+  </Step>
+
+  <Step>
+    ### Set environment variables
+
+    Copy the example env file from the reference backend and adjust for local development:
+
+    ```txt title=".env"
+    RUSTAUTH_SECRET=dev-secret-at-least-32-characters-long!!
+    RUSTAUTH_BASE_URL=http://127.0.0.1:3000/api/auth
+    RUSTAUTH_AUTH_BASE_PATH=/api/auth
+    RUST_ENV=development
+    RUSTAUTH_TRUSTED_ORIGINS=http://127.0.0.1:3000
+    DATABASE_URL=postgres://user:password@127.0.0.1:5432/rustauth
+    ```
+
+    <GenerateSecret />
+
+    <Callout type="info">
+      `RUSTAUTH_SECRET` must be at least 32 characters. In production, generate a high-entropy value with `rustauth secret --bytes 32` or `openssl rand -base64 32`. See [`secrets`](/docs/reference/options#secrets) for rotation with multiple signing keys. Legacy `RUSTAUTH_*` environment variables are still read as fallbacks during migration.
+    </Callout>
+  </Step>
+
+  <Step>
+    ### Configure RustAuth
+
+    **Runtime** behavior is configured in Rust with `RustAuth::builder()` (secrets,
+    adapters, plugin options, hooks). The reference backend composes options in code:
+
+    ```rust title="src/auth.rs"
+    use rustauth::prelude::*;
+
+    pub async fn build_auth() -> Result<RustAuth, Box<dyn std::error::Error>> {
+        let auth = RustAuth::builder()
+            .secret(std::env::var("RUSTAUTH_SECRET")?)
+            .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+            .email_password(EmailPasswordOptions::new().enabled(true))
+            .rate_limit(RateLimitOptions::memory().enabled(true).window(60).max(100))
+            .build()
+            .await?;
+        Ok(auth)
+    }
+    ```
+
+    For larger apps, mirror `examples/backend-reference/src/auth/options.rs`: load `AppConfig` from env, attach plugins, social providers, and hooks on `RustAuthOptions`.
+
+    <Callout type="warn">
+      **CLI migrations use a separate config file.** `rustauth db status`, `db generate`, and `db migrate` read **`rustauth.toml`** in your project root — they do not inspect `RustAuth::builder()` or compile your app. Create it with `rustauth init`, then keep `[database]` and `[plugins].enabled` aligned with the adapter and plugin ids you register in Rust. See [CLI](/docs/concepts/cli) and [database migrations](/docs/database-migrations).
+    </Callout>
+  </Step>
+
+  <Step>
+    ### Configure database
+
+    RustAuth stores users, sessions, accounts, and plugin data in your database. Stateless mode is possible without an adapter, but most plugins require persistence.
+
+    <Tabs items={["sqlite", "postgres", "mysql"]}>
+      <Tab value="sqlite">
+        ```toml title="Cargo.toml"
+        rustauth = { version = "0.1", features = ["sqlx-sqlite"] }
+        sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+        ```
+
+        ```rust title="src/auth.rs"
+        use rustauth::prelude::*;
+        use rustauth::sqlx::SqliteAdapter;
+        use sqlx::sqlite::SqlitePoolOptions;
+
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite://rustauth.db")
+            .await?;
+
+        let auth = RustAuth::builder()
+            .secret("secret-a-at-least-32-chars-long!!")
+            .base_url("http://127.0.0.1:3000/api/auth")
+            .adapter(SqliteAdapter::new(pool))
+            .build()
+            .await?;
+        ```
+      </Tab>
+
+      <Tab value="postgres">
+        ```toml title="Cargo.toml"
+        rustauth = { version = "0.1", features = ["sqlx-postgres"] }
+        sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
+        ```
+
+        ```rust title="src/auth.rs"
+        use rustauth::prelude::*;
+        use rustauth::sqlx::PostgresAdapter;
+        use sqlx::postgres::PgPoolOptions;
+
+        let pool = PgPoolOptions::new()
+            .connect(&std::env::var("DATABASE_URL")?)
+            .await?;
+
+        let auth = RustAuth::builder()
+            .secret(std::env::var("RUSTAUTH_SECRET")?)
+            .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+            .adapter(PostgresAdapter::new(pool))
+            .build()
+            .await?;
+        ```
+
+        For production connection pooling, see [deadpool-postgres](/docs/adapters/deadpool-postgres) or [tokio-postgres](/docs/adapters/tokio-postgres).
+      </Tab>
+
+      <Tab value="mysql">
+        ```toml title="Cargo.toml"
+        rustauth = { version = "0.1", features = ["sqlx-mysql"] }
+        sqlx = { version = "0.8", features = ["runtime-tokio", "mysql"] }
+        ```
+
+        ```rust title="src/auth.rs"
+        use rustauth::prelude::*;
+        use rustauth::sqlx::MySqlAdapter;
+        use sqlx::mysql::MySqlPoolOptions;
+
+        let pool = MySqlPoolOptions::new()
+            .connect(&std::env::var("DATABASE_URL")?)
+            .await?;
+
+        let auth = RustAuth::builder()
+            .adapter(MySqlAdapter::new(pool))
+            .build()
+            .await?;
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step>
+    ### Create `rustauth.toml` and run migrations
+
+    Database schema is applied with the **CLI**, not at application startup. The CLI
+    needs a project config file:
+
+    ```bash title="Terminal"
+    cargo install rustauth-cli --features sqlx,plugins
+    rustauth init --seed-secrets
+    ```
+
+    `rustauth init` writes `rustauth.toml`, `.env.example`, and `.env`. Edit the TOML
+    so it matches your app — same SQL adapter, provider, and plugin ids as in Rust:
+
+    ```toml title="rustauth.toml"
+    [database]
+    adapter = "sqlx"
+    provider = "sqlite"          # or postgres / mysql
+    url_env = "DATABASE_URL"
+    migrations_dir = "migrations/rustauth"
+
+    [plugins]
+    enabled = [
+      "admin",
+      "organization",
+      # same plugin ids you pass to RustAuth::builder().plugin(...)
+    ]
+    ```
+
+    Then plan and apply schema:
+
+    ```bash title="Terminal"
+    rustauth db status
+    rustauth db migrate --yes
+    ```
+
+    Migrations are **CLI-only** — do not call a runtime migrate helper from your server.
+    Re-run `rustauth db migrate` whenever you add plugins in code **and** in
+    `[plugins].enabled`. See [database migrations](/docs/database-migrations) and
+    [CLI](/docs/concepts/cli). Manual CLI-only walkthrough:
+    [`examples/cli-migrate-playground`](https://github.com/salasebas/rustauth/tree/main/examples/cli-migrate-playground).
+  </Step>
+
+  <Step>
+    ### Enable auth methods
+
+    Email/password and social providers are configured on `RustAuthOptions`:
+
+    ```rust title="src/auth.rs"
+    use rustauth::prelude::*;
+    use rustauth_social_providers::github;
+
+    let auth = RustAuth::builder()
+        .email_password(EmailPasswordOptions::new().enabled(true).auto_sign_in(true))
+        .social_provider(github(
+            std::env::var("GITHUB_CLIENT_ID")?,
+            std::env::var("GITHUB_CLIENT_SECRET")?,
+        ))
+        .build()
+        .await?;
+    ```
+
+    See [basic usage](/docs/basic-usage) for HTTP sign-up/sign-in flows and [authentication](/docs/authentication) for provider-specific setup.
+  </Step>
+
+  <Step>
+    ### Mount on Axum
+
+    RustAuth ships an official Axum adapter. Mount auth routes under your base path:
+
+    ```rust title="src/main.rs"
+    use rustauth::prelude::*;
+    use rustauth_axum::{RustAuthAxumExt, RustAuthAxumOptions};
+
+    #[tokio::main]
+    async fn main() -> Result<(), Box<dyn std::error::Error>> {
+        let auth = build_auth().await?;
+
+        let app = auth.into_router_with(RustAuthAxumOptions::new().body_limit(1024 * 1024))?;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await?;
+        Ok(())
+    }
+    ```
+
+    <Callout type="info">
+      RustAuth does not ship a browser `authClient`. Frontends call REST endpoints under your auth base path, or your app's BFF proxies cookies. See [basic usage](/docs/basic-usage).
+    </Callout>
+
+    Full Axum patterns: [Axum integration](/docs/integrations/axum). Reference app: [`examples/backend-reference`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference).
+  </Step>
+
+  <Step>
+    ### Next steps
+
+    - [Basic usage](/docs/basic-usage) — sign up, sign in, sessions over HTTP
+    - [Axum integration](/docs/integrations/axum) — mount APIs and production notes
+    - [Plugins](/docs/plugins) — extend auth with official plugins
+  </Step>
+</Steps>

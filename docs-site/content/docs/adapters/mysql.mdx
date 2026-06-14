@@ -1,0 +1,107 @@
+---
+title: MySQL
+description: MySQL adapter for RustAuth via rustauth-sqlx.
+---
+
+MySQL is a widely deployed relational database. RustAuth connects through [`rustauth-sqlx`](https://docs.rs/rustauth-sqlx) with the `mysql` feature.
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["sqlx-mysql"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-sqlx = { version = "0.1", default-features = false, features = ["mysql"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## Quick start
+
+[`MySqlStores`](https://docs.rs/rustauth-sqlx/latest/rustauth_sqlx/struct.MySqlStores.html) bundles a [`MySqlAdapter`](https://docs.rs/rustauth-sqlx/latest/rustauth_sqlx/struct.MySqlAdapter.html) and SQL-backed rate-limit store sharing one pool:
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_sqlx::MySqlStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = MySqlStores::connect_with_schema(
+    &std::env::var("DATABASE_URL")?,
+    schema,
+)
+.await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new()
+            .secret(std::env::var("RUSTAUTH_SECRET")?)
+            .base_url(std::env::var("RUSTAUTH_BASE_URL")?),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+### Bring your own pool
+
+When you already manage a `sqlx::MySqlPool`:
+
+```rust
+use rustauth_sqlx::{MySqlAdapter, MySqlRateLimitStore};
+use sqlx::mysql::MySqlPoolOptions;
+
+let pool = MySqlPoolOptions::new()
+    .connect(&std::env::var("DATABASE_URL")?)
+    .await?;
+
+let adapter = MySqlAdapter::with_schema(pool, schema);
+let rate_limit = MySqlRateLimitStore::from(&adapter);
+```
+
+<Callout type="warning">
+  MySQL cannot roll back DDL through a transaction. On migration failure, the adapter best-effort undoes successful statements in reverse order. Treat a failed migration as requiring inspection before retrying.
+</Callout>
+
+## When to use
+
+- Your application already uses SQLx with MySQL.
+- You operate on MySQL or MariaDB and want the same RustAuth schema and migration tooling as SQLite and Postgres.
+
+RustAuth does not ship a separate native MySQL driver adapter — MySQL support is SQLx-only. For Postgres without SQLx, see [Deadpool Postgres](/docs/adapters/deadpool-postgres) or [Tokio Postgres](/docs/adapters/tokio-postgres).
+
+## CLI migrate
+
+```toml title="rustauth.toml"
+[database]
+adapter = "sqlx"
+provider = "mysql"
+url_env = "DATABASE_URL"
+```
+
+Set `DATABASE_URL` and run:
+
+```bash title="Terminal"
+cargo install rustauth-cli --features sqlx
+rustauth db migrate --yes
+```
+
+Migrations are **CLI-only**. See [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+## Related
+
+- [SQLx adapters](/docs/adapters/sqlx) — feature flags and migration behavior
+- [SQLite](/docs/adapters/sqlite) — local development
+- [PostgreSQL](/docs/adapters/postgresql) — Postgres via SQLx
+- [Database](/docs/concepts/database) — core auth schema

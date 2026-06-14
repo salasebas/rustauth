@@ -1,0 +1,80 @@
+---
+title: Telemetry
+description: Opt-in telemetry for your RustAuth deployment via rustauth-telemetry.
+---
+
+RustAuth ships an optional [`rustauth-telemetry`](https://docs.rs/rustauth-telemetry) crate so **you** can observe how auth runs in **your** environment — adapter choice, deployment mode, enabled plugins, CLI outcomes — without building that instrumentation yourself.
+
+Telemetry is **disabled by default**. Nothing is sent until you enable it **and** configure a sink (your HTTP collector or debug logging).
+
+## Why use it
+
+Use telemetry when **your team** wants aggregate signals from production or staging:
+
+- Which database adapter and deployment mode are active
+- Which plugins are enabled (counts and ids, not secrets)
+- CLI migrate/generate outcomes in CI
+
+This is **for operators and integrators of your app**, not a channel that sends data to RustAuth library maintainers by default. Point `RUSTAUTH_TELEMETRY_ENDPOINT` at **your** collector (Datadog, Honeycomb, internal gateway, etc.).
+
+<Callout type="info">
+  No user emails, session tokens, database URLs, or signing secrets are included in payloads. Config snapshots are redacted to booleans and counts.
+</Callout>
+
+## Enable telemetry
+
+### Options
+
+```rust
+use rustauth::options::TelemetryOptions;
+use rustauth::prelude::*;
+
+let options = RustAuthOptions::new()
+    .base_url("https://app.example.com/api/auth")
+    .telemetry(TelemetryOptions::new().enabled(true));
+```
+
+Enable the `telemetry` feature on the `rustauth` crate (see [backend reference `Cargo.toml`](https://github.com/salasebas/rustauth/blob/main/examples/backend-reference/Cargo.toml)).
+
+### Environment variables
+
+| Variable | Purpose |
+| -------- | ------- |
+| `RUSTAUTH_TELEMETRY=1` | Master enable (overrides options when set) |
+| `RUSTAUTH_TELEMETRY=0` | Hard opt-out even if options enable telemetry |
+| `RUSTAUTH_TELEMETRY_DEBUG=1` | Log JSON payloads locally instead of POSTing |
+| `RUSTAUTH_TELEMETRY_ENDPOINT` | **Your** collector URL (required for network export) |
+
+Precedence: `RUSTAUTH_TELEMETRY=false/0` always wins. When unset, `TelemetryOptions::enabled` decides (default off).
+
+## What is collected
+
+Anonymous project id (hash of crate metadata / base URL), Rust runtime info, detected database adapter, redacted config snapshot (`get_telemetry_auth_config`), and optional CLI outcomes (`cli_generate`, `cli_migrate`). See [`rustauth-telemetry` README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-telemetry/README.md) for field details.
+
+<Callout type="info">
+  Debug locally with `RUSTAUTH_TELEMETRY_DEBUG=1` or `.telemetry(TelemetryOptions::new().debug(true))` — events print to your logs only.
+</Callout>
+
+## Example (reference stack)
+
+```rust
+#[cfg(feature = "telemetry")]
+fn apply_optional_telemetry(options: RustAuthOptions) -> RustAuthOptions {
+    let enabled = std::env::var("RUSTAUTH_TELEMETRY")
+        .ok()
+        .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "TRUE"));
+    if enabled {
+        options.telemetry(TelemetryOptions::new().enabled(true))
+    } else {
+        options
+    }
+}
+```
+
+From `examples/backend-reference/src/auth/options.rs`.
+
+## Privacy
+
+- No PII, tokens, or raw connection strings in payloads.
+- You control the endpoint; RustAuth does not require a vendor-specific cloud.
+- Suppressed in tests unless test hooks explicitly opt in.

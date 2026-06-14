@@ -1,0 +1,110 @@
+---
+title: API
+description: Call RustAuth HTTP endpoints from your server, pass JSON bodies and cookies, read response headers, and handle API errors.
+---
+
+RustAuth exposes a JSON HTTP API under your configured `base_path` (default `/api/auth`). There is no in-process `auth.api` object like some TypeScript stacks provide—the router is the integration surface.
+
+Mount the handler in your web framework, or call [`RustAuth::handler_async`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.handler_async) directly with an `http::Request`.
+
+<Callout>
+  RustAuth does not ship a browser `authClient`. Frontends call the same HTTP routes (often through a BFF that forwards cookies). Server code uses `handler_async` or an HTTP client such as `reqwest`.
+</Callout>
+
+## Mounting the handler
+
+With Axum, use [`rustauth-axum`](https://docs.rs/rustauth-axum):
+
+```rust
+use rustauth::prelude::*;
+use rustauth_axum::RustAuthAxumExt;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .build()
+    .await?;
+
+let app = auth.mount_at_base_path(rustauth_axum::RustAuthAxumOptions::default())?;
+```
+
+## Calling endpoints in-process
+
+Build an `http::Request` and pass it to `handler_async`. Forward session cookies from the incoming request when the endpoint requires authentication.
+
+```rust
+use http::{Method, Request, StatusCode};
+use rustauth::prelude::*;
+
+let sign_in = Request::builder()
+    .method(Method::POST)
+    .uri("https://app.example.com/api/auth/sign-in/email")
+    .header(http::header::CONTENT_TYPE, "application/json")
+    .body(serde_json::to_vec(&serde_json::json!({
+        "email": "john@example.com",
+        "password": "password",
+        "rememberMe": true
+    }))?)
+    .unwrap();
+
+let response = auth.handler_async(sign_in).await?;
+assert_eq!(response.status(), StatusCode::OK);
+```
+
+### Session lookup
+
+```rust
+let get_session = Request::builder()
+    .method(Method::GET)
+    .uri("https://app.example.com/api/auth/get-session")
+    .header(http::header::COOKIE, session_cookie)
+    .body(Vec::new())
+    .unwrap();
+
+let response = auth.handler_async(get_session).await?;
+```
+
+Query parameters use standard URI query strings (for example `/verify-email?token=…`).
+
+## Request and response shape
+
+- **Body:** JSON with camelCase field names in HTTP (for example `rememberMe`, `callbackURL`).
+- **Headers:** Set `Content-Type: application/json` on POST bodies. Forward `Cookie` for session-authenticated routes.
+- **Responses:** JSON bodies on success; errors return `{ "code": "…", "message": "…" }`.
+
+Inspect registered routes with [`RustAuth::endpoint_registry`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.endpoint_registry) or [`RustAuth::openapi_schema`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.openapi_schema).
+
+## Response headers and cookies
+
+`handler_async` returns an `http::Response`. Read `Set-Cookie` and other headers from the response directly:
+
+```rust
+if let Some(cookies) = response.headers().get(http::header::SET_COOKIE) {
+    // forward to the browser or store for subsequent requests
+    let _ = cookies;
+}
+```
+
+## Error handling
+
+Router failures surface as [`RustAuthError`](https://docs.rs/rustauth-core/latest/rustauth_core/error/enum.RustAuthError.html). Successful HTTP error responses (4xx/5xx) are returned as normal responses with a JSON error body—check `response.status()` and parse the body.
+
+```rust
+use rustauth::prelude::*;
+
+match auth.handler_async(request).await {
+    Ok(response) if response.status().is_success() => {
+        let body: serde_json::Value = serde_json::from_slice(response.body())?;
+        // use body
+    }
+    Ok(response) => {
+        let error: rustauth::api::ApiErrorResponse = serde_json::from_slice(response.body())?;
+        eprintln!("{}: {}", error.code, error.message);
+    }
+    Err(error) => eprintln!("router error: {error}"),
+}
+```
+
+## Rate limiting note
+
+Rate limits apply to HTTP requests through the handler. Direct in-process calls still pass through the same router and are subject to configured limits when enabled.

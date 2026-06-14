@@ -1,0 +1,58 @@
+---
+title: Anonymous
+description: Guest anonymous sessions and account linking for RustAuth server plugin.
+---
+
+The anonymous plugin creates temporary guest users with generated emails. When the guest later signs in with a real provider, the plugin can link the anonymous account to the authenticated user.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(anonymous(
+        AnonymousOptions::default().email_domain_name("guest.example.com"),
+    ))
+    .build()
+    .await?;
+```
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `email_domain_name` | Domain for generated guest emails |
+| `generate_random_email` | Custom email generator (sync or async) |
+| `generate_name` | Custom display name generator |
+| `disable_delete_anonymous_user` | Block `/delete-anonymous-user` |
+| `on_link_account` | Hook when an anonymous user links to a real account |
+| `field_name` | Database column for the `is_anonymous` flag (default `is_anonymous`) |
+
+The plugin attaches after-hooks to sign-in, sign-up, OAuth callback, magic-link verify, email-OTP verify, passkey authentication, and phone verification routes to perform account linking.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/sign-in/anonymous` | Create a guest session |
+| POST | `/delete-anonymous-user` | Delete the current anonymous user |
+
+## Database
+
+The plugin adds an optional boolean `is_anonymous` field on users. Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

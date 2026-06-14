@@ -1,0 +1,44 @@
+[package]
+name = "rustauth-saml"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-saml"
+readme = "README.md"
+description = "SAML 2.0 service-provider support for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+saml-signed = ["opensaml/crypto-bergshamra"]
+sso-internal = []
+test-util = []
+
+[dependencies]
+base64.workspace = true
+flate2.workspace = true
+http.workspace = true
+rustauth-core.workspace = true
+opensaml = { workspace = true, default-features = false }
+quick-xml.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+url.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[[test]]
+name = "security"
+required-features = ["test-util"]
+
+[lints]
+workspace = true

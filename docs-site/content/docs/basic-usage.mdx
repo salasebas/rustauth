@@ -1,0 +1,154 @@
+---
+title: Basic Usage
+description: Email/password and social auth flows over HTTP with RustAuth.
+---
+
+RustAuth provides built-in authentication support for:
+
+* **Email and password**
+* **Social providers** (GitHub, Google, Apple, and more)
+
+Extend behavior with [plugins](/docs/plugins): username, magic link, passkey, email OTP, organizations, and more.
+
+<Callout type="info">
+  RustAuth does not ship a browser `authClient`. Your frontend (or BFF) calls the REST endpoints under your auth base path — for example `/api/auth/sign-up/email`. The reference backend shows typed request builders in `examples/backend-reference/src/client/`.
+</Callout>
+
+## Email & Password
+
+Enable email/password on the server:
+
+```rust title="src/auth.rs"
+use rustauth::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .email_password(
+        EmailPasswordOptions::new()
+            .enabled(true)
+            .auto_sign_in(true),
+    )
+    .build()
+    .await?;
+```
+
+Set `auto_sign_in(false)` if you want users to sign in explicitly after sign-up.
+
+### Sign up
+
+POST JSON to `/sign-up/email`:
+
+```rust title="sign_up.rs"
+use http::{Method, Request};
+use serde_json::json;
+
+let body = json!({
+    "name": "Ada Lovelace",
+    "email": "ada@example.com",
+    "password": "a-secure-password",
+    "rememberMe": true
+});
+
+let request = Request::builder()
+    .method(Method::POST)
+    .uri("http://127.0.0.1:3000/api/auth/sign-up/email")
+    .header("content-type", "application/json")
+    .body(serde_json::to_vec(&body)?)?;
+
+let response = auth.handler_async(request).await?;
+```
+
+On success, the response includes a `Set-Cookie` header with the session token. Persist that cookie on subsequent requests.
+
+### Sign in
+
+POST JSON to `/sign-in/email`:
+
+```rust title="sign_in.rs"
+use http::{Method, Request};
+use serde_json::json;
+
+let body = json!({
+    "email": "ada@example.com",
+    "password": "a-secure-password",
+    "rememberMe": true
+});
+
+let request = Request::builder()
+    .method(Method::POST)
+    .uri("http://127.0.0.1:3000/api/auth/sign-in/email")
+    .header("content-type", "application/json")
+    .body(serde_json::to_vec(&body)?)?;
+
+let response = auth.handler_async(request).await?;
+```
+
+The reference backend wraps these flows in `examples/backend-reference/src/client/flows.rs` and `requests.rs`.
+
+### Session cookie
+
+Forward the session cookie on protected requests:
+
+```rust title="get_session.rs"
+use http::{Method, Request};
+
+let request = Request::builder()
+    .method(Method::GET)
+    .uri("http://127.0.0.1:3000/api/auth/get-session")
+    .header("cookie", "rustauth.session_token=...")
+    .body(Vec::new())?;
+
+let response = auth.handler_async(request).await?;
+```
+
+From a browser, your app or BFF stores the cookie and proxies auth calls to RustAuth.
+
+## Social sign-in
+
+Configure a provider on `RustAuthOptions`:
+
+```rust title="src/auth.rs"
+use rustauth::prelude::*;
+use rustauth_social_providers::github;
+
+let auth = RustAuth::builder()
+    .social_provider(github(
+        std::env::var("GITHUB_CLIENT_ID")?,
+        std::env::var("GITHUB_CLIENT_SECRET")?,
+    ))
+    .build()
+    .await?;
+```
+
+The social flow is redirect-based:
+
+1. The user visits `/sign-in/social?provider=github` (or your app's link to that route).
+2. RustAuth redirects to the provider's consent screen.
+3. After authorization, RustAuth handles the callback, creates or links the account, and sets the session cookie.
+4. Your app reads the session with `/get-session` or your own middleware.
+
+See [OAuth concepts](/docs/concepts/oauth) and [authentication](/docs/authentication) for provider-specific configuration.
+
+## Calling from curl
+
+For quick manual testing:
+
+```bash title="Terminal"
+curl -i -X POST http://127.0.0.1:3000/api/auth/sign-up/email \
+  -H 'content-type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com","password":"secure-pass-123","rememberMe":true}'
+```
+
+Copy the `Set-Cookie` value into later requests:
+
+```bash title="Terminal"
+curl -i http://127.0.0.1:3000/api/auth/get-session \
+  -H 'cookie: rustauth.session_token=...'
+```
+
+## Next steps
+
+- [Session management](/docs/concepts/session-management) — expiry, refresh, and cookie cache
+- [API](/docs/concepts/api) — server-side `handler_async` and route reference
+- [Plugins](/docs/plugins) — magic link, passkey, 2FA, and more

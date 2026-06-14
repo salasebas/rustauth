@@ -1,0 +1,251 @@
+---
+title: Options
+description: RustAuth configuration reference for RustAuthOptions and RustAuth::builder.
+---
+
+RustAuth configuration lives in [`RustAuthOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html) (`rustauth-core/src/options/`). Build options with the fluent builder, then pass them to [`RustAuth::builder()`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html).
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["sqlx-postgres", "plugins"] }
+```
+
+```rust
+use rustauth::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .base_path("/api/auth")
+    .trusted_origins(vec!["https://app.example.com".into()])
+    .plugin(my_plugin())
+    .build()
+    .await?;
+```
+
+See `examples/backend-reference/src/auth/options.rs` for a full production-shaped example.
+
+## `app_name`
+
+Display name for contexts like TOTP issuer labels. Can be overridden per plugin (for example [2FA `issuer`](/docs/plugins/2fa#issuer)).
+
+```rust
+RustAuthOptions::new().app_name("My App")
+```
+
+## `base_url` and `base_path`
+
+`base_url` is the public origin + path prefix where auth routes are reachable (for example `https://example.com/api/auth`). `base_path` defaults to `/api/auth` when omitted.
+
+```rust
+RustAuthOptions::new()
+    .base_url("https://example.com/api/auth")
+    .base_path("/api/auth")
+```
+
+<Callout type="warn">
+  Set `base_url` explicitly in production. RustAuth does not infer host from incoming requests the way some Node stacks do.
+</Callout>
+
+Environment: `RUSTAUTH_BASE_URL` is commonly used by integrators (see backend reference `AppConfig`).
+
+## `trusted_origins`
+
+Additional origins allowed for CSRF/origin checks beyond the base URL. Static lists, dynamic providers, and wildcard patterns are supported via [`TrustedOriginOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/enum.TrustedOriginOptions.html).
+
+```rust
+use rustauth::options::TrustedOriginOptions;
+
+RustAuthOptions::new().trusted_origins(TrustedOriginOptions::Static(vec![
+    "https://app.example.com".into(),
+    "http://localhost:3000".into(),
+]))
+```
+
+Implement [`TrustedOriginsProvider`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.TrustedOriginsProvider.html) for dynamic resolution (preview deployments, multi-tenant hosts).
+
+## `secret` and `secrets`
+
+Single signing/encryption secret (minimum 32 characters in production):
+
+```rust
+RustAuthOptions::new().secret(std::env::var("RUSTAUTH_SECRET")?)
+```
+
+Versioned rotation via [`SecretEntry`](https://docs.rs/rustauth-core/latest/rustauth_core/crypto/struct.SecretEntry.html):
+
+```rust
+use rustauth_core::crypto::SecretEntry;
+
+RustAuthOptions::new().secrets(vec![
+    SecretEntry::new(2, "new-secret-key-at-least-32-chars!!"),
+    SecretEntry::new(1, "old-secret-key-at-least-32-chars!!"),
+])
+```
+
+The first entry encrypts new data; older entries decrypt legacy payloads. Environment: `RUSTAUTH_SECRETS` (see backend reference).
+
+## Database adapter
+
+RustAuth persists users, sessions, accounts, and verification through a [`DbAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html). Attach a SQLx (or custom) adapter when building `RustAuth`:
+
+```rust
+use rustauth_sqlx::SqlxAdapter;
+
+let adapter = SqlxAdapter::connect(&database_url).await?;
+let auth = RustAuth::builder()
+    .options(options)
+    .adapter(adapter)
+    .build()
+    .await?;
+```
+
+See [adapters](/docs/adapters/postgresql) and [database concepts](/docs/concepts/database).
+
+## `secondary_storage`
+
+Optional KV/Redis layer for sessions, verification, and rate limits:
+
+```rust
+RustAuthOptions::new().secondary_storage(my_redis_storage)
+```
+
+## Social OAuth providers
+
+Register built-in or custom providers on options (requires `oauth` feature):
+
+```rust
+use rustauth_social_providers::github;
+
+RustAuthOptions::new().social_provider(github(GithubOptions {
+    client_id: "...".into(),
+    client_secret: "...".into(),
+    ..Default::default()
+})?)
+```
+
+Provider-specific options live under [authentication providers](/docs/authentication). There is no `socialProviders: { ... }` map — each provider is a typed Rust constructor.
+
+## `plugins`
+
+Append server plugins with `.plugin(...)` or `.plugins(vec![...])`:
+
+```rust
+use rustauth_plugins::email_otp;
+
+RustAuthOptions::new().plugins(vec![
+    email_otp(EmailOtpOptions::default())?,
+    organization(OrganizationOptions::default())?,
+])
+```
+
+See [plugins index](/docs/plugins) and `examples/backend-reference/src/auth/plugins.rs`.
+
+## Session, user, email/password
+
+| Builder method | Type | Purpose |
+| -------------- | ---- | ------- |
+| `.session(...)` | `SessionOptions` | Expiry, refresh age, cookie cache |
+| `.user(...)` | `UserOptions` | Change-email, delete-user hooks |
+| `.email_password(...)` | `EmailPasswordOptions` | Email/password sign-in toggles |
+| `.email_verification(...)` | `EmailVerificationOptions` | Verification email sender hook |
+| `.password(...)` | `PasswordOptions` | Custom hash/verify (Argon2 default) |
+| `.account(...)` | `AccountOptions` | Linking, OAuth state strategy, token encryption |
+| `.verification(...)` | `VerificationOptions` | OTP/token storage identifiers |
+
+Outbound email/SMS hooks must not block the HTTP response — use [`dispatch_outbound`](/docs/security-outbound-delivery) patterns from core plugins.
+
+## Rate limiting
+
+```rust
+use rustauth::options::{RateLimitOptions, RateLimitRule};
+use time::Duration;
+
+RustAuthOptions::new().rate_limit(
+    RateLimitOptions::memory()
+        .enabled(true)
+        .window(Duration::seconds(60))
+        .max(120)
+        .custom_rule("/sign-in/*", RateLimitRule::new(Duration::seconds(60), 30)),
+)
+```
+
+## Hooks and database hooks
+
+| Builder method | Purpose |
+| -------------- | ------- |
+| `.hooks(GlobalHooksOptions { ... })` | Global before/after HTTP hooks |
+| `.init_database_hooks(...)` | Typed create/update hooks on core models |
+| `.database_hook(...)` | Low-level plugin database hooks |
+
+See [hooks concepts](/docs/concepts/hooks).
+
+## Advanced, errors, logging
+
+```rust
+use rustauth::options::AdvancedOptions;
+
+RustAuthOptions::new()
+    .advanced(
+        AdvancedOptions::builder()
+            .cookie_prefix("myapp")
+            .disable_csrf_check(false)
+            .disable_origin_check(false),
+    )
+    .on_api_error(OnApiErrorOptions::default())
+    .logger(LoggerOptions::default())
+    .deployment_mode(DeploymentMode::Production)
+```
+
+`on_api_error` configures default error page styling and optional `error_url` redirects (parity with upstream `onAPIError`).
+
+## `disabled_paths`
+
+Disable specific route paths:
+
+```rust
+RustAuthOptions::new().disabled_paths(["/sign-up/email".into()])
+```
+
+## `telemetry`
+
+Opt-in telemetry via [`TelemetryOptions`](/docs/reference/telemetry):
+
+```rust
+#[cfg(feature = "telemetry")]
+RustAuthOptions::new().telemetry(TelemetryOptions::new().enabled(true))
+```
+
+## Experimental
+
+```rust
+RustAuthOptions::new().experimental(ExperimentalOptions::new().joins(true))
+```
+
+## Complete reference example
+
+```rust
+use rustauth::options::*;
+use rustauth::prelude::*;
+use time::Duration;
+
+pub fn build_options(config: &AppConfig) -> AppResult<RustAuthOptions> {
+    Ok(RustAuthOptions::new()
+        .app_name("RustAuth Backend Reference")
+        .base_url(config.base_url.clone())
+        .base_path(config.auth_base_path.clone())
+        .secret(config.secret.clone())
+        .deployment_mode(DeploymentMode::Production)
+        .trusted_origins(trusted_origins(config))
+        .session(
+            SessionOptions::new()
+                .expires_in(Duration::days(7))
+                .update_age(Duration::seconds(86_400)),
+        )
+        .email_password(EmailPasswordOptions::new().enabled(true))
+        .rate_limit(RateLimitOptions::memory().enabled(true))
+        .plugins(plugins::all_plugins()?))
+}
+```
+
+Full source: [`examples/backend-reference/src/auth/options.rs`](https://github.com/salasebas/rustauth/blob/main/examples/backend-reference/src/auth/options.rs).

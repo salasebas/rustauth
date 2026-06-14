@@ -1,0 +1,22 @@
+---
+title: unable_to_create_session
+description: OAuth user was created but session creation failed.
+---
+
+## Rust implementation
+
+<Callout type="warn">
+  Not yet emitted by RustAuth (parity gap). The code string is defined on [`OAuthUserInfoError::UnableToCreateSession`](https://docs.rs/rustauth-core/latest/rustauth_core/auth/oauth/errors/enum.OAuthUserInfoError.html) in `crates/rustauth-core/src/auth/oauth/errors.rs`, and Generic OAuth maps it for redirects, but core `handle_oauth_user_info` does not return this variant today. Session failures currently surface as adapter errors instead of this redirect slug.
+</Callout>
+
+Upstream Better Auth redirects with `?error=unable_to_create_session` when session persistence fails after user creation.
+
+## Handling in Rust
+
+When implemented, expect the same redirect pattern as other OAuth errors. JSON session API failures today use [`ApiErrorResponse`](/docs/concepts/api#error-handling) with codes such as `SESSION_EXPIRED`.
+
+## How to fix
+
+- Verify session storage (database adapter or secondary storage) is healthy.
+- Check session table migrations and hook rejections.
+- Review rate limits or adapter timeouts during sign-in peaks.

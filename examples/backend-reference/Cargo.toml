@@ -1,0 +1,42 @@
+[package]
+name = "rustauth-example-backend-reference"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "Backend-only reference: modular RustAuth setup with all plugins and public API introspection."
+
+[features]
+default = []
+telemetry = ["rustauth/telemetry"]
+i18n = ["rustauth/i18n"]
+
+[dependencies]
+axum.workspace = true
+http.workspace = true
+rustauth = { path = "../../crates/rustauth", features = [
+    "deadpool-postgres",
+    "plugins",
+    "passkey",
+    "sso",
+    "scim",
+    "stripe",
+    "oauth-provider",
+    "oauth",
+    "social-providers",
+] }
+rustauth-axum = { path = "../../crates/rustauth-axum", features = ["test-utils"] }
+rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-deadpool-postgres = { path = "../../crates/rustauth-deadpool-postgres" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+time.workspace = true
+
+[dev-dependencies]
+rustauth-cli = { path = "../../crates/rustauth-cli", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

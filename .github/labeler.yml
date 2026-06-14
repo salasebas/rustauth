@@ -1,0 +1,94 @@
+# Auto-label config for actions/labeler.
+# Maps changed file paths to domain labels. All matching labels are applied.
+
+core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth/**"
+          - "crates/rustauth-core/**"
+          - "crates/rustauth-plugins/**"
+
+http:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-axum/**"
+
+oauth:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-oauth/**"
+          - "crates/rustauth-oauth-provider/**"
+          - "crates/rustauth-oidc/**"
+          - "crates/rustauth-social-providers/**"
+
+credentials:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-passkey/**"
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-sqlx/**"
+          - "crates/rustauth-deadpool-postgres/**"
+          - "crates/rustauth-tokio-postgres/**"
+          - "tests/support/*postgres*"
+          - "tests/support/*mysql*"
+          - "tests/support/*sql*"
+
+cache:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-redis/**"
+          - "crates/rustauth-fred/**"
+
+enterprise:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-sso/**"
+          - "crates/rustauth-saml/**"
+          - "crates/rustauth-scim/**"
+
+payments:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-stripe/**"
+          - "examples/stripe-smoke-server/**"
+          - "scripts/stripe-smoke.sh"
+
+devtools:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/rustauth-cli/**"
+          - "crates/rustauth-i18n/**"
+          - "crates/rustauth-telemetry/**"
+          - "scripts/**"
+
+examples:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "examples/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - "docs/**"
+          - "crates/**/README.md"
+          - "crates/**/UPSTREAM.md"
+          - "crates/**/CHANGELOG.md"
+
+release:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "RELEASE.md"
+          - "Cargo.toml"
+          - "Cargo.lock"
+          - "crates/**/Cargo.toml"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "docker-compose.yml"
+          - "lefthook.yml"

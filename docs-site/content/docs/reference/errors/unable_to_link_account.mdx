@@ -1,0 +1,28 @@
+---
+title: unable_to_link_account
+description: Authenticated account linking failed during OAuth callback.
+---
+
+An explicit link flow (`link` state) could not attach the provider account to the signed-in user.
+
+## Rust implementation
+
+**Emitted by RustAuth:** yes
+
+| Location | When |
+| -------- | ---- |
+| `crates/rustauth-core/src/api/routes/social/flow.rs:504` | Link callback returns `LinkOAuthAccountError::NotAllowed` or `CreateFailed` |
+| `crates/rustauth-core/src/auth/oauth/errors.rs:22` | Code string `unable_to_link_account` |
+| `crates/rustauth-plugins/src/generic_oauth/account.rs:109` | Generic OAuth link failures (fallback code) |
+
+Redirect shape: `{errorCallbackURL}?error=unable_to_link_account`.
+
+## Handling in Rust
+
+Parse `error=unable_to_link_account` from the OAuth redirect URL.
+
+## How to fix
+
+- Confirm the user is signed in and linking is permitted for this provider.
+- Check trusted-provider and same-email linking rules.
+- Inspect adapter errors when creating the linked account row.

@@ -1,0 +1,80 @@
+---
+title: One Tap
+description: Google One Tap sign-in for RustAuth server plugin.
+---
+
+The one-tap plugin verifies Google One Tap `id_token` credentials and creates or signs in users. It integrates with the core Google social provider configuration.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins", "social-providers"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use rustauth::social_providers::{providers, SocialProviderConfig};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .social_provider(providers::google(SocialProviderConfig::new(
+        "google-client-id",
+        "google-client-secret",
+    ))?)
+    .plugin(one_tap(OneTapOptions {
+        disable_signup: false,
+        ..OneTapOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+Alternatively, set `client_id` on `OneTapOptions` to override the Google provider client ID without registering the full social provider.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `disable_signup` | Reject unknown Google accounts (default `false`) |
+| `client_id` | Override Google OAuth client ID for token verification |
+
+When `disable_signup` is `false`, unknown Google accounts are registered automatically (subject to core sign-up rules).
+
+## HTTP endpoints
+
+Clients call this route under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/one-tap/callback` | Verify Google `idToken` and return a session |
+
+Request body (JSON, camelCase):
+
+```json
+{
+  "idToken": "<google-id-token>"
+}
+```
+
+Successful responses include session token and user data. Common errors: `INVALID_TOKEN`, `EMAIL_NOT_AVAILABLE`, and signup-disabled errors when `disable_signup` is `true`.
+
+Frontends load the Google One Tap library, obtain an `id_token`, and POST it to this endpoint from your BFF or directly to the auth server.
+
+## Database
+
+No plugin-specific tables. Uses core **`users`**, **`accounts`**, and **`sessions`** tables.
+
+Ensure the core auth schema is migrated:
+
+```bash
+rustauth db migrate
+```
+
+## Related
+
+- [Google authentication](/docs/authentication/google) — full Google OAuth sign-in
+- [OAuth concepts](/docs/concepts/oauth) — social provider setup

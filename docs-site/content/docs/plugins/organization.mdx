@@ -1,0 +1,140 @@
+---
+title: Organization
+description: Organizations, members, invitations, teams, and access control for RustAuth server plugin.
+---
+
+The organization plugin manages multi-tenant workspaces: organizations, memberships, invitations, optional teams, and optional per-organization dynamic roles. Sessions can track an active organization and active team.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(
+        organization(
+            OrganizationOptions::builder()
+                .allow_user_to_create_organization(true)
+                .invitation_expires_in(Duration::days(7))
+                .teams(TeamOptions {
+                    enabled: true,
+                    create_default_team: true,
+                    maximum_teams: Some(20),
+                    ..TeamOptions::default()
+                })
+                .dynamic_access_control(DynamicAccessControlOptions {
+                    enabled: true,
+                    maximum_roles_per_organization: Some(25),
+                })
+                .build(),
+        ),
+    )
+    .build()
+    .await?;
+```
+
+Provide `send_invitation_email` on the builder when you want email invitations. The callback is dispatched asynchronously — do not block the HTTP response on outbound email delivery. See [Outbound delivery](/docs/security-outbound-delivery).
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `allow_user_to_create_organization` | Whether users can create orgs (default `true`) |
+| `organization_limit` | Max organizations per user |
+| `creator_role` | Role for the org creator (default `"owner"`) |
+| `membership_limit` | Max members per organization (default 100) |
+| `invitation_expires_in` | Invitation TTL (default 48 hours) |
+| `invitation_limit` | Max pending invitations per user (default 100) |
+| `cancel_pending_invitations_on_re_invite` | Cancel old invites on re-invite |
+| `require_email_verification_on_invitation` | Require verified email to accept/reject |
+| `disable_organization_deletion` | Block organization deletion |
+| `send_invitation_email` | Outbound hook for invitation emails |
+| `hooks` | Before/after hooks for org lifecycle events |
+| `access_control` / `roles` | Custom permission statements and roles |
+| `teams` | Team feature settings (`TeamOptions`) |
+| `dynamic_access_control` | Runtime org-scoped roles (`DynamicAccessControlOptions`) |
+| `schema` | Table and column name overrides |
+
+**TeamOptions** highlights: `enabled`, `create_default_team`, `maximum_teams`, `maximum_members_per_team`, `allow_removing_all_teams`.
+
+**DynamicAccessControlOptions** highlights: `enabled`, `maximum_roles_per_organization`.
+
+Default organization roles are `owner`, `admin`, and `member` with built-in permissions on `organization`, `member`, and `invitation` resources.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`. Most routes require a session.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/organization/create` | Create an organization |
+| POST | `/organization/update` | Update organization details |
+| POST | `/organization/delete` | Delete an organization |
+| POST | `/organization/check-slug` | Check slug availability |
+| GET | `/organization/list` | List organizations for the user |
+| GET | `/organization/get-full-organization` | Get org with members |
+| POST | `/organization/set-active` | Set active organization on session |
+| POST | `/organization/invite-member` | Send an invitation |
+| GET | `/organization/get-invitation` | Get invitation details |
+| GET | `/organization/list-invitations` | List org invitations |
+| GET | `/organization/list-user-invitations` | List invitations for the user |
+| POST | `/organization/accept-invitation` | Accept an invitation |
+| POST | `/organization/reject-invitation` | Reject an invitation |
+| POST | `/organization/cancel-invitation` | Cancel an invitation |
+| POST | `/organization/add-member` | Add a member directly |
+| POST | `/organization/remove-member` | Remove a member |
+| POST | `/organization/update-member-role` | Change member role |
+| POST | `/organization/leave` | Leave an organization |
+| GET | `/organization/get-active-member` | Current member in active org |
+| GET | `/organization/list-members` | List org members |
+| GET | `/organization/get-active-member-role` | Role in active org |
+| POST | `/organization/has-permission` | Check permissions |
+| POST | `/organization/create-team` | Create a team |
+| POST | `/organization/update-team` | Update a team |
+| POST | `/organization/remove-team` | Delete a team |
+| POST | `/organization/set-active-team` | Set active team on session |
+| GET | `/organization/list-teams` | List teams in an org |
+| GET | `/organization/list-user-teams` | List teams for the user |
+| GET | `/organization/list-team-members` | List members of a team |
+| POST | `/organization/add-team-member` | Add user to team |
+| POST | `/organization/remove-team-member` | Remove user from team |
+| POST | `/organization/create-role` | Create dynamic org role |
+| POST | `/organization/delete-role` | Delete dynamic org role |
+| GET | `/organization/list-roles` | List dynamic roles |
+| GET | `/organization/get-role` | Get a dynamic role |
+| POST | `/organization/update-role` | Update a dynamic role |
+
+Team and dynamic-role routes are registered when those features are enabled in options.
+
+## Database
+
+Core tables (default physical names):
+
+| Table | Purpose |
+| --- | --- |
+| `organizations` | Organization records |
+| `members` | User membership and roles |
+| `invitations` | Pending invitations |
+
+**Session fields:** `active_organization_id`; when teams are enabled, also `active_team_id`.
+
+**When teams are enabled:** `teams`, `team_members`, and optional `team_id` on `invitations`.
+
+**When dynamic access control is enabled:** `organization_roles` for per-org custom roles.
+
+Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

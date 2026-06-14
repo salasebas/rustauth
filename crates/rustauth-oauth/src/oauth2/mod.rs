@@ -1,0 +1,66 @@
+//! OAuth 2.0 structure for RustAuth.
+
+pub mod authorization_url;
+#[cfg(feature = "jose")]
+pub mod claims;
+pub mod client;
+pub mod client_credentials_token;
+pub mod error;
+pub mod http;
+#[cfg(feature = "jose")]
+pub mod introspection;
+#[cfg(feature = "jose")]
+pub mod jwks;
+pub mod provider;
+pub mod refresh_access_token;
+pub(crate) mod request;
+pub(crate) mod ssrf;
+#[cfg(feature = "jose")]
+pub mod token_validation;
+pub mod tokens;
+pub mod types;
+pub mod utils;
+pub mod validate_authorization_code;
+#[cfg(feature = "jose")]
+pub mod verify;
+
+pub use authorization_url::{
+    create_authorization_url, validate_authorization_url_invariants, AuthorizationUrlRequest,
+};
+#[cfg(feature = "jose")]
+pub use claims::{parse_numeric_timestamp_claim, TokenValidationOptions};
+pub use client::{
+    exchange_authorization_code, refresh_access_token_at, submit_token_form,
+    AuthorizationUrlBuilder, ClientCredentialsBuilder, ExchangeCodeBuilder, OAuth2Client,
+    OAuth2ClientBuilder, RefreshTokenBuilder,
+};
+pub use client_credentials_token::{
+    create_client_credentials_token_request, ClientCredentialsTokenRequest,
+};
+pub use error::OAuthError;
+pub use http::{OAuthHttpClient, OAuthHttpClientConfig};
+pub use provider::{
+    OAuthProviderMetadata, SocialAuthorizationCodeRequest, SocialAuthorizationUrlRequest,
+    SocialIdTokenRequest, SocialOAuthProvider, SocialProviderFuture,
+};
+pub use refresh_access_token::{create_refresh_access_token_request, RefreshAccessTokenRequest};
+pub use request::{ClientAuthentication, OAuthFormRequest};
+pub use ssrf::url_host_is_blocked_ip;
+#[cfg(feature = "jose")]
+pub use token_validation::{
+    validate_token, verify_jws_with_jwks, TokenValidationResult, ValidateTokenOptions,
+};
+pub use tokens::{
+    get_oauth2_tokens, get_primary_client_id, ClientId, OAuth2Tokens, OAuth2UserInfo,
+    ProviderOptions,
+};
+pub use types::{AuthorizationEndpoint, ClientSecret, RedirectUri, TokenEndpoint};
+pub use utils::{generate_code_challenge, validate_code_verifier};
+pub use validate_authorization_code::{
+    create_authorization_code_request, AuthorizationCodeRequest,
+};
+#[cfg(feature = "jose")]
+pub use verify::{
+    clear_jwks_cache, get_jwks, get_jwks_with_http, verify_access_token, verify_jws_access_token,
+    JwksVerifyOptions, OAuthJwksCacheConfig, VerifyAccessTokenOptions, VerifyAccessTokenRemote,
+};

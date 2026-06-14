@@ -1,0 +1,110 @@
+---
+title: Deadpool Postgres
+description: Pooled PostgreSQL adapter for RustAuth using deadpool-postgres.
+---
+
+[`rustauth-deadpool-postgres`](https://docs.rs/rustauth-deadpool-postgres) is the recommended Postgres adapter when you want connection pooling **without** a SQLx dependency. It uses [`deadpool-postgres`](https://docs.rs/deadpool-postgres) for pool management and reuses RustAuth's shared Postgres SQL planning from [`rustauth-tokio-postgres`](https://docs.rs/rustauth-tokio-postgres).
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["deadpool-postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-deadpool-postgres = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## Quick start
+
+[`DeadpoolPostgresStores`](https://docs.rs/rustauth-deadpool-postgres/latest/rustauth_deadpool_postgres/struct.DeadpoolPostgresStores.html) bundles a [`DeadpoolPostgresAdapter`](https://docs.rs/rustauth-deadpool-postgres/latest/rustauth_deadpool_postgres/struct.DeadpoolPostgresAdapter.html) and SQL-backed rate-limit store sharing one pool:
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_deadpool_postgres::DeadpoolPostgresStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = DeadpoolPostgresStores::connect_with_schema_checked(
+    "postgres://user:password@localhost:5432/rustauth",
+    schema.clone(),
+)
+.await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new()
+            .secret(std::env::var("RUSTAUTH_SECRET")?)
+            .base_url(std::env::var("RUSTAUTH_BASE_URL")?),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+### Builder
+
+For pool size, TLS, and startup validation:
+
+```rust
+use rustauth_deadpool_postgres::DeadpoolPostgresStoresBuilder;
+
+let stores = DeadpoolPostgresStoresBuilder::new()
+    .database_url("postgres://user:password@localhost:5432/rustauth")
+    .schema(schema)
+    .checked(true)
+    .max_size(16)
+    .connect()
+    .await?;
+```
+
+Use `.checked(true)` or `validate_connection()` when startup should fail fast if the pool cannot check out a working connection. Unchecked builds create pools lazily and may report connection errors on the first operation.
+
+Applications that already own a `deadpool_postgres::Pool` can pass it to `DeadpoolPostgresAdapter::new(pool)` or `with_schema(pool, schema)`.
+
+## When to use
+
+- **Production Postgres** without SQLx in your dependency tree.
+- **Connection pooling** for multi-instance deployments.
+- Apps that already standardize on `deadpool-postgres`.
+
+Prefer this over [`tokio-postgres`](/docs/adapters/tokio-postgres) when you need a pool. Prefer this over [SQLx Postgres](/docs/adapters/postgresql) when you do not otherwise use SQLx.
+
+<Callout type="info">
+  Nested transactions are not supported; attempting one returns an adapter error instead of creating a savepoint.
+</Callout>
+
+## CLI migrate
+
+```toml title="rustauth.toml"
+[database]
+adapter = "deadpool-postgres"
+provider = "postgres"
+url_env = "DATABASE_URL"
+```
+
+```bash title="Terminal"
+cargo install rustauth-cli --features tokio-postgres
+rustauth db migrate --yes
+```
+
+Install the CLI with a Postgres adapter feature that matches your stack. Migrations are **CLI-only** — see [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+## Related
+
+- [Tokio Postgres](/docs/adapters/tokio-postgres) — minimal single-client adapter
+- [PostgreSQL (SQLx)](/docs/adapters/postgresql) — when your app already uses SQLx
+- [SQLx adapters](/docs/adapters/sqlx) — overview and dialect comparison
+- [Database](/docs/concepts/database) — core auth schema

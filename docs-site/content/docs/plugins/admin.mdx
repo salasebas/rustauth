@@ -1,0 +1,101 @@
+---
+title: Admin
+description: User management, roles, bans, and impersonation for RustAuth server plugin.
+---
+
+The admin plugin adds administrative HTTP routes for creating users, listing and updating accounts, managing roles, banning users, revoking sessions, and impersonating users. Access is controlled by configurable roles and permissions.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(admin(AdminOptions {
+        default_role: "member".to_owned(),
+        admin_roles: vec!["admin".to_owned()],
+        impersonation_session_duration: Duration::seconds(30 * 60),
+        ..AdminOptions::default()
+    })?)
+    .build()
+    .await?;
+```
+
+Administrators are users whose role is in `admin_roles`, or whose user ID appears in `admin_user_ids`.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `default_role` | Role assigned to new users (default `"user"`) |
+| `admin_roles` | Roles treated as administrators (default `["admin"]`) |
+| `admin_user_ids` | User IDs that bypass permission checks |
+| `roles` | Custom role definitions with resource permissions |
+| `impersonation_session_duration` | Impersonation session lifetime (default 1 hour) |
+| `default_ban_reason` | Default ban reason text |
+| `default_ban_expires_in` | Default ban duration |
+| `banned_user_message` | Message shown to banned users on sign-in |
+| `allow_impersonating_admins` | Allow impersonating other admin users (default `false`) |
+| `schema` | Physical column name overrides via `AdminSchemaOptions` |
+
+Use `AdminOptions::builder()` for a fluent builder with `default_role`, `admin_role` / `admin_roles`, and `build()`.
+
+Default permissions cover **`user`** (`create`, `list`, `set-role`, `ban`, `impersonate`, `delete`, `set-password`) and **`session`** (`list`, `revoke`, `delete`). The built-in `admin` role grants all of them.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`. All routes require an authenticated admin session unless noted.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/admin/create-user` | Create a user |
+| GET | `/admin/list-users` | List users with search, filter, and pagination |
+| GET | `/admin/get-user` | Get a user by ID |
+| POST | `/admin/update-user` | Update user fields |
+| POST | `/admin/remove-user` | Hard-delete a user |
+| POST | `/admin/set-role` | Set a user's role |
+| POST | `/admin/set-user-password` | Change a user's password |
+| POST | `/admin/ban-user` | Ban a user and revoke sessions |
+| POST | `/admin/unban-user` | Remove a ban |
+| POST | `/admin/list-user-sessions` | List sessions for a user |
+| POST | `/admin/revoke-user-session` | Revoke one session |
+| POST | `/admin/revoke-user-sessions` | Revoke all sessions for a user |
+| POST | `/admin/impersonate-user` | Start impersonating a user |
+| POST | `/admin/stop-impersonating` | End impersonation |
+| POST | `/admin/has-permission` | Check role or user permissions |
+
+## Database
+
+The plugin extends existing tables rather than adding new ones.
+
+**`users`** additional fields:
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `role` | string | User role (defaults to `default_role`) |
+| `banned` | boolean | Whether the user is banned |
+| `ban_reason` | string | Ban reason |
+| `ban_expires` | timestamp | When the ban expires |
+
+**`sessions`** additional field:
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `impersonated_by` | string | Admin user ID when impersonating |
+
+Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

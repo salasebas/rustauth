@@ -1,0 +1,46 @@
+[package]
+name = "rustauth-passkey"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-passkey"
+readme = "README.md"
+description = "Server-side passkey plugin for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+test-util = []
+
+[dependencies]
+base64.workspace = true
+http.workspace = true
+indexmap.workspace = true
+rustauth-core.workspace = true
+serde.workspace = true
+serde_cbor_2.workspace = true
+serde_json.workspace = true
+time.workspace = true
+url.workspace = true
+uuid.workspace = true
+webauthn-rs.workspace = true
+webauthn-rs-core.workspace = true
+
+[dev-dependencies]
+rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+sqlx.workspace = true
+tokio.workspace = true
+
+[[test]]
+name = "passkey"
+required-features = ["test-util"]
+
+[lints]
+workspace = true

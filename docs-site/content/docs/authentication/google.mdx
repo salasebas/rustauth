@@ -1,0 +1,42 @@
+---
+title: Google
+description: Google OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Google. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/google`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::google::{google, GoogleAccessType, GoogleDisplay, GoogleOptions};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(google(GoogleOptions {
+    oauth: SocialProviderConfig::from_env("GOOGLE")?.into_provider_options(),
+    access_type: Some(GoogleAccessType::Offline),
+    display: Some(GoogleDisplay::Page),
+    hd: std::env::var("GOOGLE_HD").ok(),
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=google
+```
+
+Callback: `GET {base_url}/callback/google`.

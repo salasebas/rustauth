@@ -1,0 +1,118 @@
+---
+title: Cookies
+description: How RustAuth names and signs cookies, configures prefixes and cross-subdomain sharing, and handles Safari cross-domain setups.
+---
+
+RustAuth stores session tokens, optional session cache data, OAuth state, and related auth data in HTTP cookies. Values are signed with the [`secret`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html#structfield.secret) from your options (or `RUSTAUTH_SECRET` from the environment).
+
+When you rotate secrets, encrypted cookie cache data (JWE strategy) uses the current key and remains decryptable with previous keys if configured.
+
+## Cookie prefix
+
+Cookie names follow `{secure_prefix}{prefix}.{name}`. The default prefix is `rustauth`. Override it with [`AdvancedOptions::cookie_prefix`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AdvancedOptions.html):
+
+```rust
+use rustauth::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .advanced(AdvancedOptions::builder().cookie_prefix("my-app"))
+    .build()
+    .await?;
+```
+
+On HTTPS (or when secure cookies are forced), names also receive the `__Secure-` prefix.
+
+## Core cookies
+
+RustAuth defines these cookies (after prefixing):
+
+| Logical name | Purpose |
+| --- | --- |
+| `session_token` | Session token (also the session cookie value) |
+| `session_data` | Short-lived signed session cache when cookie cache is enabled |
+| `account_data` | OAuth account payload when `store_account_cookie` is enabled |
+| `dont_remember` | Set when `rememberMe` is false |
+| `oauth_state` | OAuth/OIDC state during social sign-in |
+
+Plugins should use [`create_auth_cookie`](https://docs.rs/rustauth-core/latest/rustauth_core/cookies/fn.create_auth_cookie.html) so they inherit prefix, domain, and attribute policy.
+
+All cookies are `HttpOnly`. They are `Secure` when the base URL is HTTPS or [`AdvancedOptions::use_secure_cookies`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AdvancedOptions.html) forces secure mode.
+
+### Default attributes
+
+Apply shared attributes (path, `SameSite`, and so on) with [`AdvancedOptions::default_cookie_attributes`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.CookieAttributesOverride.html):
+
+```rust
+use rustauth::prelude::*;
+
+RustAuth::builder()
+    .advanced(
+        AdvancedOptions::builder().default_cookie_attributes(
+            CookieAttributesOverride::builder()
+                .same_site("lax")
+                .path("/"),
+        ),
+    )
+    // ...
+```
+
+## Cross-subdomain cookies
+
+To share sessions across subdomains (for example `auth.example.com` and `app.example.com`), enable cross-subdomain cookies and list trusted origins:
+
+```rust
+use rustauth::prelude::*;
+
+RustAuth::builder()
+    .trusted_origins(TrustedOriginOptions::static_origins(vec![
+        "https://example.com".into(),
+        "https://app.example.com".into(),
+    ]))
+    .advanced(
+        AdvancedOptions::builder().cross_subdomain_cookies(
+            CookieConfig::builder()
+                .enabled(true)
+                .domain("example.com"),
+        ),
+    )
+    // ...
+```
+
+<Callout type="warn">
+  Only enable cross-subdomain cookies when necessary. Prefer the narrowest `domain` scope and avoid sharing cookies with untrusted subdomains.
+</Callout>
+
+## Secure cookies
+
+By default, cookies are secure when `base_url` uses HTTPS. Force secure cookies in all environments:
+
+```rust
+AdvancedOptions::builder().use_secure_cookies(true)
+```
+
+## Safari, ITP, and cross-domain setups
+
+Safari's Intelligent Tracking Prevention blocks third-party cookies. If your API is on a different site than your frontend, sessions may not persist.
+
+```
+Frontend: https://app.domainB.com
+API:      https://domainA.com
+```
+
+**Fixes:**
+
+1. **Reverse proxy (BFF)** — serve auth routes on the frontend origin and proxy to RustAuth:
+
+```toml title="netlify.toml"
+[[redirects]]
+  from = "/api/*"
+  to = "https://domainA.com/api/:splat"
+  status = 200
+  force = true
+```
+
+2. **Shared parent domain** — host frontend and API on subdomains of the same registrable domain and enable cross-subdomain cookies as above.
+
+RustAuth has no browser client; frontends must call same-origin routes (directly or via a BFF) so cookies remain first-party.

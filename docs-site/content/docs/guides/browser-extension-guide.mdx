@@ -1,0 +1,136 @@
+---
+title: HTTP Client Usage
+description: Call your RustAuth Axum backend from JavaScript or TypeScript with fetch, cookies, and redirect-based OAuth.
+---
+
+Use this guide when your **frontend** (web app, mobile WebView, or browser extension) talks to a **RustAuth server** over HTTP. RustAuth ships no browser SDK — use `fetch` (or your HTTP client of choice) against the routes under your `base_path` (default `/api/auth`).
+
+<Callout type="warn">
+  **Client-side only.** RustAuth is a Rust server library. This page documents HTTP calls from JavaScript/TypeScript; mount the server with the [Axum integration](/docs/integrations/axum) first. Browser extensions also need `host_permissions` for your API host — see [Extension manifest](#extension-manifest) below.
+</Callout>
+
+## Architecture
+
+1. **Extension** (popup, side panel, or service worker) sends HTTP requests to your auth routes under `base_path` (default `/api/auth`).
+2. **RustAuth** validates credentials, sets the session cookie on responses, and handles OAuth redirects on the server.
+3. **OAuth / social login** returns a provider URL; the extension opens a browser tab or `chrome.identity.launchWebAuthFlow`. The callback lands on your backend — RustAuth does not ship extension-specific OAuth helpers.
+
+For request shapes used in tests and the reference app, see `examples/backend-reference/src/client/requests.rs` and `flows.rs`.
+
+## Backend prerequisite
+
+1. [Install](/docs/installation) and mount RustAuth with [Axum](/docs/integrations/axum).
+2. Set a stable public prefix, for example `https://api.example.com/api/auth`.
+3. Configure [`trusted_origins`](/docs/reference/options#trustedorigins) on the server for any origin that initiates auth requests or supplies `callbackURL` values.
+
+```rust
+use rustauth::options::TrustedOriginOptions;
+
+let options = RustAuthOptions::new()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://api.example.com/api/auth")
+    .trusted_origins(TrustedOriginOptions::Static(vec![
+        "https://app.example.com".into(),
+        // Prefer a web BFF origin over chrome-extension:// when possible (see below).
+        "chrome-extension://YOUR_EXTENSION_ID".into(),
+    ]));
+```
+
+See [Dynamic Base URL](/docs/guides/dynamic-base-url) when the auth host varies by environment.
+
+## Extension manifest
+
+Grant the extension permission to call your API host:
+
+```json title="manifest.json"
+{
+  "manifest_version": 3,
+  "host_permissions": ["https://api.example.com/*"]
+}
+```
+
+Replace with your dev origin (for example `http://127.0.0.1:3000/*`) during local testing.
+
+## HTTP examples (TypeScript)
+
+Base URL below is `https://api.example.com/api/auth`. JSON field names match the wire format (`rememberMe`, `callbackURL`).
+
+### Get session
+
+```ts
+const res = await fetch("https://api.example.com/api/auth/get-session", {
+  credentials: "include",
+});
+const session = await res.json();
+```
+
+On success, a session includes a `user` object. When unauthenticated, the response indicates no active session (see [Basic usage](/docs/basic-usage)).
+
+### Email sign-in
+
+```ts
+await fetch("https://api.example.com/api/auth/sign-in/email", {
+  method: "POST",
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    email,
+    password,
+    rememberMe: true,
+  }),
+});
+```
+
+RustAuth sets a `Set-Cookie` header on success. The default cookie name is `rustauth.session_token` (prefix + name from server cookie options).
+
+### Sign out
+
+```ts
+await fetch("https://api.example.com/api/auth/sign-out", {
+  method: "POST",
+  credentials: "include",
+});
+```
+
+### Social sign-in (redirect flow)
+
+Start the flow with POST `/sign-in/social`:
+
+```ts
+const res = await fetch("https://api.example.com/api/auth/sign-in/social", {
+  method: "POST",
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    provider: "github",
+    callbackURL: "https://app.example.com/auth/callback",
+  }),
+});
+const { url } = await res.json();
+// Open `url` in a browser tab or chrome.identity.launchWebAuthFlow.
+// After the provider redirects to your backend, read the session with get-session.
+```
+
+Configure the provider on the server first ([GitHub example](/docs/authentication/github)). The backend callback route is `/callback/{provider}` under your `base_path`.
+
+## Cookies, CORS, and extension origins
+
+Cross-origin `fetch` from a `chrome-extension://` origin to your API is often **blocked** or **does not persist cookies** the way a normal website does. Common patterns:
+
+| Pattern | When to use |
+| --- | --- |
+| **BFF on your web origin** | Extension talks to `https://app.example.com/api/...`; the web app proxies to RustAuth and owns cookies. Recommended for production. |
+| **Direct API + `host_permissions`** | Works for some MV3 service workers when API and cookie `Domain`/`SameSite` are aligned; test thoroughly. |
+| **`chrome-extension://` in `trusted_origins`** | Needed only if the extension origin must pass CSRF / redirect checks — prefer explicit extension IDs over wildcards. |
+
+RustAuth does not expose a special “extension CORS mode”. If `credentials: "include"` is insufficient, use a BFF rather than inventing server options that do not exist.
+
+<Callout type="warn">
+  Avoid `chrome-extension://*` in `trusted_origins` outside local experiments. List each extension ID explicitly.
+</Callout>
+
+## Related docs
+
+- [Basic usage](/docs/basic-usage) — email, session, and social flows
+- [Axum integration](/docs/integrations/axum) — mount routes on your server
+- [Dynamic base URL](/docs/guides/dynamic-base-url) — preview hosts and proxies

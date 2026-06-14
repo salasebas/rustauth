@@ -1,0 +1,25 @@
+{
+  "providerId": "saml-azure-prod",
+  "issuer": "https://sts.windows.net/11111111-1111-1111-1111-111111111111/",
+  "domain": "contoso.com",
+  "samlConfig": {
+    "issuer": "https://app.example.com/sso/saml2/sp/metadata",
+    "entryPoint": "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/saml2",
+    "callbackUrl": "https://app.example.com/sso/saml2/sp/acs/saml-azure-prod",
+    "audience": "https://app.example.com/saml/sp",
+    "spMetadata": { "entityId": "https://app.example.com/saml/sp" },
+    "idpMetadata": {
+      "entityId": "https://sts.windows.net/11111111-1111-1111-1111-111111111111/"
+    },
+    "wantAssertionsSigned": true,
+    "authnRequestsSigned": false,
+    "mapping": {
+      "id": "http://schemas.microsoft.com/identity/claims/objectidentifier",
+      "email": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+      "name": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+      "extraFields": {
+        "tenantId": "http://schemas.microsoft.com/identity/claims/tenantid"
+      }
+    }
+  }
+}

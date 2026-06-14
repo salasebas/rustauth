@@ -1,0 +1,50 @@
+[package]
+name = "rustauth-plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-plugins"
+readme = "README.md"
+description = "Official RustAuth plugin modules."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+base64.workspace = true
+data-encoding.workspace = true
+hex.workspace = true
+hmac.workspace = true
+http.workspace = true
+indexmap.workspace = true
+josekit.workspace = true
+rustauth-core = { workspace = true, features = ["jose", "oauth", "social-providers"] }
+rustauth-oauth = { workspace = true, features = ["jose"] }
+rustauth-social-providers.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+sha3.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-passkey.workspace = true
+rustauth-fred.workspace = true
+rustauth-redis.workspace = true
+rustauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+
+[lints]
+workspace = true

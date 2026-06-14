@@ -1,0 +1,29 @@
+---
+title: TikTok
+description: TikTok OAuth provider for RustAuth.
+---
+
+TikTok uses `CLIENT_KEY` in addition to `CLIENT_ID` and `CLIENT_SECRET`.
+
+## Configure RustAuth
+
+```rust
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+
+RustAuth::builder()
+    // ...
+    .social_provider(providers::tiktok(
+        SocialProviderConfig::from_env_with_keys("TIKTOK", &["CLIENT_KEY"])?,
+    )?)
+    .build()
+    .await?;
+```
+
+Set `TIKTOK_CLIENT_ID`, `TIKTOK_CLIENT_SECRET`, and `TIKTOK_CLIENT_KEY`.
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=tiktok
+```

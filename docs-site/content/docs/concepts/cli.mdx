@@ -1,0 +1,106 @@
+---
+title: CLI
+description: Use the rustauth CLI for secrets, schema generation, database migrations, project init, and environment diagnostics.
+---
+
+RustAuth ships the `rustauth` binary from the [`rustauth-cli`](https://docs.rs/rustauth-cli) crate. Install it with Cargo:
+
+```bash
+cargo install rustauth-cli --features sqlx
+```
+
+Legacy binary names (`rust-auth`, `better-auth`, and `cargo-*` variants) remain available for compatibility; prefer `rustauth` in new docs and scripts.
+
+Enable features that match your stack (`sqlx`, `tokio-postgres`, `plugins`, enterprise plugins, or `full`). See the [CLI README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-cli/README.md).
+
+## Commands without a project
+
+These work in any directory (no `rustauth.toml` required):
+
+```bash
+rustauth secret --bytes 32
+rustauth plugins list
+rustauth schema print --dialect sqlite
+rustauth schema print --format json --config rustauth.toml
+rustauth generate --adapter sqlx --dialect sqlite --output auth.sql --yes
+rustauth doctor
+```
+
+## Project setup
+
+Initialize a project to create `rustauth.toml`, `.env.example`, and `.env`:
+
+```bash
+rustauth init
+rustauth init --seed-secrets   # generates RUSTAUTH_SECRET in a new .env
+```
+
+`rustauth.toml` is **required** for `db status`, `db generate`, and `db migrate`.
+The CLI does not read `RustAuth::builder()` or compile your application — only the
+TOML plugin list, database adapter, and env vars. Keep `[plugins].enabled` in sync
+with the plugins you register in Rust (see [`backend-reference`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference)).
+
+Config-backed commands read `rustauth.toml` and load `.env` / `.env.local` without overriding variables already set in the environment.
+
+## Database commands
+
+Migrations are **CLI-only**—run them before serving traffic, not at application startup. See [Database migrations](/docs/database-migrations).
+
+```bash
+rustauth db status
+rustauth db generate --yes
+rustauth db migrate --yes
+```
+
+Supported adapters for `db status`, `db generate`, and `db migrate`:
+
+| `database.adapter` | Providers |
+| --- | --- |
+| `sqlx` | `sqlite`, `postgres`, `mysql` |
+| `tokio-postgres` | `postgres` |
+| `deadpool-postgres` | `postgres` |
+
+Use the same adapter in `rustauth.toml` that your application uses at runtime.
+
+### Generate options
+
+- `--output` — path for generated SQL (for example `auth.sql`)
+- `--adapter` — `sqlx` or legacy compatibility adapters (`kysely` emits SQL only)
+- `--dialect` — `sqlite`, `postgres`, or `mysql`
+- `--yes` — skip confirmation prompts
+- `--config` — path to `rustauth.toml`
+
+### Migrate options
+
+- `--yes` — apply pending schema changes non-interactively
+- `--config` — path to `rustauth.toml`
+
+Plugin schema requires matching CLI features (for example `--features passkey` when `[plugins] enabled = ["passkey"]`).
+
+## Doctor
+
+```bash
+rustauth doctor
+rustauth doctor --production
+```
+
+Reports workspace detection, config presence, adapter/plugin feature alignment, and production readiness checks when `--production` is set.
+
+## Secret
+
+```bash
+rustauth secret --bytes 32
+```
+
+Generates a signing secret suitable for `RUSTAUTH_SECRET` / [`RustAuthOptions::secret`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html).
+
+## Shell completion
+
+```bash
+rustauth completion bash > rustauth.bash
+rustauth completion zsh > _rustauth
+```
+
+## Telemetry
+
+`rustauth db generate` and `rustauth db migrate` support opt-in telemetry via `RUSTAUTH_TELEMETRY`. Telemetry is off by default. See the [CLI README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-cli/README.md#telemetry) for environment variables and redaction rules.

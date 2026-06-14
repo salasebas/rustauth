@@ -1,0 +1,49 @@
+[package]
+name = "rustauth-oauth-provider"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-oauth-provider"
+readme = "README.md"
+description = "OAuth 2.1 and OpenID Connect provider support for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+mcp-client = ["dep:reqwest"]
+test-util = []
+
+[dependencies]
+base64.workspace = true
+data-encoding.workspace = true
+hmac.workspace = true
+http.workspace = true
+indexmap.workspace = true
+josekit.workspace = true
+rustauth-core.workspace = true
+rustauth-plugins.workspace = true
+rand.workspace = true
+reqwest = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+time.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[[test]]
+name = "oauth_provider"
+required-features = ["test-util"]
+
+[lints]
+workspace = true

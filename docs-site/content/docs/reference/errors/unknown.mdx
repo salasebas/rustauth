@@ -1,0 +1,28 @@
+---
+title: Unknown error
+description: Fallback page for unrecognized OAuth error query parameters.
+---
+
+{/* Intentionally omitted from sidebar navigation — generic fallback only. */}
+
+If you land here, the OAuth redirect included an `error` query value that your app routed to the unknown handler.
+
+## Rust implementation
+
+RustAuth emits the stable slugs listed in the [errors index](/docs/reference/errors). Any other `error` value is application-specific or from an upstream parity gap.
+
+## Handling in Rust
+
+Log the raw query string and map known slugs explicitly:
+
+```rust
+let error_code = url::form_urlencoded::parse(location.query().unwrap_or_default().as_bytes())
+    .find(|(key, _)| key == "error")
+    .map(|(_, value)| value.into_owned());
+```
+
+For JSON API failures, parse [`ApiErrorResponse`](/docs/concepts/api#error-handling).
+
+If you believe the error comes from RustAuth core or a shipped plugin, open an issue on [GitHub](https://github.com/salasebas/rustauth/issues).
+
+See the full [Error Codes Reference](/docs/reference/errors) for documented slugs.

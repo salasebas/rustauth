@@ -1,0 +1,163 @@
+---
+title: Access
+description: Role-based access control helpers for admin, organization, and custom authorization in RustAuth.
+---
+
+The access module provides **role-based access control (RBAC) helpers** inspired by Better Auth's access plugin. It is a **library**, not a registerable server plugin — you do not call `.plugin(access(...))`. Instead, import the helpers from `rustauth::plugins::prelude` and use them when defining roles for the [Admin](/docs/plugins/admin) or [Organization](/docs/plugins/organization) plugins, or in your own authorization logic.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Core concepts
+
+Access control is built from three pieces:
+
+1. **Statements** — the full permission vocabulary for your app (resources mapped to allowed actions).
+2. **Access control policy** — validates that roles only reference actions defined in the base statements.
+3. **Roles** — subsets of the base statements, used to authorize requests at runtime.
+
+```rust
+use rustauth::plugins::prelude::*;
+
+// Define what resources and actions exist in your app.
+let ac = create_access_control(statements([
+    ("project", vec!["create", "read", "update", "delete"]),
+    ("member", vec!["invite", "remove"]),
+]))?;
+
+// Create a role validated against the base policy.
+let editor = ac.new_role(statements([
+    ("project", vec!["read", "update"]),
+    ("member", vec!["invite"]),
+]))?;
+
+// Authorize a request: every resource must pass (AND connector).
+editor.authorize_all(access_request([
+    ("project", vec!["read"]),
+]))?;
+
+// Or require at least one resource to pass (OR connector).
+editor.authorize_any(access_request([
+    ("project", vec!["delete"]),
+    ("member", vec!["invite"]),
+]))?;
+```
+
+Use `ResourceRequest::any(...)` when a single resource accepts **any** of several actions (import from `rustauth_plugins::access`):
+
+```rust
+use std::collections::BTreeMap;
+use rustauth_plugins::access::{Connector, ResourceRequest};
+
+let req = BTreeMap::from([
+    ("project".to_owned(), ResourceRequest::any(["read", "update"])),
+]);
+editor.authorize(req, Connector::And)?;
+```
+
+## API reference
+
+| Symbol | Description |
+| --- | --- |
+| `statements([...])` | Build a resource-to-actions map from `(resource, actions)` pairs |
+| `create_access_control(statements)` | Create a policy; returns `Result<AccessControl, AccessError>` |
+| `AccessControl::new_role(statements)` | Create a validated role |
+| `role(statements)` | Create a role without policy validation (use when you control inputs) |
+| `access_request([...])` | Build an authorization request (all actions per resource required) |
+| `Role::authorize_all(request)` | Authorize with AND across resources |
+| `Role::authorize_any(request)` | Authorize with OR across resources |
+| `Role::authorize(request, connector)` | Authorize with an explicit top-level connector |
+
+## Errors
+
+`AccessError` covers validation and authorization failures:
+
+| Variant | Meaning |
+| --- | --- |
+| `EmptyRequest` | Authorization request has no resources |
+| `UnknownResource` | Role references a resource not in the base policy |
+| `UnknownAction` | Role references an action not allowed for that resource |
+| `ResourceDenied` | Role has no permissions for the requested resource |
+| `UnauthorizedResource` | Role is missing one or more requested actions |
+| `NotAuthorized` | OR authorization failed for every resource |
+
+## Using with Admin
+
+The [Admin](/docs/plugins/admin) plugin uses access helpers internally. Default statements cover **`user`** and **`session`** resources. Override roles via `AdminOptions::roles`:
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use std::collections::BTreeMap;
+
+let mut roles = BTreeMap::new();
+roles.insert(
+    "support".to_owned(),
+    AdminRole::new(BTreeMap::from([
+        ("user".to_owned(), vec!["list".to_owned(), "get".to_owned()]),
+        ("session".to_owned(), vec!["list".to_owned()]),
+    ])),
+);
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(admin(AdminOptions {
+        roles,
+        ..AdminOptions::default()
+    })?)
+    .build()
+    .await?;
+```
+
+`AdminRole::allows(&permission_map)` wraps `authorize_all` for permission checks. Users in `admin_user_ids` bypass all checks.
+
+## Using with Organization
+
+The [Organization](/docs/plugins/organization) plugin ships default statements for `organization`, `member`, `invitation`, `team`, `ac`, and `apiKey`. Pass a custom policy and roles through `OrganizationOptions`:
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use std::collections::BTreeMap;
+
+let ac = create_access_control(statements([
+    ("organization", vec!["update", "delete"]),
+    ("member", vec!["create", "update", "delete"]),
+    ("invitation", vec!["create", "cancel"]),
+]))?;
+
+let custom_owner = ac.new_role(statements([
+    ("organization", vec!["update", "delete"]),
+    ("member", vec!["create", "update", "delete"]),
+    ("invitation", vec!["create", "cancel"]),
+]))?;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(
+        organization(
+            OrganizationOptions::builder()
+                .access_control(ac)
+                .roles(BTreeMap::from([
+                    ("owner".to_owned(), custom_owner),
+                ]))
+                .build(),
+        ),
+    )
+    .build()
+    .await?;
+```
+
+When `dynamic_access_control` is enabled, organizations can define additional roles at runtime; the base `access_control` statements still define the permission vocabulary.
+
+## HTTP endpoints
+
+This module does not register routes. Authorization runs inside plugins (admin, organization) or your application code.
+
+## Database
+
+No schema changes.

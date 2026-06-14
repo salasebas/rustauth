@@ -1,0 +1,46 @@
+---
+title: Kick
+description: Kick OAuth provider for RustAuth.
+---
+
+Register an OAuth application in the Kick developer console. Set the redirect URL to:
+
+```
+{RUSTAUTH_BASE_URL}/callback/kick
+```
+
+For local development, when `RUSTAUTH_BASE_URL` is `http://127.0.0.1:3000/api/auth`, use `http://127.0.0.1:3000/api/auth/callback/kick`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(providers::kick(
+        SocialProviderConfig::from_env("KICK")?,
+    )?)
+    .build()
+    .await?;
+```
+
+Environment variables: `KICK_CLIENT_ID`, `KICK_CLIENT_SECRET`.
+
+## Sign in
+
+Redirect browsers to:
+
+```
+GET {base_url}/sign-in/social?provider=kick
+```
+
+RustAuth completes the flow at `GET {base_url}/callback/kick`. RustAuth does not ship a browser client — use your app's BFF or direct redirects. See [basic usage](/docs/basic-usage).

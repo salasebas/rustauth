@@ -1,0 +1,62 @@
+---
+title: Open API
+description: OpenAPI schema export and interactive API reference for RustAuth server plugin.
+---
+
+The open-api plugin exposes a machine-readable OpenAPI document for all registered routes (core + plugins) and serves an interactive Scalar reference UI.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(open_api(OpenApiOptions {
+        disable_default_reference: false,
+        ..OpenApiOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+Use [`RustAuth::openapi_schema`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.openapi_schema) or [`endpoint_registry`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.endpoint_registry) programmatically without the plugin when you only need schema in-process.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `path` | Interactive UI path (default `"/reference"`) |
+| `disable_default_reference` | Skip serving Scalar HTML (default `false`) |
+| `theme` | Scalar theme name (default `"default"`) |
+| `nonce` | Optional CSP nonce for the reference page |
+
+When `disable_default_reference` is `true`, `/open-api/generate-schema` still works but the UI route returns 404.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/open-api/generate-schema` | Full OpenAPI 3 JSON for all routes |
+| GET | `/reference` | Interactive Scalar UI (default; follows `path`) |
+
+The reference route is hidden from the generated OpenAPI document itself.
+
+## Database
+
+No schema changes.
+
+## Related
+
+- [API concepts](/docs/concepts/api) — calling auth HTTP routes from your backend
+- [Plugins overview](/docs/concepts/plugins) — discovering routes without the UI

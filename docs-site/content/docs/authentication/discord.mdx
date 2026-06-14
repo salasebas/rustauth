@@ -1,0 +1,41 @@
+---
+title: Discord
+description: Discord OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Discord. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/discord`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::discord::{discord, DiscordOptions, DiscordPrompt};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(discord(DiscordOptions {
+    oauth: SocialProviderConfig::from_env("DISCORD")?.into_provider_options(),
+    prompt: DiscordPrompt::Consent,
+    permissions: None,
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=discord
+```
+
+Callback: `GET {base_url}/callback/discord`.

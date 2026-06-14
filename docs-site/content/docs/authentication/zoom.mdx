@@ -1,0 +1,40 @@
+---
+title: Zoom
+description: Zoom OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Zoom. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/zoom`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::zoom::{zoom, ZoomOptions};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(zoom(ZoomOptions {
+    oauth: SocialProviderConfig::from_env("ZOOM")?.into_provider_options(),
+    pkce: true,
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=zoom
+```
+
+Callback: `GET {base_url}/callback/zoom`.

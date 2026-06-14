@@ -1,0 +1,64 @@
+---
+title: Username
+description: Username and display-username sign-in for RustAuth server plugin.
+---
+
+The username plugin adds username-based credentials alongside email/password. It validates, normalizes, and stores `username` and optional `display_username` fields on users.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(username(UsernameOptions {
+        min_username_length: 3,
+        max_username_length: 30,
+        ..UsernameOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+The plugin also hooks `/sign-up/email` and `/update-user` to normalize and validate usernames on those flows.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `min_username_length` | Minimum username length (default 3) |
+| `max_username_length` | Maximum username length (default 30) |
+| `username_validator` | Custom validation predicate |
+| `display_username_validator` | Optional display-name validator |
+| `username_normalization` | Normalizer applied before storage (default lowercase) |
+| `display_username_normalization` | Optional display-name normalizer |
+| `validation_order` | When validation runs relative to normalization |
+| `schema` | Physical column name overrides |
+
+Default usernames allow ASCII alphanumerics, `_`, and `.`.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/sign-in/username` | Sign in with username and password |
+| POST | `/is-username-available` | Check whether a username is available |
+
+## Database
+
+The plugin adds `username` and `display_username` fields on users. Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

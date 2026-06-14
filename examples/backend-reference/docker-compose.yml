@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: rustauth
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d rustauth"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

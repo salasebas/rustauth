@@ -1,0 +1,73 @@
+---
+title: Errors
+description: Error codes returned by RustAuth HTTP and OAuth redirect flows.
+---
+
+RustAuth surfaces errors in two shapes:
+
+1. **JSON API errors** — `{ "code": "INVALID_EMAIL", "message": "…" }` via [`ApiErrorResponse`](/docs/concepts/api#error-handling) on REST routes.
+2. **OAuth redirect errors** — HTTP redirect to your `errorCallbackURL` (or `{base_url}/error`) with `?error=<slug>` during social/OAuth callbacks.
+
+Run `docs-site/scripts/list-rust-error-codes.sh` from the repo root for a full Rust inventory before releases.
+
+## Core auth (`error_codes.rs`)
+
+| Code | Message (summary) | Emitted by RustAuth |
+| ---- | ----------------- | ---------------------- |
+| `INVALID_EMAIL` | Invalid email | yes |
+| `INVALID_PASSWORD` | Invalid password | yes |
+| `INVALID_EMAIL_OR_PASSWORD` | Invalid email or password | yes |
+| `INVALID_TOKEN` | Invalid token | yes |
+| `INVALID_REQUEST_BODY` | Invalid request body | yes |
+| `FIELD_NOT_ALLOWED` | Field not allowed | yes |
+| `USER_ALREADY_EXISTS` | User already exists | yes |
+| `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` | User already exists (use another email) | yes |
+| `EMAIL_NOT_VERIFIED` | Email not verified | yes |
+| `SESSION_EXPIRED` | Session expired | yes |
+| `SESSION_NOT_FRESH` | Session not fresh | yes |
+| `CREDENTIAL_ACCOUNT_NOT_FOUND` | Credential account not found | yes |
+| `NOT_FOUND` | Not found | yes |
+| `UNAUTHORIZED` | Unauthorized | yes |
+
+Additional router codes live in `rustauth-core/src/api/error.rs` (`INVALID_ORIGIN`, `INVALID_CALLBACK_URL`, `TOO_MANY_REQUESTS`, etc.).
+
+## OAuth / social redirect errors
+
+These appear as `?error=<slug>` on redirect URLs from social sign-in, account linking, SSO OIDC, Generic OAuth, and OAuth Proxy flows.
+
+| Slug | Emitted by RustAuth | Page |
+| ---- | ---------------------- | ---- |
+| `invalid_state` | yes (core social/SSO) | see [state_mismatch](/docs/reference/errors/state_mismatch) |
+| `invalid_code` | yes | [invalid_code](/docs/reference/errors/invalid_code) |
+| `no_code` | yes | [no_code](/docs/reference/errors/no_code) |
+| `unable_to_get_user_info` | yes | [unable_to_get_user_info](/docs/reference/errors/unable_to_get_user_info) |
+| `account_not_linked` | yes | [account_not_linked](/docs/reference/errors/account_not_linked) |
+| `signup_disabled` | yes | [signup_disabled](/docs/reference/errors/signup_disabled) |
+| `unable_to_create_user` | yes | [unable_to_create_user](/docs/reference/errors/unable_to_create_user) |
+| `unable_to_link_account` | yes | [unable_to_link_account](/docs/reference/errors/unable_to_link_account) |
+| `account_already_linked_to_different_user` | yes | [account_already_linked_to_different_user](/docs/reference/errors/account_already_linked_to_different_user) |
+| `email_doesn't_match` | yes | [email doesn't match](/docs/reference/errors/email_doesn't_match) |
+| `state_mismatch` | yes (OAuth Proxy plugin) | [state_mismatch](/docs/reference/errors/state_mismatch) |
+| `oauth_provider_not_found` | yes (OAuth Proxy plugin) | [oauth_provider_not_found](/docs/reference/errors/oauth_provider_not_found) |
+| `email_not_found` | yes (OAuth Proxy plugin) | [email_not_found](/docs/reference/errors/email_not_found) |
+| `invalid_callback_url` | yes (OAuth Proxy; slug differs from upstream) | [invalid_callback_request](/docs/reference/errors/invalid_callback_request) |
+| `state_not_found` | no | [state_not_found](/docs/reference/errors/state_not_found) |
+| `no_callback_url` | no (OAuth Proxy emits `missing_callback_url`) | [no_callback_url](/docs/reference/errors/no_callback_url) |
+| `unable_to_create_session` | no (defined, not returned on redirect today) | [unable_to_create_session](/docs/reference/errors/unable_to_create_session) |
+| `please_restart_the_process` | no | [please_restart_the_process](/docs/reference/errors/please_restart_the_process) |
+| `internal_server_error` | no (redirect slug) | [internal_server_error](/docs/reference/errors/internal_server_error) |
+
+## Per-plugin error codes
+
+Plugins register additional stable codes via `PluginErrorCode`. See each plugin doc for its error table:
+
+- [Two-Factor](/docs/plugins/2fa) — `INVALID_OTP`, backup codes, etc.
+- [Username](/docs/plugins/username) — `INVALID_USERNAME`, length/validation codes
+- [Organization](/docs/plugins/organization) — org/member/invitation failures
+- [API Key](/docs/plugins/api-key), [Admin](/docs/plugins/admin), [Device Authorization](/docs/plugins/device-authorization), [Passkey](/docs/plugins/passkey), [SSO](/docs/plugins/sso), [Stripe](/docs/plugins/stripe), and others
+
+Use `list-rust-error-codes.sh` to enumerate plugin registrations across `crates/`.
+
+## Unknown errors
+
+If the `error` query parameter does not match a known slug, your app should show a generic failure UI. See the fallback [unknown](/docs/reference/errors/unknown) page (not listed in sidebar navigation).

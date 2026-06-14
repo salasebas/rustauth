@@ -1,0 +1,57 @@
+---
+title: Last Login Method
+description: Track the most recent login method for RustAuth server plugin.
+---
+
+The last-login-method plugin records how a user last signed in. It sets a cookie after successful authentication and can optionally persist the value on the user record.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(last_login_method(LastLoginMethodOptions {
+        max_age: Some(Duration::seconds(60 * 60 * 24 * 365)),
+        ..LastLoginMethodOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `cookie_name` | Cookie name (default `better-auth.last_used_login_method`) |
+| `max_age` | Cookie lifetime (default 30 days) |
+| `resolver` | Custom login-method resolver from `LoginMethodContext` |
+| `store_in_database` | Persist last method on the user record |
+| `database_field_name` | Column name when storing in DB (default `last_login_method`) |
+
+When no custom resolver is set, the plugin infers the method from the request path (email, username, OAuth provider, passkey, etc.).
+
+## HTTP endpoints
+
+This plugin does not register routes. It runs as an after-hook on all successful authentication responses and exposes the last method via cookie (and optionally the user record).
+
+## Database
+
+When `store_in_database` is enabled, the plugin adds a `last_login_method` user field. Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```
+
+With cookie-only tracking (default), no migration is required.

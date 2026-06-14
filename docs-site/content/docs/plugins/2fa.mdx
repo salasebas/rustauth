@@ -1,0 +1,88 @@
+---
+title: Two-Factor Authentication (2FA)
+description: TOTP, email OTP, backup codes, and trusted devices for RustAuth server plugin.
+---
+
+The two-factor plugin adds a second verification step after password-based sign-in. It supports TOTP authenticator apps, email OTP delivery, backup codes, and trusted-device cookies.
+
+## Install
+
+Add RustAuth with the plugins feature:
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+Wire the plugin when building your auth server. Set `issuer` to your application name (shown in authenticator apps):
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(two_factor(TwoFactorOptions {
+        issuer: Some("My App".to_owned()),
+        totp: TotpOptions {
+            digits: 6,
+            period: Duration::seconds(30),
+            ..TotpOptions::default()
+        },
+        backup_codes: BackupCodeOptions {
+            amount: 10,
+            length: 10,
+            ..BackupCodeOptions::default()
+        },
+        ..TwoFactorOptions::default()
+    }))
+    .build()
+    .await?;
+```
+
+The plugin also intercepts successful sign-ins on `/sign-in/email`, `/sign-in/username`, and `/sign-in/phone-number` to start the 2FA flow when enabled for a user.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `issuer` | TOTP issuer label shown in authenticator apps |
+| `two_factor_table` | Physical table name for stored secrets (default `two_factors`) |
+| `totp` | TOTP settings: `digits`, `period`, `disabled` |
+| `otp` | Email OTP settings: `period`, `digits`, `allowed_attempts`, `storage`, `send_otp` |
+| `backup_codes` | Backup code generation: `amount`, `length`, `storage` |
+| `skip_verification_on_enable` | Skip proof-of-possession when enabling 2FA |
+| `allow_passwordless` | Allow passwordless users to enable 2FA |
+| `two_factor_cookie_max_age` | Lifetime of the intermediate 2FA cookie |
+| `trust_device_max_age` | Lifetime of trusted-device cookies |
+
+Provide `send_otp` on `OtpOptions` to deliver email OTP codes. Without it, only TOTP and backup codes are usable for verification.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path` (for example `/api/auth/two-factor/enable` when `base_path` is `/api/auth`).
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/two-factor/enable` | Enable 2FA for the current user |
+| POST | `/two-factor/disable` | Disable 2FA |
+| POST | `/two-factor/get-totp-uri` | Get a TOTP provisioning URI |
+| POST | `/two-factor/generate-totp` | Generate a TOTP code (testing / recovery flows) |
+| POST | `/two-factor/verify-totp` | Verify a TOTP code and complete sign-in |
+| POST | `/two-factor/send-otp` | Send an email OTP |
+| POST | `/two-factor/verify-otp` | Verify an email OTP and complete sign-in |
+| POST | `/two-factor/generate-backup-codes` | Generate new backup codes |
+| POST | `/two-factor/verify-backup-code` | Verify a backup code and complete sign-in |
+| POST | `/two-factor/view-backup-codes` | View remaining backup codes |
+
+## Database
+
+The plugin contributes a `two_factors` table (or the name set in `two_factor_table`). Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

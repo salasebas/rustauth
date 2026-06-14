@@ -1,0 +1,44 @@
+---
+title: Cognito
+description: Cognito OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Cognito. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/cognito`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::{CognitoPoolConfig, SocialProviderConfig};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(providers::cognito(
+    SocialProviderConfig::from_env("COGNITO")?,
+    CognitoPoolConfig::new(
+        std::env::var("COGNITO_DOMAIN")?,
+        std::env::var("COGNITO_REGION")?,
+        std::env::var("COGNITO_USER_POOL_ID")?,
+    ),
+)?)
+    .build()
+    .await?;
+```
+
+Credentials: `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=cognito
+```
+
+Callback: `GET {base_url}/callback/cognito`.

@@ -1,0 +1,96 @@
+---
+title: Email OTP
+description: Email one-time password sign-in and verification for RustAuth server plugin.
+---
+
+The email-OTP plugin sends numeric codes by email for sign-in, email verification, password reset, and optional email change flows. A `SendEmailOtp` implementation is required.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+Implement `SendEmailOtp` and wire the plugin:
+
+```rust
+use std::sync::Arc;
+
+use http::Request;
+use rustauth::RustAuth;
+use rustauth::plugins::email_otp::{EmailOtpPayload, SendEmailOtp};
+use rustauth::plugins::prelude::*;
+use rustauth_core::outbound::OutboundSendFuture;
+use time::Duration;
+
+struct MyEmailOtpSender;
+
+impl SendEmailOtp for MyEmailOtpSender {
+    fn send_email_otp(
+        &self,
+        payload: EmailOtpPayload,
+        _request: Option<&Request<Vec<u8>>>,
+    ) -> OutboundSendFuture {
+        Box::pin(async move {
+            // Deliver payload.otp to payload.email
+            let _ = payload;
+            Ok(())
+        })
+    }
+}
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(email_otp(EmailOtpOptions {
+        otp_length: 6,
+        expires_in: Duration::minutes(5),
+        allowed_attempts: 5,
+        sender: Some(Arc::new(MyEmailOtpSender)),
+        ..EmailOtpOptions::default()
+    })?)
+    .build()
+    .await?;
+```
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `sender` | Required `SendEmailOtp` implementation |
+| `generator` | Custom OTP generator |
+| `otp_length` | Code length (default 6) |
+| `expires_in` | OTP lifetime (default 5 minutes) |
+| `allowed_attempts` | Verification attempts per OTP |
+| `send_verification_on_sign_up` | Send verification OTP after email sign-up |
+| `override_default_email_verification` | Replace core `/send-verification-email` with OTP |
+| `disable_sign_up` | Block sign-in OTP from creating new users |
+| `store_otp` | Storage strategy: `Plain`, `Hashed`, `Encrypted`, or custom |
+| `resend_strategy` | `Rotate` (new code) or `Reuse` on resend |
+| `change_email` | Enable change-email OTP flow |
+| `rate_limit` | Optional per-endpoint rate limit override |
+
+OTP types: `email-verification`, `sign-in`, `forget-password`, `change-email`.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/email-otp/send-verification-otp` | Send an OTP for a given type |
+| POST | `/email-otp/create-verification-otp` | Create an OTP (server-oriented) |
+| POST | `/email-otp/get-verification-otp` | Retrieve OTP metadata |
+| POST | `/email-otp/check-verification-otp` | Check an OTP without consuming it |
+| POST | `/email-otp/verify-email` | Verify email with OTP |
+| POST | `/sign-in/email-otp` | Sign in with email + OTP |
+| POST | `/email-otp/reset-password` | Reset password with OTP |
+| POST | `/email-otp/request-email-change` | Start email change flow |
+| POST | `/email-otp/change-email` | Complete email change with OTP |
+
+## Database
+
+OTP payloads are stored in the core `verification` table. No plugin-specific migration is required.

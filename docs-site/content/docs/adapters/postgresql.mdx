@@ -1,0 +1,110 @@
+---
+title: PostgreSQL
+description: PostgreSQL adapter for RustAuth via rustauth-sqlx.
+---
+
+PostgreSQL is a robust relational database for production auth workloads. RustAuth connects through [`rustauth-sqlx`](https://docs.rs/rustauth-sqlx) with the `postgres` feature, or through native Postgres adapters when you do not use SQLx.
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["sqlx-postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-sqlx = { version = "0.1", default-features = false, features = ["postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## Quick start
+
+[`PostgresStores`](https://docs.rs/rustauth-sqlx/latest/rustauth_sqlx/struct.PostgresStores.html) bundles a [`PostgresAdapter`](https://docs.rs/rustauth-sqlx/latest/rustauth_sqlx/struct.PostgresAdapter.html) and SQL-backed rate-limit store sharing one pool:
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_sqlx::PostgresStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = PostgresStores::connect_with_schema(
+    &std::env::var("DATABASE_URL")?,
+    schema,
+)
+.await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new()
+            .secret(std::env::var("RUSTAUTH_SECRET")?)
+            .base_url(std::env::var("RUSTAUTH_BASE_URL")?),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+### Bring your own pool
+
+When you already manage a `sqlx::PgPool`:
+
+```rust
+use rustauth_sqlx::{PostgresAdapter, PostgresRateLimitStore};
+use sqlx::postgres::PgPoolOptions;
+
+let pool = PgPoolOptions::new()
+    .connect(&std::env::var("DATABASE_URL")?)
+    .await?;
+
+let adapter = PostgresAdapter::with_schema(pool, schema);
+let rate_limit = PostgresRateLimitStore::from(&adapter);
+```
+
+Postgres adapters use native Postgres arrays for RustAuth array fields and apply each migration plan inside a single transaction.
+
+## When to use
+
+| Scenario | Adapter |
+| --- | --- |
+| App already uses SQLx with Postgres | `PostgresStores` / `PostgresAdapter` (this page) |
+| Production Postgres **without** SQLx | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) — pooled, recommended |
+| Minimal footprint, single client, tests | [`tokio-postgres`](/docs/adapters/tokio-postgres) — no pool |
+
+<Callout type="info">
+  For production connection pooling without a SQLx dependency, prefer [`rustauth-deadpool-postgres`](/docs/adapters/deadpool-postgres) over SQLx Postgres.
+</Callout>
+
+## CLI migrate
+
+```toml title="rustauth.toml"
+[database]
+adapter = "sqlx"
+provider = "postgres"
+url_env = "DATABASE_URL"
+```
+
+Set `DATABASE_URL` (for example `postgres://user:password@localhost:5432/rustauth`) and run:
+
+```bash title="Terminal"
+cargo install rustauth-cli --features sqlx
+rustauth db migrate --yes
+```
+
+For [`deadpool-postgres`](/docs/adapters/deadpool-postgres) or [`tokio-postgres`](/docs/adapters/tokio-postgres), set `database.adapter` to match your runtime adapter. Migrations are **CLI-only** — see [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+## Related
+
+- [SQLx adapters](/docs/adapters/sqlx) — shared SQLx behavior and feature flags
+- [Deadpool Postgres](/docs/adapters/deadpool-postgres) — production pooling without SQLx
+- [Tokio Postgres](/docs/adapters/tokio-postgres) — minimal single-client adapter
+- [Database](/docs/concepts/database) — core auth schema

@@ -1,0 +1,60 @@
+---
+title: OAuth Proxy
+description: Proxy OAuth callbacks through production for RustAuth server plugin.
+---
+
+The OAuth proxy plugin lets preview or staging environments complete social OAuth through a production callback URL. It encrypts profile data, redirects through production, and finishes sign-in on the preview origin via `/oauth-proxy-callback`.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+Configure both the preview URL and production URL:
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(oauth_proxy(
+        OAuthProxyOptions::new()
+            .current_url("http://127.0.0.1:3000")
+            .production_url("https://app.example.com")
+            .max_age(Duration::seconds(120)),
+    ))
+    .build()
+    .await?;
+```
+
+The plugin hooks `/sign-in/social`, `/sign-in/oauth2`, and `/callback/:id` to rewrite OAuth flows through production.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `current_url` | Preview/staging origin performing the sign-in |
+| `production_url` | Production origin that receives the provider callback |
+| `max_age` | Maximum age of proxied payload in seconds (default 1 minute) |
+| `secret` | Optional encryption secret override (defaults to auth secret) |
+
+## HTTP endpoints
+
+Clients and production redirect through these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/oauth-proxy-callback` | Receive encrypted profile from production and finish sign-in |
+
+Social sign-in and OAuth callback routes (`/sign-in/social`, `/sign-in/oauth2`, `/callback/:id`) are intercepted by plugin hooks rather than replaced.
+
+## Database
+
+No schema changes. Proxied payloads are encrypted in transit and consumed on callback.

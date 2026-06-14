@@ -1,0 +1,47 @@
+[package]
+name = "rustauth-scim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-scim"
+readme = "README.md"
+description = "SCIM support for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+test-util = []
+
+[dependencies]
+base64.workspace = true
+http.workspace = true
+indexmap.workspace = true
+rustauth-core.workspace = true
+rustauth-plugins.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-deadpool-postgres.workspace = true
+rustauth-plugins.workspace = true
+rustauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+rustauth-tokio-postgres.workspace = true
+sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+
+[[test]]
+name = "scim"
+required-features = ["test-util"]
+
+[lints]
+workspace = true

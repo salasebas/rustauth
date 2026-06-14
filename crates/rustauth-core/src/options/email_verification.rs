@@ -1,0 +1,217 @@
+use std::fmt;
+use std::sync::Arc;
+
+use http::Request;
+
+use time::Duration;
+
+use crate::db::User;
+use crate::error::RustAuthError;
+use crate::outbound::OutboundSendFuture;
+
+/// Payload passed to an email verification sender.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerificationEmail {
+    pub user: User,
+    pub url: String,
+    pub token: String,
+}
+
+/// Email verification sender hook.
+///
+/// Return an outbound future; RustAuth dispatches it in the background so HTTP
+/// responses do not wait for provider I/O.
+pub trait SendVerificationEmail: Send + Sync + 'static {
+    fn send_verification_email(
+        &self,
+        email: VerificationEmail,
+        request: Option<&Request<Vec<u8>>>,
+    ) -> OutboundSendFuture;
+}
+
+impl<F> SendVerificationEmail for F
+where
+    F: for<'a> Fn(VerificationEmail, Option<&'a Request<Vec<u8>>>) -> OutboundSendFuture
+        + Send
+        + Sync
+        + 'static,
+{
+    fn send_verification_email(
+        &self,
+        email: VerificationEmail,
+        request: Option<&Request<Vec<u8>>>,
+    ) -> OutboundSendFuture {
+        self(email, request)
+    }
+}
+
+/// Payload passed to email verification lifecycle callbacks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmailVerificationCallbackPayload {
+    pub user: User,
+}
+
+/// Hook invoked before an email is marked as verified or changed.
+pub trait BeforeEmailVerification: Send + Sync + 'static {
+    fn before_email_verification(
+        &self,
+        payload: EmailVerificationCallbackPayload,
+        request: Option<&Request<Vec<u8>>>,
+    ) -> Result<(), RustAuthError>;
+}
+
+impl<F> BeforeEmailVerification for F
+where
+    F: for<'a> Fn(
+            EmailVerificationCallbackPayload,
+            Option<&'a Request<Vec<u8>>>,
+        ) -> Result<(), RustAuthError>
+        + Send
+        + Sync
+        + 'static,
+{
+    fn before_email_verification(
+        &self,
+        payload: EmailVerificationCallbackPayload,
+        request: Option<&Request<Vec<u8>>>,
+    ) -> Result<(), RustAuthError> {
+        self(payload, request)
+    }
+}
+
+/// Hook invoked after an email is marked as verified or changed.
+pub trait AfterEmailVerification: Send + Sync + 'static {
+    fn after_email_verification(
+        &self,
+        payload: EmailVerificationCallbackPayload,
+        request: Option<&Request<Vec<u8>>>,
+    ) -> Result<(), RustAuthError>;
+}
+
+impl<F> AfterEmailVerification for F
+where
+    F: for<'a> Fn(
+            EmailVerificationCallbackPayload,
+            Option<&'a Request<Vec<u8>>>,
+        ) -> Result<(), RustAuthError>
+        + Send
+        + Sync
+        + 'static,
+{
+    fn after_email_verification(
+        &self,
+        payload: EmailVerificationCallbackPayload,
+        request: Option<&Request<Vec<u8>>>,
+    ) -> Result<(), RustAuthError> {
+        self(payload, request)
+    }
+}
+
+/// Email verification configuration.
+#[derive(Clone, Default)]
+pub struct EmailVerificationOptions {
+    pub send_verification_email: Option<Arc<dyn SendVerificationEmail>>,
+    pub before_email_verification: Option<Arc<dyn BeforeEmailVerification>>,
+    pub after_email_verification: Option<Arc<dyn AfterEmailVerification>>,
+    pub expires_in: Option<Duration>,
+    pub send_on_sign_up: bool,
+    pub send_on_sign_in: bool,
+    pub auto_sign_in_after_verification: bool,
+}
+
+impl EmailVerificationOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn builder() -> Self {
+        Self::new()
+    }
+
+    #[must_use]
+    pub fn send_verification_email<S>(mut self, sender: S) -> Self
+    where
+        S: SendVerificationEmail,
+    {
+        self.send_verification_email = Some(Arc::new(sender));
+        self
+    }
+
+    #[must_use]
+    pub fn before_email_verification<B>(mut self, callback: B) -> Self
+    where
+        B: BeforeEmailVerification,
+    {
+        self.before_email_verification = Some(Arc::new(callback));
+        self
+    }
+
+    #[must_use]
+    pub fn after_email_verification<A>(mut self, callback: A) -> Self
+    where
+        A: AfterEmailVerification,
+    {
+        self.after_email_verification = Some(Arc::new(callback));
+        self
+    }
+
+    #[must_use]
+    pub fn expires_in(mut self, expires_in: Duration) -> Self {
+        self.expires_in = Some(expires_in);
+        self
+    }
+
+    #[must_use]
+    pub fn send_on_sign_up(mut self, enabled: bool) -> Self {
+        self.send_on_sign_up = enabled;
+        self
+    }
+
+    #[must_use]
+    pub fn send_on_sign_in(mut self, enabled: bool) -> Self {
+        self.send_on_sign_in = enabled;
+        self
+    }
+
+    #[must_use]
+    pub fn auto_sign_in_after_verification(mut self, enabled: bool) -> Self {
+        self.auto_sign_in_after_verification = enabled;
+        self
+    }
+}
+
+impl fmt::Debug for EmailVerificationOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EmailVerificationOptions")
+            .field(
+                "send_verification_email",
+                &self
+                    .send_verification_email
+                    .as_ref()
+                    .map(|_| "<send-verification-email>"),
+            )
+            .field(
+                "before_email_verification",
+                &self
+                    .before_email_verification
+                    .as_ref()
+                    .map(|_| "<before-email-verification>"),
+            )
+            .field(
+                "after_email_verification",
+                &self
+                    .after_email_verification
+                    .as_ref()
+                    .map(|_| "<after-email-verification>"),
+            )
+            .field("expires_in", &self.expires_in)
+            .field("send_on_sign_up", &self.send_on_sign_up)
+            .field("send_on_sign_in", &self.send_on_sign_in)
+            .field(
+                "auto_sign_in_after_verification",
+                &self.auto_sign_in_after_verification,
+            )
+            .finish()
+    }
+}

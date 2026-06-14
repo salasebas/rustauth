@@ -1,0 +1,30 @@
+---
+title: Comparison
+description: How RustAuth compares to other auth libraries and services.
+---
+
+Here are high-level reasons to choose RustAuth over other auth libraries and services.
+
+### vs Other Auth Libraries
+
+No other Rust auth library ships the same breadth of plugins, enterprise features, and storage adapters in one server-first toolkit. Most alternatives cover a slice—sessions, OAuth, or passkeys—but not the full surface RustAuth targets out of the box.
+
+* **Plugins and features in one place** - 2FA, passkeys, organizations, API keys, magic links, OAuth/OIDC provider, SCIM, SAML, rate limiting, and more without stitching together half a dozen libraries
+* **Server-first Rust** - Auth primitives, HTTP routes, and adapters live on your Rust server, not in a separate SaaS or JS-only runtime
+* **Plugin system** - Extend behavior with official plugins instead of forking or maintaining one-off integrations
+* **Storage flexibility** - SQLx, tokio-postgres, deadpool, Redis, and in-memory adapters behind a shared contract
+* **Full control** - Customize flows, options, and deployment while keeping users and sessions in your stack
+
+### vs Managed Auth Services
+
+* **Keep your data** - Users stay in your database, not a third-party service
+* **No per-user costs** - Scale without worrying about auth billing
+* **Single source of truth** - All user data in one place
+* **Self-host anywhere** - Deploy on your own infrastructure with full control
+
+### vs Rolling Your Own
+
+* **Security handled** - Battle-tested auth flows and security practices
+* **Focus on your product** - Spend time on features that matter to your business
+* **Plugin extensibility** - Add custom features without starting from scratch
+* **Production ready** - Works embedded in your app or as a dedicated auth server

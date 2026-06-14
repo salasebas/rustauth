@@ -1,0 +1,39 @@
+[package]
+name = "rustauth-sqlx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-sqlx"
+readme = "README.md"
+description = "SQLx database adapters for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+sqlite = ["sqlx/sqlite"]
+postgres = ["sqlx/postgres", "sqlx/uuid", "uuid"]
+mysql = ["sqlx/mysql"]
+
+[dependencies]
+indexmap.workspace = true
+rustauth-core.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio.workspace = true
+uuid = { workspace = true, optional = true }
+
+[dev-dependencies]
+http.workspace = true
+rustauth-core = { workspace = true, features = ["test-utils"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

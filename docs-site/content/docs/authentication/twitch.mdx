@@ -1,0 +1,41 @@
+---
+title: Twitch
+description: Twitch OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Twitch. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/twitch`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::twitch::{twitch, TwitchOptions};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(twitch(TwitchOptions {
+    oauth: SocialProviderConfig::from_env("TWITCH")?.into_provider_options(),
+    claims: vec!["user:read:email".into()],
+    ..TwitchOptions::default()
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=twitch
+```
+
+Callback: `GET {base_url}/callback/twitch`.

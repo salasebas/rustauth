@@ -1,0 +1,44 @@
+# Rust build artifacts (workspace root and nested package workspaces).
+**/target/
+
+/.lefthook-local.yml
+.DS_Store
+
+# Generated dependency and build artifacts.
+node_modules/
+dist/
+build/
+coverage/
+
+# Local scratch files and caches.
+.cache/
+.tmp/
+tmp/
+temp/
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+
+# Environment secrets (never commit). Example templates stay tracked.
+.env
+.env.*
+!.env.example
+!**/.env.example
+!**/.env*.example
+
+# Better Auth upstream clone (local parity only)
+reference/upstream-src/*/
+!reference/upstream-src/README.md
+
+# Local agent/IDE tooling (not part of the project)
+.agents/
+.kiro/
+.codex/
+.cursor/*
+!.cursor/settings.json
+docs/superpowers/
+PORTING.md
+rustauth---flagged-findings.json
+
+# Local planning notes (not part of the published toolkit).
+/plans/

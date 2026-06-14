@@ -1,0 +1,99 @@
+---
+title: Custom Session
+description: Customize get-session JSON responses for RustAuth server plugin.
+---
+
+The custom-session plugin replaces the default `/get-session` response body with JSON produced by your handler. Use it to attach computed fields, reshape user/session payloads, or return a minimal session object for API clients. Values are **recomputed on every fetch** — they are not persisted in cookie cache payloads.
+
+Optionally, the same handler can transform `/multi-session/list-device-sessions` responses when listing device sessions.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use serde_json::json;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(custom_session(
+        CustomSessionOptions::default(),
+        |input, _context| {
+            Box::pin(async move {
+                Ok(json!({
+                    "user": {
+                        "id": input.user["id"],
+                        "email": input.user["email"],
+                    },
+                    "session": input.session,
+                    "plan": "pro",
+                }))
+            })
+        },
+    ))
+    .build()
+    .await?;
+```
+
+The handler receives:
+
+- `CustomSessionInput { user, session }` — parsed from the default session response (`user` and `session` JSON objects).
+- `CustomSessionContext { auth_context, request }` — read-only access to the auth context and incoming request.
+
+Return any JSON value. The default `{ user, session }` envelope is **not** required — you can return a flat object or a completely custom shape.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `should_mutate_list_device_sessions_endpoint` | When `true`, apply the same handler to `/multi-session/list-device-sessions` (default `false`) |
+
+```rust
+custom_session(
+    CustomSessionOptions {
+        should_mutate_list_device_sessions_endpoint: true,
+    },
+    |input, _context| {
+        Box::pin(async move { Ok(input.session) })
+    },
+)
+```
+
+Use `CustomSessionOptions::builder()` for a fluent builder.
+
+## HTTP endpoints
+
+This plugin does not register routes. It hooks **after** these endpoints:
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | `/get-session` | Replace response body when status is `200` and body is non-null |
+| GET | `/multi-session/list-device-sessions` | Transform each session in the array when `should_mutate_list_device_sessions_endpoint` is enabled |
+
+When the client is unauthenticated, `/get-session` returns `null` and the handler is **not** called.
+
+Example request:
+
+```bash
+curl "$BASE_PATH/get-session" \
+  -H "Cookie: better-auth.session_token=<token>"
+```
+
+## Cookie cache
+
+Custom session data is **not** embedded in cookie cache (`session_data`) payloads. Clients that rely on cookie cache still receive the default cached shape until the session is refreshed from the database. See [Session management — Custom session responses](/docs/concepts/session-management#custom-session-responses).
+
+## Database
+
+No schema changes.
+
+## Error handling
+
+The handler returns `Result<Value, RustAuthError>`. Errors fail the request. The plugin validates that the incoming session response includes `user` and `session` keys before invoking your handler.

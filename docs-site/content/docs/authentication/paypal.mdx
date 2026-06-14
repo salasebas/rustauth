@@ -1,0 +1,41 @@
+---
+title: Paypal
+description: Paypal OAuth provider for RustAuth.
+---
+
+Register an OAuth application with Paypal. Set the redirect URL to `{RUSTAUTH_BASE_URL}/callback/paypal`.
+
+## Configure RustAuth
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["social-providers"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::social_providers::providers;
+use rustauth::social_providers::SocialProviderConfig;
+use rustauth::social_providers::advanced::paypal::{paypal, PayPalEnvironment, PayPalOptions};
+
+let auth = RustAuth::builder()
+    .secret(std::env::var("RUSTAUTH_SECRET")?)
+    .base_url(std::env::var("RUSTAUTH_BASE_URL")?)
+    .social_provider(paypal(PayPalOptions {
+    oauth: SocialProviderConfig::from_env("PAYPAL")?.into_provider_options(),
+    environment: PayPalEnvironment::Sandbox,
+    ..PayPalOptions::default()
+})?)
+    .build()
+    .await?;
+```
+
+Credentials: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` (and any provider-specific env vars shown above).
+
+## Sign in
+
+```
+GET {base_url}/sign-in/social?provider=paypal
+```
+
+Callback: `GET {base_url}/callback/paypal`.

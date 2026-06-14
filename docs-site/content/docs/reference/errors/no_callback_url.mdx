@@ -1,0 +1,19 @@
+---
+title: no_callback_url
+description: OAuth flow started without a required callback URL.
+---
+
+## Rust implementation
+
+<Callout type="warn">
+  Not yet emitted by RustAuth under this exact slug (parity gap). OAuth Proxy emits **`missing_callback_url`** when the proxy callback lacks `callbackURL` (`crates/rustauth-plugins/src/oauth_proxy/endpoint.rs:41`).
+</Callout>
+
+## Handling in Rust
+
+Inspect redirect URLs for `error=missing_callback_url` on OAuth Proxy flows. Sign-in API requests should include `callbackURL` in the JSON body (camelCase).
+
+## How to fix
+
+- Supply `callbackURL` (and optionally `errorCallbackURL`) when initiating OAuth sign-in.
+- Ensure trusted-origin validation allows the callback host.

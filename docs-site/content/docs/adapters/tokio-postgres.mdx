@@ -1,0 +1,108 @@
+---
+title: Tokio Postgres
+description: Minimal PostgreSQL adapter for RustAuth using tokio-postgres.
+---
+
+[`rustauth-tokio-postgres`](https://docs.rs/rustauth-tokio-postgres) is a minimal async Postgres adapter built on [`tokio-postgres`](https://docs.rs/tokio-postgres). It is useful when your application already owns a `tokio_postgres::Client` or wants the smallest Postgres integration surface.
+
+<Callout type="warning">
+  This adapter is **not a pool**. Production applications that need pooling should prefer [`deadpool-postgres`](/docs/adapters/deadpool-postgres).
+</Callout>
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["tokio-postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-tokio-postgres = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## Quick start
+
+[`TokioPostgresStores`](https://docs.rs/rustauth-tokio-postgres/latest/rustauth_tokio_postgres/struct.TokioPostgresStores.html) bundles a [`TokioPostgresAdapter`](https://docs.rs/rustauth-tokio-postgres/latest/rustauth_tokio_postgres/struct.TokioPostgresAdapter.html) and SQL-backed rate-limit store sharing one client:
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_tokio_postgres::TokioPostgresStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = TokioPostgresStores::connect_with_schema(
+    "postgres://user:password@localhost:5432/rustauth",
+    schema.clone(),
+)
+.await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new()
+            .secret(std::env::var("RUSTAUTH_SECRET")?)
+            .base_url(std::env::var("RUSTAUTH_BASE_URL")?),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+### Bring your own client
+
+When the application owns the `tokio_postgres::Client`, build a [`TokioPostgresConnection`](https://docs.rs/rustauth-tokio-postgres/latest/rustauth_tokio_postgres/struct.TokioPostgresConnection.html) once and share it:
+
+```rust
+use rustauth_tokio_postgres::{
+    TokioPostgresAdapter, TokioPostgresConnection, TokioPostgresRateLimitStore,
+};
+
+let connection = TokioPostgresConnection::from_client(client);
+let adapter = TokioPostgresAdapter::with_connection(connection.clone(), schema.clone());
+let rate_limit_store = TokioPostgresRateLimitStore::from_connection(&connection, "rate_limits");
+```
+
+`connect()` and `connect_with_schema()` spawn the `tokio-postgres` connection driver task internally. If you construct the adapter with `new(client)` or `with_schema(client, schema)`, your application remains responsible for driving the connection task.
+
+## When to use
+
+| Scenario | Adapter |
+| --- | --- |
+| Tests, scripts, or tools with a single Postgres client | `TokioPostgresStores` (this page) |
+| Production multi-instance deployments | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) |
+| App already uses SQLx for Postgres | [SQLx Postgres](/docs/adapters/postgresql) |
+
+[`rustauth-deadpool-postgres`](/docs/adapters/deadpool-postgres) builds on the same Postgres SQL planning and is the recommended production path when you do not use SQLx.
+
+## CLI migrate
+
+```toml title="rustauth.toml"
+[database]
+adapter = "tokio-postgres"
+provider = "postgres"
+url_env = "DATABASE_URL"
+```
+
+```bash title="Terminal"
+cargo install rustauth-cli --features tokio-postgres
+rustauth db migrate --yes
+```
+
+Each migration plan runs inside a single Postgres transaction. Migrations are **CLI-only** — see [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+## Related
+
+- [Deadpool Postgres](/docs/adapters/deadpool-postgres) — pooled production adapter
+- [PostgreSQL (SQLx)](/docs/adapters/postgresql) — SQLx-based Postgres
+- [SQLx adapters](/docs/adapters/sqlx) — overview
+- [Database](/docs/concepts/database) — core auth schema

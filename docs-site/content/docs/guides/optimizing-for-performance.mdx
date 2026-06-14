@@ -1,0 +1,132 @@
+---
+title: Optimizing for Performance
+description: Reduce database load and latency in RustAuth with cookie cache, secondary storage, rate limits, and indexing.
+---
+
+This guide covers server-side optimizations for RustAuth. RustAuth has no React `useSession` hook and no JavaScript bundle—frontends call HTTP routes such as `GET /get-session` directly or through a BFF.
+
+## Cookie cache
+
+Every session lookup can hit the database. Enable [cookie cache](/docs/concepts/session-management#cookie-cache) to store a short-lived signed copy of the session payload in a cookie (similar in spirit to pairing access tokens with refresh tokens):
+
+```rust
+use rustauth::prelude::*;
+use time::Duration;
+
+RustAuth::builder()
+    .session(
+        SessionOptions::new().cookie_cache(
+            CookieCacheOptions::builder()
+                .enabled(true)
+                .max_age(Duration::minutes(5))
+                .strategy(CookieCacheStrategy::Compact),
+        ),
+    )
+    // ...
+```
+
+Clients still call `GET /get-session` (or `POST /get-session` when refresh is deferred). The server reads the cache cookie first when enabled.
+
+<Callout type="info">
+  Revoked sessions may look valid on other devices until the cache expires. Use shorter `max_age`, disable cache for sensitive apps, or pass `disableCookieCache=true` on `/get-session` when immediate revocation matters. Bump [`CookieCacheOptions::version`](/docs/concepts/session-management#cookie-cache) after deploys to invalidate cached payloads.
+</Callout>
+
+## Frontend and BFF caching
+
+RustAuth does not ship a frontend SDK. Cache session data in your BFF or server components by calling `/get-session` with the session cookie, then reuse the result for the request lifetime. Do not cache session JSON in shared CDNs without understanding revocation and TTL trade-offs.
+
+For server-side handlers in Rust, use `auth.handler_async(request).await?` with the incoming cookie header—there is no generated `auth.api.getSession` helper.
+
+## Secondary storage
+
+Offload hot session or verification data to Redis/Valkey while keeping the primary SQL adapter for users and accounts. See [Database — secondary storage](/docs/concepts/database#secondary-storage):
+
+```rust
+use rustauth::redis::RedisStores;
+
+let stores = RedisStores::connect("redis://127.0.0.1:6379").await?;
+let options = stores.apply_to_options(
+    RustAuthOptions::new().secret("secret-a-at-least-32-chars-long!!"),
+);
+```
+
+[`rustauth-redis`](/docs/adapters/redis) and [`rustauth-fred`](/docs/adapters/fred) also provide rate-limit stores that share a pool with optional secondary storage.
+
+## Rate limiting
+
+Production defaults target roughly **100 requests per 60 seconds** per client key. Tune global and per-route rules in [`RateLimitOptions`](/docs/concepts/rate-limit):
+
+```rust
+use rustauth::prelude::*;
+use time::Duration;
+
+RustAuth::builder()
+    .rate_limit(
+        RateLimitOptions::memory()
+            .enabled(true)
+            .window(Duration::seconds(60))
+            .max(100)
+            .custom_rule("/sign-in/email", RateLimitRule::new(Duration::seconds(60), 10)),
+    )
+    // ...
+```
+
+For accurate IP keys when Axum sits behind a proxy, serve with connection info and configure trusted IP headers—see [Axum integration — production notes](/docs/integrations/axum#production-notes) and [Rate limit — IP detection](/docs/concepts/rate-limit#ip-address-detection).
+
+## Background tasks
+
+Outbound email, SMS, and similar plugin work must not block HTTP success responses. RustAuth dispatches outbound senders in the background via [`dispatch_outbound`](https://docs.rs/rustauth-core/latest/rustauth_core/outbound/fn.dispatch_outbound.html).
+
+By default, `AuthContext` uses [`TokioBackgroundTaskRunner`](https://docs.rs/rustauth-core/latest/rustauth_core/struct.TokioBackgroundTaskRunner.html) when `AdvancedOptions::background_tasks` is unset. Override for custom runtimes (worker queues, `spawn_blocking`, platform hooks):
+
+```rust
+use std::sync::Arc;
+use rustauth::prelude::*;
+use rustauth_core::TokioBackgroundTaskRunner;
+
+RustAuth::builder()
+    .advanced(
+        AdvancedOptions::default()
+            .background_tasks(Arc::new(TokioBackgroundTaskRunner)),
+    )
+    // ...
+```
+
+Global hooks can schedule extra work with `context.run_in_background(...)` when a runner is configured. See [Hooks — background tasks](/docs/concepts/hooks#background-tasks) and [security outbound delivery](https://github.com/salasebas/rustauth/blob/main/docs/security-outbound-delivery.md).
+
+## Database optimizations
+
+Most auth latency is database I/O. Apply schema with `rustauth db migrate`, then add indexes on columns your adapter queries frequently.
+
+### Recommended fields to index
+
+Logical model and column names (snake_case) from the RustAuth schema:
+
+| Table (model) | Columns | Plugin |
+| --- | --- | --- |
+| `users` | `email` | core |
+| `accounts` | `user_id` | core |
+| `sessions` | `user_id`, `token` | core |
+| `verifications` | `identifier` | core |
+| `invitations` | `email`, `organization_id` | [organization](/docs/plugins/organization) |
+| `members` | `user_id`, `organization_id` | organization |
+| `organizations` | `slug` | organization |
+| `passkey` | `user_id` | [passkey](/docs/plugins/passkey) |
+| `two_factor` | `secret`, `user_id` | [2FA](/docs/plugins/2fa) |
+
+SQLx and native Postgres adapters emit indexes for declared `unique()` / `indexed()` fields during migration. Add DBA-managed indexes for hot query paths in large deployments.
+
+<Callout>
+  Plugin tables vary by configuration (`table_name` options). Run `rustauth db status` after enabling plugins to see the merged schema before tuning indexes.
+</Callout>
+
+## Session refresh and read replicas
+
+When using read replicas, enable [`SessionOptions::defer_session_refresh`](/docs/concepts/session-management#defer-session-refresh) so `GET /get-session` stays read-only and clients POST to refresh when `needsRefresh` is returned.
+
+## Related
+
+- [Session management](/docs/concepts/session-management)
+- [Database](/docs/concepts/database)
+- [Rate limit](/docs/concepts/rate-limit)
+- [Hooks](/docs/concepts/hooks)

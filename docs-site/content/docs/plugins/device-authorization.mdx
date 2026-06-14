@@ -1,0 +1,70 @@
+---
+title: Device Authorization
+description: OAuth 2.0 device authorization grant for RustAuth server plugin.
+---
+
+The device-authorization plugin implements the OAuth 2.0 device flow for input-constrained clients (TVs, CLI tools, IoT). Users approve access on a secondary device using a short user code.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(device_authorization(DeviceAuthorizationOptions {
+        expires_in: Duration::minutes(15),
+        interval: Duration::seconds(5),
+        device_code_length: 32,
+        user_code_length: 8,
+        verification_uri: "/device".to_owned(),
+        ..DeviceAuthorizationOptions::default()
+    })?)
+    .build()
+    .await?;
+```
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `expires_in` | Device code lifetime (default 30 minutes) |
+| `interval` | Minimum polling interval for `/device/token` |
+| `device_code_length` | Length of the device code |
+| `user_code_length` | Length of the human-readable user code |
+| `verification_uri` | URI shown to users for approval (default `/device`) |
+| `generate_device_code` | Custom async device-code generator |
+| `generate_user_code` | Custom async user-code generator |
+| `validate_client` | Async client-ID validator |
+| `on_device_auth_request` | Hook when a device authorization starts |
+| `schema` | Physical table and column name overrides |
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/device/code` | Request a device and user code |
+| POST | `/device/token` | Poll for tokens after user approval |
+| GET | `/device` | Look up device authorization status by user code |
+| POST | `/device/approve` | Approve a pending device authorization |
+| POST | `/device/deny` | Deny a pending device authorization |
+
+## Database
+
+The plugin adds a device authorization table (default `device_codes`). Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

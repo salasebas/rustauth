@@ -1,0 +1,64 @@
+---
+title: CAPTCHA
+description: Cloudflare Turnstile and other CAPTCHA providers for RustAuth server plugin.
+---
+
+The captcha plugin validates CAPTCHA tokens on selected auth routes before the handler runs. Clients send the token in the `x-captcha-response` request header.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+Cloudflare Turnstile example:
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(captcha(
+        CaptchaOptions::cloudflare_turnstile("your-turnstile-secret-key")
+            .endpoints(["/sign-up/email", "/sign-in/email"]),
+    )?)
+    .build()
+    .await?;
+```
+
+Other constructors: `google_recaptcha(...)`, `hcaptcha(...)`, `captchafox(...)`.
+
+When `endpoints` is empty, the plugin protects `/sign-up/email`, `/sign-in/email`, and `/request-password-reset` by default.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `provider` | `CloudflareTurnstile`, `GoogleRecaptcha`, `HCaptcha`, or `CaptchaFox` |
+| `secret_key` | Provider secret key for server-side verification |
+| `endpoints` | Auth paths to protect (prefix matching) |
+| `site_verify_url_override` | Custom verification URL |
+| `min_score` | Minimum score for Google reCAPTCHA v3 (default 0.5) |
+| `site_key` | Optional site key metadata |
+| `http_client` | Custom HTTP client for verification requests |
+
+## HTTP endpoints
+
+This plugin does not register routes. It runs as middleware on configured paths. Clients must include:
+
+```bash
+curl -X POST "$BASE_PATH/sign-in/email" \
+  -H "x-captcha-response: <turnstile-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"..."}'
+```
+
+Protected requests without a valid token receive `CAPTCHA_MISSING_RESPONSE` or `CAPTCHA_VERIFICATION_FAILED`.
+
+## Database
+
+No schema changes. CAPTCHA verification is stateless.

@@ -1,0 +1,79 @@
+---
+title: FAQ
+description: Frequently asked questions about RustAuth on Rust servers.
+---
+
+<Accordions>
+  <Accordion id="mount-rustauth-axum" title="How do I mount RustAuth on Axum?">
+    Build `RustAuth` with `RustAuth::builder()`, then use [`rustauth-axum`](https://docs.rs/rustauth-axum):
+
+    ```rust
+    use rustauth::prelude::*;
+    use rustauth_axum::RustAuthAxumExt;
+
+    let auth = RustAuth::builder()
+        .secret(std::env::var("RUSTAUTH_SECRET")?)
+        .base_url("https://app.example.com/api/auth")
+        .build()
+        .await?;
+
+    let app = auth.mount_at_base_path(rustauth_axum::RustAuthAxumOptions::default())?;
+    ```
+
+    See [installation](/docs/installation) and [basic usage](/docs/basic-usage).
+  </Accordion>
+
+  <Accordion id="get-session-server" title="How do I read the session on the server?">
+    RustAuth has no browser `authClient`. Call the HTTP API in-process with `handler_async` or forward cookies from your frontend:
+
+    ```rust
+    let request = http::Request::builder()
+        .method(http::Method::GET)
+        .uri("https://app.example.com/api/auth/get-session")
+        .header(http::header::COOKIE, session_cookie)
+        .body(Vec::new())?;
+
+    let response = auth.handler_async(request).await?;
+    ```
+
+    See [API concepts](/docs/concepts/api).
+  </Accordion>
+
+  <Accordion id="database-migrations" title="How do I run database migrations?">
+    Use the RustAuth CLI against your adapter:
+
+    ```bash
+    rustauth db migrate --yes
+    ```
+
+    Plugins that add tables require the same workflow after you register them. See [plugins index](/docs/plugins#migrations).
+  </Accordion>
+
+  <Accordion id="custom-user-fields" title="How do I add custom user or session fields?">
+    Extend core schema through plugin contributions and init-time hooks. See [extending core schema](/docs/concepts/database#extending-core-schema) and individual plugin docs.
+  </Accordion>
+
+  <Accordion id="oauth-behind-proxy" title="How do I run OAuth behind a reverse proxy?">
+    Set an accurate `base_url`, forward `X-Forwarded-Proto` / `Host` if your framework requires it, and list frontend origins in `trusted_origins`. For cross-domain OAuth, use the [OAuth Proxy](/docs/plugins/oauth-proxy) plugin.
+  </Accordion>
+
+  <Accordion id="corporate-proxy-outbound" title="How do I route outbound OAuth HTTP through a corporate proxy?">
+    Configure your Rust HTTP client (for example `reqwest` with `Proxy::all(...)`) for the process that runs RustAuth. Social provider crates use the configured OAuth HTTP stack — set proxy environment variables or a custom client at integration time.
+  </Accordion>
+
+  <Accordion id="production-secret" title="What secret should I use in production?">
+    Provide at least 32 bytes of entropy via `RUSTAUTH_SECRET` or `.secret(...)` on `RustAuthOptions`. Never ship the development default from examples. Rotation uses `.secrets(...)` with versioned [`SecretEntry`](https://docs.rs/rustauth-core/latest/rustauth_core/crypto/struct.SecretEntry.html) values.
+  </Accordion>
+
+  <Accordion id="error-codes" title="Where are OAuth error codes documented?">
+    Redirect slugs (`?error=invalid_code`, etc.) and JSON API codes are listed in the [errors reference](/docs/reference/errors). Run `docs-site/scripts/list-rust-error-codes.sh` to audit Rust sources before releases.
+  </Accordion>
+
+  <Accordion id="telemetry-opt-in" title="Does RustAuth phone home?">
+    No by default. Telemetry is opt-in via [`TelemetryOptions`](/docs/reference/telemetry) and `RUSTAUTH_TELEMETRY=1`. Without an endpoint configured, events are not transmitted.
+  </Accordion>
+
+  <Accordion id="compare-better-auth" title="How does RustAuth differ from Better Auth?">
+    RustAuth is a Rust server library (Axum/router integration), not a npm package with React hooks. Feature parity is tracked in the repo; see [comparison](/docs/comparison).
+  </Accordion>
+</Accordions>

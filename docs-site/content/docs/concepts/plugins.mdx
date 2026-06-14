@@ -1,0 +1,81 @@
+---
+title: Plugins
+description: Register official RustAuth plugins on RustAuthOptions, extend routes and schema, and author custom server plugins.
+---
+
+Plugins extend RustAuth with extra routes, database tables, hooks, rate limits, and schema. RustAuth is **server-only**—there is no browser auth client SDK or client-side plugin layer.
+
+## Using a plugin
+
+Enable the `plugins` feature (and any enterprise feature your plugin needs):
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins", "sqlx-sqlite"] }
+```
+
+Register plugins on the builder:
+
+```rust
+use rustauth::prelude::*;
+use rustauth_plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(admin())
+    .plugins(vec![bearer(), jwt()?])
+    .build()
+    .await?;
+```
+
+When configuring [`RustAuthOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html) directly:
+
+- `.plugin(x)` appends one plugin
+- `.plugins(vec![…])` appends a batch
+
+Run `rustauth db migrate` after enabling plugins so schema matches. List official plugins with `rustauth plugins list`.
+
+## Frontends and plugins
+
+Plugin endpoints are ordinary HTTP routes under your auth base path. Frontends and BFFs call them with `fetch`, `reqwest`, or your framework's HTTP client—there is no generated TypeScript client. Use [`RustAuth::openapi_schema`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.openapi_schema) or [`endpoint_registry`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.endpoint_registry) to discover paths.
+
+## Creating a plugin
+
+Build an [`AuthPlugin`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.AuthPlugin.html) with a unique `id`:
+
+```rust
+use rustauth::plugin::AuthPlugin;
+
+pub fn my_plugin() -> AuthPlugin {
+    AuthPlugin::new("my-plugin")
+        .with_endpoint(/* PluginEndpoint */)
+        .with_schema(/* PluginSchemaContribution */)
+}
+```
+
+### What plugins can do
+
+- Add HTTP endpoints (`PluginEndpoint` / `AsyncAuthEndpoint`)
+- Contribute database schema and migrations
+- Register before/after/async hooks and middleware
+- Hook `on_request` / `on_response`
+- Define custom rate-limit rules
+- Register password validators and database hooks
+
+### Endpoints
+
+Use kebab-case paths unique to your plugin (for example `/my-plugin/hello-world`). Prefer GET for reads and POST for mutations. Endpoints receive [`AuthContext`](https://docs.rs/rustauth-core/latest/rustauth_core/context/struct.AuthContext.html) with `options`, `secret`, `adapter`, `base_url`, and cookie helpers.
+
+### Schema
+
+Declare tables with [`PluginSchemaContribution`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.PluginSchemaContribution.html). The CLI merges plugin schema when you run `rustauth db generate` / `rustauth db migrate` with the matching feature flags.
+
+### Hooks and middleware
+
+Plugin hooks use [`PluginHookMatcher`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.PluginHookMatcher.html) to target paths or operation IDs. Middleware runs only for HTTP requests through the router (same as core routes).
+
+## Global vs plugin hooks
+
+Application-wide behavior belongs in [`GlobalHooksOptions`](/docs/concepts/hooks) on `RustAuthOptions`. Plugin hooks stay scoped to the plugin's routes or explicit matchers.
+
+See individual plugin docs under `/docs/plugins` for configuration and HTTP contracts.

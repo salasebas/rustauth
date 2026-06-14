@@ -1,0 +1,221 @@
+---
+title: Security
+description: RustAuth security features and configuration.
+---
+
+This page describes security features in RustAuth and how to configure them in Rust.
+
+## Password hashing
+
+RustAuth uses **scrypt** by default (Better Auth–compatible `salt:hash` format). Scrypt is memory-hard and CPU-intensive, which helps resist brute-force attacks. Override hashing with custom callbacks on [`PasswordOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.PasswordOptions.html):
+
+```rust
+use rustauth::options::PasswordOptions;
+
+RustAuthOptions::new().password(
+    PasswordOptions::new()
+        .hash_password(my_hash_fn)
+        .verify_password(my_verify_fn),
+)
+```
+
+## Secret rotation
+
+RustAuth supports non-destructive rotation of signing/encryption secrets. Configure versioned secrets via `.secrets(...)` or the `RUSTAUTH_SECRETS` environment variable. New encrypted data includes a key version; decryption looks up the matching version directly.
+
+Legacy data encrypted before rotation (bare-hex format) remains decryptable with the original `RUSTAUTH_SECRET` as a fallback. No database migrations or downtime are required — data is lazily re-encrypted with the current key on the next write.
+
+See [`secret` and `secrets`](/docs/reference/options#secret-and-secrets) for configuration details.
+
+## Session management
+
+### Session expiration
+
+Sessions are stored in your database (or secondary storage when configured). By default, sessions expire after 7 days; customize via [`SessionOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.SessionOptions.html). When a session is used and reaches `update_age`, the expiration is extended (default: 1 day).
+
+### Session revocation
+
+You can revoke sessions server-side; the user is logged out and can no longer access protected routes. Users can also revoke their own sessions to sign out on other devices.
+
+See [session management](/docs/concepts/session-management) for details.
+
+## CSRF protection
+
+RustAuth includes multiple safeguards against Cross-Site Request Forgery (CSRF):
+
+1. **Avoid simple requests** — Only requests with a non-simple header or `Content-Type: application/json` are accepted for mutating routes. See [Avoiding simple requests](https://developer.mozilla.org/en-US/docs/Web/Security/Attacks/CSRF#avoiding_simple_requests).
+
+2. **Origin validation** — Each request's `Origin` header is checked against your app base URL and [`trusted_origins`](/docs/reference/options#trusted_origins). Untrusted origins are rejected.
+
+3. **Secure cookie settings** — Session cookies use `SameSite=Lax` by default. Override via `advanced.default_cookie_attributes`.
+
+4. **Fetch Metadata for first-login CSRF** — Sign-in and sign-up email routes accept form posts (progressive enhancement). When no cookies are present:
+   - Cross-site navigations (`Sec-Fetch-Site: cross-site`, `Sec-Fetch-Mode: navigate`) are blocked.
+   - Same-origin/same-site requests still validate `Origin`/`Referer` against `trusted_origins`.
+   - Clients without Fetch Metadata fall back to origin validation when cookies exist.
+
+   <Callout type="info">
+     Non-browser clients (mobile apps, server-to-server) should set `Origin` or `Referer` appropriately when sending cookies.
+   </Callout>
+
+5. **No mutations on GET** — `GET` is treated as read-only. OAuth callbacks that must mutate state validate `state` and `nonce`.
+
+### Disabling security checks
+
+Two options on [`AdvancedOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AdvancedOptions.html) control different aspects:
+
+#### `disable_csrf_check`
+
+Disables CSRF protection: origin validation, Fetch Metadata checks, and first-login cross-site blocking.
+
+```rust
+use rustauth::options::AdvancedOptions;
+
+RustAuthOptions::new().advanced(
+    AdvancedOptions::builder().disable_csrf_check(true),
+)
+```
+
+<Callout type="warning">
+  Disabling CSRF checks allows any origin to use cookies on behalf of users — your app becomes vulnerable to CSRF.
+</Callout>
+
+#### `disable_origin_check`
+
+Disables URL validation against `trusted_origins` (`callbackURL`, `redirectTo`, error URLs, etc.).
+
+```rust
+RustAuthOptions::new().advanced(
+    AdvancedOptions::builder().disable_origin_check(true),
+)
+```
+
+<Callout type="warning">
+  Disabling origin checks allows arbitrary redirect and callback URLs — open redirect vulnerabilities.
+</Callout>
+
+<Callout type="info">
+  For backward compatibility, `disable_origin_check: true` also disables CSRF protection.
+</Callout>
+
+| Option | What it disables |
+| ------ | ---------------- |
+| `disable_csrf_check` | CSRF protection only |
+| `disable_origin_check` | URL validation and CSRF protection |
+
+## OAuth state and PKCE
+
+OAuth `state` and PKCE verifiers are stored in the database during the flow. `state` mitigates CSRF; PKCE mitigates authorization code injection. Values are removed after the flow completes.
+
+## Cookies
+
+When `base_url` uses `https`, secure cookies are enabled by default. Cookies are `httpOnly` and `SameSite=Lax` unless overridden. For cross-subdomain sharing, configure `advanced.cross_subdomain_cookies`.
+
+See [cookies](/docs/concepts/cookies) and [options](/docs/reference/options).
+
+## Rate limiting
+
+Built-in rate limiting protects against brute-force attacks. Limits apply globally with stricter rules on high-risk routes. See [rate limiting](/docs/concepts/rate-limit).
+
+## IP address headers
+
+Client IPs power rate limiting and session metadata. By default, RustAuth reads `X-Forwarded-For`. Configure trusted headers on `AdvancedOptions`:
+
+```rust
+use rustauth::options::{AdvancedOptions, IpAddressOptions};
+
+RustAuthOptions::new().advanced(
+    AdvancedOptions::builder().ip_address(
+        IpAddressOptions::new().header("cf-connecting-ip"),
+    ),
+)
+```
+
+<Callout type="info">
+  Ensure your proxy sets the header and end users cannot forge it. When no IP is resolved in dev/test, `127.0.0.1` is used as a fallback.
+</Callout>
+
+## Base URL behind a reverse proxy
+
+Set `base_url` explicitly in production when possible. For Axum, you can infer the public URL per request when mounting routes:
+
+```rust
+use rustauth_axum::{RustAuthAxumExt, RustAuthAxumOptions};
+
+let router = auth.mount_at_base_path(
+    RustAuthAxumOptions::new()
+        .infer_base_url_from_request(true)
+        .trust_proxy_headers_for_base_url(true),
+)?;
+```
+
+`trust_proxy_headers_for_base_url` uses `X-Forwarded-Host` and `X-Forwarded-Proto` only when enabled. OAuth callbacks, verification links, and redirects then follow the domain the user actually loaded.
+
+<Callout type="warning">
+  Only enable proxy header trust when your reverse proxy sets those headers correctly and clients cannot forge them.
+</Callout>
+
+Resolution order when inferring:
+
+1. Static `base_url` from options (if set, proxy headers are ignored)
+2. `RUSTAUTH_BASE_URL` environment variable
+3. Forwarded headers (when `trust_proxy_headers_for_base_url` is true)
+4. Request `Host` / URI origin as fallback
+
+For multiple approved domains, omit a single hardcoded `base_url`, enable inference + proxy trust, and set `trusted_origins` to your allowlist.
+
+## Trusted origins
+
+Trusted origins block CSRF and open redirects. Configure static lists, wildcards, or dynamic providers via [`TrustedOriginOptions`](/docs/reference/options#trusted_origins):
+
+```rust
+use rustauth::options::TrustedOriginOptions;
+
+RustAuthOptions::new().trusted_origins(TrustedOriginOptions::Static(vec![
+    "https://example.com".into(),
+    "https://app.example.com".into(),
+    "http://localhost:3000".into(),
+]))
+```
+
+<Callout type="warning">
+  Remove `localhost` from production trusted-origin lists.
+</Callout>
+
+### Wildcard origins
+
+```rust
+TrustedOriginOptions::Static(vec![
+    "*.example.com".into(),
+    "https://*.example.com".into(),
+])
+```
+
+### Custom schemes
+
+Mobile apps and browser extensions:
+
+```rust
+TrustedOriginOptions::Static(vec![
+    "myapp://".into(),
+    "chrome-extension://YOUR_EXTENSION_ID".into(),
+])
+```
+
+### Dynamic origin list
+
+Implement [`TrustedOriginsProvider`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.TrustedOriginsProvider.html) for per-request resolution (multi-tenant hosts, preview deployments).
+
+<Callout>
+  Dynamic providers run per request — cache or keep lookups lightweight.
+</Callout>
+
+## Email enumeration protection
+
+Sign-up and change-email routes return the same response shape whether the email is already registered when verification or delayed sign-in is required, following [OWASP guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages). Duplicate sign-up attempts simulate password hashing to reduce timing leaks.
+
+See [email and password](/docs/authentication/email-password#email-enumeration-protection).
+
+## Reporting vulnerabilities
+
+Report security issues privately via [GitHub Security Advisories](https://github.com/salasebas/rustauth/security/advisories/new) for the rustauth repository. We address validated reports promptly.

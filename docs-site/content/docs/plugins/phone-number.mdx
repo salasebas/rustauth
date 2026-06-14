@@ -1,0 +1,74 @@
+---
+title: Phone Number
+description: Phone OTP sign-in and verification for RustAuth server plugin.
+---
+
+The phone-number plugin adds SMS-style OTP authentication. A synchronous `send_otp` callback is required to deliver codes.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(phone_number(PhoneNumberOptions {
+        otp_length: 6,
+        expires_in: Duration::minutes(5),
+        allowed_attempts: 3,
+        require_verification: true,
+        send_otp: Some(std::sync::Arc::new(|phone, otp| {
+            // Deliver otp to phone
+            Ok(())
+        })),
+        ..PhoneNumberOptions::default()
+    })?)
+    .build()
+    .await?;
+```
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `otp_length` | OTP digit count (default 6) |
+| `expires_in` | OTP lifetime (default 5 minutes) |
+| `allowed_attempts` | Failed verification attempts before invalidation |
+| `require_verification` | Require phone verification before sign-in |
+| `send_otp` | Required sync callback `(phone, otp) -> Result<()>` |
+| `verify_otp` | Custom sync verifier instead of built-in storage |
+| `send_password_reset_otp` | Separate sender for password-reset OTP |
+| `callback_on_verification` | Hook after successful verification |
+| `phone_number_validator` | Custom phone format validation |
+| `sign_up_on_verification` | Auto-create users on first verification |
+| `schema` | User field name overrides for phone columns |
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/phone-number/send-otp` | Send an OTP to a phone number |
+| POST | `/phone-number/verify` | Verify OTP and link or create a user |
+| POST | `/sign-in/phone-number` | Sign in with phone number + password |
+| POST | `/phone-number/request-password-reset` | Request password reset OTP |
+| POST | `/phone-number/reset-password` | Reset password with OTP |
+
+## Database
+
+The plugin adds `phone_number` and `phone_number_verified` fields on the user model. Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

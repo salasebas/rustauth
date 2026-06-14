@@ -1,0 +1,37 @@
+[package]
+name = "rustauth-example-full-app"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+http.workspace = true
+rustauth = { path = "../../crates/rustauth", features = [
+    "sqlx",
+    "plugins",
+    "passkey",
+    "sso",
+    "scim",
+    "stripe",
+    "oauth-provider",
+] }
+rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-axum = { path = "../../crates/rustauth-axum", features = ["test-utils"] }
+rustauth-deadpool-postgres = { path = "../../crates/rustauth-deadpool-postgres" }
+rustauth-fred = { path = "../../crates/rustauth-fred" }
+rustauth-redis = { path = "../../crates/rustauth-redis" }
+rustauth-sqlx = { path = "../../crates/rustauth-sqlx", features = ["mysql", "postgres", "sqlite"] }
+redis = { version = "0.32", default-features = false, features = ["tokio-comp"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+time = { workspace = true, features = ["formatting"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+url.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,64 @@
+[package]
+name = "rustauth-sso"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-sso"
+readme = "README.md"
+description = "Single sign-on support for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+oidc = ["dep:base64", "dep:reqwest"]
+saml = [
+    "dep:base64",
+    "dep:rustauth-saml",
+    "rustauth-saml/saml-signed",
+    "rustauth-saml/sso-internal",
+    "dep:x509-parser",
+]
+saml-signed = ["saml"]
+
+[dependencies]
+base64 = { workspace = true, optional = true }
+hex.workspace = true
+hickory-resolver.workspace = true
+http.workspace = true
+indexmap.workspace = true
+rustauth-core = { workspace = true, default-features = false }
+openidconnect.workspace = true
+rustauth-oauth = { workspace = true, default-features = false }
+rustauth-oidc = { workspace = true }
+rustauth-plugins.workspace = true
+rustauth-saml = { workspace = true, optional = true }
+publicsuffix2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest = { workspace = true, optional = true }
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio.workspace = true
+url.workspace = true
+x509-parser = { workspace = true, optional = true }
+
+[dev-dependencies]
+rustauth-core = { workspace = true, default-features = false, features = ["test-utils"] }
+rustauth-saml = { workspace = true, features = ["test-util", "saml-signed"] }
+base64.workspace = true
+flate2.workspace = true
+josekit.workspace = true
+rustauth-sqlx = { workspace = true, features = ["sqlite"] }
+opensaml = { workspace = true, features = ["crypto-bergshamra"] }
+sqlx = { workspace = true, features = ["sqlite"] }
+
+[lints]
+workspace = true

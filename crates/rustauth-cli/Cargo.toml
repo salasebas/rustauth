@@ -1,0 +1,111 @@
+[package]
+name = "rustauth-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-cli"
+readme = "README.md"
+description = "Command-line tools for RustAuth."
+default-run = "rustauth"
+keywords.workspace = true
+categories.workspace = true
+publish = true
+
+[[bin]]
+name = "rustauth"
+path = "src/bin/rustauth.rs"
+
+[[bin]]
+name = "cargo-rustauth"
+path = "src/bin/cargo-rustauth.rs"
+
+[[bin]]
+name = "rust-auth"
+path = "src/bin/rust-auth.rs"
+
+[[bin]]
+name = "cargo-rust-auth"
+path = "src/bin/cargo-rust-auth.rs"
+
+[[bin]]
+name = "better-auth"
+path = "src/bin/better-auth.rs"
+
+[[bin]]
+name = "cargo-better-auth"
+path = "src/bin/cargo-better-auth.rs"
+
+[[bin]]
+name = "betterauth"
+path = "src/bin/betterauth.rs"
+
+[[bin]]
+name = "cargo-betterauth"
+path = "src/bin/cargo-betterauth.rs"
+
+[dependencies]
+base64.workspace = true
+camino.workspace = true
+cargo_metadata.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+hex.workspace = true
+inquire.workspace = true
+rustauth-core.workspace = true
+rustauth-oauth-provider = { workspace = true, optional = true }
+rustauth-passkey = { workspace = true, optional = true }
+rustauth-plugins = { workspace = true, optional = true }
+rustauth-scim = { workspace = true, optional = true }
+rustauth-sso = { workspace = true, default-features = false, optional = true }
+rustauth-stripe = { workspace = true, optional = true }
+rustauth-deadpool-postgres = { workspace = true, optional = true }
+rustauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"], optional = true }
+rustauth-telemetry = { workspace = true, default-features = false, optional = true }
+rustauth-tokio-postgres = { workspace = true, optional = true }
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"], optional = true }
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+toml_edit.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+sqlx = { workspace = true, features = ["postgres", "sqlite", "runtime-tokio"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+plugins = ["dep:rustauth-plugins"]
+oauth-provider = ["dep:rustauth-oauth-provider", "plugins"]
+passkey = ["dep:rustauth-passkey"]
+scim = ["dep:rustauth-scim", "plugins"]
+sso = ["dep:rustauth-sso", "rustauth-sso/oidc"]
+stripe = ["dep:rustauth-stripe"]
+telemetry = ["dep:rustauth-telemetry", "rustauth-telemetry/http"]
+deadpool-postgres = ["dep:rustauth-deadpool-postgres"]
+sqlx = ["dep:rustauth-sqlx", "dep:sqlx"]
+tokio-postgres = ["dep:rustauth-tokio-postgres"]
+full = [
+    "plugins",
+    "oauth-provider",
+    "passkey",
+    "scim",
+    "sso",
+    "stripe",
+    "telemetry",
+    "sqlx",
+    "tokio-postgres",
+    "deadpool-postgres",
+]
+
+[lints]
+workspace = true

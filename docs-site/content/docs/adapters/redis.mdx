@@ -1,0 +1,108 @@
+---
+title: Redis
+description: Rate limiting and secondary storage for RustAuth via rustauth-redis.
+---
+
+[`rustauth-redis`](https://docs.rs/rustauth-redis) provides Redis- and Valkey-compatible backing stores for RustAuth **rate limiting** and **secondary storage** using the [`redis`](https://docs.rs/redis) crate (`redis-rs`). It does not replace a primary [`DbAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html) — most plugins still require SQL persistence for users, sessions, and accounts.
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["redis"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-redis = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+For TLS (`rediss://` or `valkeys://` URLs), enable a TLS feature:
+
+```toml title="Cargo.toml"
+rustauth-redis = { version = "0.1", features = ["rustls"] }
+# or: features = ["native-tls"]
+```
+
+## Quick start
+
+[`RedisStores`](https://docs.rs/rustauth-redis/latest/rustauth_redis/struct.RedisStores.html) shares one `ConnectionManager` for rate limiting and secondary storage:
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_redis::RedisStores;
+
+let stores = RedisStores::connect("redis://127.0.0.1:6379").await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new()
+            .secret("secret-a-at-least-32-chars-long!!")
+            .base_url("http://127.0.0.1:3000/api/auth"),
+    ))
+    .adapter(my_sql_adapter) // primary DbAdapter still required
+    .build()?;
+```
+
+`apply_to_options` wires both `secondary_storage` and distributed rate limiting in one call.
+
+### Individual stores
+
+When you need only one integration point:
+
+```rust
+use rustauth::{RustAuth, RustAuthOptions, RateLimitOptions};
+use rustauth_redis::{RedisRateLimitStore, RedisSecondaryStorage};
+use std::sync::Arc;
+
+let store = RedisRateLimitStore::connect("redis://127.0.0.1:6379").await?;
+let storage = RedisSecondaryStorage::connect("redis://127.0.0.1:6379").await?;
+
+let auth = RustAuth::builder()
+    .options(
+        RustAuthOptions::new()
+            .secret("secret-a-at-least-32-chars-long!!")
+            .secondary_storage(Arc::new(storage))
+            .rate_limit(RateLimitOptions::secondary_storage(store).enabled(true)),
+    )
+    .adapter(my_sql_adapter)
+    .build()?;
+```
+
+Supported URL schemes: `redis://`, `rediss://`, `valkey://`, and `valkeys://`. Valkey schemes are normalized internally.
+
+## When to use
+
+- **Distributed rate limiting** across multiple auth server instances — see [Rate limit](/docs/concepts/rate-limit).
+- **Secondary storage** for sessions, verification state, SSO state, and plugin data that opt into secondary storage.
+- Your stack already uses `redis-rs`, or you want a small Redis integration.
+
+Use [`rustauth-fred`](/docs/adapters/fred) instead when your application standardizes on the [`fred`](https://docs.rs/fred) client.
+
+<Callout type="info">
+  Redis adapters do not run SQL migrations. Apply your primary database schema with `rustauth db migrate` on your SQL adapter before serving traffic.
+</Callout>
+
+## CLI migrate
+
+Redis is secondary storage — migrations apply to your **primary** SQL adapter (`sqlx`, `deadpool-postgres`, or `tokio-postgres`). Configure `rustauth.toml` for that adapter and run:
+
+```bash title="Terminal"
+rustauth db migrate --yes
+```
+
+See [Database migrations](/docs/database-migrations), [CLI](/docs/concepts/cli), and [Rate limit](/docs/concepts/rate-limit) for storage backend options.
+
+## Related
+
+- [Fred](/docs/adapters/fred) — same integration points via the `fred` client
+- [Rate limit](/docs/concepts/rate-limit) — memory, database, and Redis backends
+- [Database](/docs/concepts/database) — primary adapter and secondary storage
+- [SQLx adapters](/docs/adapters/sqlx) — primary persistence

@@ -1,0 +1,111 @@
+---
+title: User & Accounts
+description: Manage users and linked accounts in RustAuth, including profile updates, email and password changes, deletion, and account linking.
+---
+
+RustAuth separates **users** (identity profile) from **accounts** (credential or OAuth provider linkage). Both are stored through your [`DbAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html).
+
+RustAuth exposes user and account operations as HTTP JSON routes—there is no browser client. Call them from your backend or through a BFF that forwards cookies.
+
+## User model
+
+The [`User`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.User.html) record includes `id`, `name`, `email`, `email_verified`, optional `image` / `username`, and timestamps. Extend with [`UserOptions::additional_field`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.UserOptions.html) and migrate schema via the CLI.
+
+See [Database](/docs/concepts/database#user) for the full table layout.
+
+## Update user
+
+POST `/update-user` with the session cookie and JSON fields to change (for example `name`, `image`):
+
+```json
+{
+  "name": "Jane Doe",
+  "image": "https://example.com/avatar.png"
+}
+```
+
+## Change email
+
+Enable [`ChangeEmailOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.ChangeEmailOptions.html):
+
+```rust
+RustAuth::builder()
+    .user(UserOptions::new().change_email(ChangeEmailOptions::new().enabled(true)))
+    .email_verification(
+        EmailVerificationOptions::new().send_verification_email(send_verification),
+    )
+    // ...
+```
+
+POST `/change-email` with `{ "newEmail": "…", "callbackURL": "…" }`. Verification goes to the new address by default. Optional `send_change_email_confirmation` notifies the current address first.
+
+## Change password
+
+Passwords live on the **account** row (`provider_id` credential), not the user row. POST `/change-password`:
+
+```json
+{
+  "currentPassword": "old",
+  "newPassword": "new",
+  "revokeOtherSessions": true
+}
+```
+
+## Set and verify password
+
+OAuth-only users have no password until one is set. POST `/set-password` (session required) from server-side code or a trusted BFF. POST `/verify-password` confirms the current password before sensitive actions.
+
+## Delete user
+
+Enable deletion:
+
+```rust
+UserOptions::new().delete_user(
+    DeleteUserOptions::new()
+        .enabled(true)
+        .send_delete_account_verification(send_delete_email),
+)
+```
+
+POST `/delete-user` with session cookie. Deletion may require password, fresh session, or email verification depending on configuration and [`DeleteUserOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.DeleteUserOptions.html) callbacks (`before_delete`, `after_delete`).
+
+## Account model
+
+Each sign-in method creates an [`Account`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.Account.html) linking `user_id` to `provider_id` + `account_id`, with optional OAuth tokens (`access_token`, `refresh_token`, `id_token`, expiry fields) or `password` for email/password.
+
+| Provider type | `provider_id` example | Notes |
+| --- | --- | --- |
+| Email/password | `credential` | Stores password hash |
+| Social OAuth | `google`, `github`, … | Stores provider tokens |
+
+## List accounts
+
+GET `/list-accounts` with session cookie returns linked providers for the current user.
+
+## Token storage
+
+OAuth tokens are stored in plaintext by default. Enable [`AccountOptions::encrypt_oauth_tokens`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AccountOptions.html) or encrypt in [`InitDatabaseHooksOptions`](/docs/concepts/hooks) before persistence if your threat model requires it.
+
+## Account linking
+
+[`AccountLinkingOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AccountLinkingOptions.html) controls automatic linking when provider email matches, trusted providers, different-email linking, and unlink guards:
+
+```rust
+AccountOptions::new().account_linking(
+    AccountLinkingOptions::new()
+        .enabled(true)
+        .trusted_providers(vec!["google".into(), "github".into()]),
+)
+```
+
+Link manually with POST `/link-social` (see [OAuth](/docs/concepts/oauth)). Unlink with POST `/unlink-account`. Unlinking the last account fails unless `allow_unlinking_all` is set.
+
+## HTTP integration pattern
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["sqlx-sqlite"] }
+reqwest = { version = "0.12", features = ["cookies", "json"] }
+```
+
+Your BFF forwards `Cookie` headers to RustAuth routes or calls `handler_async` in-process with the same cookies the browser sent.

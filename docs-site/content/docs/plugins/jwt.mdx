@@ -1,0 +1,74 @@
+---
+title: JWT
+description: JWT issuance, JWKS, and verification for RustAuth server plugin.
+---
+
+The JWT plugin signs JSON Web Tokens for authenticated sessions, exposes a JWKS document, and provides server-only sign/verify helpers. It can attach a JWT to `/get-session` responses via the `set-auth-jwt` header.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(jwt(JwtOptions {
+        disable_setting_jwt_header: false,
+        ..JwtOptions::default()
+    })?)
+    .build()
+    .await?;
+```
+
+## Configuration
+
+Top-level `JwtOptions` fields:
+
+| Field | Description |
+| --- | --- |
+| `jwks` | Key management settings (`JwtJwksOptions`) |
+| `jwt` | Signing claims settings (`JwtSigningOptions`) |
+| `adapter` | Custom JWKS storage hooks (`JwtAdapterOptions`) |
+| `disable_setting_jwt_header` | Skip attaching JWT on `/get-session` |
+| `schema` | Physical JWKS table/column overrides |
+
+`JwtJwksOptions` highlights:
+
+| Field | Description |
+| --- | --- |
+| `remote_url` | Use remote JWKS instead of local key storage |
+| `key_pair_algorithm` | Signing algorithm (default EdDSA) |
+| `rsa_modulus_length` | RSA modulus size when using RSA |
+| `disable_private_key_encryption` | Store private keys without encryption |
+| `rotation_interval` | Automatic key rotation interval (seconds) |
+| `grace_period` | Retired key grace period (default 30 days) |
+| `jwks_path` | JWKS endpoint path (default `/jwks`) |
+
+`JwtSigningOptions` highlights: `issuer`, `audience`, `expiration_time`, `define_payload`, `get_subject`, `sign`.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`. Paths follow `jwks_path` when customized.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/jwks` | JSON Web Key Set (public keys) |
+| GET | `/token` | JWT for the current session |
+| POST | `/sign-jwt` | Server-only: sign arbitrary claims |
+| POST | `/verify-jwt` | Server-only: verify a JWT |
+
+## Database
+
+The plugin adds a JWKS key storage table. Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

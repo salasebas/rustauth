@@ -1,0 +1,35 @@
+[project]
+framework = "axum"
+base_url = "http://127.0.0.1:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "sqlx"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+# Plugins that add NEW tables (core tables always come from the base schema).
+# Half are enabled for the first migration pass; uncomment the rest and re-run
+# `rustauth db migrate` to exercise incremental schema changes.
+enabled = [
+  # --- enabled: first batch (new tables) ---
+  "api-key",              # api_keys
+  "device-authorization", # device_codes
+  "jwt",                  # jwks
+  "two-factor",           # two_factors
+  "organization",         # organizations, members, invitations (+ teams/roles when configured in app code)
+  "siwe",                 # wallet_addresses
+
+  # --- commented: second batch — uncomment one block at a time or all at once ---
+  # "oauth-provider",     # oauth_clients, oauth_refresh_tokens, oauth_access_tokens, oauth_consents
+  # "passkey",            # passkeys
+  # "scim",               # scim_providers, scim_user_profiles, scim_group_profiles
+  # "sso",                # sso_providers
+  # "stripe",             # stripe_webhook_events, subscriptions (when subscriptions enabled)
+]

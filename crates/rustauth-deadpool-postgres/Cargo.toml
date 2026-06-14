@@ -1,0 +1,33 @@
+[package]
+name = "rustauth-deadpool-postgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-deadpool-postgres"
+readme = "README.md"
+description = "deadpool-postgres database adapter for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+deadpool-postgres.workspace = true
+rustauth-core.workspace = true
+rustauth-tokio-postgres.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+
+[dev-dependencies]
+http.workspace = true
+indexmap.workspace = true
+rustauth-core = { workspace = true, features = ["test-utils"] }
+serde_json.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+uuid.workspace = true
+
+[lints]
+workspace = true

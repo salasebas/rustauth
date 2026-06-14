@@ -1,0 +1,72 @@
+---
+title: Magic Link
+description: Passwordless email magic-link sign-in for RustAuth server plugin.
+---
+
+The magic-link plugin sends a time-limited link by email. Users click the link to verify their address and receive a session. A `send_magic_link` callback is required.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+time = "0.3"
+```
+
+## Enable
+
+Implement outbound delivery with `send_magic_link`. Do not await the sender before returning the HTTP response — dispatch it asynchronously:
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use rustauth_core::outbound::dispatch_outbound;
+use time::Duration;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(magic_link(
+        MagicLinkOptions::builder()
+            .send_magic_link(|email, ctx| {
+                Box::pin(async move {
+                    // Send email.email containing email.url
+                    let _ = (email, ctx);
+                    Ok(())
+                })
+            })
+            .build()?,
+    ))
+    .build()
+    .await?;
+```
+
+For local development, `magic_link_dev_log()` logs links to stderr instead of sending mail.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `expires_in` | Token lifetime (default 5 minutes) |
+| `allowed_attempts` | Verification attempts per token (default 1; use `unlimited_attempts()` for no limit) |
+| `send_magic_link` | Required outbound callback (`MagicLinkEmail` + request context) |
+| `disable_sign_up` | Reject magic-link verification for unknown emails |
+| `rate_limit` | Rate limit for `/sign-in/magic-link` |
+| `generate_token` | Custom token generator |
+| `store_token` | Token storage strategy (`Plain`, hashed, etc.) |
+
+Builder methods: `.expires_in(...)`, `.disable_sign_up(...)`, `.rate_limit(...)`, `.store_token(...)`.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/sign-in/magic-link` | Send a magic link to an email address |
+| GET | `/magic-link/verify` | Verify token from the link and create a session |
+
+The verify endpoint accepts query parameters such as `token`, `callbackURL`, `newUserCallbackURL`, and `errorCallbackURL`.
+
+## Database
+
+Magic links use the core `verification` store — no plugin-specific tables. No extra migration is required beyond your base RustAuth schema.

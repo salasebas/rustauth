@@ -1,0 +1,241 @@
+use std::sync::Arc;
+
+use http::{Method, StatusCode};
+use rustauth_core::api::output::session_response_cookies;
+use rustauth_core::api::{
+    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions,
+    OpenApiOperation,
+};
+use serde_json::json;
+
+use crate::challenge::{consume_challenge, create_challenge, ChallengeKind, ChallengeValue};
+use crate::challenge_rate_limit::consume_verify_challenge_rate_limit;
+use crate::cookies::{challenge_cookie, challenge_token};
+use crate::openapi::{
+    json_openapi_response, verify_authentication_body_schema, webauthn_options_schema,
+};
+use crate::options::{
+    AfterAuthenticationVerificationInput, PasskeyExtensionsInput, PasskeyOptions,
+    PasskeyRegistrationUser,
+};
+use crate::response::{
+    authentication_failed, error_response, internal_error, json_response, too_many_requests,
+};
+use crate::routes::{
+    resolve_extensions, verification_webauthn_config, webauthn_config, VerifyAuthenticationBody,
+};
+use crate::session::{create_session_for_user, current_session};
+use crate::store::PasskeyStore;
+
+pub(super) fn generate_authenticate_options_endpoint(
+    options: Arc<PasskeyOptions>,
+) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        "/passkey/generate-authenticate-options",
+        Method::GET,
+        AuthEndpointOptions::new()
+            .operation_id("passkeyGenerateAuthenticateOptions")
+            .openapi(
+                OpenApiOperation::new("passkeyGenerateAuthenticateOptions")
+                    .tag("Passkey")
+                    .description("Generate authentication options for a passkey")
+                    .response(
+                        "200",
+                        json_openapi_response("Success", webauthn_options_schema()),
+                    ),
+            ),
+        {
+            let options = Arc::clone(&options);
+            move |context, request| {
+                let options = Arc::clone(&options);
+                async move {
+                    let session = current_session(&context, &request).await?;
+                    let credentials = if let Some((_, user, _)) = &session {
+                        PasskeyStore::new(&context)?
+                            .list_by_user(&user.id)
+                            .await?
+                            .into_iter()
+                            .filter_map(|passkey| {
+                                passkey.authentication_credential_value().ok().flatten()
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let session_user_id = session.as_ref().map(|(_, user, _)| user.id.clone());
+                    let start = options.backend.start_authentication(
+                        webauthn_config(&context, &options, &request)?,
+                        credentials,
+                        resolve_extensions(
+                            &options.authentication.extensions,
+                            PasskeyExtensionsInput {
+                                context: None,
+                                user_id: session_user_id,
+                            },
+                        )
+                        .await,
+                    )?;
+                    let token = create_challenge(
+                        &context,
+                        ChallengeValue {
+                            kind: ChallengeKind::Authentication,
+                            state: start.state,
+                            user: session.map(|(_, user, _)| PasskeyRegistrationUser {
+                                id: user.id,
+                                name: user.email,
+                                display_name: None,
+                            }),
+                            context: None,
+                        },
+                    )
+                    .await?;
+                    json_response(
+                        StatusCode::OK,
+                        &start.options,
+                        vec![challenge_cookie(&context, &options, token)?],
+                    )
+                }
+            }
+        },
+    )
+}
+
+pub(super) fn verify_authentication_endpoint(options: Arc<PasskeyOptions>) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        "/passkey/verify-authentication",
+        Method::POST,
+        AuthEndpointOptions::new()
+            .operation_id("passkeyVerifyAuthentication")
+            .allowed_media_types(["application/json"])
+            .body_schema(verify_authentication_body_schema())
+            .openapi(
+                OpenApiOperation::new("passkeyVerifyAuthentication")
+                    .tag("Passkey")
+                    .description("Verify authentication of a passkey")
+                    .response(
+                        "200",
+                        json_openapi_response(
+                            "Success",
+                            json!({
+                                "type": "object",
+                                "properties": {
+                                    "session": { "$ref": "#/components/schemas/Session" },
+                                    "user": { "$ref": "#/components/schemas/User" },
+                                },
+                                "required": ["session", "user"],
+                            }),
+                        ),
+                    ),
+            ),
+        {
+            let options = Arc::clone(&options);
+            move |context, request| {
+                let options = Arc::clone(&options);
+                async move {
+                    let body: VerifyAuthenticationBody = parse_request_body(&request)?;
+                    let token = match challenge_token(&context, &options, &request)? {
+                        Some(token) => token,
+                        None => {
+                            return error_response(
+                                StatusCode::BAD_REQUEST,
+                                "CHALLENGE_NOT_FOUND",
+                                "Challenge not found",
+                            )
+                        }
+                    };
+                    if let Some(rejection) = consume_verify_challenge_rate_limit(
+                        &context,
+                        &options,
+                        &request,
+                        "/passkey/verify-authentication",
+                        &token,
+                    )
+                    .await?
+                    {
+                        return too_many_requests(rejection);
+                    }
+                    let Some(challenge) = consume_challenge(&context, &token).await? else {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            "CHALLENGE_NOT_FOUND",
+                            "Challenge not found",
+                        );
+                    };
+                    if challenge.kind != ChallengeKind::Authentication {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            "CHALLENGE_NOT_FOUND",
+                            "Challenge not found",
+                        );
+                    }
+                    let Some(credential_id) =
+                        body.response.get("id").and_then(serde_json::Value::as_str)
+                    else {
+                        return authentication_failed();
+                    };
+                    let store = PasskeyStore::new(&context)?;
+                    let Some(passkey) = store.find_by_credential_id(credential_id).await? else {
+                        return authentication_failed();
+                    };
+                    if challenge
+                        .user
+                        .as_ref()
+                        .is_some_and(|user| user.id != passkey.user_id)
+                    {
+                        return authentication_failed();
+                    }
+                    let Some(config) = verification_webauthn_config(&context, &options, &request)?
+                    else {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            "origin missing",
+                            "origin missing",
+                        );
+                    };
+                    let credential = match passkey.authentication_credential_value() {
+                        Ok(Some(credential)) => credential,
+                        Ok(None) | Err(_) => return authentication_failed(),
+                    };
+                    let verified = match options.backend.finish_authentication(
+                        config,
+                        body.response.clone(),
+                        challenge.state,
+                        Some(credential),
+                    ) {
+                        Ok(verified) => verified,
+                        Err(_) => return authentication_failed(),
+                    };
+                    if let Some(callback) = &options.authentication.after_verification {
+                        if callback(AfterAuthenticationVerificationInput {
+                            credential_id: passkey.credential_id.clone(),
+                            client_data: body.response,
+                        })
+                        .await
+                        .is_err()
+                        {
+                            return authentication_failed();
+                        }
+                    }
+                    if store
+                        .update_after_authentication(&passkey.id, passkey.counter, verified)
+                        .await?
+                        .is_none()
+                    {
+                        return authentication_failed();
+                    }
+                    let Some(user) = context.users()?.find_user_by_id(&passkey.user_id).await?
+                    else {
+                        return internal_error("User not found", "User not found");
+                    };
+                    let session = create_session_for_user(&context, &request, &user).await?;
+                    let cookies = session_response_cookies(&context, &session, &user, false)?;
+                    json_response(
+                        StatusCode::OK,
+                        &json!({ "session": session, "user": user }),
+                        cookies,
+                    )
+                }
+            }
+        },
+    )
+}

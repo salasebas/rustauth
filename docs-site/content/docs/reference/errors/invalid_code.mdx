@@ -1,0 +1,41 @@
+---
+title: invalid_code
+description: The OAuth authorization code is invalid or could not be exchanged.
+---
+
+The provider callback included a `code`, but token exchange failed (expired, reused, or rejected by the provider).
+
+## Rust implementation
+
+**Emitted by RustAuth:** yes
+
+Redirect to `errorCallbackURL` (or default `{base_url}/error`) with `?error=invalid_code`.
+
+| Location | When |
+| -------- | ---- |
+| `crates/rustauth-core/src/api/routes/social/flow.rs:146` | Social provider `validate_authorization_code` fails |
+| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:209` | OAuth Proxy callback code exchange fails |
+| `crates/rustauth-sso/src/routes/oidc.rs:168` | SSO OIDC callback code exchange fails |
+
+## Handling in Rust
+
+OAuth callback failures use redirect query parameters, not JSON bodies:
+
+```rust
+if let Some(location) = response.headers().get(http::header::LOCATION) {
+    // e.g. https://app.example.com/auth/error?error=invalid_code
+    let _target = location.to_str()?;
+}
+```
+
+REST routes return [`ApiErrorResponse`](/docs/concepts/api#error-handling) instead:
+
+```rust
+let error: rustauth::api::ApiErrorResponse = serde_json::from_slice(response.body())?;
+```
+
+## How to fix
+
+- Restart the OAuth flow to obtain a fresh authorization code.
+- Ensure the code is single-use and exchanged promptly.
+- Verify redirect URI and client credentials match the provider app settings.

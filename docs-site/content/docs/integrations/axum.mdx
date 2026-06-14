@@ -1,0 +1,96 @@
+---
+title: Axum Integration
+description: Mount RustAuth in an Axum application with rustauth-axum.
+---
+
+RustAuth ships an official Axum adapter in the `rustauth-axum` crate. Use it when your server is built with Axum and you want auth routes under a path such as `/api/auth`.
+
+<Callout type="info">
+  Other Rust web frameworks are not supported yet. If you need a different HTTP stack, open an issue or use the low-level `handle` escape hatch in `rustauth-axum`.
+</Callout>
+
+## Install
+
+```toml
+[dependencies]
+rustauth = "0.1"
+rustauth-axum = "0.1"
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+```
+
+See [installation](/docs/installation) for secrets, database adapters, and plugins.
+
+## Quick start
+
+```rust
+use rustauth::prelude::*;
+use rustauth_axum::{RustAuthAxumExt, RustAuthAxumOptions};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let auth = RustAuth::builder()
+        .secret("secret-a-at-least-32-chars-long!!")
+        .base_url("https://app.example.com/api/auth")
+        .build()
+        .await?;
+
+    let app = auth.into_router_with(RustAuthAxumOptions::new().body_limit(1024 * 1024))?;
+    // serve with ConnectInfo when clients hit Axum directly (rate limiting IP)
+    Ok(())
+}
+```
+
+Run `rustauth db migrate --yes` before serving traffic when using a database adapter. See [database migrations](/docs/database-migrations).
+
+When Axum is exposed directly to clients, serve with connection info so RustAuth can use the real peer socket IP for rate limiting:
+
+```rust
+use std::net::SocketAddr;
+use axum::serve;
+use tokio::net::TcpListener;
+
+async fn run(app: axum::Router) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:3000").await?;
+    serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
+    Ok(())
+}
+```
+
+## Database adapters
+
+Wire persistence before mounting routes:
+
+| Adapter | Doc |
+|---------|-----|
+| SQLx (SQLite, Postgres, MySQL) | [SQLx](/docs/adapters/sqlx) |
+| Deadpool Postgres | [Deadpool Postgres](/docs/adapters/deadpool-postgres) |
+| Tokio Postgres | [Tokio Postgres](/docs/adapters/tokio-postgres) |
+| Redis / Fred (rate limit + secondary storage) | [Redis](/docs/adapters/redis), [Fred](/docs/adapters/fred) |
+
+## Choosing a mount API
+
+| Goal | API | Notes |
+|------|-----|-------|
+| Standalone auth server | `auth.into_router()` | Consumes `RustAuth` |
+| Shared `Arc<RustAuth>` in app state | `auth.mount_routes()` + your `.nest()` | You control prefix |
+| Let rustauth-axum nest | `auth.mount_router()` | Do not nest again |
+| Custom state on auth routes | `mount_routes_with(options)` | Same as above |
+
+When you nest manually with `mount_routes()` or `into_routes()`, ensure your outer `.nest(prefix, …)` uses the same path as `RustAuthOptions::base_path` and that `base_url` matches.
+
+## Production notes
+
+- Default mount path comes from `RustAuthOptions::base_path`, falling back to `/api/auth`.
+- Request bodies are collected before core and capped at 10 MiB by default.
+- Configure `RustAuthOptions::base_url` in production. Do not trust public `x-forwarded-for` unless traffic is terminated by a trusted reverse proxy.
+- Do not run Tower/Axum body-consuming middleware on auth routes before `rustauth-axum`.
+
+## Reference examples
+
+- [`examples/backend-reference`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference) — modular `AuthStack`, plugins, introspection routes, and typed HTTP client helpers.
+- [`examples/full-app`](https://github.com/salasebas/rustauth/tree/main/examples/full-app) — broader adapter and plugin matrix.

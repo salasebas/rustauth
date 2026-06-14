@@ -1,0 +1,764 @@
+conventions:
+  crate: rustauth
+  env_prefix: RUSTAUTH_
+  cli: rustauth
+  never_use:
+    - betterAuth
+    - auth.ts
+    - BETTER_AUTH_
+    - createAuthClient
+    - rustauth npm
+  exemplar_page: docs/integrations/axum.mdx
+
+entries:
+- slug: docs/adapters/community-adapters
+  disposition: remove
+  status: migrated
+  notes: TS/JS adapter or unsupported stack
+- slug: docs/adapters/deadpool-postgres
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for deadpool-postgres
+- slug: docs/adapters/drizzle
+  disposition: remove
+  status: migrated
+  notes: TS/JS adapter or unsupported stack
+- slug: docs/adapters/fred
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for fred
+- slug: docs/adapters/mongo
+  disposition: under_development
+  status: migrated
+  notes: MongoDB adapter planned; partial parity
+- slug: docs/adapters/mssql
+  disposition: remove
+  status: migrated
+  notes: TS/JS adapter or unsupported stack
+- slug: docs/adapters/mysql
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for mysql
+- slug: docs/adapters/other-relational-databases
+  disposition: remove
+  status: migrated
+  notes: TS/JS adapter or unsupported stack
+- slug: docs/adapters/postgresql
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for postgresql
+- slug: docs/adapters/prisma
+  disposition: remove
+  status: migrated
+  notes: TS/JS adapter or unsupported stack
+- slug: docs/adapters/redis
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for redis
+- slug: docs/adapters/sqlite
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for sqlite
+- slug: docs/adapters/sqlx
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for sqlx
+- slug: docs/adapters/tokio-postgres
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for tokio-postgres
+- slug: docs/ai-resources/index
+  disposition: migrate
+  status: migrated
+  notes: AI/MCP resources; update branding and env vars
+- slug: docs/ai-resources/mcp
+  disposition: migrate
+  status: migrated
+  notes: AI/MCP resources; update branding and env vars
+- slug: docs/ai-resources/skills
+  disposition: migrate
+  status: migrated
+  notes: AI/MCP resources; update branding and env vars
+- slug: docs/authentication/apple
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/atlassian
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/cognito
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/discord
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/dropbox
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/email-password
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/facebook
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/figma
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/github
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/gitlab
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/google
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/huggingface
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/kakao
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/kick
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/line
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/linear
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/linkedin
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/microsoft
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/naver
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/notion
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/other-social-providers
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/paybin
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/paypal
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/polar
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers (Polar OAuth sign-in)
+- slug: docs/authentication/railway
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/reddit
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/roblox
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/salesforce
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/slack
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/spotify
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/tiktok
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/twitch
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/twitter
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/vercel
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/vk
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/wechat
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/authentication/zoom
+  disposition: migrate
+  status: migrated
+  notes: Social provider in rustauth-social-providers
+- slug: docs/basic-usage
+  disposition: migrate
+  status: migrated
+  notes: Replace createAuthClient with HTTP/curl or flows.rs
+- slug: docs/changelog/0-2-0
+  disposition: migrate
+  notes: Release notes; RustAuth changelog
+- slug: docs/comparison
+  disposition: migrate
+  status: migrated
+  notes: Compare RustAuth vs Better Auth, not npm packages
+- slug: docs/concepts/api
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/cli
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/client
+  disposition: remove
+  status: migrated
+  notes: Client/TypeScript concept; not applicable to server-first RustAuth
+- slug: docs/concepts/cookies
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/database
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/email
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/hooks
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/oauth
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/plugins
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/rate-limit
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/session-management
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/concepts/typescript
+  disposition: remove
+  status: migrated
+  notes: Client/TypeScript concept; not applicable to server-first RustAuth
+- slug: docs/concepts/users-accounts
+  disposition: migrate
+  status: migrated
+  notes: Docs page; rewrite TypeScript snippets to Rust
+- slug: docs/examples/astro
+  disposition: remove
+  status: migrated
+  notes: Client framework example; TS-only
+- slug: docs/examples/next
+  disposition: remove
+  status: migrated
+  notes: Client framework example; TS-only
+- slug: docs/examples/next-js
+  disposition: remove
+  status: migrated
+  notes: Client framework example; TS-only
+- slug: docs/examples/nuxt
+  disposition: remove
+  status: migrated
+  notes: Client framework example; TS-only
+- slug: docs/examples/react-router
+  disposition: remove
+  status: migrated
+  notes: Client framework example; TS-only
+- slug: docs/examples/svelte-kit
+  disposition: remove
+  status: migrated
+  notes: Client framework example; TS-only
+- slug: docs/guides/auth0-migration-guide
+  disposition: remove
+  status: migrated
+  notes: Migration guide for other auth products
+- slug: docs/guides/browser-extension-guide
+  disposition: migrate
+  status: migrated
+  notes: HTTP client usage guide (fetch/cookies); slug kept as browser-extension-guide
+- slug: docs/guides/clerk-migration-guide
+  disposition: remove
+  status: migrated
+  notes: Migration guide for other auth products
+- slug: docs/guides/create-a-db-adapter
+  disposition: migrate
+  status: migrated
+  notes: Server-side guide; rewrite for RustAuth
+- slug: docs/guides/dynamic-base-url
+  disposition: migrate
+  status: migrated
+  notes: Server-side guide; rewrite for RustAuth
+- slug: docs/guides/next-auth-migration-guide
+  disposition: remove
+  status: migrated
+  notes: Migration guide for other auth products
+- slug: docs/guides/optimizing-for-performance
+  disposition: migrate
+  status: migrated
+  notes: Server-side guide; rewrite for RustAuth
+- slug: docs/guides/saml-sso-with-okta
+  disposition: migrate
+  status: migrated
+  notes: Server-side guide; rewrite for RustAuth
+- slug: docs/guides/supabase-migration-guide
+  disposition: remove
+  status: migrated
+  notes: Migration guide for other auth products
+- slug: docs/guides/workos-migration-guide
+  disposition: remove
+  status: migrated
+  notes: Migration guide for other auth products
+- slug: docs/guides/your-first-plugin
+  disposition: migrate
+  status: migrated
+  notes: Server-side guide; rewrite for RustAuth
+- slug: docs/infrastructure/getting-started
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/infrastructure/introduction
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/infrastructure/plugins/audit-logs
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/infrastructure/plugins/dash
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/infrastructure/plugins/dashboard
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/infrastructure/plugins/sentinel
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/infrastructure/services/email
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/infrastructure/services/sms
+  disposition: remove
+  notes: Better Auth Infrastructure product; not part of RustAuth
+- slug: docs/installation
+  disposition: migrate
+  status: migrated
+  rust_sources:
+    - examples/backend-reference/src/auth/factory.rs
+  notes: "Replace auth.ts with RustAuth::builder()"
+- slug: docs/integrations/astro
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/axum
+  disposition: migrate
+  status: migrated
+  notes: Rust exemplar; rewrite with rustauth-axum
+- slug: docs/integrations/convex
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/electron
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/elysia
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/encore
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/expo
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/express
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/fastify
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/hono
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/lynx
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/nestjs
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/next
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/nitro
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/nuxt
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/react-router
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/solid-start
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/svelte-kit
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/tanstack
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/integrations/waku
+  disposition: remove
+  status: migrated
+  notes: TS/JS framework integration; not applicable to RustAuth
+- slug: docs/introduction
+  disposition: migrate
+  status: migrated
+  notes: Landing doc; say RustAuth throughout
+- slug: docs/plugins/2fa
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/admin
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/agent-auth
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/anonymous
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/api-key
+  disposition: migrate
+  status: migrated
+  notes: Shipped in rustauth-plugins api_key module
+- slug: docs/plugins/api-key/advanced
+  disposition: migrate
+  status: migrated
+  notes: Shipped in rustauth-plugins api_key module
+- slug: docs/plugins/api-key/index
+  disposition: migrate
+  status: migrated
+  notes: Shipped in rustauth-plugins api_key module
+- slug: docs/plugins/api-key/reference
+  disposition: migrate
+  status: migrated
+  notes: Shipped in rustauth-plugins api_key module
+- slug: docs/plugins/autumn
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/bearer
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/captcha
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/chargebee
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/community-plugins
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/creem
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/device-authorization
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/dodopayments
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/dub
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/email-otp
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/generic-oauth
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/have-i-been-pwned
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/i18n
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-i18n
+- slug: docs/plugins/index
+  disposition: migrate
+  status: migrated
+  notes: Plugin index; list shipped RustAuth plugins
+- slug: docs/plugins/jwt
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/last-login-method
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/magic-link
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/mcp
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/multi-session
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/oauth-provider
+  disposition: migrate
+  status: migrated
+  notes: Shipped in rustauth-oauth-provider; rewrite docs
+- slug: docs/plugins/oauth-proxy
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/oidc-provider
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/one-tap
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/one-time-token
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/open-api
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/organization
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/passkey
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-passkey
+- slug: docs/plugins/phone-number
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/polar
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/scim
+  disposition: migrate
+  status: migrated
+  notes: Shipped in rustauth-scim; rewrite docs
+- slug: docs/plugins/siwe
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/plugins/sso
+  disposition: migrate
+  status: migrated
+  notes: Shipped in rustauth-sso; experimental API — sidebar shows Experimental badge
+- slug: docs/plugins/stripe
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-stripe
+- slug: docs/plugins/test-utils
+  disposition: remove
+  status: migrated
+  notes: Billing/community/deprecated plugin; not in RustAuth
+- slug: docs/plugins/username
+  disposition: migrate
+  status: migrated
+  notes: Shipped plugin; rewrite with rustauth-plugins
+- slug: docs/reference/contributing
+  disposition: migrate
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/account_already_linked_to_different_user
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/account_not_linked
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/email_doesn't_match
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/email_not_found
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/index
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/internal_server_error
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/invalid_callback_request
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/invalid_code
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/no_callback_url
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/no_code
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/oauth_provider_not_found
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/please_restart_the_process
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/signup_disabled
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/state_mismatch
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/state_not_found
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/unable_to_create_session
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/unable_to_create_user
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/unable_to_get_user_info
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/unable_to_link_account
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/errors/unknown
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/faq
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/instrumentation
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/options
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/resources
+  disposition: migrate
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/security
+  disposition: migrate
+  notes: Reference docs; rewrite for RustAuth API
+- slug: docs/reference/telemetry
+  disposition: migrate
+  status: migrated
+  notes: Reference docs; rewrite for RustAuth API
+
+snippet_policy:
+  rules:
+    - Copy Rust from examples/backend-reference or crate README; cargo fmt snippets
+    - "Map BETTER_AUTH_* env vars to RUSTAUTH_SECRET and RUSTAUTH_BASE_URL"
+    - Never show createAuthClient or React hooks in migrated pages
+    - "HTTP API docs: use curl or examples/backend-reference/src/client/flows.rs"
+    - Migrated page descriptions must say RustAuth
+    - "under_development pages must include <UnderDevelopment /> at top"

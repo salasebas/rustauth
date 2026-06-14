@@ -1,0 +1,217 @@
+---
+title: Create a Database Adapter
+description: Implement a custom database adapter for RustAuth using the DbAdapter trait.
+---
+
+RustAuth persists users, sessions, accounts, verification tokens, plugin tables, and optional rate-limit rows through [`DbAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html). Official adapters cover [SQLx](/docs/adapters/sqlx), [Deadpool Postgres](/docs/adapters/deadpool-postgres), [Tokio Postgres](/docs/adapters/tokio-postgres), [Redis](/docs/adapters/redis), and [Fred](/docs/adapters/fred).
+
+Write a custom adapter when your stack is not covered and you can implement the async trait against your driver.
+
+<Callout type="info">
+  Read [Database](/docs/concepts/database) first for schema, migrations, and how adapters attach to [`RustAuth::builder`](/docs/installation).
+</Callout>
+
+## When to write an adapter
+
+| Situation | Recommendation |
+| --- | --- |
+| SQLite / Postgres / MySQL via SQLx | Use [`rustauth-sqlx`](/docs/adapters/sqlx) |
+| Pooled Postgres you already own | [Deadpool Postgres](/docs/adapters/deadpool-postgres) or [Tokio Postgres](/docs/adapters/tokio-postgres) |
+| Redis/Valkey for rate limits or secondary storage | [Redis](/docs/adapters/redis) or [Fred](/docs/adapters/fred) |
+| Proprietary driver, ORM, or hosted API | Custom `DbAdapter` (this guide) |
+
+Adapters live in separate crates (for example `rustauth-mydb`) so driver dependencies stay out of `rustauth-core`.
+
+## The DbAdapter trait
+
+Required methods (`crates/rustauth-core/src/db/adapter/traits.rs`):
+
+| Method | Purpose |
+| --- | --- |
+| `id` | Stable adapter identifier (for example `"my-postgres"`) |
+| `create` | Insert one row |
+| `find_one` | Fetch one row by filters |
+| `find_many` | List rows with sort, limit, offset, optional joins |
+| `count` | Count rows matching filters |
+| `update` | Update one row |
+| `update_many` | Update matching rows; return count |
+| `delete` | Delete one row |
+| `delete_many` | Delete matching rows; return count |
+| `transaction` | Run a callback inside a transaction (or sequential fallback) |
+
+Optional overrides:
+
+| Method | Purpose |
+| --- | --- |
+| `capabilities` | Advertise JSON, dates, joins, transactions, ID policy |
+| `create_schema` | Emit DDL for `rustauth db generate` |
+| `run_migrations` | Apply schema programmatically (tests/CI) |
+| `run_plugin_migrations` | Apply plugin migration steps |
+
+Query types (`Create`, `FindOne`, `FindMany`, `Update`, `Where`, …) live in `rustauth_core::db`. Core and plugins already use logical model names (`user`, `session`, …)—your adapter maps them to physical tables.
+
+## AdapterCapabilities
+
+Return accurate metadata from `capabilities()` so core can transform IDs, JSON, booleans, and dates correctly:
+
+```rust
+use rustauth_core::db::AdapterCapabilities;
+
+fn capabilities(&self) -> AdapterCapabilities {
+    AdapterCapabilities::new("my-adapter")
+        .named("My Adapter")
+        .with_json()
+        .with_transactions()
+        .with_native_joins()
+}
+```
+
+See [`AdapterCapabilities`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.AdapterCapabilities.html) for flags such as `supports_uuid_ids`, `without_dates`, and `without_id_generation`.
+
+## Minimal skeleton
+
+Start from [`MemoryAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.MemoryAdapter.html) (`crates/rustauth-core/src/db/memory.rs`) for a readable in-memory reference, then swap storage for your driver:
+
+```rust
+use rustauth_core::db::{
+    AdapterCapabilities, AdapterFuture, Count, Create, DbAdapter, DbRecord, Delete, DeleteMany,
+    FindMany, FindOne, TransactionCallback, Update, UpdateMany,
+};
+use rustauth_core::error::RustAuthError;
+
+pub struct MyAdapter {
+    // pool, client, or connection handle
+}
+
+impl MyAdapter {
+    pub async fn connect(/* config */) -> Result<Self, RustAuthError> {
+        todo!("open your database pool")
+    }
+}
+
+impl DbAdapter for MyAdapter {
+    fn id(&self) -> &str {
+        "my-adapter"
+    }
+
+    fn capabilities(&self) -> AdapterCapabilities {
+        AdapterCapabilities::new(self.id()).with_transactions()
+    }
+
+    fn create<'a>(&'a self, query: Create) -> AdapterFuture<'a, DbRecord> {
+        Box::pin(async move {
+            // INSERT into query.model using query.data
+            todo!()
+        })
+    }
+
+    fn find_one<'a>(&'a self, query: FindOne) -> AdapterFuture<'a, Option<DbRecord>> {
+        Box::pin(async move { todo!() })
+    }
+
+    fn find_many<'a>(&'a self, query: FindMany) -> AdapterFuture<'a, Vec<DbRecord>> {
+        Box::pin(async move { todo!() })
+    }
+
+    fn count<'a>(&'a self, query: Count) -> AdapterFuture<'a, u64> {
+        Box::pin(async move { todo!() })
+    }
+
+    fn update<'a>(&'a self, query: Update) -> AdapterFuture<'a, Option<DbRecord>> {
+        Box::pin(async move { todo!() })
+    }
+
+    fn update_many<'a>(&'a self, query: UpdateMany) -> AdapterFuture<'a, u64> {
+        Box::pin(async move { todo!() })
+    }
+
+    fn delete<'a>(&'a self, query: Delete) -> AdapterFuture<'a, ()> {
+        Box::pin(async move { todo!() })
+    }
+
+    fn delete_many<'a>(&'a self, query: DeleteMany) -> AdapterFuture<'a, u64> {
+        Box::pin(async move { todo!() })
+    }
+
+    fn transaction<'a>(&'a self, callback: TransactionCallback<'a>) -> AdapterFuture<'a, ()> {
+        Box::pin(async move {
+            // BEGIN … callback(transaction_adapter) … COMMIT
+            // If the driver has no transactions, use:
+            // rustauth_core::db::run_transaction_without_native_support(self, callback).await
+            todo!()
+        })
+    }
+}
+```
+
+<Callout>
+  Return full rows from `create` and `update`. Honor `select` lists when you can for efficiency, but the core layer fills missing fields based on schema when needed.
+</Callout>
+
+## Wire into RustAuth
+
+Same pattern as [SQLx quick start](/docs/adapters/sqlx#quick-start):
+
+```rust
+use rustauth::RustAuth;
+
+let adapter = MyAdapter::connect(/* ... */).await?;
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .base_url("https://app.example.com/api/auth")
+    .adapter(adapter)
+    .build()
+    .await?;
+```
+
+When your adapter also provides a rate-limit store, use `apply_to_options` helpers from official adapter crates as a template.
+
+## Migrations
+
+**Production:** schema changes are CLI-only—do not call `run_migrations` at server startup.
+
+```bash
+rustauth db status
+rustauth db generate --yes
+rustauth db migrate --yes
+```
+
+**Integration tests:** you may call `adapter.run_migrations(&schema).await?` after building an in-memory or disposable database. See `crates/rustauth-sqlx/tests/sqlite_adapter.rs` for the pattern.
+
+Implement `create_schema` if you want `rustauth db generate` to emit dialect-specific DDL from [`DbSchema`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.DbSchema.html).
+
+## Test your adapter
+
+RustAuth ships a shared contract harness—no external test-utils package:
+
+```rust
+use rustauth_core::db::adapter_harness::run_adapter_contract;
+use rustauth_core::error::RustAuthError;
+
+#[tokio::test]
+async fn my_adapter_satisfies_shared_contract() -> Result<(), RustAuthError> {
+    let adapter = MyAdapter::connect(/* test config */).await?;
+    // create tables / run migrations for the test database first
+    run_adapter_contract(&adapter).await
+}
+```
+
+Official adapters run the same check—for example [`sqlite_adapter_satisfies_shared_adapter_contract`](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-sqlx/tests/sqlite_adapter.rs)—plus dialect-specific integration tests for auth routes, joins, and migrations.
+
+The harness exercises filters, sorting, limits, counts, updates, deletes, transactions, and joins when `capabilities().supports_joins` is true.
+
+## Design checklist
+
+- **IDs:** respect `IdPolicy` from schema; use `AdapterCapabilities` when you generate UUIDs or numeric IDs yourself.
+- **Timestamps / JSON / booleans:** let core transforms run unless you disable them intentionally.
+- **Joins:** set `with_joins()` / `with_native_joins()` only when you implement join queries; otherwise core falls back to multi-query joins.
+- **Hooks:** integrators can wrap your adapter with [`HookedAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.HookedAdapter.html) for logging or metrics without forking core.
+- **Plugin tables:** `run_plugin_migrations` should apply [`PluginMigration`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.PluginMigration.html) steps when plugins are enabled.
+
+## Related
+
+- [Database concept](/docs/concepts/database)
+- [SQLx adapter](/docs/adapters/sqlx) — production reference implementation
+- [Database migrations](/docs/database-migrations)
+- [`rustauth-core` db module](https://docs.rs/rustauth-core/latest/rustauth_core/db/index.html)

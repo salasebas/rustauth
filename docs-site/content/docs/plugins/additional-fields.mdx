@@ -1,0 +1,154 @@
+---
+title: Additional Fields
+description: Extend user and session schema with custom fields for RustAuth server plugin.
+---
+
+The additional-fields plugin extends the core **user** and **session** models with custom columns. Fields can be required or optional, client-writable or server-generated, returned in API responses or hidden, and indexed or unique. At **runtime** it registers schema metadata on your auth context and validates sign-up, sign-in, and session endpoints.
+
+The CLI does **not** read your `additional_fields(...)` options from Rust. Listing `additional-fields` in `rustauth.toml` only marks the plugin as enabled for migration planning — it does **not** create your custom columns. You must add those columns to the database yourself (see [Database](#database)).
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::plugins::prelude::*;
+use rustauth_core::db::{DbFieldType, DbValue};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(additional_fields(
+        AdditionalFieldsOptions::new()
+            .user_field(
+                "role",
+                AdditionalField::new(DbFieldType::String)
+                    .default_value(DbValue::String("member".to_owned()))
+                    .generated(),
+            )
+            .session_field(
+                "theme",
+                AdditionalField::new(DbFieldType::String)
+                    .optional()
+                    .default_value(DbValue::String("system".to_owned())),
+            ),
+    ))
+    .build()
+    .await?;
+```
+
+Use `AdditionalFieldsOptions::builder()` for a fluent builder with `user_field`, `session_field`, and `build()`.
+
+## Field options
+
+Each `AdditionalField` is configured with a `DbFieldType` and modifiers:
+
+| Modifier | Description |
+| --- | --- |
+| *(default)* | Required, client input allowed, returned in responses |
+| `.optional()` | Field may be omitted (stored as `null`) |
+| `.generated()` | Server-only — not accepted from client input |
+| `.hidden()` | Stored but not returned in API responses |
+| `.unique()` | Enforce uniqueness at the database layer |
+| `.indexed()` | Add a database index |
+| `.default_value(value)` | Default applied on create when not provided |
+| `.db_name(name)` | Physical column name (logical API name stays camelCase) |
+
+Supported field types (`DbFieldType`): `String`, `Number`, `Boolean`, `Timestamp`, `Json`, `StringArray`, `NumberArray`.
+
+## HTTP behavior
+
+Additional fields appear on relevant auth endpoints under your configured `base_path`:
+
+- **User fields** — included on sign-up bodies (when `input: true`), returned on `/get-session`, user update routes, and admin user endpoints.
+- **Session fields** — set on session creation and returned on `/get-session`.
+
+Example sign-up with a writable user field (when the field has `input: true`):
+
+```bash
+curl -X POST "$BASE_PATH/sign-up/email" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ada",
+    "email": "ada@example.com",
+    "password": "secure-password",
+    "referralCode": "FRIEND42"
+  }'
+```
+
+Generated fields (`.generated()`) are not accepted from the client; defaults are applied server-side.
+
+## Database
+
+### What the plugin does at runtime
+
+When your app builds `RustAuth`, each configured field becomes a real column on the **`user`** and/or **`session`** table (or your adapter's equivalent). The plugin also drives API validation — which fields accept client input, defaults, uniqueness, and so on.
+
+This is **not** typing-only: if the column is missing in the database, reads and writes for that field will fail at runtime.
+
+### What `rustauth db migrate` does *not* do
+
+RustAuth migrations are driven by the CLI reading **`rustauth.toml`**, not by compiling your application. Better Auth can import your TS auth config; RustAuth cannot import your `RustAuth::builder()` wiring.
+
+For **additional-fields**, the CLI only sees the plugin **id**. It cannot infer which columns you defined in Rust (`role`, `locale`, `session_theme`, etc.). Those definitions live entirely in your builder code.
+
+| Surface | Knows your custom columns? |
+| --- | --- |
+| `additional_fields(...)` in Rust | Yes — full field list and options |
+| `[plugins].enabled` in `rustauth.toml` | No — only `"additional-fields"` |
+| `rustauth db migrate` | No — does not add your custom columns |
+
+Include `additional-fields` in `[plugins].enabled` so the plugin id stays aligned with your app, but **run `db migrate` for core and other plugins, then add your custom columns separately.**
+
+### How to add columns manually
+
+Pick one approach:
+
+1. **SQL migration you maintain** — add `ALTER TABLE` / equivalent in your migration folder (for example next to `migrations/rustauth/`), matching the types and names from your Rust config (including `.db_name(...)` when set).
+
+2. **Derive SQL from your app's schema in Rust** — build the effective `DbSchema` the same way your server does (see [`backend-reference` `resolve_schema()`](https://github.com/salasebas/rustauth/blob/main/examples/backend-reference/src/auth/schema.rs)), diff against the live database, and apply the delta. The reference example documents this limitation in [`cli_schema_parity.rs`](https://github.com/salasebas/rustauth/blob/main/examples/backend-reference/tests/cli_schema_parity.rs).
+
+3. **Dev-only reset** — for local SQLite/Postgres, recreate the database after changing fields (only when you can afford to lose data).
+
+Example Postgres migration for a user field configured in Rust as optional `locale`:
+
+```sql
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "locale" TEXT;
+```
+
+Adjust types and nullability to match `DbFieldType`, `.optional()`, `.unique()`, and `.indexed()` in your Rust config.
+
+### Workflow checklist
+
+1. Define fields in Rust with `additional_fields(...)` (or [`UserOptions::additional_field`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.UserOptions.html) / session equivalents on the core options).
+2. Add `"additional-fields"` to `[plugins].enabled` in `rustauth.toml` when you use this plugin.
+3. Run `rustauth db migrate --yes` for **core and fixed-schema plugins** — not for your custom columns.
+4. Apply a **manual migration** (or schema export) for every custom column you added in step 1.
+5. Optionally add a CI test that your database schema includes those columns (parity test pattern in backend-reference).
+
+See [Database migrations](/docs/database-migrations) for the general CLI workflow.
+
+When `.db_name(...)` is set, the physical column uses that name while the JSON field keeps the logical name:
+
+```rust
+.session_field(
+    "theme",
+    AdditionalField::new(DbFieldType::String)
+        .generated()
+        .default_value(DbValue::String("dark".to_owned()))
+        .db_name("session_theme"),
+)
+```
+
+## Combining with other plugins
+
+Additional fields compose with other plugins that read user or session metadata — for example [Anonymous](/docs/plugins/anonymous) (guest user fields) or [Organization](/docs/plugins/organization) (org-scoped session fields). Register `additional_fields(...)` alongside the other plugins on `RustAuth::builder()`.
+
+## HTTP endpoints
+
+This plugin does not register its own routes. It extends schema and validation on core auth endpoints.

@@ -1,0 +1,108 @@
+---
+title: Hooks
+description: Customize RustAuth with global HTTP hooks, init-time database hooks, and plugin hook points on RustAuthOptions.
+---
+
+RustAuth supports three hook layers:
+
+1. **Global HTTP hooks** — [`GlobalHooksOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.GlobalHooksOptions.html) via [`RustAuthOptions::hooks`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html#method.hooks)
+2. **Init-time database hooks** — [`InitDatabaseHooksOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.InitDatabaseHooksOptions.html) for typed callbacks on `user`, `session`, `account`, and `verification`
+3. **Plugin hooks** — registered on [`AuthPlugin`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.AuthPlugin.html) implementations
+
+Prefer hooks over ad-hoc routes outside RustAuth when you need to adjust existing endpoint behavior.
+
+## Global before hooks
+
+Run before matched API handlers (after plugin `on_request`):
+
+```rust
+use http::Method;
+use rustauth::api::ApiRequest;
+use rustauth::context::AuthContext;
+use rustauth::prelude::*;
+
+fn enforce_domain(
+    _ctx: &AuthContext,
+    request: ApiRequest,
+    _method: &Method,
+    path: &str,
+) -> Result<GlobalHookAction, RustAuthError> {
+    if path != "/sign-up/email" {
+        return Ok(GlobalHookAction::Continue(request));
+    }
+    // inspect JSON body via request extensions / parsed body in handler pipeline
+    Ok(GlobalHookAction::Continue(request))
+}
+
+RustAuth::builder()
+    .hooks(GlobalHooksOptions::new().before(enforce_domain))
+    // ...
+```
+
+Return [`GlobalHookAction::Respond`](https://docs.rs/rustauth-core/latest/rustauth_core/options/enum.GlobalHookAction.html) to short-circuit with an HTTP response, or `Continue(request)` to proceed (optionally after mutating the request).
+
+## Global after hooks
+
+Run after the handler, before plugin `on_response`:
+
+```rust
+fn log_sign_up(
+    _ctx: &AuthContext,
+    _request: &ApiRequest,
+    response: ApiResponse,
+    _method: &Method,
+    path: &str,
+) -> Result<ApiResponse, RustAuthError> {
+    if path.starts_with("/sign-up") {
+        tracing::info!(status = %response.status(), "sign-up completed");
+    }
+    Ok(response)
+}
+
+RustAuth::builder()
+    .hooks(
+        GlobalHooksOptions::new()
+            .before(enforce_domain)
+            .after(log_sign_up),
+    )
+```
+
+## Init-time database hooks
+
+For create/update/delete on core models, use [`InitDatabaseHooksOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.InitDatabaseHooksOptions.html):
+
+```rust
+use rustauth::plugin::PluginDatabaseHookContext;
+use rustauth_core::db::DbRecord;
+
+RustAuth::builder()
+    .init_database_hooks(
+        InitDatabaseHooksOptions::new().user(
+            DatabaseModelHooks::new().create(
+                DatabaseOperationHooks::new().before(|_ctx: &PluginDatabaseHookContext, record: &mut DbRecord| {
+                    // mutate or reject before insert
+                    Ok(InitDatabaseBeforeAction::Continue)
+                }),
+            ),
+        ),
+    )
+```
+
+Before hooks can return `Continue`, `Cancel(RustAuthError)`, or `Replace(DbRecord)`. After hooks run post-commit side effects.
+
+For plugin-owned tables or custom operations, append low-level [`PluginDatabaseHook`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.PluginDatabaseHook.html) entries with [`RustAuthOptions::database_hook`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html#method.database_hook).
+
+## Background tasks
+
+Configure [`AdvancedOptions::background_tasks`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.AdvancedOptions.html) with a [`BackgroundTaskRunner`](https://docs.rs/rustauth-core/latest/rustauth_core/options/trait.BackgroundTaskRunner.html) so outbound email and similar work runs after the response without blocking the handler.
+
+## Plugin hooks
+
+Official and custom plugins can register:
+
+- `before` / `after` endpoint hooks with path matchers
+- `async_before` / `async_after` for async work
+- `on_request` / `on_response` for global plugin behavior
+- `middlewares` scoped to plugin routes
+
+See [Plugins](/docs/concepts/plugins) for plugin authoring. Global hooks on `RustAuthOptions` apply to every matched route; plugin hooks apply to routes owned by that plugin or matched explicitly.

@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["full-app", "backend-reference"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+axum = "0.8"
+http = "1"
+rustauth-core = { path = "../crates/rustauth-core", version = "0.2.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "time", "json"] }
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "sync", "time", "net"] }
+url = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+panic = "warn"
+unwrap_used = "warn"
+expect_used = "warn"

@@ -1,0 +1,102 @@
+---
+title: SQLite
+description: SQLite adapter for RustAuth via rustauth-sqlx.
+---
+
+SQLite is a lightweight, serverless SQL engine well suited to local development, integration tests, and small deployments. RustAuth connects through [`rustauth-sqlx`](https://docs.rs/rustauth-sqlx) with the `sqlite` feature.
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.1", features = ["sqlx-sqlite"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.1"
+rustauth-sqlx = { version = "0.1", default-features = false, features = ["sqlite"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## Quick start
+
+[`SqliteStores`](https://docs.rs/rustauth-sqlx/latest/rustauth_sqlx/struct.SqliteStores.html) is the recommended entry point — it bundles a [`SqliteAdapter`](https://docs.rs/rustauth-sqlx/latest/rustauth_sqlx/struct.SqliteAdapter.html) and SQL-backed rate-limit store sharing one pool:
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_sqlx::SqliteStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = SqliteStores::connect_with_schema("sqlite://rustauth.db", schema).await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new()
+            .secret("secret-a-at-least-32-chars-long!!")
+            .base_url("http://127.0.0.1:3000/api/auth"),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+### Bring your own pool
+
+When you already manage a `sqlx::SqlitePool`:
+
+```rust
+use rustauth_sqlx::{SqliteAdapter, SqliteRateLimitStore};
+use sqlx::sqlite::SqlitePoolOptions;
+
+let pool = SqlitePoolOptions::new()
+    .connect("sqlite://rustauth.db")
+    .await?;
+
+let adapter = SqliteAdapter::with_schema(pool, schema);
+let rate_limit = SqliteRateLimitStore::from(&adapter);
+```
+
+`SqliteAdapter::connect` and `new` enforce `PRAGMA foreign_keys = ON` on every checkout.
+
+## When to use
+
+- **Local development** — zero external services; a file-backed database is enough for most auth flows.
+- **CI and integration tests** — fast, isolated databases per test run.
+- **Small single-node deployments** — acceptable when traffic and concurrency stay modest.
+
+For production PostgreSQL or MySQL, use the dialect-specific SQLx adapters or native Postgres pools instead. See [SQLx overview](/docs/adapters/sqlx) for the full comparison.
+
+## CLI migrate
+
+```toml title="rustauth.toml"
+[database]
+adapter = "sqlx"
+provider = "sqlite"
+url_env = "DATABASE_URL"
+```
+
+Set `DATABASE_URL` (for example `sqlite://rustauth.db`) and run:
+
+```bash title="Terminal"
+cargo install rustauth-cli --features sqlx
+rustauth db migrate --yes
+```
+
+Migrations are **CLI-only**. See [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+## Related
+
+- [SQLx adapters](/docs/adapters/sqlx) — feature flags and shared SQLx behavior
+- [PostgreSQL](/docs/adapters/postgresql) — production Postgres via SQLx
+- [MySQL](/docs/adapters/mysql) — MySQL via SQLx
+- [Database](/docs/concepts/database) — core auth schema

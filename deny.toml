@@ -1,0 +1,42 @@
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+exclude = ["rustauth-example-stripe-smoke"]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "OpenSSL",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+exceptions = [
+    { allow = ["OpenSSL"], crate = "ring" },
+    { allow = ["ISC"], crate = "libloading" },
+]
+
+[advisories]
+unmaintained = "workspace"
+yanked = "warn"
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "transitive via jsonwebtoken/rsa; tracked upstream" },
+]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+    "https://github.com/sebasxsala/opensaml-rs",
+]

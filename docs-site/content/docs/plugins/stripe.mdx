@@ -1,0 +1,126 @@
+---
+title: Stripe
+description: Stripe subscriptions, billing portal, and webhooks for RustAuth server plugin.
+---
+
+The Stripe plugin connects RustAuth to Stripe for customer creation, subscription checkout, billing portal sessions, and webhook processing. Subscriptions can be scoped to users or organizations.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["stripe"] }
+```
+
+## Enable
+
+Production setup with a real Stripe client and webhook secret:
+
+```rust
+use rustauth::RustAuth;
+use rustauth::stripe::{
+    stripe, OrganizationStripeOptions, StripeClient, StripeOptions, StripePlan,
+    SubscriptionOptions,
+};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(stripe(
+        StripeOptions::new(
+            StripeClient::new(std::env::var("STRIPE_SECRET_KEY")?),
+            std::env::var("STRIPE_WEBHOOK_SECRET")?,
+        )
+        .create_customer_on_sign_up(true)
+        .subscription(SubscriptionOptions::enabled(vec![
+            StripePlan::new("pro").price_id("price_xxx"),
+        ]))
+        .organization(OrganizationStripeOptions::enabled()),
+    )?)
+    .build()
+    .await?;
+```
+
+Local development can use the no-op transport:
+
+```rust
+use rustauth::stripe::{stripe, OrganizationStripeOptions, StripeOptions, SubscriptionOptions};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(
+        stripe(
+            StripeOptions::dev()
+                .subscription(SubscriptionOptions::enabled(Vec::new()))
+                .organization(OrganizationStripeOptions::enabled()),
+        )?,
+    )
+    .build()
+    .await?;
+```
+
+<Callout type="warn">
+  `StripeOptions::dev()` is for development only. It uses test placeholders and a no-op HTTP transport.
+</Callout>
+
+Organization billing requires the [organization](/docs/plugins/organization) plugin when `OrganizationStripeOptions::enabled()` is set.
+
+## Configuration
+
+**StripeOptions:**
+
+| Field | Description |
+| --- | --- |
+| `create_customer_on_sign_up` | Create Stripe customer on user registration |
+| `subscription` | User subscription settings (`SubscriptionOptions`) |
+| `organization` | Organization billing settings (`OrganizationStripeOptions`) |
+| `on_event` | Webhook event hook |
+| `on_customer_create` / `get_customer_create_params` | Customer creation hooks |
+| `schema` | Column name overrides |
+
+**SubscriptionOptions:**
+
+| Field | Description |
+| --- | --- |
+| `enabled` / `enabled_dynamic` | Enable subscription routes |
+| `plans` / `plans_provider` | Static or dynamic plan catalog |
+| `require_email_verification` | Gate checkout on verified email |
+| `authorize_reference` | Authorize org/user for subscription actions |
+| Lifecycle hooks | `on_subscription_complete`, `on_subscription_created`, etc. |
+| `get_checkout_session_params` | Customize Checkout session creation |
+
+**StripePlan** fields: `name`, `price_id`, `lookup_key`, annual discount, limits, `group`, `seat_price_id`, `line_items`, free trial.
+
+## HTTP endpoints
+
+Clients call these routes under your configured `base_path`.
+
+| Method | Path | When | Description |
+| --- | --- | --- | --- |
+| POST | `/stripe/webhook` | always | Stripe webhook receiver |
+| POST | `/subscription/upgrade` | subscription enabled | Start upgrade/checkout |
+| POST | `/subscription/cancel` | subscription enabled | Cancel subscription |
+| POST | `/subscription/restore` | subscription enabled | Restore canceled subscription |
+| GET | `/subscription/list` | subscription enabled | List subscriptions |
+| GET | `/subscription/success` | subscription enabled | Checkout success redirect |
+| POST | `/subscription/billing-portal` | subscription enabled | Create billing portal session |
+
+Configure your Stripe dashboard webhook to point at `{base_url}/stripe/webhook`. Verify signatures with the same secret passed to `StripeOptions::new`.
+
+## Database
+
+**User field:** `stripe_customer_id`
+
+**Organization field:** `stripe_customer_id` (when org Stripe is enabled)
+
+**Tables:**
+
+| Table | Purpose |
+| --- | --- |
+| `stripe_webhook_events` | Webhook idempotency |
+| `subscriptions` | Subscription state (when subscriptions enabled) |
+
+Run migrations after enabling:
+
+```bash
+rustauth db migrate
+```

@@ -1,0 +1,68 @@
+//! Official RustAuth plugin module surface.
+//!
+//! Plugin modules are ported against the Better Auth upstream reference where
+//! the behavior belongs on the server side, then shaped as idiomatic Rust APIs.
+
+pub mod access;
+pub mod additional_fields;
+pub mod admin;
+pub mod anonymous;
+pub mod api_key;
+pub mod bearer;
+pub mod captcha;
+pub mod custom_session;
+pub mod device_authorization;
+pub mod email_otp;
+pub mod generic_oauth;
+pub mod have_i_been_pwned;
+pub mod jwt;
+pub mod last_login_method;
+pub mod magic_link;
+pub mod multi_session;
+pub mod oauth_proxy;
+pub mod one_tap;
+pub mod one_time_token;
+pub mod open_api;
+pub mod organization;
+pub mod phone_number;
+pub mod prelude;
+pub mod siwe;
+pub mod two_factor;
+pub mod username;
+
+pub mod schema_plugins;
+
+pub use schema_plugins::{
+    configured_official_schema_plugins, is_official_schema_plugin, official_schema_plugin,
+    official_schema_plugin_ids, APP_CONFIGURED_SCHEMA_PLUGIN_IDS, NO_FIXED_SCHEMA_PLUGIN_IDS,
+};
+
+pub const PLUGIN_IDS: &[&str] = &[
+    access::UPSTREAM_PLUGIN_ID,
+    additional_fields::UPSTREAM_PLUGIN_ID,
+    admin::UPSTREAM_PLUGIN_ID,
+    anonymous::UPSTREAM_PLUGIN_ID,
+    api_key::UPSTREAM_PLUGIN_ID,
+    bearer::UPSTREAM_PLUGIN_ID,
+    captcha::UPSTREAM_PLUGIN_ID,
+    custom_session::UPSTREAM_PLUGIN_ID,
+    device_authorization::UPSTREAM_PLUGIN_ID,
+    email_otp::UPSTREAM_PLUGIN_ID,
+    generic_oauth::UPSTREAM_PLUGIN_ID,
+    have_i_been_pwned::UPSTREAM_PLUGIN_ID,
+    jwt::UPSTREAM_PLUGIN_ID,
+    last_login_method::UPSTREAM_PLUGIN_ID,
+    magic_link::UPSTREAM_PLUGIN_ID,
+    multi_session::UPSTREAM_PLUGIN_ID,
+    oauth_proxy::UPSTREAM_PLUGIN_ID,
+    one_tap::UPSTREAM_PLUGIN_ID,
+    one_time_token::UPSTREAM_PLUGIN_ID,
+    open_api::UPSTREAM_PLUGIN_ID,
+    organization::UPSTREAM_PLUGIN_ID,
+    phone_number::UPSTREAM_PLUGIN_ID,
+    siwe::UPSTREAM_PLUGIN_ID,
+    two_factor::UPSTREAM_PLUGIN_ID,
+    username::UPSTREAM_PLUGIN_ID,
+];
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -1,0 +1,38 @@
+[package]
+name = "rustauth-telemetry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-telemetry"
+readme = "README.md"
+description = "Telemetry support for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+base64.workspace = true
+rustauth-core.workspace = true
+rand.workspace = true
+reqwest = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[features]
+default = []
+http = ["dep:reqwest"]
+oauth = ["rustauth-core/oauth"]
+
+[dev-dependencies]
+time = { workspace = true }
+http.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,107 @@
+# cspell:ignore isready uuser ppassword
+x-postgres-healthcheck: &postgres-healthcheck
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U user -d rustauth"]
+    interval: 1s
+    timeout: 5s
+    retries: 10
+
+x-mysql-healthcheck: &mysql-healthcheck
+  healthcheck:
+    test: ["CMD-SHELL", "mysql -h 127.0.0.1 -uuser -ppassword rustauth -e 'SELECT 1' >/dev/null"]
+    interval: 1s
+    timeout: 5s
+    retries: 10
+    start_period: 30s
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: rustauth-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:latest
+    container_name: rustauth-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:latest
+    container_name: rustauth-valkey
+    ports:
+      - "6380:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    <<: *postgres-healthcheck
+    image: postgres:latest
+    container_name: rustauth-postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: rustauth
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  mysql:
+    <<: *mysql-healthcheck
+    image: mysql:latest
+    container_name: rustauth-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: rustauth
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:latest
+    container_name: rustauth-mssql
+    environment:
+      SA_PASSWORD: "Password123!"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U SA -P 'Password123!' -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+volumes:
+  mongodb_data:
+  redis_data:
+  valkey_data:
+  postgres_data:
+  mysql_data:
+  mssql_data:

@@ -1,0 +1,77 @@
+---
+title: i18n
+description: Localized API error messages for RustAuth server plugin.
+---
+
+The i18n plugin translates non-success JSON error responses using configurable locale catalogs. It runs as response middleware — there are no dedicated HTTP routes.
+
+## Install
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["i18n"] }
+```
+
+## Enable
+
+```rust
+use rustauth::RustAuth;
+use rustauth::i18n::{i18n, I18nOptions, LocaleDetectionStrategy};
+
+let auth = RustAuth::builder()
+    .secret("secret-a-at-least-32-chars-long!!")
+    .plugin(
+        i18n(
+            I18nOptions::new()
+                .locale("en", [("INVALID_EMAIL", "Invalid email")])
+                .locale("es", [("INVALID_EMAIL", "Email inválido")])
+                .default_locale("en")
+                .detection([LocaleDetectionStrategy::Header]),
+        )?,
+    )
+    .build()
+    .await?;
+```
+
+When the `i18n` feature is disabled at compile time, omit the plugin entirely — the reference app gates it with `#[cfg(feature = "i18n")]`.
+
+## Configuration
+
+| Field | Description |
+| --- | --- |
+| `translations` | Map of locale → error code → message |
+| `default_locale` | Fallback locale |
+| `detection` | Resolution order: `Header`, `Cookie`, `Session`, `Callback` |
+| `locale_cookie` | Cookie name for locale (default `"locale"`) |
+| `user_locale_field` | User table field for persisted locale (default `"locale"`) |
+| `get_locale` / `get_locale_async` | Custom locale resolvers |
+| `resolve_user_locale` | Resolve locale from user record |
+
+Builder API:
+
+```rust
+I18nOptions::new()
+    .locale("en", [("CODE", "Message")])
+    .default_locale("en")
+    .detection([LocaleDetectionStrategy::Header, LocaleDetectionStrategy::Cookie])
+```
+
+On translate, the plugin looks up the response JSON `code` field, replaces `message` with the localized string, and adds `originalMessage` with the prior text.
+
+Pair with a custom `locale` field on the user table if you persist locale per user.
+
+## HTTP endpoints
+
+This plugin does not register routes. It intercepts outgoing error responses from all auth routes.
+
+Clients influence locale via:
+
+- `Accept-Language` header (when `LocaleDetectionStrategy::Header` is enabled)
+- Locale cookie (when `Cookie` detection is enabled)
+- Session or user-stored locale (when `Session` detection is enabled)
+
+## Database
+
+No plugin-specific tables. Optionally store user locale in a user field configured with `user_locale_field`.
+
+No migration is required for the plugin itself.

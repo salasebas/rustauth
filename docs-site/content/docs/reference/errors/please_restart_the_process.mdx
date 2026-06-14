@@ -1,0 +1,19 @@
+---
+title: please_restart_the_process
+description: Multi-step auth flow must be restarted from the beginning.
+---
+
+## Rust implementation
+
+<Callout type="warn">
+  Not yet emitted by RustAuth (parity gap). Upstream Better Auth uses this redirect slug when a multi-step flow (for example device authorization or stale intermediate state) must restart. No matching string exists in the RustAuth `crates/` tree today.
+</Callout>
+
+## Handling in Rust
+
+When parity lands, expect `?error=please_restart_the_process` on redirect URLs. Until then, restart flows manually when users report stale OTP, 2FA, or device-code states.
+
+## How to fix
+
+- Clear intermediate cookies and restart from the first step (sign-in, device code poll, 2FA verify, etc.).
+- Ensure clients do not reuse expired verification tokens or device codes.

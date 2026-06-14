@@ -1,0 +1,21 @@
+{
+  "providerId": "saml-okta-prod",
+  "issuer": "http://www.okta.com/exkabc123",
+  "domain": "example.com",
+  "samlConfig": {
+    "issuer": "https://app.example.com/sso/saml2/sp/metadata",
+    "entryPoint": "https://dev-123456.okta.com/app/myapp/exkabc123/sso/saml",
+    "callbackUrl": "https://app.example.com/sso/saml2/sp/acs/saml-okta-prod",
+    "identifierFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+    "audience": "https://app.example.com/saml/sp",
+    "spMetadata": { "entityId": "https://app.example.com/saml/sp" },
+    "idpMetadata": { "entityId": "http://www.okta.com/exkabc123" },
+    "wantAssertionsSigned": true,
+    "authnRequestsSigned": false,
+    "mapping": {
+      "email": "email",
+      "firstName": "firstName",
+      "lastName": "lastName"
+    }
+  }
+}

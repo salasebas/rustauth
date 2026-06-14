@@ -1,0 +1,33 @@
+[package]
+name = "rustauth-tokio-postgres"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/rustauth-tokio-postgres"
+readme = "README.md"
+description = "tokio-postgres database adapter for RustAuth."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+rustauth-core.workspace = true
+serde_json.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio.workspace = true
+tokio-postgres.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+time = { workspace = true }
+http.workspace = true
+rustauth-core = { workspace = true, features = ["test-utils"] }
+serde_json.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

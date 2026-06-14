@@ -1,0 +1,92 @@
+---
+title: Plugins
+description: Official RustAuth server plugins for authentication, organizations, tokens, and enterprise features.
+---
+
+RustAuth extends core auth with **server plugins** registered on `RustAuth::builder()` via `.plugin(...)`. Plugins add HTTP routes, database tables, hooks, and rate-limit rules. There is no browser client SDK — frontends call the same REST API under your auth base path.
+
+Enable the `plugins` feature on the `rustauth` crate, plus satellite features for enterprise plugins (`passkey`, `sso`, `scim`, `oauth-provider`, `stripe`, `i18n`).
+
+```toml
+[dependencies]
+rustauth = { version = "0.1", features = ["plugins", "sqlx-sqlite"] }
+```
+
+See [concepts/plugins](/docs/concepts/plugins) and `examples/backend-reference/src/auth/plugins.rs` for a full wiring reference.
+
+## Authentication
+
+| Plugin | Description |
+| ------ | ----------- |
+| [Two-Factor Authentication](/docs/plugins/2fa) | TOTP, OTP, and backup codes |
+| [Passkey](/docs/plugins/passkey) | WebAuthn / passkey sign-in |
+| [Magic Link](/docs/plugins/magic-link) | Passwordless email links |
+| [Email OTP](/docs/plugins/email-otp) | Email one-time passwords |
+| [Phone Number](/docs/plugins/phone-number) | SMS OTP sign-in |
+| [Anonymous](/docs/plugins/anonymous) | Guest / anonymous sessions |
+| [Username](/docs/plugins/username) | Username + password |
+| [One Tap](/docs/plugins/one-tap) | Google One Tap |
+| [Sign In With Ethereum](/docs/plugins/siwe) | SIWE wallet auth |
+| [Generic OAuth](/docs/plugins/generic-oauth) | Custom OAuth providers |
+| [Captcha](/docs/plugins/captcha) | Turnstile / captcha gates |
+| [Have I Been Pwned](/docs/plugins/have-i-been-pwned) | Breached password checks |
+
+## Sessions & tokens
+
+| Plugin | Description |
+| ------ | ----------- |
+| [Custom Session](/docs/plugins/custom-session) | Customize `/get-session` JSON |
+| [Multi Session](/docs/plugins/multi-session) | Concurrent session limits |
+| [Last Login Method](/docs/plugins/last-login-method) | Track last auth method |
+| [Bearer](/docs/plugins/bearer) | Bearer token middleware |
+| [JWT](/docs/plugins/jwt) | JWT issuance for services |
+| [One-Time Token](/docs/plugins/one-time-token) | Single-use tokens |
+| [Device Authorization](/docs/plugins/device-authorization) | OAuth device code flow |
+| [OAuth Proxy](/docs/plugins/oauth-proxy) | Cross-domain OAuth proxy |
+
+## Schema & authorization helpers
+
+| Plugin | Description |
+| ------ | ----------- |
+| [Access](/docs/plugins/access) | Role-based access control helpers |
+| [Additional Fields](/docs/plugins/additional-fields) | Custom user and session columns |
+
+## Administration & organizations
+
+| Plugin | Description |
+| ------ | ----------- |
+| [Admin](/docs/plugins/admin) | User admin and impersonation |
+| [Organization](/docs/plugins/organization) | Orgs, teams, invitations, RBAC |
+| [API Key](/docs/plugins/api-key) | API key management |
+
+## Enterprise
+
+| Plugin | Description |
+| ------ | ----------- |
+| [SSO](/docs/plugins/sso) | SAML / OIDC IdP login (experimental API) |
+| [SCIM](/docs/plugins/scim) | Directory provisioning |
+| [OAuth Provider](/docs/plugins/oauth-provider) | OAuth 2.1 / OIDC authorization server |
+
+## Billing & utilities
+
+| Plugin | Description |
+| ------ | ----------- |
+| [Stripe](/docs/plugins/stripe) | Subscriptions and org billing |
+| [Open API](/docs/plugins/open-api) | OpenAPI reference for auth routes |
+| [i18n](/docs/plugins/i18n) | Localized error messages |
+
+## MCP documentation server
+
+The **documentation MCP** for AI assistants is not documented in the public nav yet; use [LLMs.txt](/llms.txt) for agent-readable docs.
+
+## Migrations
+
+Plugins that add tables require schema updates:
+
+```bash
+rustauth db migrate --yes
+```
+
+See the full [database schema reference](/docs/reference/database-schema) for all tables and columns.
+
+Configure `rustauth.toml` `[plugins].enabled` to match the plugins you register in code. See [database migrations](/docs/database-migrations).

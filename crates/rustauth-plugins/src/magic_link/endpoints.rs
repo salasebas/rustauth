@@ -1,0 +1,434 @@
+use http::{Method, StatusCode};
+use rustauth_core::api::{
+    create_auth_endpoint, parse_request_body, AsyncAuthEndpoint, AuthEndpointOptions, BodyField,
+    BodySchema, JsonSchemaType, OpenApiOperation,
+};
+use rustauth_core::auth::trusted_origins::OriginMatchSettings;
+use rustauth_core::context::AuthContext;
+use rustauth_core::db::User;
+use rustauth_core::error::RustAuthError;
+use rustauth_core::outbound::dispatch_outbound;
+use rustauth_core::user::CreateUserInput;
+use rustauth_core::verification::{CreateVerificationInput, VerificationStore};
+use serde::Serialize;
+use serde_json::Value;
+use time::OffsetDateTime;
+use url::Url;
+
+use super::options::{AllowedAttempts, MagicLinkEmail, MagicLinkOptions, MagicLinkSendContext};
+use super::payload::{
+    parse_verify_query, SignInMagicLinkBody, VerificationPayload, VerifyMagicLinkQuery,
+};
+use super::response;
+use super::session_response::{
+    record_new_session, session_cookies, session_create_input, session_response_value,
+};
+use super::token::generate_magic_link_token;
+use super::user_response::{additional_user_create_values, user_response_value};
+
+pub(crate) fn sign_in_magic_link_endpoint(options: MagicLinkOptions) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        "/sign-in/magic-link",
+        Method::POST,
+        AuthEndpointOptions::new()
+            .operation_id("signInMagicLink")
+            .allowed_media_types(["application/x-www-form-urlencoded", "application/json"])
+            .body_schema(sign_in_body_schema())
+            .openapi(
+                OpenApiOperation::new("signInWithMagicLink")
+                    .description("Sign in with magic link")
+                    .response(
+                        "200",
+                        serde_json::json!({
+                            "description": "Success",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": { "status": { "type": "boolean" } },
+                                        "required": ["status"],
+                                    },
+                                },
+                            },
+                        }),
+                    ),
+            ),
+        move |context, request| {
+            let options = options.clone();
+            async move {
+                let body: SignInMagicLinkBody = parse_request_body(&request)?;
+                validate_email(&body.email)?;
+                let token = match &options.generate_token {
+                    Some(generate) => generate(&body.email).await?,
+                    None => generate_magic_link_token(),
+                };
+                let identifier = options.store_token.identifier(&token).await?;
+                let value = serde_json::to_string(&VerificationPayload {
+                    email: body.email.clone(),
+                    name: body.name.clone(),
+                    attempt: 0,
+                })
+                .map_err(|error| RustAuthError::Api(error.to_string()))?;
+                let expires_at = OffsetDateTime::now_utc()
+                    .checked_add(effective_expires_in(&options))
+                    .ok_or_else(|| RustAuthError::Api("magic link expiry overflow".to_owned()))?;
+
+                context
+                    .verifications()?
+                    .create_verification(CreateVerificationInput::new(
+                        identifier, value, expires_at,
+                    ))
+                    .await?;
+
+                let url = magic_link_url(&context, &token, &body)?;
+                let send = (options.send_magic_link)(
+                    MagicLinkEmail {
+                        email: body.email,
+                        url,
+                        token,
+                        metadata: body.metadata,
+                    },
+                    MagicLinkSendContext {
+                        context: &context,
+                        request: &request,
+                    },
+                );
+                dispatch_outbound(&context, send);
+
+                response::json(
+                    StatusCode::OK,
+                    &serde_json::json!({ "status": true }),
+                    Vec::new(),
+                )
+            }
+        },
+    )
+}
+
+pub(crate) fn verify_magic_link_endpoint(options: MagicLinkOptions) -> AsyncAuthEndpoint {
+    create_auth_endpoint(
+        "/magic-link/verify",
+        Method::GET,
+        AuthEndpointOptions::new()
+            .operation_id("verifyMagicLink")
+            .openapi(
+                OpenApiOperation::new("verifyMagicLink")
+                    .description("Verify magic link")
+                    .response(
+                        "200",
+                        serde_json::json!({
+                            "description": "Success",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "token": { "type": "string" },
+                                            "session": { "$ref": "#/components/schemas/Session" },
+                                            "user": { "$ref": "#/components/schemas/User" },
+                                        },
+                                    },
+                                },
+                            },
+                        }),
+                    ),
+            ),
+        move |context, request| {
+            let options = options.clone();
+            async move {
+                let query = parse_verify_query(request.uri().query());
+                if let Some(rejection) = validate_verify_origins(&context, &request, &query)? {
+                    return Ok(rejection);
+                }
+                let callback_url = resolve_callback_url(&context, query.callback_url.as_deref())?;
+                let error_url = resolve_callback_url(
+                    &context,
+                    query.error_callback_url.as_deref().or(Some(&callback_url)),
+                )?;
+                let new_user_callback_url = resolve_callback_url(
+                    &context,
+                    query
+                        .new_user_callback_url
+                        .as_deref()
+                        .or(Some(&callback_url)),
+                )?;
+
+                let identifier = options.store_token.identifier(&query.token).await?;
+                let store = context.verifications()?;
+                let payload =
+                    match reserve_magic_link_attempt(&store, &identifier, options.allowed_attempts)
+                        .await?
+                    {
+                        Ok(reserved) => reserved,
+                        Err(error_code) => {
+                            return response::redirect_with_error(&error_url, error_code);
+                        }
+                    };
+
+                let (user, is_new_user) = match resolve_user(&context, &options, &payload).await {
+                    Ok(Some(user)) => user,
+                    Ok(None) => {
+                        return response::redirect_with_error(
+                            &error_url,
+                            "new_user_signup_disabled",
+                        );
+                    }
+                    Err(_) => {
+                        return response::redirect_with_error(&error_url, "failed_to_create_user");
+                    }
+                };
+                let expires_at = OffsetDateTime::now_utc()
+                    .checked_add(context.session_config.expires_in)
+                    .ok_or_else(|| RustAuthError::Api("session expiry overflow".to_owned()))?;
+                let input = session_create_input(&context, &request, user.id.clone(), expires_at);
+                let session = match context.sessions()?.create_session(input).await {
+                    Ok(session) => session,
+                    Err(_) => {
+                        return response::redirect_with_error(
+                            &error_url,
+                            "failed_to_create_session",
+                        );
+                    }
+                };
+                record_new_session(&session, &user)?;
+                let cookies = session_cookies(&context, &session, &user)?;
+
+                if query.callback_url.is_none() {
+                    let token = session.token.clone();
+                    let session =
+                        session_response_value(context.adapter_ref()?, &context, &session).await?;
+                    let user = user_response_value(&context, &user).await?;
+                    return response::json(
+                        StatusCode::OK,
+                        &VerifyResponse {
+                            token,
+                            user,
+                            session,
+                        },
+                        cookies,
+                    );
+                }
+                if is_new_user {
+                    return response::redirect(&new_user_callback_url, cookies);
+                }
+                response::redirect(&callback_url, cookies)
+            }
+        },
+    )
+}
+
+#[derive(Debug, Serialize)]
+struct VerifyResponse {
+    token: String,
+    user: Value,
+    session: Value,
+}
+
+fn validate_email(email: &str) -> Result<(), RustAuthError> {
+    let trimmed = email.trim();
+    let Some((local, domain)) = trimmed.split_once('@') else {
+        return Err(RustAuthError::Api("invalid magic link email".to_owned()));
+    };
+    if local.is_empty()
+        || domain.is_empty()
+        || !domain.contains('.')
+        || domain.starts_with('.')
+        || domain.ends_with('.')
+    {
+        return Err(RustAuthError::Api("invalid magic link email".to_owned()));
+    }
+    Ok(())
+}
+
+fn effective_expires_in(options: &MagicLinkOptions) -> time::Duration {
+    if options.expires_in == time::Duration::ZERO {
+        time::Duration::minutes(5)
+    } else {
+        options.expires_in
+    }
+}
+
+fn sign_in_body_schema() -> BodySchema {
+    BodySchema::object([
+        BodyField::new("email", JsonSchemaType::String)
+            .format("email")
+            .description("Email address to send the magic link"),
+        BodyField::optional("name", JsonSchemaType::String)
+            .description("User display name for first-time registration"),
+        BodyField::optional("callbackURL", JsonSchemaType::String)
+            .description("URL to redirect after magic link verification"),
+        BodyField::optional("newUserCallbackURL", JsonSchemaType::String)
+            .description("URL to redirect after new user signup"),
+        BodyField::optional("errorCallbackURL", JsonSchemaType::String)
+            .description("URL to redirect after error"),
+        BodyField::optional("metadata", JsonSchemaType::Object)
+            .description("Additional metadata to pass to send_magic_link"),
+    ])
+}
+
+fn magic_link_url(
+    context: &AuthContext,
+    token: &str,
+    body: &SignInMagicLinkBody,
+) -> Result<String, RustAuthError> {
+    let mut url = base_auth_url(context, "/magic-link/verify")?;
+    url.query_pairs_mut()
+        .append_pair("token", token)
+        .append_pair("callbackURL", body.callback_url.as_deref().unwrap_or("/"));
+    if let Some(callback) = &body.new_user_callback_url {
+        url.query_pairs_mut()
+            .append_pair("newUserCallbackURL", callback);
+    }
+    if let Some(callback) = &body.error_callback_url {
+        url.query_pairs_mut()
+            .append_pair("errorCallbackURL", callback);
+    }
+    Ok(url.to_string())
+}
+
+fn base_auth_url(context: &AuthContext, path: &str) -> Result<Url, RustAuthError> {
+    let mut base = Url::parse(&context.base_url)
+        .map_err(|error| RustAuthError::Api(format!("invalid base_url: {error}")))?;
+    let base_url_path = base.path().trim_end_matches('/');
+    let has_base_url_path = !base_url_path.is_empty();
+    let base_path = if has_base_url_path {
+        base_url_path
+    } else {
+        context.base_path.trim_end_matches('/')
+    };
+    base.set_path(&format!("{base_path}{path}"));
+    Ok(base)
+}
+
+fn resolve_callback_url(
+    context: &AuthContext,
+    value: Option<&str>,
+) -> Result<String, RustAuthError> {
+    let base = Url::parse(&context.base_url)
+        .map_err(|error| RustAuthError::Api(format!("invalid base_url: {error}")))?;
+    let url = base
+        .join(value.unwrap_or("/"))
+        .map_err(|error| RustAuthError::Api(format!("invalid callback URL: {error}")))?;
+    Ok(url.to_string())
+}
+
+fn validate_verify_origins(
+    context: &AuthContext,
+    request: &http::Request<Vec<u8>>,
+    query: &VerifyMagicLinkQuery,
+) -> Result<Option<http::Response<Vec<u8>>>, RustAuthError> {
+    if context.options.advanced.disable_origin_check {
+        return Ok(None);
+    }
+    for (label, value) in [
+        ("callbackURL", query.callback_url.as_deref()),
+        ("errorCallbackURL", query.error_callback_url.as_deref()),
+        ("newUserCallbackURL", query.new_user_callback_url.as_deref()),
+    ] {
+        let Some(value) = value else {
+            continue;
+        };
+        if !context.is_trusted_origin_for_request(
+            value,
+            Some(OriginMatchSettings {
+                allow_relative_paths: true,
+            }),
+            Some(request),
+        )? {
+            let (code, message) = match label {
+                "callbackURL" => ("INVALID_CALLBACK_URL", "Invalid callbackURL"),
+                "errorCallbackURL" => ("INVALID_ERROR_CALLBACK_URL", "Invalid errorCallbackURL"),
+                "newUserCallbackURL" => (
+                    "INVALID_NEW_USER_CALLBACK_URL",
+                    "Invalid newUserCallbackURL",
+                ),
+                _ => ("INVALID_CALLBACK_URL", "Invalid callbackURL"),
+            };
+            return response::error(StatusCode::FORBIDDEN, code, message).map(Some);
+        }
+    }
+    Ok(None)
+}
+
+const MAGIC_LINK_ATTEMPT_CAS_RETRIES: u32 = 8;
+
+async fn reserve_magic_link_attempt(
+    store: &VerificationStore<'_>,
+    identifier: &str,
+    allowed_attempts: AllowedAttempts,
+) -> Result<Result<VerificationPayload, &'static str>, RustAuthError> {
+    for _ in 0..MAGIC_LINK_ATTEMPT_CAS_RETRIES {
+        let Some(verification) = store
+            .find_verification_including_expired(identifier)
+            .await?
+        else {
+            return Ok(Err("INVALID_TOKEN"));
+        };
+        if verification.expires_at <= OffsetDateTime::now_utc() {
+            store.delete_verification(identifier).await?;
+            return Ok(Err("EXPIRED_TOKEN"));
+        }
+
+        let mut payload: VerificationPayload = serde_json::from_str(&verification.value)
+            .map_err(|error| RustAuthError::Api(format!("invalid magic link payload: {error}")))?;
+        if allowed_attempts.exceeded(payload.attempt) {
+            store.delete_verification(identifier).await?;
+            return Ok(Err("ATTEMPTS_EXCEEDED"));
+        }
+
+        if matches!(allowed_attempts, AllowedAttempts::Unlimited) {
+            return Ok(Ok(payload));
+        }
+
+        let expected_value = verification.value.clone();
+        payload.attempt = payload.attempt.saturating_add(1);
+        let new_value = serde_json::to_string(&payload)
+            .map_err(|error| RustAuthError::Api(error.to_string()))?;
+        let Some(updated) = store
+            .compare_and_update_verification_value(
+                identifier,
+                &verification.id,
+                &expected_value,
+                new_value,
+            )
+            .await?
+        else {
+            continue;
+        };
+        let payload = serde_json::from_str(&updated.value)
+            .map_err(|error| RustAuthError::Api(format!("invalid magic link payload: {error}")))?;
+        return Ok(Ok(payload));
+    }
+
+    Ok(Err("ATTEMPTS_EXCEEDED"))
+}
+
+async fn resolve_user(
+    context: &AuthContext,
+    options: &MagicLinkOptions,
+    payload: &VerificationPayload,
+) -> Result<Option<(User, bool)>, RustAuthError> {
+    let users = context.users()?;
+    let Some(mut user) = users.find_user_by_email(&payload.email).await? else {
+        if options.disable_sign_up {
+            return Ok(None);
+        }
+        let user = users
+            .create_user(
+                CreateUserInput::new(payload.name.clone().unwrap_or_default(), &payload.email)
+                    .email_verified(true)
+                    .additional_fields(additional_user_create_values(context)),
+            )
+            .await?;
+        return Ok(Some((user, true)));
+    };
+
+    if !user.email_verified {
+        user = users
+            .update_user_email_verified(&user.id, true)
+            .await?
+            .ok_or_else(|| RustAuthError::Api("failed to verify magic link user".to_owned()))?;
+    }
+
+    Ok(Some((user, false)))
+}

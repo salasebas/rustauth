@@ -1,0 +1,33 @@
+---
+title: invalid_callback_request
+description: OAuth callback request failed validation (upstream slug; RustAuth uses related codes).
+---
+
+## Rust implementation
+
+<Callout type="warn">
+  Not yet emitted by RustAuth under this exact slug (parity gap). The [OAuth Proxy](/docs/plugins/oauth-proxy) plugin emits related codes instead:
+</Callout>
+
+| RustAuth slug | Location | When |
+| ---------------- | -------- | ---- |
+| `invalid_callback_url` | `crates/rustauth-plugins/src/oauth_proxy/endpoint.rs:44` | Callback URL fails trusted-origin check |
+| `missing_callback_url` | `crates/rustauth-plugins/src/oauth_proxy/endpoint.rs:41` | `callbackURL` query param missing |
+| `invalid_profile` / `invalid_payload` / `payload_expired` | same file | Encrypted proxy payload invalid or stale |
+
+Upstream Better Auth uses `invalid_callback_request` as an umbrella redirect slug.
+
+## Handling in Rust
+
+Parse the `error` query parameter from OAuth redirect URLs. REST validation failures return JSON:
+
+```rust
+let error: rustauth::api::ApiErrorResponse = serde_json::from_slice(response.body())?;
+// e.g. code "INVALID_CALLBACK_URL" from ApiErrorCode
+```
+
+## How to fix
+
+- Add callback origins to [`trusted_origins`](/docs/reference/options#trustedorigins).
+- Pass a valid `callbackURL` / `errorCallbackURL` on sign-in requests.
+- For OAuth Proxy, verify production base URL and encryption configuration.

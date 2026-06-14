@@ -1,0 +1,140 @@
+---
+title: API Key Advanced
+description: Advanced ApiKeyConfiguration topics for RustAuth server plugin.
+---
+
+This page covers advanced configuration for the [API key plugin](/docs/plugins/api-key). All options live on [`ApiKeyConfiguration`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/struct.ApiKeyConfiguration.html) inside `ApiKeyOptions::builder().configuration(...)`.
+
+## Multiple configurations
+
+Register more than one key profile by passing multiple configurations, each with a unique `config_id`:
+
+```rust
+use rustauth::plugins::api_key::{
+    api_key, ApiKeyConfiguration, ApiKeyOptions, ApiKeyReference,
+};
+
+let plugin = api_key(
+    ApiKeyOptions::builder()
+        .configuration(ApiKeyConfiguration {
+            config_id: Some("public".into()),
+            reference: ApiKeyReference::User,
+            ..ApiKeyConfiguration::default()
+        })
+        .configuration(ApiKeyConfiguration {
+            config_id: Some("service".into()),
+            reference: ApiKeyReference::Organization,
+            default_prefix: Some("svc_".into()),
+            ..ApiKeyConfiguration::default()
+        })
+        .build()?,
+)?;
+```
+
+Clients pass `configId` on create/list when multiple configurations exist.
+
+## Organization-owned API keys
+
+Set `reference: ApiKeyReference::Organization` and enable the [organization](/docs/plugins/organization) plugin. Create and list operations scope keys to an organization; pass `organizationId` in the request body or query as required by the route.
+
+Session mode (`enable_session_for_api_keys`) supports `User` reference only.
+
+## Rate limiting
+
+Per-key rate limits are stored on each key row:
+
+```rust
+use rustauth::plugins::api_key::ApiKeyRateLimitOptions;
+use time::Duration;
+
+ApiKeyRateLimitOptions {
+    enabled: true,
+    time_window: Duration::days(1),
+    max_requests: 100,
+}
+```
+
+Defaults when enabled: one-day window, 10 requests. Counters reset when the window elapses. Disable with `enabled: false`.
+
+## Remaining, refill, and expiration
+
+`ApiKeyExpirationOptions` controls default TTL and bounds for custom expiry on create:
+
+```rust
+use rustauth::plugins::api_key::ApiKeyExpirationOptions;
+use time::Duration;
+
+ApiKeyExpirationOptions {
+    default_expires_in: Some(Duration::days(90)),
+    disable_custom_expires_time: false,
+    min_expires_in_days: 7,
+    max_expires_in_days: 365,
+    ..ApiKeyExpirationOptions::default()
+}
+```
+
+The `api_keys` table also supports refill intervals and remaining-request counts for quota-style keys.
+
+## Metadata
+
+Set `enable_metadata: true` on a configuration to accept arbitrary JSON metadata on create and update. Metadata is stored on the key row and returned from get/list (never the raw secret).
+
+## Sessions from API keys
+
+When `enable_session_for_api_keys: true`, a global before-hook resolves a valid API key to the owning user session so existing session-protected routes work without a separate verify call. Only supported for `ApiKeyReference::User`.
+
+## Storage modes
+
+| Mode | Behavior |
+| --- | --- |
+| `Database` (default) | Keys stored and verified in the primary adapter |
+| `SecondaryStorage` | Fast lookup in Redis or custom storage with optional DB fallback |
+
+Secondary storage options on `ApiKeyConfiguration`:
+
+- `custom_storage` — implement lookup/update/delete
+- `fallback_to_database` — read through to DB when secondary misses
+- `revalidate_secondary_against_database` — reconcile stale cache entries
+- `defer_updates` — batch writes to secondary storage
+
+For Redis-backed secondary storage, see the `rustauth-redis` crate and enable the `redis` feature on `rustauth`.
+
+## Custom key generation and validation
+
+Hook points on `ApiKeyConfiguration`:
+
+| Field | Purpose |
+| --- | --- |
+| `custom_key_generator` | Generate raw key material |
+| `custom_api_key_getter` | Extract key from non-standard requests |
+| `custom_api_key_validator` | Additional validation after hash verify |
+| `default_permissions_resolver` | Resolve permissions at create time |
+
+## Prefix and display hints
+
+```rust
+use rustauth::plugins::api_key::StartingCharactersConfig;
+
+StartingCharactersConfig {
+    should_store: true,
+    characters_length: 8,
+}
+```
+
+Combined with `default_prefix`, this lets UIs show `prefix + start` without storing the full secret. Set `disable_key_hashing: true` only for local development.
+
+## Permissions
+
+Attach a default permission map with `default_permissions` or resolve dynamically with `default_permissions_resolver`. Permissions are stored on the key and returned from management routes.
+
+## HTTP endpoints
+
+Management routes are documented on the [API key overview](/docs/plugins/api-key#http-endpoints). Verification can happen via `POST /api-key/verify` or request headers configured in `api_key_headers`.
+
+## Database
+
+All configurations share the `api_keys` table. Run migrations after changing schema options:
+
+```bash
+rustauth db migrate
+```

@@ -1,0 +1,180 @@
+use std::collections::BTreeMap;
+
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use url::form_urlencoded::{byte_serialize, Serializer};
+
+use super::error::OAuthError;
+use super::http::OAuthHttpClient;
+use super::tokens::{get_primary_client_id, ProviderOptions};
+
+/// OAuth request parameters that carry validated security invariants of a flow
+/// (CSRF `state`, PKCE binding, redirect URI, grant type, refresh token, and
+/// client credential/authentication fields). Generic `additional_params`,
+/// `override_params`, and `extra_params` maps must never set or replace these,
+/// so a provider extension or caller-controlled value cannot blank, downgrade,
+/// or hijack an already-validated and authenticated request.
+pub(crate) const PROTECTED_OAUTH_PARAMS: &[&str] = &[
+    "state",
+    "response_type",
+    "redirect_uri",
+    "code",
+    "code_verifier",
+    "code_challenge",
+    "code_challenge_method",
+    "grant_type",
+    "refresh_token",
+    "client_id",
+    "client_secret",
+    "client_key",
+    "client_assertion",
+    "client_assertion_type",
+];
+
+/// Returns `true` when `key` is a security-critical OAuth parameter that the
+/// generic extension maps are not allowed to set or override.
+pub(crate) fn is_protected_oauth_param(key: &str) -> bool {
+    PROTECTED_OAUTH_PARAMS.contains(&key)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ClientAuthentication {
+    #[default]
+    Post,
+    Basic,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OAuthFormRequest {
+    pub body: Vec<(String, String)>,
+    pub headers: BTreeMap<String, String>,
+}
+
+impl OAuthFormRequest {
+    pub fn new() -> Self {
+        Self {
+            body: Vec::new(),
+            headers: BTreeMap::from([
+                (
+                    "content-type".to_owned(),
+                    "application/x-www-form-urlencoded".to_owned(),
+                ),
+                ("accept".to_owned(), "application/json".to_owned()),
+            ]),
+        }
+    }
+
+    pub(crate) fn push_body(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.body.push((key.into(), value.into()));
+    }
+
+    pub(crate) fn set_body(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        let key = key.into();
+        self.body.retain(|(existing, _)| existing != &key);
+        self.body.push((key, value.into()));
+    }
+
+    pub fn has_body(&self, key: &str) -> bool {
+        self.body.iter().any(|(existing, _)| existing == key)
+    }
+
+    pub fn form_value(&self, key: &str) -> Option<&str> {
+        self.body
+            .iter()
+            .find(|(existing, _)| existing == key)
+            .map(|(_, value)| value.as_str())
+    }
+
+    pub fn form_values(&self, key: &str) -> Vec<&str> {
+        self.body
+            .iter()
+            .filter(|(existing, _)| existing == key)
+            .map(|(_, value)| value.as_str())
+            .collect()
+    }
+
+    pub fn header(&self, key: &str) -> Option<&str> {
+        self.headers
+            .get(&key.to_ascii_lowercase())
+            .map(String::as_str)
+    }
+
+    pub(crate) fn set_header(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.headers
+            .insert(key.into().to_ascii_lowercase(), value.into());
+    }
+
+    pub fn to_form_urlencoded(&self) -> String {
+        let mut serializer = Serializer::new(String::new());
+        for (key, value) in &self.body {
+            serializer.append_pair(key, value);
+        }
+        serializer.finish()
+    }
+}
+
+pub(crate) fn apply_client_authentication(
+    request: &mut OAuthFormRequest,
+    options: &ProviderOptions,
+    authentication: ClientAuthentication,
+    require_secret: bool,
+) -> Result<(), OAuthError> {
+    let primary_client_id = get_primary_client_id(&options.client_id);
+    let client_secret = non_empty_secret(options);
+
+    match authentication {
+        ClientAuthentication::Basic => {
+            let client_id = primary_client_id.ok_or_else(|| {
+                OAuthError::InvalidClientAuthentication(
+                    "HTTP Basic authentication requires client_id".to_owned(),
+                )
+            })?;
+            let client_secret = if require_secret {
+                client_secret.ok_or(OAuthError::MissingOption("client_secret"))?
+            } else {
+                client_secret.unwrap_or("")
+            };
+            // RFC 6749 §2.3.1: the client id and secret are each encoded with the
+            // `application/x-www-form-urlencoded` algorithm before being joined with
+            // `:` and Base64-encoded, so reserved characters (`:`, `+`, `=`, spaces,
+            // non-ASCII bytes, ...) cannot corrupt the decoded Basic credentials.
+            let credentials = STANDARD.encode(format!(
+                "{}:{}",
+                form_encode_credential(client_id),
+                form_encode_credential(client_secret)
+            ));
+            request.set_header("authorization", format!("Basic {credentials}"));
+        }
+        ClientAuthentication::Post => {
+            if let Some(client_id) = primary_client_id {
+                request.set_body("client_id", client_id);
+            }
+            if let Some(client_secret) = client_secret {
+                request.set_body("client_secret", client_secret);
+            } else if require_secret {
+                return Err(OAuthError::MissingOption("client_secret"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn non_empty_secret(options: &ProviderOptions) -> Option<&str> {
+    options.client_secret_str()
+}
+
+/// Encodes a Basic-auth credential component with `application/x-www-form-urlencoded`
+/// rules per RFC 6749 §2.3.1. Unreserved ASCII (including `-`, `_`, `.`, `*`) is left
+/// unchanged, preserving the wire format for simple credentials.
+fn form_encode_credential(value: &str) -> String {
+    byte_serialize(value.as_bytes()).collect()
+}
+
+pub(crate) async fn post_form_with_client(
+    token_endpoint: &str,
+    request: OAuthFormRequest,
+    client: &OAuthHttpClient,
+) -> Result<serde_json::Value, OAuthError> {
+    client.post_form(token_endpoint, request).await
+}

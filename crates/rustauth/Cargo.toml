@@ -1,0 +1,71 @@
+[package]
+name = "rustauth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+description = "Rust authentication toolkit."
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+http.workspace = true
+rustauth-core = { workspace = true }
+rustauth-deadpool-postgres = { workspace = true, optional = true }
+rustauth-i18n = { workspace = true, optional = true }
+rustauth-oidc = { workspace = true, optional = true }
+rustauth-oauth-provider = { workspace = true, optional = true }
+rustauth-fred = { workspace = true, optional = true }
+rustauth-passkey = { workspace = true, optional = true }
+rustauth-redis = { workspace = true, optional = true }
+rustauth-plugins = { workspace = true, optional = true }
+rustauth-scim = { workspace = true, optional = true }
+rustauth-saml = { workspace = true, optional = true }
+rustauth-sqlx = { workspace = true, default-features = false, optional = true }
+rustauth-sso = { workspace = true, default-features = false, optional = true }
+rustauth-stripe = { workspace = true, optional = true }
+rustauth-telemetry = { workspace = true, default-features = false, optional = true }
+rustauth-tokio-postgres = { workspace = true, optional = true }
+serde_json.workspace = true
+tokio.workspace = true
+
+[features]
+default = []
+jose = ["rustauth-core/jose"]
+oauth = ["rustauth-core/oauth"]
+social-providers = ["oauth", "rustauth-core/social-providers"]
+full = ["jose", "oauth", "social-providers"]
+deadpool-postgres = ["dep:rustauth-deadpool-postgres"]
+fred = ["dep:rustauth-fred"]
+i18n = ["dep:rustauth-i18n"]
+oidc = ["dep:rustauth-oidc", "rustauth-sso?/oidc"]
+oauth-provider = ["dep:rustauth-oauth-provider"]
+passkey = ["dep:rustauth-passkey"]
+plugins = ["dep:rustauth-plugins"]
+redis = ["dep:rustauth-redis"]
+scim = ["dep:rustauth-scim"]
+saml = ["dep:rustauth-saml", "rustauth-sso?/saml"]
+saml-signed = ["saml", "rustauth-saml/saml-signed", "rustauth-sso?/saml-signed"]
+sqlx = ["dep:rustauth-sqlx"]
+sqlx-mysql = ["sqlx", "rustauth-sqlx/mysql"]
+sqlx-postgres = ["sqlx", "rustauth-sqlx/postgres"]
+sqlx-sqlite = ["sqlx", "rustauth-sqlx/sqlite"]
+sso = ["dep:rustauth-sso"]
+stripe = ["dep:rustauth-stripe"]
+telemetry = ["dep:rustauth-telemetry", "rustauth-telemetry/http", "rustauth-telemetry/oauth"]
+tokio-postgres = ["dep:rustauth-tokio-postgres"]
+
+[dev-dependencies]
+rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
+sqlx.workspace = true
+time.workspace = true
+
+[lints]
+workspace = true

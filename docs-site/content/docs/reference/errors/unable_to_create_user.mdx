@@ -1,0 +1,28 @@
+---
+title: unable_to_create_user
+description: OAuth flow failed while creating a new user record.
+---
+
+Sign-up was allowed but persisting the new user (and linked account) failed during the OAuth transaction.
+
+## Rust implementation
+
+**Emitted by RustAuth:** yes
+
+| Location | When |
+| -------- | ---- |
+| `crates/rustauth-core/src/auth/oauth/account_linking.rs:175` | User record missing after OAuth handling |
+| `crates/rustauth-core/src/auth/oauth/errors.rs:20` | Code string `unable_to_create_user` |
+| `crates/rustauth-plugins/src/generic_oauth/routes.rs:353-358` | Generic OAuth redirect on handler error |
+
+Redirect shape: `{errorCallbackURL}?error=unable_to_create_user`.
+
+## Handling in Rust
+
+Parse `error=unable_to_create_user` from the OAuth redirect URL.
+
+## How to fix
+
+- Check database connectivity, migrations, and adapter errors in server logs.
+- Review init-time database hooks that may reject user creation.
+- Verify unique constraints (email) are not violated unexpectedly.
