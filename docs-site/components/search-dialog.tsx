@@ -1,5 +1,6 @@
 "use client";
 
+import { useDocsSearch } from "fumadocs-core/search/client";
 import type {
 	SearchItemType,
 	SharedProps,
@@ -8,7 +9,6 @@ import {
 	SearchDialog,
 	SearchDialogClose,
 	SearchDialogContent,
-	SearchDialogFooter,
 	SearchDialogHeader,
 	SearchDialogInput,
 	SearchDialogList,
@@ -19,52 +19,12 @@ import {
 import { ArrowRight, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
-import { Client } from "typesense";
-import { useTypesenseSearch } from "typesense-fumadocs-adapter/client";
 import { usePages } from "@/app/docs/provider";
 
-const typesenseClient = (() => {
-	const url = process.env.NEXT_PUBLIC_TYPESENSE_SERVER_URL;
-	const apiKey = process.env.NEXT_PUBLIC_TYPESENSE_SEARCH_API_KEY;
-	if (!url || !apiKey) {
-		// Return a dummy client so the app works without Typesense configured
-		return new Client({
-			nodes: [{ host: "localhost", port: 8108, protocol: "http" }],
-			apiKey: "dummy",
-		});
-	}
-	let serverUrl: URL;
-	try {
-		serverUrl = new URL(url);
-	} catch {
-		return new Client({
-			nodes: [{ host: "localhost", port: 8108, protocol: "http" }],
-			apiKey: "dummy",
-		});
-	}
-	return new Client({
-		nodes: [
-			{
-				host: serverUrl.hostname,
-				port:
-					Number(serverUrl.port) ||
-					(serverUrl.protocol === "https:" ? 443 : 80),
-				protocol: serverUrl.protocol.replace(":", ""),
-			},
-		],
-		apiKey,
-	});
-})();
-
 export default function CustomSearchDialog(props: SharedProps) {
-	const { search, setSearch, query } = useTypesenseSearch({
-		typesenseCollectionName: "rustauth-docs",
-		client: typesenseClient!,
-		/**
-		 * Non-legacy mode leaves raw <mark> tags in content at the moment,
-		 * which renders as plain text in fumadocs-ui
-		 */
-		legacy: true,
+	const { search, setSearch, query } = useDocsSearch({
+		type: "fetch",
+		api: "/api/search",
 	});
 	const pages = usePages();
 	const router = useRouter();
@@ -130,19 +90,6 @@ export default function CustomSearchDialog(props: SharedProps) {
 						/>
 					)}
 				/>
-				<SearchDialogFooter>
-					<span className="text-xs text-fd-muted-foreground">
-						Search powered by{" "}
-						<a
-							href="https://typesense.org"
-							target="_blank"
-							rel="noreferrer noopener"
-							className="underline hover:text-fd-foreground transition-colors"
-						>
-							Typesense
-						</a>
-					</span>
-				</SearchDialogFooter>
 			</SearchDialogContent>
 		</SearchDialog>
 	);
