@@ -2209,7 +2209,7 @@ fn render_home(state: &AppState) -> String {
 <body data-auth-root="/api/example/auth" data-rate-limit-enabled="{rate_limit_enabled}" data-rate-limit-window="{rate_limit_window}" data-rate-limit-max="{rate_limit_max}">
   <header class="shell-header">
     <div class="brand">
-      <span class="logo">OA</span>
+      <span class="logo">RA</span>
       <div>
         <p class="eyebrow">RustAuth example</p>
         <h1>Full app</h1>
@@ -2229,7 +2229,7 @@ fn render_home(state: &AppState) -> String {
         </label>
       </div>
       <section id="sidebar-user" class="sidebar-user" hidden>
-        <div class="avatar" id="sidebar-avatar">OA</div>
+        <div class="avatar" id="sidebar-avatar">RA</div>
         <div class="sidebar-user-copy">
           <strong id="sidebar-name"></strong>
           <span id="sidebar-email"></span>
@@ -3444,7 +3444,7 @@ function initials(user) {
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
-    .join("") || "OA";
+    .join("") || "RA";
 }
 
 function hideSidebarUser() {

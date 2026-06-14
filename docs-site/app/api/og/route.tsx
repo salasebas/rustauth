@@ -104,18 +104,37 @@ export async function GET(req: Request) {
 						<svg
 							width="130"
 							height="95"
-							viewBox="0 0 60 45"
+							viewBox="8 8 18 16"
 							fill="none"
 							className="mb-10"
 							xmlns="http://www.w3.org/2000/svg"
 						>
-							<path
-								fillRule="evenodd"
-								stroke={paint}
-								clipRule="evenodd"
-								d="M0 0H15V15H30V30H15V45H0V30V15V0ZM45 30V15H30V0H45H60V15V30V45H45H30V30H45Z"
+							<rect x="9" y="8.5" width="4.5" height="15" rx="1.2" fill="white" />
+							<rect
+								x="12.8"
+								y="8.5"
+								width="11.5"
+								height="7.5"
+								rx="1.2"
 								fill="white"
 							/>
+							<rect
+								x="14.8"
+								y="10.8"
+								width="7.2"
+								height="3.2"
+								rx="0.8"
+								fill="#0a0505"
+							/>
+							<rect
+								x="13.2"
+								y="15.5"
+								width="5.5"
+								height="8"
+								rx="1.1"
+								fill="white"
+							/>
+							<circle cx="25" cy="9.5" r="1.8" fill="#DE622A" />
 						</svg>
 						<div
 							style={{ fontFamily: "GeistMono", fontWeight: "normal" }}

@@ -1,46 +1,112 @@
 import type { SVGProps } from "react";
 import { cn } from "@/lib/utils";
+import {
+	RUSTAUTH_ACCENT,
+	RUSTAUTH_MARK_VIEWBOX,
+} from "@/lib/branding/rustauth-mark";
 
-const R_MARK_PATHS = [
-	"M69 121H155.988V380H69V121Z",
-	"M337.575 121H430V380H337.575V121Z",
-	"M427.282 121H510.738V295.52H427.282V121Z",
-	"M430 296.544H607.238V473.782H430V296.544Z",
-	"M252.762 204.455H349.536V301.229H252.762V204.455Z",
-];
+type LogoProps = {
+	className?: string;
+	showAccent?: boolean;
+};
 
-export const Logo = ({ className }: { className?: string }) => {
+export const Logo = ({ className, showAccent = true }: LogoProps) => {
 	return (
 		<svg
 			className={className || "h-5 w-5"}
-			viewBox="60 115 360 270"
+			viewBox={RUSTAUTH_MARK_VIEWBOX}
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 			aria-hidden="true"
 		>
-			{R_MARK_PATHS.map((d) => (
-				<path key={d} d={d} className="fill-foreground" />
-			))}
+			<rect
+				x="9"
+				y="8.5"
+				width="4.5"
+				height="15"
+				rx="1.2"
+				className="fill-foreground"
+			/>
+			<rect
+				x="12.8"
+				y="8.5"
+				width="11.5"
+				height="7.5"
+				rx="1.2"
+				className="fill-foreground"
+			/>
+			<rect
+				x="14.8"
+				y="10.8"
+				width="7.2"
+				height="3.2"
+				rx="0.8"
+				className="fill-background"
+			/>
+			<rect
+				x="13.2"
+				y="15.5"
+				width="5.5"
+				height="8"
+				rx="1.1"
+				className="fill-foreground"
+			/>
+			{showAccent ? (
+				<circle cx="25" cy="9.5" r="1.8" fill={RUSTAUTH_ACCENT} />
+			) : null}
 		</svg>
 	);
 };
 
 export const LogoMark = ({
 	className,
+	showAccent = true,
 	...props
-}: SVGProps<SVGSVGElement>) => {
+}: SVGProps<SVGSVGElement> & { showAccent?: boolean }) => {
 	return (
 		<svg
 			{...props}
-			viewBox="60 115 360 270"
+			viewBox={RUSTAUTH_MARK_VIEWBOX}
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 			className={cn("h-5 w-5", className)}
 			aria-hidden="true"
 		>
-			{R_MARK_PATHS.map((d) => (
-				<path key={d} d={d} className="fill-foreground" />
-			))}
+			<rect
+				x="9"
+				y="8.5"
+				width="4.5"
+				height="15"
+				rx="1.2"
+				className="fill-foreground"
+			/>
+			<rect
+				x="12.8"
+				y="8.5"
+				width="11.5"
+				height="7.5"
+				rx="1.2"
+				className="fill-foreground"
+			/>
+			<rect
+				x="14.8"
+				y="10.8"
+				width="7.2"
+				height="3.2"
+				rx="0.8"
+				className="fill-background"
+			/>
+			<rect
+				x="13.2"
+				y="15.5"
+				width="5.5"
+				height="8"
+				rx="1.1"
+				className="fill-foreground"
+			/>
+			{showAccent ? (
+				<circle cx="25" cy="9.5" r="1.8" fill={RUSTAUTH_ACCENT} />
+			) : null}
 		</svg>
 	);
 };

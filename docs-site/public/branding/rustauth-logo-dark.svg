@@ -1,8 +1,10 @@
 <svg width="500" height="500" viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect width="500" height="500" fill="black"/>
-<rect x="69" y="121" width="86.9879" height="259" fill="white"/>
-<rect x="337.575" y="121" width="92.4247" height="259" fill="white"/>
-<rect x="427.282" y="121" width="83.4555" height="174.52" transform="rotate(90 427.282 121)" fill="white"/>
-<rect x="430" y="296.544" width="83.4555" height="177.238" transform="rotate(90 430 296.544)" fill="white"/>
-<rect x="252.762" y="204.455" width="92.0888" height="96.7741" transform="rotate(90 252.762 204.455)" fill="white"/>
+<g transform="translate(138 138) scale(14)">
+<rect x="9" y="8.5" width="4.5" height="15" rx="1.2" fill="white"/>
+<rect x="12.8" y="8.5" width="11.5" height="7.5" rx="1.2" fill="white"/>
+<rect x="14.8" y="10.8" width="7.2" height="3.2" rx="0.8" fill="black"/>
+<rect x="13.2" y="15.5" width="5.5" height="8" rx="1.1" fill="white"/>
+<circle cx="25" cy="9.5" r="1.8" fill="#DE622A"/>
+</g>
 </svg>
