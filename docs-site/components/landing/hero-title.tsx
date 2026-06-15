@@ -13,7 +13,7 @@ export function HeroTitle() {
 		>
 			<div>
 				<Link
-					href="/docs/introduction"
+					href="/docs/changelog/0-3-0"
 					className="relative inline-flex items-center gap-1.5 px-2.5 py-1 pointer-events-auto group/badge rounded-full bg-neutral-200/80 dark:bg-neutral-800/80 hover:bg-neutral-200/70 dark:hover:bg-neutral-700/50 transition-colors"
 				>
 					<svg
@@ -30,7 +30,7 @@ export function HeroTitle() {
 						/>
 					</svg>
 					<span className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-100 font-light">
-						Introducing <span className="font-normal">v0.2.0</span>
+						Introducing <span className="font-normal">v0.3.0</span>
 					</span>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"

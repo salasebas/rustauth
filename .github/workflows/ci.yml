@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - release/0.2.0
+      - release/0.3.0
   merge_group:
 
 concurrency:
@@ -61,12 +61,11 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      # rustauth-* baselines on crates.io land in plan 007; until then this job
-      # compares against placeholder/legacy publishes and may need release-type tweaks.
+      # rustauth-diesel is not on crates.io yet; add it here after the first publish.
       - name: Check semver (published API crates)
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          package: rustauth,rustauth-core,rustauth-oauth,rustauth-plugins,rustauth-sqlx,rustauth-diesel
+          package: rustauth,rustauth-core,rustauth-oauth,rustauth-plugins,rustauth-sqlx
           release-type: major
 
   test-crate:

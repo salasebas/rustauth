@@ -4,7 +4,6 @@ use std::time::Duration as StdDuration;
 use http::{Method, StatusCode};
 use rustauth_core::db::{DbAdapter, DbValue, Delete, MemoryAdapter, Update, Where};
 use rustauth_core::options::SecondaryStorage;
-use rustauth_fred::{FredSecondaryStorage, FredSecondaryStorageOptions};
 use rustauth_plugins::api_key::{
     api_key, default_key_hasher, ApiKeyConfiguration, ApiKeyOptions, ApiKeyStorageMode,
     API_KEY_MODEL, INVALID_API_KEY,
@@ -805,42 +804,6 @@ async fn live_atomic_secondary_storage_concurrent_creates_keep_both_ids_in_ref_i
             Err(error) => {
                 eprintln!(
                     "skipping default {} Redis target `{}` because it is unavailable: {error}",
-                    target.name, target.url
-                );
-            }
-        }
-    }
-
-    for target in
-        live_secondary_storage_targets("RUSTAUTH_FRED_REDIS_URL", "RUSTAUTH_FRED_VALKEY_URL")
-    {
-        if !target.should_attempt_default_connect().await {
-            eprintln!(
-                "skipping default {} Fred target `{}` because its TCP endpoint is unavailable",
-                target.name, target.url
-            );
-            continue;
-        }
-        match FredSecondaryStorage::connect_with_options(
-            &target.url,
-            FredSecondaryStorageOptions {
-                key_prefix: format!("rustauth:test:api-key:fred:{}:{}:", target.name, now_ms()),
-                scan_count: 10,
-            },
-        )
-        .await
-        {
-            Ok(storage) => storages.push((target.name, Arc::new(storage))),
-            Err(error) if target.explicit => {
-                return Err(format!(
-                    "explicit {} Fred target `{}` is unavailable: {error}",
-                    target.name, target.url
-                )
-                .into());
-            }
-            Err(error) => {
-                eprintln!(
-                    "skipping default {} Fred target `{}` because it is unavailable: {error}",
                     target.name, target.url
                 );
             }

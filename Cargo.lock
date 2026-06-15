@@ -4442,9 +4442,12 @@ dependencies = [
  "http 1.4.2",
  "rustauth",
  "rustauth-core",
+ "rustauth-plugins",
  "rustauth-redis",
+ "serde_json",
  "time",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -4550,7 +4553,6 @@ dependencies = [
  "rand 0.8.6",
  "reqwest",
  "rustauth-core",
- "rustauth-fred",
  "rustauth-oauth",
  "rustauth-passkey",
  "rustauth-redis",

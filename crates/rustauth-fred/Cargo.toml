@@ -23,9 +23,12 @@ tokio.workspace = true
 http.workspace = true
 rustauth.workspace = true
 rustauth-core = { workspace = true, features = ["test-utils"] }
+rustauth-plugins.workspace = true
 rustauth-redis.workspace = true
+serde_json.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+url.workspace = true
 
 [features]
 default = []

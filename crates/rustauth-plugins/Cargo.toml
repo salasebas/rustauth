@@ -41,7 +41,6 @@ url.workspace = true
 [dev-dependencies]
 rustauth-core = { workspace = true, features = ["test-utils"] }
 rustauth-passkey.workspace = true
-rustauth-fred.workspace = true
 rustauth-redis.workspace = true
 rustauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
 sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"] }
