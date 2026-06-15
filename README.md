@@ -41,6 +41,13 @@ you register in Rust, then `rustauth db migrate --yes` before serving traffic. S
 Start with the [umbrella `rustauth` crate](crates/rustauth/README.md) — its README links every
 `rustauth-*` package (core, axum, cli, plugins, OAuth, SSO, SCIM, adapters, and more).
 
+### Database adapters
+
+SQLx (`rustauth-sqlx`) is the primary adapter family for SQLite, Postgres, and MySQL.
+For apps that already use Diesel, [`rustauth-diesel`](crates/rustauth-diesel/README.md)
+provides Postgres and MySQL adapters via `diesel-async`. Native Postgres pools are
+also available through `rustauth-tokio-postgres` and `rustauth-deadpool-postgres`.
+
 ## Docs and parity
 
 - Site: [rustauth.dev](https://rustauth.dev)

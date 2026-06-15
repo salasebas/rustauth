@@ -18,7 +18,7 @@ description: Install RustAuth with Cargo, configure secrets and adapters, run mi
     ```
 
     <Callout type="info">
-      Pick the SQLx dialect feature that matches your database: `sqlx-sqlite`, `sqlx-postgres`, or `sqlx-mysql`. For native Postgres pools, use `rustauth-tokio-postgres` or `rustauth-deadpool-postgres` instead of SQLx — see [adapters](/docs/adapters).
+      Pick the SQLx dialect feature that matches your database: `sqlx-sqlite`, `sqlx-postgres`, or `sqlx-mysql`. For native Postgres pools, use `rustauth-tokio-postgres` or `rustauth-deadpool-postgres` instead of SQLx. For apps that already use Diesel, enable `diesel-postgres` or `diesel-mysql` — see [Diesel](/docs/adapters/diesel) and [adapters](/docs/adapters).
     </Callout>
   </Step>
 

@@ -40,6 +40,11 @@ Use `rustauth db status --check` in CI to fail when pending schema changes exist
 | `sqlx` | `sqlite`, `postgres`, `mysql` |
 | `tokio-postgres` | `postgres` |
 | `deadpool-postgres` | `postgres` |
+| `diesel` | `postgres`, `mysql` |
+
+> Diesel migration support uses RustAuth's SQL migration planner through the
+> `rustauth-diesel` adapter. It does not use Diesel's migration CLI as a second
+> source of schema truth.
 
 Use the same adapter in `rustauth.toml` that your application uses at runtime.
 

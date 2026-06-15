@@ -1,0 +1,160 @@
+---
+title: Diesel
+description: Diesel database adapters for PostgreSQL and MySQL in RustAuth.
+---
+
+[`rustauth-diesel`](https://docs.rs/rustauth-diesel) provides [`DbAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/trait.DbAdapter.html) implementations for PostgreSQL and MySQL through [Diesel](https://diesel.rs/) and [`diesel-async`](https://docs.rs/diesel-async). Use it when your application already uses Diesel for Postgres or MySQL — it is an alternative adapter family, not a replacement for [SQLx](/docs/adapters/sqlx).
+
+The public crate name is `rustauth-diesel`. Configure CLI migrations with `database.adapter = "diesel"`. Do **not** use `database.adapter = "diesel-async"`; `diesel-async` is an internal driver dependency only.
+
+## Install
+
+Via the `rustauth` facade:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = { version = "0.2", features = ["diesel-postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Or depend on the adapter crate directly (no default features — enable the backend(s) you need):
+
+```toml title="Cargo.toml"
+[dependencies]
+rustauth = "0.2"
+rustauth-diesel = { version = "0.2", default-features = false, features = ["postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+### Feature flags
+
+`rustauth-diesel` ships with `default = []`. Enable the backend(s) you need:
+
+| Feature | Backend | Types |
+| --- | --- | --- |
+| `postgres` | PostgreSQL | `DieselPostgresAdapter`, `DieselPostgresStores`, `DieselPostgresRateLimitStore` |
+| `mysql` | MySQL | `DieselMysqlAdapter`, `DieselMysqlStores`, `DieselMysqlRateLimitStore` |
+
+On the `rustauth` facade, use `diesel-postgres` or `diesel-mysql` — each enables the matching `rustauth-diesel` feature and re-exports types under `rustauth::diesel`.
+
+## Quick start
+
+RustAuth storage backends share one vocabulary:
+
+| Type | Role |
+| --- | --- |
+| `XAdapter` | `DbAdapter` implementation |
+| `XStores` | Adapter + SQL-backed rate-limit store sharing one pool |
+| `XStoresBuilder` or `XStores::builder()` | Configure schema, pool, and connection |
+| `apply_to_options` | Wire the rate-limit store into [`RustAuthOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html) |
+
+### PostgreSQL
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_diesel::DieselPostgresStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = DieselPostgresStores::connect_with_schema(
+    "postgres://user:password@localhost:5432/rustauth",
+    schema,
+)
+.await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new().secret("secret-a-at-least-32-chars-long!!"),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+### MySQL
+
+```rust title="src/auth.rs"
+use rustauth::{RustAuth, RustAuthOptions};
+use rustauth_core::db::{auth_schema, AuthSchemaOptions, RateLimitStorage};
+use rustauth_diesel::DieselMysqlStores;
+
+let schema = auth_schema(AuthSchemaOptions {
+    rate_limit_storage: RateLimitStorage::Database,
+    ..AuthSchemaOptions::default()
+})?;
+
+let stores = DieselMysqlStores::connect_with_schema(
+    "mysql://user:password@localhost:3306/rustauth",
+    schema,
+)
+.await?;
+
+let auth = RustAuth::builder()
+    .options(stores.apply_to_options(
+        RustAuthOptions::new().secret("secret-a-at-least-32-chars-long!!"),
+    ))
+    .adapter(stores.adapter)
+    .build()?;
+```
+
+Via the facade, import `rustauth::diesel::{DieselPostgresStores, DieselMysqlStores, ...}` instead of depending on `rustauth-diesel` directly.
+
+## When to use
+
+| Scenario | Recommendation |
+| --- | --- |
+| App already uses Diesel for Postgres or MySQL | Diesel adapter (this page) |
+| Local dev, tests, or SQLite deployments | [SQLx](/docs/adapters/sqlx) with [`sqlite`](/docs/adapters/sqlite) |
+| App already uses SQLx | [SQLx](/docs/adapters/sqlx) — no need to add Diesel |
+| Production Postgres **without** SQLx or Diesel | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) or [`tokio-postgres`](/docs/adapters/tokio-postgres) |
+
+## Capabilities
+
+| Capability | Postgres | MySQL |
+| --- | --- | --- |
+| JSON columns | ✅ | ✅ |
+| Array columns | ✅ native | ✅ JSON-backed |
+| Generated UUID ids | ✅ | ➖ not supported |
+| Native joins | ✅ | ✅ |
+| Transactions | ✅ | ✅ (DDL rollback best-effort) |
+| CLI migrations | ✅ | ✅ |
+
+## Limitations
+
+- **SQLite deferred** — `diesel-async` SQLite uses a sync connection wrapper; use [SQLx SQLite](/docs/adapters/sqlite) instead.
+- **Sync Diesel deferred** — RustAuth's `DbAdapter` contract is async-only; no sync Diesel adapter is exposed.
+- **Not `diesel-async` in config** — use `database.adapter = "diesel"`, not `"diesel-async"`.
+
+## CLI migrate
+
+Configure `rustauth.toml` with `database.adapter = "diesel"` and the matching `provider` (`postgres` or `mysql`), then apply schema **before serving traffic**:
+
+```toml title="rustauth.toml"
+[database]
+adapter = "diesel"
+provider = "postgres"
+url_env = "DATABASE_URL"
+```
+
+```bash title="Terminal"
+cargo install rustauth-cli --features diesel
+rustauth db status
+rustauth db migrate --yes
+```
+
+Diesel migration support uses RustAuth's SQL migration planner through the `rustauth-diesel` adapter. It does **not** use Diesel's migration CLI as a second source of schema truth.
+
+Migrations are **CLI-only** — do not call a runtime migrate helper at application startup. See [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cli).
+
+Use the same adapter and provider in `rustauth.toml` that your application uses at runtime.
+
+## Related
+
+* [SQLx adapters](/docs/adapters/sqlx) — primary adapter family (SQLite, Postgres, MySQL)
+* [PostgreSQL (SQLx)](/docs/adapters/postgresql) — when your app uses SQLx for Postgres
+* [MySQL (SQLx)](/docs/adapters/mysql) — when your app uses SQLx for MySQL
+* [Database](/docs/concepts/database) — core schema and adapter overview
+* [Database migrations](/docs/database-migrations) — CLI workflow

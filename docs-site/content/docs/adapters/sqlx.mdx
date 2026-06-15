@@ -86,6 +86,7 @@ let rate_limit = SqliteRateLimitStore::from(&adapter);
 | --- | --- |
 | Local dev, tests, small SQLite deployments | SQLx with [`sqlite`](/docs/adapters/sqlite) |
 | App already uses SQLx for Postgres or MySQL | SQLx with [`postgres`](/docs/adapters/postgresql) or [`mysql`](/docs/adapters/mysql) |
+| App already uses Diesel for Postgres or MySQL | [Diesel](/docs/adapters/diesel) (`diesel-postgres` / `diesel-mysql`) |
 | Production Postgres **without** SQLx | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) (pooled) or [`tokio-postgres`](/docs/adapters/tokio-postgres) (single client) |
 | Distributed rate limits or session offload | [`redis`](/docs/adapters/redis) or [`fred`](/docs/adapters/fred) as secondary storage (primary adapter still required for most plugins) |
 

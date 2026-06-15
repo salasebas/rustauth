@@ -62,6 +62,10 @@ Use `rustauth db status --check` in CI to fail when pending schema changes exist
 | `deadpool-postgres` | `postgres` |
 | `diesel` | `postgres`, `mysql` |
 
+> Diesel migration support uses RustAuth's SQL migration planner through the
+> `rustauth-diesel` adapter. It does not use Diesel's migration CLI as a second
+> source of schema truth.
+
 Prisma, Drizzle, Kysely, memory, and MongoDB adapters are not driven by
 `rustauth db migrate`. Use `rustauth db generate` and apply SQL with your ORM,
 or switch to a supported SQL adapter for CLI migrations.

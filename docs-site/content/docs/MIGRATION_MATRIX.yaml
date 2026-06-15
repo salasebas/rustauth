@@ -19,6 +19,10 @@ entries:
   disposition: migrate
   status: migrated
   notes: Rust adapter crate for deadpool-postgres
+- slug: docs/adapters/diesel
+  disposition: migrate
+  status: migrated
+  notes: Rust adapter crate for diesel (postgres, mysql)
 - slug: docs/adapters/drizzle
   disposition: remove
   status: migrated

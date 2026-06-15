@@ -102,9 +102,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+For MySQL with Diesel, enable `diesel-mysql` and use `rustauth::diesel::DieselMysqlStores`
+or `DieselMysqlAdapter` the same way as the Postgres example above.
+
 Configure `rustauth.toml` with the same adapter and plugins, then run
 `rustauth db migrate --yes` in local setup, CI, or release jobs before starting
-the server. See [docs/database-migrations.md](../../docs/database-migrations.md).
+the server. For Diesel backends:
+
+```toml
+[database]
+adapter = "diesel"
+provider = "postgres"   # or "mysql"
+url_env = "DATABASE_URL"
+```
+
+See [docs/database-migrations.md](../../docs/database-migrations.md).
 
 Mount into Axum with [`rustauth-axum`](../rustauth-axum/README.md):
 
