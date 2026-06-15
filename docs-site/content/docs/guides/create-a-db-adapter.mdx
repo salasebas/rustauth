@@ -13,12 +13,12 @@ Write a custom adapter when your stack is not covered and you can implement the 
 
 ## When to write an adapter
 
-| Situation | Recommendation |
-| --- | --- |
-| SQLite / Postgres / MySQL via SQLx | Use [`rustauth-sqlx`](/docs/adapters/sqlx) |
-| Pooled Postgres you already own | [Deadpool Postgres](/docs/adapters/deadpool-postgres) or [Tokio Postgres](/docs/adapters/tokio-postgres) |
-| Redis/Valkey for rate limits or secondary storage | [Redis](/docs/adapters/redis) or [Fred](/docs/adapters/fred) |
-| Proprietary driver, ORM, or hosted API | Custom `DbAdapter` (this guide) |
+| Situation                                         | Recommendation                                                                                           |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| SQLite / Postgres / MySQL via SQLx                | Use [`rustauth-sqlx`](/docs/adapters/sqlx)                                                               |
+| Pooled Postgres you already own                   | [Deadpool Postgres](/docs/adapters/deadpool-postgres) or [Tokio Postgres](/docs/adapters/tokio-postgres) |
+| Redis/Valkey for rate limits or secondary storage | [Redis](/docs/adapters/redis) or [Fred](/docs/adapters/fred)                                             |
+| Proprietary driver, ORM, or hosted API            | Custom `DbAdapter` (this guide)                                                                          |
 
 Adapters live in separate crates (for example `rustauth-mydb`) so driver dependencies stay out of `rustauth-core`.
 
@@ -26,27 +26,27 @@ Adapters live in separate crates (for example `rustauth-mydb`) so driver depende
 
 Required methods (`crates/rustauth-core/src/db/adapter/traits.rs`):
 
-| Method | Purpose |
-| --- | --- |
-| `id` | Stable adapter identifier (for example `"my-postgres"`) |
-| `create` | Insert one row |
-| `find_one` | Fetch one row by filters |
-| `find_many` | List rows with sort, limit, offset, optional joins |
-| `count` | Count rows matching filters |
-| `update` | Update one row |
-| `update_many` | Update matching rows; return count |
-| `delete` | Delete one row |
-| `delete_many` | Delete matching rows; return count |
+| Method        | Purpose                                                      |
+| ------------- | ------------------------------------------------------------ |
+| `id`          | Stable adapter identifier (for example `"my-postgres"`)      |
+| `create`      | Insert one row                                               |
+| `find_one`    | Fetch one row by filters                                     |
+| `find_many`   | List rows with sort, limit, offset, optional joins           |
+| `count`       | Count rows matching filters                                  |
+| `update`      | Update one row                                               |
+| `update_many` | Update matching rows; return count                           |
+| `delete`      | Delete one row                                               |
+| `delete_many` | Delete matching rows; return count                           |
 | `transaction` | Run a callback inside a transaction (or sequential fallback) |
 
 Optional overrides:
 
-| Method | Purpose |
-| --- | --- |
-| `capabilities` | Advertise JSON, dates, joins, transactions, ID policy |
-| `create_schema` | Emit DDL for `rustauth db generate` |
-| `run_migrations` | Apply schema programmatically (tests/CI) |
-| `run_plugin_migrations` | Apply plugin migration steps |
+| Method                  | Purpose                                               |
+| ----------------------- | ----------------------------------------------------- |
+| `capabilities`          | Advertise JSON, dates, joins, transactions, ID policy |
+| `create_schema`         | Emit DDL for `rustauth db generate`                   |
+| `run_migrations`        | Apply schema programmatically (tests/CI)              |
+| `run_plugin_migrations` | Apply plugin migration steps                          |
 
 Query types (`Create`, `FindOne`, `FindMany`, `Update`, `Where`, …) live in `rustauth_core::db`. Core and plugins already use logical model names (`user`, `session`, …)—your adapter maps them to physical tables.
 
@@ -203,15 +203,15 @@ The harness exercises filters, sorting, limits, counts, updates, deletes, transa
 
 ## Design checklist
 
-- **IDs:** respect `IdPolicy` from schema; use `AdapterCapabilities` when you generate UUIDs or numeric IDs yourself.
-- **Timestamps / JSON / booleans:** let core transforms run unless you disable them intentionally.
-- **Joins:** set `with_joins()` / `with_native_joins()` only when you implement join queries; otherwise core falls back to multi-query joins.
-- **Hooks:** integrators can wrap your adapter with [`HookedAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.HookedAdapter.html) for logging or metrics without forking core.
-- **Plugin tables:** `run_plugin_migrations` should apply [`PluginMigration`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.PluginMigration.html) steps when plugins are enabled.
+* **IDs:** respect `IdPolicy` from schema; use `AdapterCapabilities` when you generate UUIDs or numeric IDs yourself.
+* **Timestamps / JSON / booleans:** let core transforms run unless you disable them intentionally.
+* **Joins:** set `with_joins()` / `with_native_joins()` only when you implement join queries; otherwise core falls back to multi-query joins.
+* **Hooks:** integrators can wrap your adapter with [`HookedAdapter`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.HookedAdapter.html) for logging or metrics without forking core.
+* **Plugin tables:** `run_plugin_migrations` should apply [`PluginMigration`](https://docs.rs/rustauth-core/latest/rustauth_core/plugin/struct.PluginMigration.html) steps when plugins are enabled.
 
 ## Related
 
-- [Database concept](/docs/concepts/database)
-- [SQLx adapter](/docs/adapters/sqlx) — production reference implementation
-- [Database migrations](/docs/database-migrations)
-- [`rustauth-core` db module](https://docs.rs/rustauth-core/latest/rustauth_core/db/index.html)
+* [Database concept](/docs/concepts/database)
+* [SQLx adapter](/docs/adapters/sqlx) — production reference implementation
+* [Database migrations](/docs/database-migrations)
+* [`rustauth-core` db module](https://docs.rs/rustauth-core/latest/rustauth_core/db/index.html)

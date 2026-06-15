@@ -9,11 +9,11 @@ Token exchange succeeded, but the provider did not return usable user info (netw
 
 **Emitted by RustAuth:** yes
 
-| Location | When |
-| -------- | ---- |
+| Location                                                 | When                                              |
+| -------------------------------------------------------- | ------------------------------------------------- |
 | `crates/rustauth-core/src/api/routes/social/flow.rs:154` | `get_user_info` returns `None` on social callback |
-| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:219` | OAuth Proxy profile fetch returns `None` |
-| `crates/rustauth-sso/src/routes/oidc.rs:201,217` | SSO OIDC userinfo/id_token parsing fails |
+| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:219`   | OAuth Proxy profile fetch returns `None`          |
+| `crates/rustauth-sso/src/routes/oidc.rs:201,217`         | SSO OIDC userinfo/id\_token parsing fails         |
 
 Redirect shape: `{errorCallbackURL}?error=unable_to_get_user_info`.
 
@@ -23,6 +23,6 @@ Parse `?error=unable_to_get_user_info` from the OAuth redirect URL or `Location`
 
 ## How to fix
 
-- Confirm requested OAuth scopes include profile/email where required.
-- Verify provider API status and rate limits.
-- For providers without email, configure profile mapping (see [OAuth concepts](/docs/concepts/oauth)).
+* Confirm requested OAuth scopes include profile/email where required.
+* Verify provider API status and rate limits.
+* For providers without email, configure profile mapping (see [OAuth concepts](/docs/concepts/oauth)).

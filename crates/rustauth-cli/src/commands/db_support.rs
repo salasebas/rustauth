@@ -61,7 +61,7 @@ pub(crate) fn unsupported_adapter_payload(config: &CliConfig) -> Map<String, ser
     let mut payload = Map::new();
     payload.insert(
         "adapter".to_owned(),
-        serde_json::Value::String(config.database.adapter.clone()),
+        serde_json::Value::String(config.database_adapter().unwrap_or_default().to_owned()),
     );
     if let Some(provider) = &config.database.provider {
         payload.insert(

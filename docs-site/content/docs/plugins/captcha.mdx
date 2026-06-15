@@ -36,15 +36,15 @@ When `endpoints` is empty, the plugin protects `/sign-up/email`, `/sign-in/email
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `provider` | `CloudflareTurnstile`, `GoogleRecaptcha`, `HCaptcha`, or `CaptchaFox` |
-| `secret_key` | Provider secret key for server-side verification |
-| `endpoints` | Auth paths to protect (prefix matching) |
-| `site_verify_url_override` | Custom verification URL |
-| `min_score` | Minimum score for Google reCAPTCHA v3 (default 0.5) |
-| `site_key` | Optional site key metadata |
-| `http_client` | Custom HTTP client for verification requests |
+| Field                      | Description                                                           |
+| -------------------------- | --------------------------------------------------------------------- |
+| `provider`                 | `CloudflareTurnstile`, `GoogleRecaptcha`, `HCaptcha`, or `CaptchaFox` |
+| `secret_key`               | Provider secret key for server-side verification                      |
+| `endpoints`                | Auth paths to protect (prefix matching)                               |
+| `site_verify_url_override` | Custom verification URL                                               |
+| `min_score`                | Minimum score for Google reCAPTCHA v3 (default 0.5)                   |
+| `site_key`                 | Optional site key metadata                                            |
+| `http_client`              | Custom HTTP client for verification requests                          |
 
 ## HTTP endpoints
 

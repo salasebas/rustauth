@@ -9,11 +9,11 @@ The OAuth account ID is already associated with a different user record, so link
 
 **Emitted by RustAuth:** yes
 
-| Location | When |
-| -------- | ---- |
+| Location                                                       | When                                                |
+| -------------------------------------------------------------- | --------------------------------------------------- |
 | `crates/rustauth-core/src/auth/oauth/account_linking.rs:28-29` | Constant `ACCOUNT_ALREADY_LINKED_TO_DIFFERENT_USER` |
-| `crates/rustauth-core/src/api/routes/social/flow.rs:510` | Link callback redirect |
-| `crates/rustauth-plugins/src/generic_oauth/account.rs:106-107` | Generic OAuth link error mapping |
+| `crates/rustauth-core/src/api/routes/social/flow.rs:510`       | Link callback redirect                              |
+| `crates/rustauth-plugins/src/generic_oauth/account.rs:106-107` | Generic OAuth link error mapping                    |
 
 Redirect shape: `{errorCallbackURL}?error=account_already_linked_to_different_user`.
 
@@ -23,6 +23,6 @@ Parse the full slug from the redirect URL (URL-encoded in query strings).
 
 ## How to fix
 
-- Have the user sign in with the account that already owns this provider link.
-- Admin-unlink the provider from the other user before re-linking.
-- Avoid duplicate provider accounts across test users in shared environments.
+* Have the user sign in with the account that already owns this provider link.
+* Admin-unlink the provider from the other user before re-linking.
+* Avoid duplicate provider accounts across test users in shared environments.

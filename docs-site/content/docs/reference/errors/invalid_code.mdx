@@ -11,11 +11,11 @@ The provider callback included a `code`, but token exchange failed (expired, reu
 
 Redirect to `errorCallbackURL` (or default `{base_url}/error`) with `?error=invalid_code`.
 
-| Location | When |
-| -------- | ---- |
+| Location                                                 | When                                                |
+| -------------------------------------------------------- | --------------------------------------------------- |
 | `crates/rustauth-core/src/api/routes/social/flow.rs:146` | Social provider `validate_authorization_code` fails |
-| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:209` | OAuth Proxy callback code exchange fails |
-| `crates/rustauth-sso/src/routes/oidc.rs:168` | SSO OIDC callback code exchange fails |
+| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:209`   | OAuth Proxy callback code exchange fails            |
+| `crates/rustauth-sso/src/routes/oidc.rs:168`             | SSO OIDC callback code exchange fails               |
 
 ## Handling in Rust
 
@@ -36,6 +36,6 @@ let error: rustauth::api::ApiErrorResponse = serde_json::from_slice(response.bod
 
 ## How to fix
 
-- Restart the OAuth flow to obtain a fresh authorization code.
-- Ensure the code is single-use and exchanged promptly.
-- Verify redirect URI and client credentials match the provider app settings.
+* Restart the OAuth flow to obtain a fresh authorization code.
+* Ensure the code is single-use and exchanged promptly.
+* Verify redirect URI and client credentials match the provider app settings.

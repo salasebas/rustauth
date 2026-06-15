@@ -117,11 +117,11 @@ Configure the provider on the server first ([GitHub example](/docs/authenticatio
 
 Cross-origin `fetch` from a `chrome-extension://` origin to your API is often **blocked** or **does not persist cookies** the way a normal website does. Common patterns:
 
-| Pattern | When to use |
-| --- | --- |
-| **BFF on your web origin** | Extension talks to `https://app.example.com/api/...`; the web app proxies to RustAuth and owns cookies. Recommended for production. |
-| **Direct API + `host_permissions`** | Works for some MV3 service workers when API and cookie `Domain`/`SameSite` are aligned; test thoroughly. |
-| **`chrome-extension://` in `trusted_origins`** | Needed only if the extension origin must pass CSRF / redirect checks — prefer explicit extension IDs over wildcards. |
+| Pattern                                        | When to use                                                                                                                         |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **BFF on your web origin**                     | Extension talks to `https://app.example.com/api/...`; the web app proxies to RustAuth and owns cookies. Recommended for production. |
+| **Direct API + `host_permissions`**            | Works for some MV3 service workers when API and cookie `Domain`/`SameSite` are aligned; test thoroughly.                            |
+| **`chrome-extension://` in `trusted_origins`** | Needed only if the extension origin must pass CSRF / redirect checks — prefer explicit extension IDs over wildcards.                |
 
 RustAuth does not expose a special “extension CORS mode”. If `credentials: "include"` is insufficient, use a BFF rather than inventing server options that do not exist.
 
@@ -131,6 +131,6 @@ RustAuth does not expose a special “extension CORS mode”. If `credentials: "
 
 ## Related docs
 
-- [Basic usage](/docs/basic-usage) — email, session, and social flows
-- [Axum integration](/docs/integrations/axum) — mount routes on your server
-- [Dynamic base URL](/docs/guides/dynamic-base-url) — preview hosts and proxies
+* [Basic usage](/docs/basic-usage) — email, session, and social flows
+* [Axum integration](/docs/integrations/axum) — mount routes on your server
+* [Dynamic base URL](/docs/guides/dynamic-base-url) — preview hosts and proxies

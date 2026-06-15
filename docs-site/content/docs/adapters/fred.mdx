@@ -81,11 +81,11 @@ Secondary storage uses raw string values and TTLs in seconds. Operational helper
 
 ## When to use
 
-| Choose `rustauth-fred` | Choose `rustauth-redis` |
-| --- | --- |
-| App already uses `fred` | App already uses `redis-rs` |
-| Valkey/Redis through the `fred` ecosystem | Smaller dependency when `redis-rs` is sufficient |
-| Need `fred`-specific TLS or client configuration | Prefer the widely used `redis` crate |
+| Choose `rustauth-fred`                           | Choose `rustauth-redis`                          |
+| ------------------------------------------------ | ------------------------------------------------ |
+| App already uses `fred`                          | App already uses `redis-rs`                      |
+| Valkey/Redis through the `fred` ecosystem        | Smaller dependency when `redis-rs` is sufficient |
+| Need `fred`-specific TLS or client configuration | Prefer the widely used `redis` crate             |
 
 Both crates expose [`RedisStores`](/docs/adapters/redis)-equivalent bundled types, Lua-backed atomic rate limiting, and secondary storage with the same RustAuth contracts. See [Rate limit](/docs/concepts/rate-limit) for configuration.
 
@@ -101,7 +101,7 @@ See [Database migrations](/docs/database-migrations) and [CLI](/docs/concepts/cl
 
 ## Related
 
-- [Redis](/docs/adapters/redis) — `redis-rs` integration
-- [Rate limit](/docs/concepts/rate-limit) — storage backends and custom rules
-- [Database](/docs/concepts/database) — primary adapter and secondary storage
-- [SQLx adapters](/docs/adapters/sqlx) — primary persistence
+* [Redis](/docs/adapters/redis) — `redis-rs` integration
+* [Rate limit](/docs/concepts/rate-limit) — storage backends and custom rules
+* [Database](/docs/concepts/database) — primary adapter and secondary storage
+* [SQLx adapters](/docs/adapters/sqlx) — primary persistence

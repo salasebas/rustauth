@@ -81,7 +81,7 @@ fn telemetry_options(config: &CliConfig) -> RustAuthOptions {
 
 fn telemetry_context(config: &CliConfig) -> TelemetryContext {
     TelemetryContext {
-        adapter: Some(config.database.adapter.clone()),
+        adapter: config.database.adapter.clone(),
         database: config.database.provider.clone(),
         ..TelemetryContext::default()
     }

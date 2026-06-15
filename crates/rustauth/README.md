@@ -118,13 +118,20 @@ url_env = "DATABASE_URL"
 
 See [docs/database-migrations.md](../../docs/database-migrations.md).
 
-Mount into Axum with [`rustauth-axum`](../rustauth-axum/README.md):
+Mount into Axum with [`rustauth-axum`](../rustauth-axum/README.md) or Actix Web with [`rustauth-actix-web`](../rustauth-actix-web/README.md):
 
 ```rust
 use rustauth::prelude::*;
 use rustauth_axum::RustAuthAxumExt;
 
 let app = auth.mount_at_base_path(RustAuthAxumOptions::default())?;
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth_actix_web::RustAuthActixWebExt;
+
+let scope = auth.mount_at_base_path(RustAuthActixWebOptions::default())?;
 ```
 
 ## Plugins
@@ -218,6 +225,7 @@ separate steps. Low-level provider types remain under
 - Enable `oauth-provider` on `rustauth` (or depend on `rustauth-oauth-provider`
   directly) when your app must issue OAuth/OIDC tokens.
 - Use `rustauth-axum` to mount RustAuth in Axum.
+- Use `rustauth-actix-web` to mount RustAuth in Actix Web.
 
 ## Enterprise plugins (quick start)
 

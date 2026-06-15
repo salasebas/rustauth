@@ -28,12 +28,23 @@ rustauth doctor
 
 ## Project setup
 
-Initialize a project to create `rustauth.toml`, `.env.example`, and `.env`:
+Initialize a project to create `rustauth.toml`, `.env.example`, and `.env`. You must
+pick the HTTP framework your app uses so the CLI writes the correct
+`[project].framework` value and prints a matching integration snippet:
 
 ```bash
-rustauth init
-rustauth init --seed-secrets   # generates RUSTAUTH_SECRET in a new .env
+rustauth init --framework axum
+rustauth init --framework actix-web
+rustauth init --framework axum --seed-secrets   # generates RUSTAUTH_SECRET in a new .env
 ```
+
+| `--framework` value | Adapter crate            | Docs |
+| ------------------- | ------------------------ | ---- |
+| `axum`              | `rustauth-axum`          | [Axum](/docs/integrations/axum) |
+| `actix-web`         | `rustauth-actix-web`     | [Actix Web](/docs/integrations/actix-web) |
+
+`rustauth doctor` still inspects your workspace and may report detected frameworks,
+but `init` does not auto-select one — pass `--framework` explicitly.
 
 `rustauth.toml` is **required** for `db status`, `db generate`, and `db migrate`.
 The CLI does not read `RustAuth::builder()` or compile your application — only the
@@ -54,26 +65,26 @@ rustauth db migrate --yes
 
 Supported adapters for `db status`, `db generate`, and `db migrate`:
 
-| `database.adapter` | Providers |
-| --- | --- |
-| `sqlx` | `sqlite`, `postgres`, `mysql` |
-| `tokio-postgres` | `postgres` |
-| `deadpool-postgres` | `postgres` |
+| `database.adapter`  | Providers                     |
+| ------------------- | ----------------------------- |
+| `sqlx`              | `sqlite`, `postgres`, `mysql` |
+| `tokio-postgres`    | `postgres`                    |
+| `deadpool-postgres` | `postgres`                    |
 
 Use the same adapter in `rustauth.toml` that your application uses at runtime.
 
 ### Generate options
 
-- `--output` — path for generated SQL (for example `auth.sql`)
-- `--adapter` — `sqlx` or legacy compatibility adapters (`kysely` emits SQL only)
-- `--dialect` — `sqlite`, `postgres`, or `mysql`
-- `--yes` — skip confirmation prompts
-- `--config` — path to `rustauth.toml`
+* `--output` — path for generated SQL (for example `auth.sql`)
+* `--adapter` — `sqlx` or legacy compatibility adapters (`kysely` emits SQL only)
+* `--dialect` — `sqlite`, `postgres`, or `mysql`
+* `--yes` — skip confirmation prompts
+* `--config` — path to `rustauth.toml`
 
 ### Migrate options
 
-- `--yes` — apply pending schema changes non-interactively
-- `--config` — path to `rustauth.toml`
+* `--yes` — apply pending schema changes non-interactively
+* `--config` — path to `rustauth.toml`
 
 Plugin schema requires matching CLI features (for example `--features passkey` when `[plugins] enabled = ["passkey"]`).
 

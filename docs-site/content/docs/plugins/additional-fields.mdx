@@ -48,16 +48,16 @@ Use `AdditionalFieldsOptions::builder()` for a fluent builder with `user_field`,
 
 Each `AdditionalField` is configured with a `DbFieldType` and modifiers:
 
-| Modifier | Description |
-| --- | --- |
-| *(default)* | Required, client input allowed, returned in responses |
-| `.optional()` | Field may be omitted (stored as `null`) |
-| `.generated()` | Server-only — not accepted from client input |
-| `.hidden()` | Stored but not returned in API responses |
-| `.unique()` | Enforce uniqueness at the database layer |
-| `.indexed()` | Add a database index |
-| `.default_value(value)` | Default applied on create when not provided |
-| `.db_name(name)` | Physical column name (logical API name stays camelCase) |
+| Modifier                | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| *(default)*             | Required, client input allowed, returned in responses   |
+| `.optional()`           | Field may be omitted (stored as `null`)                 |
+| `.generated()`          | Server-only — not accepted from client input            |
+| `.hidden()`             | Stored but not returned in API responses                |
+| `.unique()`             | Enforce uniqueness at the database layer                |
+| `.indexed()`            | Add a database index                                    |
+| `.default_value(value)` | Default applied on create when not provided             |
+| `.db_name(name)`        | Physical column name (logical API name stays camelCase) |
 
 Supported field types (`DbFieldType`): `String`, `Number`, `Boolean`, `Timestamp`, `Json`, `StringArray`, `NumberArray`.
 
@@ -65,8 +65,8 @@ Supported field types (`DbFieldType`): `String`, `Number`, `Boolean`, `Timestamp
 
 Additional fields appear on relevant auth endpoints under your configured `base_path`:
 
-- **User fields** — included on sign-up bodies (when `input: true`), returned on `/get-session`, user update routes, and admin user endpoints.
-- **Session fields** — set on session creation and returned on `/get-session`.
+* **User fields** — included on sign-up bodies (when `input: true`), returned on `/get-session`, user update routes, and admin user endpoints.
+* **Session fields** — set on session creation and returned on `/get-session`.
 
 Example sign-up with a writable user field (when the field has `input: true`):
 
@@ -97,11 +97,11 @@ RustAuth migrations are driven by the CLI reading **`rustauth.toml`**, not by co
 
 For **additional-fields**, the CLI only sees the plugin **id**. It cannot infer which columns you defined in Rust (`role`, `locale`, `session_theme`, etc.). Those definitions live entirely in your builder code.
 
-| Surface | Knows your custom columns? |
-| --- | --- |
-| `additional_fields(...)` in Rust | Yes — full field list and options |
-| `[plugins].enabled` in `rustauth.toml` | No — only `"additional-fields"` |
-| `rustauth db migrate` | No — does not add your custom columns |
+| Surface                                | Knows your custom columns?            |
+| -------------------------------------- | ------------------------------------- |
+| `additional_fields(...)` in Rust       | Yes — full field list and options     |
+| `[plugins].enabled` in `rustauth.toml` | No — only `"additional-fields"`       |
+| `rustauth db migrate`                  | No — does not add your custom columns |
 
 Include `additional-fields` in `[plugins].enabled` so the plugin id stays aligned with your app, but **run `db migrate` for core and other plugins, then add your custom columns separately.**
 

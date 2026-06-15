@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::app::{AppContext, AppError, InitArgs};
+use crate::app::{AppContext, AppError, InitArgs, InitFramework};
 use crate::config::{CliConfig, DatabaseConfig, PluginsConfig, ProjectConfig};
 use crate::plugins::is_official_plugin;
 use crate::prompt::confirm;
@@ -16,16 +16,9 @@ pub fn run(context: &AppContext, args: InitArgs) -> Result<(), AppError> {
         )));
     }
 
+    let framework = args.framework.as_config_str().to_owned();
+    let plugins = normalize_plugins(args.plugins)?;
     let detected = workspace::inspect(context.cwd()).ok();
-    let framework = args
-        .framework
-        .or_else(|| {
-            detected
-                .as_ref()
-                .and_then(|info| info.detected_frameworks.first())
-                .map(|item| item.name.clone())
-        })
-        .unwrap_or_else(|| "axum".to_owned());
     let detected_adapter = detected.as_ref().and_then(detect_adapter_from_workspace);
     let database = args.database.or_else(detect_provider_from_env).or_else(|| {
         detected_adapter
@@ -50,16 +43,26 @@ pub fn run(context: &AppContext, args: InitArgs) -> Result<(), AppError> {
             ..ProjectConfig::default()
         },
         database: DatabaseConfig {
-            adapter: args
-                .adapter
-                .or_else(|| detected_adapter.map(|(adapter, _)| adapter))
-                .unwrap_or_else(|| "sqlx".to_owned()),
+            adapter: Some(
+                args.adapter
+                    .or_else(|| {
+                        detected_adapter
+                            .as_ref()
+                            .map(|(adapter, _)| adapter.clone())
+                    })
+                    .ok_or_else(|| {
+                        AppError::Message(
+                            "database adapter is required; pass --adapter \
+                             (sqlx, diesel, tokio-postgres, deadpool-postgres) or add a supported \
+                             adapter crate to Cargo.toml so it can be detected."
+                                .to_owned(),
+                        )
+                    })?,
+            ),
             provider: database.or(Some("sqlite".to_owned())),
             ..DatabaseConfig::default()
         },
-        plugins: PluginsConfig {
-            enabled: normalize_plugins(args.plugins)?,
-        },
+        plugins: PluginsConfig { enabled: plugins },
         ..CliConfig::default()
     };
 
@@ -70,7 +73,7 @@ pub fn run(context: &AppContext, args: InitArgs) -> Result<(), AppError> {
     sync_env_files(context, &config, args.seed_secrets)?;
     println!("Created rustauth.toml");
     println!("Synced .env.example and .env (created .env when missing)");
-    if framework == "axum" {
+    if args.framework == InitFramework::Axum {
         println!();
         println!("Axum integration snippet (backend-reference pattern):");
         println!("use std::net::SocketAddr;");
@@ -91,6 +94,33 @@ pub fn run(context: &AppContext, args: InitArgs) -> Result<(), AppError> {
             "axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;"
         );
         println!("// Behind a proxy, configure trusted forwarding headers explicitly instead.");
+        println!(
+            "// Prefer DeadpoolPostgresStores::connect_with_schema_checked + apply_to_options."
+        );
+    } else if args.framework == InitFramework::ActixWeb {
+        println!();
+        println!("Actix Web integration snippet (backend-reference pattern):");
+        println!("use std::sync::Arc;");
+        println!();
+        println!("use actix_web::{{App, HttpServer}};");
+        println!("use rustauth_actix_web::{{RustAuthActixWebExt, RustAuthActixWebOptions}};");
+        println!();
+        println!(
+            "// After RustAuth::builder()...build().await? (run `rustauth db migrate` separately):"
+        );
+        println!("let auth = Arc::new(auth);");
+        println!("HttpServer::new(move || {{");
+        println!("    let scope = auth");
+        println!("        .mount_at_base_path(RustAuthActixWebOptions::default())");
+        println!(
+            "        .expect(\"valid RustAuth Actix mount\"); // invalid mount is a startup bug"
+        );
+        println!("    App::new().service(scope)");
+        println!("}})");
+        println!(".bind((\"127.0.0.1\", 3000))?;");
+        println!("// Serve with client IP forwarding configured when behind a proxy.");
+        println!(".run()");
+        println!(".await");
         println!(
             "// Prefer DeadpoolPostgresStores::connect_with_schema_checked + apply_to_options."
         );
@@ -227,6 +257,9 @@ fn detect_adapter_from_workspace(info: &workspace::WorkspaceInfo) -> Option<(Str
             }
             "sqlx" => {
                 return Some(("sqlx".to_owned(), "sqlite".to_owned()));
+            }
+            "diesel" => {
+                return Some(("diesel".to_owned(), "postgres".to_owned()));
             }
             _ => {}
         }

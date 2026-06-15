@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/rustauth",
+    "crates/rustauth-actix-web",
     "crates/rustauth-axum",
     "crates/rustauth-cli",
     "crates/rustauth-core",
@@ -62,6 +63,7 @@ rustauth-core = { path = "crates/rustauth-core", version = "0.2.0", default-feat
 rustauth-i18n = { path = "crates/rustauth-i18n", version = "0.2.0" }
 rustauth-oidc = { path = "crates/rustauth-oidc", version = "0.2.0" }
 rustauth = { path = "crates/rustauth", version = "0.2.0" }
+actix-web = { version = "4.13", default-features = false }
 axum = "0.8"
 camino = { version = "1.1", features = ["serde1"] }
 cargo_metadata = "0.19"
@@ -86,6 +88,7 @@ diesel = { version = "2.3", default-features = false }
 diesel-async = { version = "0.9", default-features = false }
 rustauth-diesel = { path = "crates/rustauth-diesel", version = "0.2.0", default-features = false }
 rustauth-tokio-postgres = { path = "crates/rustauth-tokio-postgres", version = "0.2.0" }
+rustauth-actix-web = { path = "crates/rustauth-actix-web", version = "0.2.0" }
 rustauth-axum = { path = "crates/rustauth-axum", version = "0.2.0" }
 rustauth-cli = { path = "crates/rustauth-cli", version = "0.2.0" }
 openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }

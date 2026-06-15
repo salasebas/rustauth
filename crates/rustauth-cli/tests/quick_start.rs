@@ -64,7 +64,7 @@ fn readme_documents_init_env_side_effects() {
         "`.env` in the current directory",
         "Missing keys are merged in without overwriting",
         "--seed-secrets",
-        "rustauth init                # rustauth.toml + .env.example + .env",
+        "rustauth init --framework axum --adapter sqlx    # rustauth.toml + .env.example + .env",
     ] {
         assert!(
             readme.contains(phrase),
@@ -78,7 +78,16 @@ fn init_unlocks_the_config_bound_workflow() {
     let temp = tempfile::tempdir().expect("tempdir");
 
     rustauth(temp.path())
-        .args(["init", "--yes"])
+        .args([
+            "init",
+            "--framework",
+            "axum",
+            "--adapter",
+            "sqlx",
+            "--database",
+            "sqlite",
+            "--yes",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Created rustauth.toml"));

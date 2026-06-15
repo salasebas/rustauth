@@ -52,21 +52,21 @@ let auth = RustAuth::builder()
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `model_name` / `provider_table` | Physical table naming |
-| `providers_limit` | Max providers per scope |
-| `domain_verification` | DNS TXT domain verification settings |
-| `redirect_uri` | Default OAuth redirect URI |
-| `disable_implicit_sign_up` | Block auto-registration on first SSO login |
-| `trust_email_verified` | Trust IdP `email_verified` claims |
-| `oidc` | SSRF controls and OIDC-specific options |
-| `saml` | SAML SP settings (requires `saml` feature) |
-| `organization_provisioning` | Assign users to orgs on login |
-| `provision_user` / `provision_user_on_every_login` | User profile hooks |
-| `rate_limit` | Rate limits on register and callback routes |
-| `audit_event` | Structured audit callback |
-| `default_sso` | Seed providers at startup |
+| Field                                              | Description                                 |
+| -------------------------------------------------- | ------------------------------------------- |
+| `model_name` / `provider_table`                    | Physical table naming                       |
+| `providers_limit`                                  | Max providers per scope                     |
+| `domain_verification`                              | DNS TXT domain verification settings        |
+| `redirect_uri`                                     | Default OAuth redirect URI                  |
+| `disable_implicit_sign_up`                         | Block auto-registration on first SSO login  |
+| `trust_email_verified`                             | Trust IdP `email_verified` claims           |
+| `oidc`                                             | SSRF controls and OIDC-specific options     |
+| `saml`                                             | SAML SP settings (requires `saml` feature)  |
+| `organization_provisioning`                        | Assign users to orgs on login               |
+| `provision_user` / `provision_user_on_every_login` | User profile hooks                          |
+| `rate_limit`                                       | Rate limits on register and callback routes |
+| `audit_event`                                      | Structured audit callback                   |
+| `default_sso`                                      | Seed providers at startup                   |
 
 **OIDC vs SAML:** OIDC is plug-and-play with discovery and client credentials. SAML requires per-IdP certificates, entry points, and SP metadata — enable `saml` only when the tenant requires it.
 
@@ -74,23 +74,23 @@ let auth = RustAuth::builder()
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Feature | Description |
-| --- | --- | --- | --- |
-| POST | `/sso/register` | core | Register an SSO provider |
-| GET | `/sso/providers` | core | List providers |
-| GET | `/sso/get-provider` | core | Get one provider |
-| POST | `/sso/update-provider` | core | Update a provider |
-| POST | `/sso/delete-provider` | core | Delete a provider |
-| POST | `/sso/request-domain-verification` | core | Start domain verification |
-| POST | `/sso/verify-domain` | core | Confirm domain ownership |
-| POST | `/sign-in/sso` | core | Start SSO sign-in |
-| GET | `/sso/callback` | `oidc` | OIDC callback |
-| GET | `/sso/callback/:providerId` | `oidc` | OIDC callback (named provider) |
-| GET | `/sso/saml2/callback/:providerId` | `saml` | SAML callback |
-| POST | `/sso/saml2/sp/acs/:providerId` | `saml` | SAML ACS |
-| GET/POST | `/sso/saml2/sp/slo/:providerId` | `saml` | SAML single logout |
-| POST | `/sso/saml2/logout/:providerId` | `saml` | SAML logout |
-| GET | `/sso/saml2/sp/metadata` | `saml` | SP metadata document |
+| Method   | Path                               | Feature | Description                    |
+| -------- | ---------------------------------- | ------- | ------------------------------ |
+| POST     | `/sso/register`                    | core    | Register an SSO provider       |
+| GET      | `/sso/providers`                   | core    | List providers                 |
+| GET      | `/sso/get-provider`                | core    | Get one provider               |
+| POST     | `/sso/update-provider`             | core    | Update a provider              |
+| POST     | `/sso/delete-provider`             | core    | Delete a provider              |
+| POST     | `/sso/request-domain-verification` | core    | Start domain verification      |
+| POST     | `/sso/verify-domain`               | core    | Confirm domain ownership       |
+| POST     | `/sign-in/sso`                     | core    | Start SSO sign-in              |
+| GET      | `/sso/callback`                    | `oidc`  | OIDC callback                  |
+| GET      | `/sso/callback/:providerId`        | `oidc`  | OIDC callback (named provider) |
+| GET      | `/sso/saml2/callback/:providerId`  | `saml`  | SAML callback                  |
+| POST     | `/sso/saml2/sp/acs/:providerId`    | `saml`  | SAML ACS                       |
+| GET/POST | `/sso/saml2/sp/slo/:providerId`    | `saml`  | SAML single logout             |
+| POST     | `/sso/saml2/logout/:providerId`    | `saml`  | SAML logout                    |
+| GET      | `/sso/saml2/sp/metadata`           | `saml`  | SP metadata document           |
 
 ## Database
 
@@ -104,6 +104,6 @@ rustauth db migrate
 
 ## Related
 
-- [rustauth-sso README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-sso/README.md)
-- [OAuth provider](/docs/plugins/oauth-provider) — when RustAuth is the authorization server
-- [Organization](/docs/plugins/organization) — org provisioning on SSO login
+* [rustauth-sso README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-sso/README.md)
+* [OAuth provider](/docs/plugins/oauth-provider) — when RustAuth is the authorization server
+* [Organization](/docs/plugins/organization) — org provisioning on SSO login

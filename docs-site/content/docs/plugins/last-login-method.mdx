@@ -32,12 +32,12 @@ let auth = RustAuth::builder()
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `cookie_name` | Cookie name (default `better-auth.last_used_login_method`) |
-| `max_age` | Cookie lifetime (default 30 days) |
-| `resolver` | Custom login-method resolver from `LoginMethodContext` |
-| `store_in_database` | Persist last method on the user record |
+| Field                 | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `cookie_name`         | Cookie name (default `better-auth.last_used_login_method`)   |
+| `max_age`             | Cookie lifetime (default 30 days)                            |
+| `resolver`            | Custom login-method resolver from `LoginMethodContext`       |
+| `store_in_database`   | Persist last method on the user record                       |
 | `database_field_name` | Column name when storing in DB (default `last_login_method`) |
 
 When no custom resolver is set, the plugin infers the method from the request path (email, username, OAuth provider, passkey, etc.).

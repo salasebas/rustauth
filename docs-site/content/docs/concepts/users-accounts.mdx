@@ -73,10 +73,10 @@ POST `/delete-user` with session cookie. Deletion may require password, fresh se
 
 Each sign-in method creates an [`Account`](https://docs.rs/rustauth-core/latest/rustauth_core/db/struct.Account.html) linking `user_id` to `provider_id` + `account_id`, with optional OAuth tokens (`access_token`, `refresh_token`, `id_token`, expiry fields) or `password` for email/password.
 
-| Provider type | `provider_id` example | Notes |
-| --- | --- | --- |
-| Email/password | `credential` | Stores password hash |
-| Social OAuth | `google`, `github`, … | Stores provider tokens |
+| Provider type  | `provider_id` example | Notes                  |
+| -------------- | --------------------- | ---------------------- |
+| Email/password | `credential`          | Stores password hash   |
+| Social OAuth   | `google`, `github`, … | Stores provider tokens |
 
 ## List accounts
 

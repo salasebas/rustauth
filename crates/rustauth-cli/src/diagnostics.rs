@@ -71,6 +71,13 @@ pub async fn doctor(
             "config.loaded",
             "Loaded RustAuth CLI configuration from rustauth.toml.",
         ));
+        if config.database_adapter().is_none() {
+            findings.push(error(
+                "database.adapter_missing",
+                "database.adapter is required in rustauth.toml; set it explicitly \
+                 (e.g. sqlx, diesel, tokio-postgres, deadpool-postgres).",
+            ));
+        }
         inspect_plugin_cli_features(&mut findings, config);
     } else {
         findings.push(warn(
@@ -121,7 +128,7 @@ pub fn redact_config(config: &CliConfig) -> RedactedConfig {
     let mut database = BTreeMap::new();
     database.insert(
         "adapter".to_owned(),
-        serde_json::Value::String(config.database.adapter.clone()),
+        serde_json::Value::String(config.database_adapter().unwrap_or_default().to_owned()),
     );
     database.insert(
         "provider".to_owned(),
@@ -195,15 +202,15 @@ fn inspect_adapter_dependency_alignment(
     workspace: &WorkspaceInfo,
     config: &CliConfig,
 ) {
-    match config.database.adapter.as_str() {
-        "sqlx" => {
+    match config.database_adapter() {
+        Some("sqlx") => {
             if !cfg!(feature = "sqlx") {
                 findings.push(cli_adapter_feature_disabled_finding("sqlx"));
             } else if !package_has_dependency(workspace, "rustauth-sqlx") {
                 findings.push(adapter_dependency_mismatch_finding("sqlx", "rustauth-sqlx"));
             }
         }
-        "tokio-postgres" => {
+        Some("tokio-postgres") => {
             if !cfg!(feature = "tokio-postgres") {
                 findings.push(cli_adapter_feature_disabled_finding("tokio-postgres"));
             } else if !package_has_dependency(workspace, "rustauth-tokio-postgres") {
@@ -213,7 +220,7 @@ fn inspect_adapter_dependency_alignment(
                 ));
             }
         }
-        "deadpool-postgres" => {
+        Some("deadpool-postgres") => {
             if !cfg!(feature = "deadpool-postgres") {
                 findings.push(cli_adapter_feature_disabled_finding("deadpool-postgres"));
             } else if !package_has_dependency(workspace, "rustauth-deadpool-postgres") {
@@ -223,7 +230,7 @@ fn inspect_adapter_dependency_alignment(
                 ));
             }
         }
-        "diesel" => {
+        Some("diesel") => {
             if !cfg!(feature = "diesel") {
                 findings.push(cli_adapter_feature_disabled_finding("diesel"));
             } else if !package_has_dependency(workspace, "rustauth-diesel") {

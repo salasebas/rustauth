@@ -44,15 +44,15 @@ For local development, `magic_link_dev_log()` logs links to stderr instead of se
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `expires_in` | Token lifetime (default 5 minutes) |
+| Field              | Description                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `expires_in`       | Token lifetime (default 5 minutes)                                                   |
 | `allowed_attempts` | Verification attempts per token (default 1; use `unlimited_attempts()` for no limit) |
-| `send_magic_link` | Required outbound callback (`MagicLinkEmail` + request context) |
-| `disable_sign_up` | Reject magic-link verification for unknown emails |
-| `rate_limit` | Rate limit for `/sign-in/magic-link` |
-| `generate_token` | Custom token generator |
-| `store_token` | Token storage strategy (`Plain`, hashed, etc.) |
+| `send_magic_link`  | Required outbound callback (`MagicLinkEmail` + request context)                      |
+| `disable_sign_up`  | Reject magic-link verification for unknown emails                                    |
+| `rate_limit`       | Rate limit for `/sign-in/magic-link`                                                 |
+| `generate_token`   | Custom token generator                                                               |
+| `store_token`      | Token storage strategy (`Plain`, hashed, etc.)                                       |
 
 Builder methods: `.expires_in(...)`, `.disable_sign_up(...)`, `.rate_limit(...)`, `.store_token(...)`.
 
@@ -60,10 +60,10 @@ Builder methods: `.expires_in(...)`, `.disable_sign_up(...)`, `.rate_limit(...)`
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/sign-in/magic-link` | Send a magic link to an email address |
-| GET | `/magic-link/verify` | Verify token from the link and create a session |
+| Method | Path                  | Description                                     |
+| ------ | --------------------- | ----------------------------------------------- |
+| POST   | `/sign-in/magic-link` | Send a magic link to an email address           |
+| GET    | `/magic-link/verify`  | Verify token from the link and create a session |
 
 The verify endpoint accepts query parameters such as `token`, `callbackURL`, `newUserCallbackURL`, and `errorCallbackURL`.
 

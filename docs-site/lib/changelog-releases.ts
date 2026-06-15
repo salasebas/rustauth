@@ -6,10 +6,30 @@ export interface ChangelogRelease {
 	url: string;
 }
 
+const UNRELEASED_URL =
+	"https://github.com/salasebas/rustauth/blob/main/CHANGELOG.md#unreleased";
 const DETAILS_URL =
 	"https://github.com/salasebas/rustauth/blob/main/CHANGELOG.md#020---2026-06-14";
 
 export const changelogReleases: ChangelogRelease[] = [
+	{
+		tag: "Unreleased",
+		title: "Unreleased — Actix Web and CLI init (planned 0.3.0)",
+		date: "2026-06-15",
+		url: UNRELEASED_URL,
+		content: `Changes on \`main\` not yet published to crates.io. The next release will likely be **0.3.0** because \`rustauth init\` now requires an explicit framework flag.
+
+### Added
+
+- **\`rustauth-actix-web\`** — Actix Web adapter (\`RustAuthActixWebExt\`), parity tests, docs-site guide, and \`examples/actix-web-minimal\`.
+- **CLI** — \`rustauth init --framework actix-web\`, Actix workspace detection, and telemetry support.
+
+### Changed
+
+- **Breaking:** \`rustauth init\` requires \`--framework axum\` or \`--framework actix-web\` (no implicit default).
+
+[Full changelog →](${UNRELEASED_URL})`,
+	},
 	{
 		tag: "v0.2.0",
 		title: "0.2.0 — initial public working release",

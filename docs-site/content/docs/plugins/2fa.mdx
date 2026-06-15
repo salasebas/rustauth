@@ -48,17 +48,17 @@ The plugin also intercepts successful sign-ins on `/sign-in/email`, `/sign-in/us
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `issuer` | TOTP issuer label shown in authenticator apps |
-| `two_factor_table` | Physical table name for stored secrets (default `two_factors`) |
-| `totp` | TOTP settings: `digits`, `period`, `disabled` |
-| `otp` | Email OTP settings: `period`, `digits`, `allowed_attempts`, `storage`, `send_otp` |
-| `backup_codes` | Backup code generation: `amount`, `length`, `storage` |
-| `skip_verification_on_enable` | Skip proof-of-possession when enabling 2FA |
-| `allow_passwordless` | Allow passwordless users to enable 2FA |
-| `two_factor_cookie_max_age` | Lifetime of the intermediate 2FA cookie |
-| `trust_device_max_age` | Lifetime of trusted-device cookies |
+| Field                         | Description                                                                       |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| `issuer`                      | TOTP issuer label shown in authenticator apps                                     |
+| `two_factor_table`            | Physical table name for stored secrets (default `two_factors`)                    |
+| `totp`                        | TOTP settings: `digits`, `period`, `disabled`                                     |
+| `otp`                         | Email OTP settings: `period`, `digits`, `allowed_attempts`, `storage`, `send_otp` |
+| `backup_codes`                | Backup code generation: `amount`, `length`, `storage`                             |
+| `skip_verification_on_enable` | Skip proof-of-possession when enabling 2FA                                        |
+| `allow_passwordless`          | Allow passwordless users to enable 2FA                                            |
+| `two_factor_cookie_max_age`   | Lifetime of the intermediate 2FA cookie                                           |
+| `trust_device_max_age`        | Lifetime of trusted-device cookies                                                |
 
 Provide `send_otp` on `OtpOptions` to deliver email OTP codes. Without it, only TOTP and backup codes are usable for verification.
 
@@ -66,18 +66,18 @@ Provide `send_otp` on `OtpOptions` to deliver email OTP codes. Without it, only 
 
 Clients call these routes under your configured `base_path` (for example `/api/auth/two-factor/enable` when `base_path` is `/api/auth`).
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/two-factor/enable` | Enable 2FA for the current user |
-| POST | `/two-factor/disable` | Disable 2FA |
-| POST | `/two-factor/get-totp-uri` | Get a TOTP provisioning URI |
-| POST | `/two-factor/generate-totp` | Generate a TOTP code (testing / recovery flows) |
-| POST | `/two-factor/verify-totp` | Verify a TOTP code and complete sign-in |
-| POST | `/two-factor/send-otp` | Send an email OTP |
-| POST | `/two-factor/verify-otp` | Verify an email OTP and complete sign-in |
-| POST | `/two-factor/generate-backup-codes` | Generate new backup codes |
-| POST | `/two-factor/verify-backup-code` | Verify a backup code and complete sign-in |
-| POST | `/two-factor/view-backup-codes` | View remaining backup codes |
+| Method | Path                                | Description                                     |
+| ------ | ----------------------------------- | ----------------------------------------------- |
+| POST   | `/two-factor/enable`                | Enable 2FA for the current user                 |
+| POST   | `/two-factor/disable`               | Disable 2FA                                     |
+| POST   | `/two-factor/get-totp-uri`          | Get a TOTP provisioning URI                     |
+| POST   | `/two-factor/generate-totp`         | Generate a TOTP code (testing / recovery flows) |
+| POST   | `/two-factor/verify-totp`           | Verify a TOTP code and complete sign-in         |
+| POST   | `/two-factor/send-otp`              | Send an email OTP                               |
+| POST   | `/two-factor/verify-otp`            | Verify an email OTP and complete sign-in        |
+| POST   | `/two-factor/generate-backup-codes` | Generate new backup codes                       |
+| POST   | `/two-factor/verify-backup-code`    | Verify a backup code and complete sign-in       |
+| POST   | `/two-factor/view-backup-codes`     | View remaining backup codes                     |
 
 ## Database
 

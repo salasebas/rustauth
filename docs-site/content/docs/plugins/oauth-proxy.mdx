@@ -38,20 +38,20 @@ The plugin hooks `/sign-in/social`, `/sign-in/oauth2`, and `/callback/:id` to re
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `current_url` | Preview/staging origin performing the sign-in |
-| `production_url` | Production origin that receives the provider callback |
-| `max_age` | Maximum age of proxied payload in seconds (default 1 minute) |
-| `secret` | Optional encryption secret override (defaults to auth secret) |
+| Field            | Description                                                   |
+| ---------------- | ------------------------------------------------------------- |
+| `current_url`    | Preview/staging origin performing the sign-in                 |
+| `production_url` | Production origin that receives the provider callback         |
+| `max_age`        | Maximum age of proxied payload in seconds (default 1 minute)  |
+| `secret`         | Optional encryption secret override (defaults to auth secret) |
 
 ## HTTP endpoints
 
 Clients and production redirect through these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/oauth-proxy-callback` | Receive encrypted profile from production and finish sign-in |
+| Method | Path                    | Description                                                  |
+| ------ | ----------------------- | ------------------------------------------------------------ |
+| GET    | `/oauth-proxy-callback` | Receive encrypted profile from production and finish sign-in |
 
 Social sign-in and OAuth callback routes (`/sign-in/social`, `/sign-in/oauth2`, `/callback/:id`) are intercepted by plugin hooks rather than replaced.
 

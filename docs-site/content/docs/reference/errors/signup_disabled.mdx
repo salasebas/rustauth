@@ -9,10 +9,10 @@ The provider account does not match an existing user and sign-up is disabled for
 
 **Emitted by RustAuth:** yes
 
-| Location | When |
-| -------- | ---- |
+| Location                                                     | When                                        |
+| ------------------------------------------------------------ | ------------------------------------------- |
 | `crates/rustauth-core/src/auth/oauth/account_linking.rs:155` | `disable_sign_up` is true and no user match |
-| `crates/rustauth-core/src/auth/oauth/errors.rs:19` | Code string `signup_disabled` |
+| `crates/rustauth-core/src/auth/oauth/errors.rs:19`           | Code string `signup_disabled`               |
 
 Redirect shape: `{errorCallbackURL}?error=signup_disabled`.
 
@@ -22,6 +22,6 @@ Parse `error=signup_disabled` from the OAuth redirect URL.
 
 ## How to fix
 
-- Allow sign-up on the provider (`disable_sign_up` / `disable_implicit_sign_up` in provider options).
-- Invite users through an admin flow instead of open OAuth registration.
-- Have users register with email/password first, then link OAuth while authenticated.
+* Allow sign-up on the provider (`disable_sign_up` / `disable_implicit_sign_up` in provider options).
+* Invite users through an admin flow instead of open OAuth registration.
+* Have users register with email/password first, then link OAuth while authenticated.

@@ -1,0 +1,17 @@
+---
+title: Unreleased
+description: Changes on main not yet published to crates.io (planned 0.3.0).
+---
+
+**Not yet released.** Full notes live in [CHANGELOG.md — Unreleased](https://github.com/salasebas/rustauth/blob/main/CHANGELOG.md#unreleased).
+
+The next release will likely be **0.3.0** because `rustauth init` now requires an explicit `--framework` flag.
+
+## Added
+
+* **`rustauth-actix-web`** — Actix Web adapter (`RustAuthActixWebExt`), parity tests, [integration guide](/docs/integrations/actix-web), and `examples/actix-web-minimal`.
+* **CLI** — `rustauth init --framework actix-web`, Actix workspace detection, and telemetry support.
+
+## Changed
+
+* **Breaking:** `rustauth init` requires `--framework axum` or `--framework actix-web` (no implicit default).

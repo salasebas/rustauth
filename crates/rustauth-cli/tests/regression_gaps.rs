@@ -218,6 +218,10 @@ fn init_force_overwrites_existing_config() {
             "init",
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
+            "--framework",
+            "axum",
+            "--adapter",
+            "sqlx",
             "--force",
             "--yes",
         ])
@@ -243,6 +247,10 @@ fn init_merges_missing_keys_into_existing_env_without_overwriting() {
             "init",
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
+            "--framework",
+            "axum",
+            "--adapter",
+            "sqlx",
             "--yes",
         ])
         .assert()
@@ -265,6 +273,10 @@ fn init_creates_env_when_missing() {
             "init",
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
+            "--framework",
+            "axum",
+            "--adapter",
+            "sqlx",
             "--yes",
         ])
         .assert()
@@ -814,6 +826,10 @@ fn init_seed_secrets_writes_generated_secret_to_new_env() {
             "init",
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
+            "--framework",
+            "axum",
+            "--adapter",
+            "sqlx",
             "--yes",
             "--seed-secrets",
         ])

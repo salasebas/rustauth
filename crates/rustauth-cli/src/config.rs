@@ -25,6 +25,11 @@ pub enum ConfigError {
     SerializeToml(#[from] toml_edit::ser::Error),
     #[error("plugins.enabled must be an array")]
     InvalidPlugins,
+    #[error(
+        "database.adapter is required; set it explicitly in rustauth.toml \
+         (e.g. sqlx, diesel, tokio-postgres, deadpool-postgres)"
+    )]
+    MissingDatabaseAdapter,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,7 +53,7 @@ pub struct ProjectConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DatabaseConfig {
-    pub adapter: String,
+    pub adapter: Option<String>,
     pub provider: Option<String>,
     pub url_env: String,
     pub migrations_dir: String,
@@ -80,7 +85,7 @@ impl Default for ProjectConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            adapter: "sqlx".to_owned(),
+            adapter: None,
             provider: None,
             url_env: "DATABASE_URL".to_owned(),
             migrations_dir: "migrations/rustauth".to_owned(),
@@ -106,7 +111,23 @@ impl CliConfig {
             path: path.to_path_buf(),
             source,
         })?;
-        Self::parse_str(&source)
+        let config = Self::parse_str(&source)?;
+        config.validate_loaded_fields()?;
+        Ok(config)
+    }
+
+    pub fn database_adapter(&self) -> Option<&str> {
+        self.database
+            .adapter
+            .as_deref()
+            .filter(|adapter| !adapter.trim().is_empty())
+    }
+
+    pub fn validate_loaded_fields(&self) -> Result<(), ConfigError> {
+        if self.database_adapter().is_none() {
+            return Err(ConfigError::MissingDatabaseAdapter);
+        }
+        Ok(())
     }
 
     pub fn load_optional(path: &Path) -> Result<Option<Self>, ConfigError> {

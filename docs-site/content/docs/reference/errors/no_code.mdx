@@ -9,11 +9,11 @@ The identity provider redirected back without a `code` query parameter (user can
 
 **Emitted by RustAuth:** yes
 
-| Location | When |
-| -------- | ---- |
+| Location                                                 | When                                          |
+| -------------------------------------------------------- | --------------------------------------------- |
 | `crates/rustauth-core/src/api/routes/social/flow.rs:134` | `code` query param missing on social callback |
-| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:183` | OAuth Proxy callback missing `code` |
-| `crates/rustauth-sso/src/routes/oidc.rs:109` | SSO OIDC callback missing `code` |
+| `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:183`   | OAuth Proxy callback missing `code`           |
+| `crates/rustauth-sso/src/routes/oidc.rs:109`             | SSO OIDC callback missing `code`              |
 
 Redirect shape: `{errorCallbackURL}?error=no_code`.
 
@@ -23,6 +23,6 @@ Inspect the redirect `Location` header or browser URL for `error=no_code`. JSON 
 
 ## How to fix
 
-- Confirm the provider is configured to return an authorization code grant.
-- Check whether the user denied consent or closed the provider window.
-- Verify callback URL registration matches your RustAuth `base_url` and provider settings.
+* Confirm the provider is configured to return an authorization code grant.
+* Check whether the user denied consent or closed the provider window.
+* Verify callback URL registration matches your RustAuth `base_url` and provider settings.

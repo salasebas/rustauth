@@ -28,13 +28,13 @@ On HTTPS (or when secure cookies are forced), names also receive the `__Secure-`
 
 RustAuth defines these cookies (after prefixing):
 
-| Logical name | Purpose |
-| --- | --- |
-| `session_token` | Session token (also the session cookie value) |
-| `session_data` | Short-lived signed session cache when cookie cache is enabled |
-| `account_data` | OAuth account payload when `store_account_cookie` is enabled |
-| `dont_remember` | Set when `rememberMe` is false |
-| `oauth_state` | OAuth/OIDC state during social sign-in |
+| Logical name    | Purpose                                                       |
+| --------------- | ------------------------------------------------------------- |
+| `session_token` | Session token (also the session cookie value)                 |
+| `session_data`  | Short-lived signed session cache when cookie cache is enabled |
+| `account_data`  | OAuth account payload when `store_account_cookie` is enabled  |
+| `dont_remember` | Set when `rememberMe` is false                                |
+| `oauth_state`   | OAuth/OIDC state during social sign-in                        |
 
 Plugins should use [`create_auth_cookie`](https://docs.rs/rustauth-core/latest/rustauth_core/cookies/fn.create_auth_cookie.html) so they inherit prefix, domain, and attribute policy.
 

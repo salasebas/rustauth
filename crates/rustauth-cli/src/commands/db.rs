@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::app::{AppContext, AppError, GenerateArgs, MigrateArgs, StatusArgs};
 use crate::commands::db_support::{ensure_safe_to_apply, map_db_error};
-use crate::db::{self, MigrationOutput};
+use crate::db::{self, DbCliError, MigrationOutput};
 use crate::output::print_json;
 use crate::prompt::confirm;
 use crate::schema::{dialect_from_provider, dialect_name};
@@ -78,12 +78,13 @@ async fn generation_config(
         return context.load_config();
     };
     let (mut config, _) = context.load_config_or_default()?;
-    config.database.adapter = normalize_generate_adapter(adapter).to_owned();
+    let normalized_adapter = normalize_generate_adapter(adapter).to_owned();
+    config.database.adapter = Some(normalized_adapter.clone());
     if let Some(dialect) = args.dialect.as_deref() {
         config.database.provider = Some(normalize_generate_dialect(dialect).to_owned());
     }
-    if !db::is_cli_migration_adapter(&config.database.adapter) {
-        let error = db::DbCliError::UnsupportedAdapter(config.database.adapter.clone());
+    if !db::is_cli_migration_adapter(&normalized_adapter) {
+        let error = DbCliError::UnsupportedAdapter(normalized_adapter);
         return match map_db_error(&config, "generate", error).await {
             Ok(()) => Ok(config),
             Err(error) => Err(error),

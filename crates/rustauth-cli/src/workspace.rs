@@ -125,7 +125,14 @@ fn detect_frameworks(metadata: &Metadata) -> Vec<DetectedItem> {
     } else if has_axum {
         frameworks.push(detected("axum", DetectionConfidence::Medium));
     }
-    for framework in ["actix-web", "rocket", "poem", "warp"] {
+    let has_actix_web = has_dep_or_package(metadata, "actix-web");
+    let has_rustauth_actix_web = has_dep_or_package(metadata, "rustauth-actix-web");
+    if has_actix_web && has_rustauth_actix_web {
+        frameworks.push(detected("actix-web", DetectionConfidence::High));
+    } else if has_actix_web {
+        frameworks.push(detected("actix-web", DetectionConfidence::Medium));
+    }
+    for framework in ["rocket", "poem", "warp"] {
         if has_dep_or_package(metadata, framework) {
             frameworks.push(detected(framework, DetectionConfidence::Low));
         }
@@ -161,4 +168,75 @@ pub fn package_has_dependency(info: &WorkspaceInfo, dependency: &str) -> bool {
     info.packages
         .iter()
         .any(|package| package.dependencies.iter().any(|name| name == dependency))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn write_manifest(dir: &TempDir, manifest: &str) {
+        fs::create_dir_all(dir.path().join("src")).expect("create src");
+        fs::write(dir.path().join("src/lib.rs"), "").expect("write lib");
+        fs::write(dir.path().join("Cargo.toml"), manifest).expect("write manifest");
+    }
+
+    fn inspect_manifest(dir: &TempDir) -> WorkspaceInfo {
+        inspect(dir.path()).expect("inspect workspace")
+    }
+
+    #[test]
+    fn detects_actix_web_with_high_confidence_when_rustauth_adapter_present() {
+        let dir = TempDir::new().expect("tempdir");
+        write_manifest(
+            &dir,
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4"
+rustauth-actix-web = "0.2"
+"#,
+        );
+
+        let info = inspect_manifest(&dir);
+        let actix = info
+            .detected_frameworks
+            .iter()
+            .find(|item| item.name == "actix-web")
+            .expect("actix-web detection");
+
+        assert_eq!(actix.confidence, DetectionConfidence::High);
+    }
+
+    #[test]
+    fn detects_actix_web_with_medium_confidence_without_rustauth_adapter() {
+        let dir = TempDir::new().expect("tempdir");
+        write_manifest(
+            &dir,
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4"
+"#,
+        );
+
+        let info = inspect_manifest(&dir);
+        let actix = info
+            .detected_frameworks
+            .iter()
+            .find(|item| item.name == "actix-web")
+            .expect("actix-web detection");
+
+        assert_eq!(actix.confidence, DetectionConfidence::Medium);
+    }
 }

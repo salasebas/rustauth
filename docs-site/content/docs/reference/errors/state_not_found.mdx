@@ -6,7 +6,7 @@ description: OAuth state verification record was not found.
 ## Rust implementation
 
 <Callout type="warn">
-  Not yet emitted by RustAuth (parity gap). Upstream may redirect with `?error=state_not_found` when a database-stored verification row is missing. RustAuth core social flows emit **`invalid_state`** instead (`crates/rustauth-core/src/api/routes/social/flow.rs:127`). See [state_mismatch](/docs/reference/errors/state_mismatch) for the Rust mapping.
+  Not yet emitted by RustAuth (parity gap). Upstream may redirect with `?error=state_not_found` when a database-stored verification row is missing. RustAuth core social flows emit **`invalid_state`** instead (`crates/rustauth-core/src/api/routes/social/flow.rs:127`). See [state\_mismatch](/docs/reference/errors/state_mismatch) for the Rust mapping.
 </Callout>
 
 ## Handling in Rust
@@ -15,4 +15,4 @@ Handle `invalid_state` on redirect URLs for core flows. JSON [`ApiErrorResponse`
 
 ## How to fix
 
-- Same guidance as state verification failures: shared storage, avoid callback replay, stable secrets and domains.
+* Same guidance as state verification failures: shared storage, avoid callback replay, stable secrets and domains.

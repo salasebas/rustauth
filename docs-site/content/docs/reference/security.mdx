@@ -50,9 +50,10 @@ RustAuth includes multiple safeguards against Cross-Site Request Forgery (CSRF):
 3. **Secure cookie settings** — Session cookies use `SameSite=Lax` by default. Override via `advanced.default_cookie_attributes`.
 
 4. **Fetch Metadata for first-login CSRF** — Sign-in and sign-up email routes accept form posts (progressive enhancement). When no cookies are present:
-   - Cross-site navigations (`Sec-Fetch-Site: cross-site`, `Sec-Fetch-Mode: navigate`) are blocked.
-   - Same-origin/same-site requests still validate `Origin`/`Referer` against `trusted_origins`.
-   - Clients without Fetch Metadata fall back to origin validation when cookies exist.
+
+   * Cross-site navigations (`Sec-Fetch-Site: cross-site`, `Sec-Fetch-Mode: navigate`) are blocked.
+   * Same-origin/same-site requests still validate `Origin`/`Referer` against `trusted_origins`.
+   * Clients without Fetch Metadata fall back to origin validation when cookies exist.
 
    <Callout type="info">
      Non-browser clients (mobile apps, server-to-server) should set `Origin` or `Referer` appropriately when sending cookies.
@@ -98,9 +99,9 @@ RustAuthOptions::new().advanced(
   For backward compatibility, `disable_origin_check: true` also disables CSRF protection.
 </Callout>
 
-| Option | What it disables |
-| ------ | ---------------- |
-| `disable_csrf_check` | CSRF protection only |
+| Option                 | What it disables                   |
+| ---------------------- | ---------------------------------- |
+| `disable_csrf_check`   | CSRF protection only               |
 | `disable_origin_check` | URL validation and CSRF protection |
 
 ## OAuth state and PKCE
@@ -137,13 +138,23 @@ RustAuthOptions::new().advanced(
 
 ## Base URL behind a reverse proxy
 
-Set `base_url` explicitly in production when possible. For Axum, you can infer the public URL per request when mounting routes:
+Set `base_url` explicitly in production when possible. For Axum or Actix Web, you can infer the public URL per request when mounting routes:
 
 ```rust
 use rustauth_axum::{RustAuthAxumExt, RustAuthAxumOptions};
 
 let router = auth.mount_at_base_path(
     RustAuthAxumOptions::new()
+        .infer_base_url_from_request(true)
+        .trust_proxy_headers_for_base_url(true),
+)?;
+```
+
+```rust
+use rustauth_actix_web::{RustAuthActixWebExt, RustAuthActixWebOptions};
+
+let scope = auth.mount_at_base_path(
+    RustAuthActixWebOptions::new()
         .infer_base_url_from_request(true)
         .trust_proxy_headers_for_base_url(true),
 )?;

@@ -30,8 +30,8 @@ let auth = RustAuth::builder()
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
+| Field               | Description                                                                |
+| ------------------- | -------------------------------------------------------------------------- |
 | `require_signature` | Require bearer values to be signed session-cookie tokens (default `false`) |
 
 When `require_signature` is `false`, the raw session token from the database is accepted. When `true`, only signed cookie-format tokens are valid.

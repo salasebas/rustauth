@@ -32,7 +32,7 @@ the CLI reads the plugin id but cannot infer custom columns. Align those
 columns with your own SQL migrations — see [App-configured plugins](#app-configured-plugins-additional-fields)
 below.
 
-Create a starter file with `rustauth init`. See
+Create a starter file with `rustauth init --framework axum` or `rustauth init --framework actix-web`. See
 [`examples/cli-migrate-playground`](../examples/cli-migrate-playground/) for a
 config-only manual test harness.
 
@@ -62,9 +62,9 @@ Use `rustauth db status --check` in CI to fail when pending schema changes exist
 | `deadpool-postgres` | `postgres` |
 | `diesel` | `postgres`, `mysql` |
 
-> Diesel migration support uses RustAuth's SQL migration planner through the
-> `rustauth-diesel` adapter. It does not use Diesel's migration CLI as a second
-> source of schema truth.
+> `database.adapter` is required — there is no implicit default. Diesel migration support uses
+> RustAuth's SQL migration planner through the `rustauth-diesel` adapter. It does not use Diesel's
+> migration CLI as a second source of schema truth.
 
 Prisma, Drizzle, Kysely, memory, and MongoDB adapters are not driven by
 `rustauth db migrate`. Use `rustauth db generate` and apply SQL with your ORM,

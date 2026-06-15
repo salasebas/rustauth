@@ -100,19 +100,19 @@ Most auth latency is database I/O. Apply schema with `rustauth db migrate`, then
 
 ### Recommended fields to index
 
-Logical model and column names (snake_case) from the RustAuth schema:
+Logical model and column names (snake\_case) from the RustAuth schema:
 
-| Table (model) | Columns | Plugin |
-| --- | --- | --- |
-| `users` | `email` | core |
-| `accounts` | `user_id` | core |
-| `sessions` | `user_id`, `token` | core |
-| `verifications` | `identifier` | core |
-| `invitations` | `email`, `organization_id` | [organization](/docs/plugins/organization) |
-| `members` | `user_id`, `organization_id` | organization |
-| `organizations` | `slug` | organization |
-| `passkey` | `user_id` | [passkey](/docs/plugins/passkey) |
-| `two_factor` | `secret`, `user_id` | [2FA](/docs/plugins/2fa) |
+| Table (model)   | Columns                      | Plugin                                     |
+| --------------- | ---------------------------- | ------------------------------------------ |
+| `users`         | `email`                      | core                                       |
+| `accounts`      | `user_id`                    | core                                       |
+| `sessions`      | `user_id`, `token`           | core                                       |
+| `verifications` | `identifier`                 | core                                       |
+| `invitations`   | `email`, `organization_id`   | [organization](/docs/plugins/organization) |
+| `members`       | `user_id`, `organization_id` | organization                               |
+| `organizations` | `slug`                       | organization                               |
+| `passkey`       | `user_id`                    | [passkey](/docs/plugins/passkey)           |
+| `two_factor`    | `secret`, `user_id`          | [2FA](/docs/plugins/2fa)                   |
 
 SQLx and native Postgres adapters emit indexes for declared `unique()` / `indexed()` fields during migration. Add DBA-managed indexes for hot query paths in large deployments.
 
@@ -126,7 +126,7 @@ When using read replicas, enable [`SessionOptions::defer_session_refresh`](/docs
 
 ## Related
 
-- [Session management](/docs/concepts/session-management)
-- [Database](/docs/concepts/database)
-- [Rate limit](/docs/concepts/rate-limit)
-- [Hooks](/docs/concepts/hooks)
+* [Session management](/docs/concepts/session-management)
+* [Database](/docs/concepts/database)
+* [Rate limit](/docs/concepts/rate-limit)
+* [Hooks](/docs/concepts/hooks)

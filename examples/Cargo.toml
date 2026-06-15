@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["full-app", "backend-reference"]
+members = ["full-app", "backend-reference", "actix-web-minimal"]
 
 [workspace.package]
 edition = "2021"
@@ -8,6 +8,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+actix-web = { version = "4.13", default-features = false, features = ["macros"] }
 axum = "0.8"
 http = "1"
 rustauth-core = { path = "../crates/rustauth-core", version = "0.2.0", default-features = false }

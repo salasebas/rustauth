@@ -76,11 +76,11 @@ let rate_limit_store = TokioPostgresRateLimitStore::from_connection(&connection,
 
 ## When to use
 
-| Scenario | Adapter |
-| --- | --- |
-| Tests, scripts, or tools with a single Postgres client | `TokioPostgresStores` (this page) |
-| Production multi-instance deployments | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) |
-| App already uses SQLx for Postgres | [SQLx Postgres](/docs/adapters/postgresql) |
+| Scenario                                               | Adapter                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------- |
+| Tests, scripts, or tools with a single Postgres client | `TokioPostgresStores` (this page)                       |
+| Production multi-instance deployments                  | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) |
+| App already uses SQLx for Postgres                     | [SQLx Postgres](/docs/adapters/postgresql)              |
 
 [`rustauth-deadpool-postgres`](/docs/adapters/deadpool-postgres) builds on the same Postgres SQL planning and is the recommended production path when you do not use SQLx.
 
@@ -102,7 +102,7 @@ Each migration plan runs inside a single Postgres transaction. Migrations are **
 
 ## Related
 
-- [Deadpool Postgres](/docs/adapters/deadpool-postgres) — pooled production adapter
-- [PostgreSQL (SQLx)](/docs/adapters/postgresql) — SQLx-based Postgres
-- [SQLx adapters](/docs/adapters/sqlx) — overview
-- [Database](/docs/concepts/database) — core auth schema
+* [Deadpool Postgres](/docs/adapters/deadpool-postgres) — pooled production adapter
+* [PostgreSQL (SQLx)](/docs/adapters/postgresql) — SQLx-based Postgres
+* [SQLx adapters](/docs/adapters/sqlx) — overview
+* [Database](/docs/concepts/database) — core auth schema

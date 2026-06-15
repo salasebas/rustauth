@@ -33,16 +33,19 @@ Without a config, `doctor` reports what is missing (including the absent
 `rustauth.toml`) and `schema print` emits the default schema, so the CLI is
 useful before any project setup.
 
-To create a project and unlock the config-bound workflow, run `rustauth init`
-first. It writes `rustauth.toml`, syncs `.env.example`, and creates or updates
+To create a project and unlock the config-bound workflow, run
+`rustauth init --framework <axum|actix-web> --adapter <sqlx|diesel|…>` first
+(or rely on workspace detection when a supported adapter crate is in `Cargo.toml`).
+It writes `rustauth.toml`, syncs `.env.example`, and creates or updates
 `.env` in the current directory. Missing keys are merged in without overwriting
 values that are already present; a new `.env` is copied from `.env.example` and
 uses placeholder secrets unless you pass `--seed-secrets` to generate a signing
 secret for local development. The following commands read `rustauth.toml`:
 
 ```sh
-rustauth init                # rustauth.toml + .env.example + .env
-rustauth init --seed-secrets # same, but a new .env gets a generated RUSTAUTH_SECRET
+rustauth init --framework axum --adapter sqlx    # rustauth.toml + .env.example + .env
+rustauth init --framework actix-web --adapter sqlx # same, with Actix Web integration snippet
+rustauth init --framework axum --adapter sqlx --seed-secrets # new .env gets a generated RUSTAUTH_SECRET
 rustauth doctor --production # config-aware production readiness checks
 rustauth db generate         # generate a migration from the configured schema
 rustauth db migrate --yes    # apply pending migrations (non-interactive)
@@ -53,10 +56,11 @@ before serving traffic instead of calling a runtime helper on `RustAuth`. See
 [docs/database-migrations.md](../../docs/database-migrations.md) and the
 [migration test matrix](./tests/README.md).
 
-`rustauth db status`, `rustauth db generate`, and `rustauth db migrate` support
-`database.adapter = "sqlx"` (sqlite, postgres, mysql) as well as
-`tokio-postgres` and `deadpool-postgres` (postgres only). Use the same adapter
-in `rustauth.toml` that your application runs.
+`rustauth db status`, `rustauth db generate`, and `rustauth db migrate` require an
+explicit `database.adapter` in `rustauth.toml` (no implicit default). Supported
+values include `sqlx` (sqlite, postgres, mysql), `tokio-postgres` and
+`deadpool-postgres` (postgres only), and `diesel` (postgres, mysql). Use the same
+adapter in `rustauth.toml` that your application runs.
 
 The CLI ships with **no adapter or enterprise plugin features enabled by default**.
 Enable the features that match your `rustauth.toml` when installing or building:

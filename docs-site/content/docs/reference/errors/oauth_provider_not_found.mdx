@@ -9,8 +9,8 @@ The callback route includes a provider id (for example `/callback/google`) that 
 
 **Emitted by RustAuth:** yes (OAuth Proxy plugin)
 
-| Location | When |
-| -------- | ---- |
+| Location                                               | When                                                                        |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- |
 | `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:191` | `context.social_provider(provider_id)` returns `None` during proxy callback |
 
 Core social routes return an adapter/API error when the provider is missing rather than this redirect slug.
@@ -23,6 +23,6 @@ Parse `error=oauth_provider_not_found` from the redirect URL.
 
 ## How to fix
 
-- Register the provider with `.social_provider(...)` / `social_providers(...)` on `RustAuthOptions`.
-- Ensure plugin and feature flags include the provider crate you expect.
-- Match the callback path segment to the configured provider id exactly.
+* Register the provider with `.social_provider(...)` / `social_providers(...)` on `RustAuthOptions`.
+* Ensure plugin and feature flags include the provider crate you expect.
+* Match the callback path segment to the configured provider id exactly.

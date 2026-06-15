@@ -32,19 +32,19 @@ The plugin hooks all successful auth responses to append multi-session cookies a
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
+| Field              | Description                                                |
+| ------------------ | ---------------------------------------------------------- |
 | `maximum_sessions` | Maximum concurrent device sessions per browser (default 5) |
 
 ## HTTP endpoints
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/multi-session/list-device-sessions` | List sessions from multi-session cookies |
-| POST | `/multi-session/set-active` | Switch the active session |
-| POST | `/multi-session/revoke` | Revoke a device session |
+| Method | Path                                  | Description                              |
+| ------ | ------------------------------------- | ---------------------------------------- |
+| GET    | `/multi-session/list-device-sessions` | List sessions from multi-session cookies |
+| POST   | `/multi-session/set-active`           | Switch the active session                |
+| POST   | `/multi-session/revoke`               | Revoke a device session                  |
 
 ## Database
 

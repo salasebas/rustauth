@@ -41,16 +41,16 @@ Group provisioning maps to [organization](/docs/plugins/organization) teams — 
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `provider_ownership` | Allow global (non-org) provider connections |
-| `required_role` | Org role required to manage org-scoped tokens |
-| `default_scim` | Seed provider connections at startup |
-| `token_storage` | `Hashed` (default), `Plain`, `Encrypted`, or custom |
-| `before_token_generated` / `after_token_generated` | Token lifecycle hooks |
-| `bulk_mode` | `Independent` (default) or `Atomic` bulk processing |
-| `deprovision_mode` | `UnlinkAccount` (default) or `DeleteUser` |
-| `audit_event` | Structured audit callback |
+| Field                                              | Description                                         |
+| -------------------------------------------------- | --------------------------------------------------- |
+| `provider_ownership`                               | Allow global (non-org) provider connections         |
+| `required_role`                                    | Org role required to manage org-scoped tokens       |
+| `default_scim`                                     | Seed provider connections at startup                |
+| `token_storage`                                    | `Hashed` (default), `Plain`, `Encrypted`, or custom |
+| `before_token_generated` / `after_token_generated` | Token lifecycle hooks                               |
+| `bulk_mode`                                        | `Independent` (default) or `Atomic` bulk processing |
+| `deprovision_mode`                                 | `UnlinkAccount` (default) or `DeleteUser`           |
+| `audit_event`                                      | Structured audit callback                           |
 
 **Provider IDs:** `providerId` is globally unique — one id equals one SCIM connection. Use distinct ids per org or environment (`okta-prod`, `okta-eu`). Regenerating a token for the same id upserts the existing row.
 
@@ -62,12 +62,12 @@ Group provisioning maps to [organization](/docs/plugins/organization) teams — 
 
 ### Management (session-authenticated)
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/scim/generate-token` | Create or rotate a provider bearer token |
-| GET | `/scim/list-provider-connections` | List connections |
-| GET | `/scim/get-provider-connection` | Get connection by `providerId` |
-| POST | `/scim/delete-provider-connection` | Delete a connection |
+| Method | Path                               | Description                              |
+| ------ | ---------------------------------- | ---------------------------------------- |
+| POST   | `/scim/generate-token`             | Create or rotate a provider bearer token |
+| GET    | `/scim/list-provider-connections`  | List connections                         |
+| GET    | `/scim/get-provider-connection`    | Get connection by `providerId`           |
+| POST   | `/scim/delete-provider-connection` | Delete a connection                      |
 
 Example generate-token body:
 
@@ -82,29 +82,29 @@ Example generate-token body:
 
 ### SCIM 2.0 protocol (bearer token)
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET/POST | `/scim/v2/Users` | List or create users |
-| GET/PUT/PATCH/DELETE | `/scim/v2/Users/:userId` | Read or mutate a user |
-| POST | `/scim/v2/Users/.search` | Search users |
-| GET/POST | `/scim/v2/Groups` | List or create groups |
-| GET/PUT/PATCH/DELETE | `/scim/v2/Groups/:groupId` | Read or mutate a group |
-| POST | `/scim/v2/Groups/.search` | Search groups |
-| POST | `/scim/v2/.search` | Generic search |
-| POST | `/scim/v2/Bulk` | Bulk operations |
-| GET | `/scim/v2/ServiceProviderConfig` | Capability metadata |
-| GET | `/scim/v2/Schemas` | Supported schemas |
-| GET | `/scim/v2/ResourceTypes` | Resource types |
-| GET | `/scim/v2/Me` | Returns SCIM `501` |
+| Method               | Path                             | Description            |
+| -------------------- | -------------------------------- | ---------------------- |
+| GET/POST             | `/scim/v2/Users`                 | List or create users   |
+| GET/PUT/PATCH/DELETE | `/scim/v2/Users/:userId`         | Read or mutate a user  |
+| POST                 | `/scim/v2/Users/.search`         | Search users           |
+| GET/POST             | `/scim/v2/Groups`                | List or create groups  |
+| GET/PUT/PATCH/DELETE | `/scim/v2/Groups/:groupId`       | Read or mutate a group |
+| POST                 | `/scim/v2/Groups/.search`        | Search groups          |
+| POST                 | `/scim/v2/.search`               | Generic search         |
+| POST                 | `/scim/v2/Bulk`                  | Bulk operations        |
+| GET                  | `/scim/v2/ServiceProviderConfig` | Capability metadata    |
+| GET                  | `/scim/v2/Schemas`               | Supported schemas      |
+| GET                  | `/scim/v2/ResourceTypes`         | Resource types         |
+| GET                  | `/scim/v2/Me`                    | Returns SCIM `501`     |
 
 ## Database
 
 The plugin adds:
 
-| Table | Purpose |
-| --- | --- |
-| `scim_providers` | Provider connections and hashed tokens |
-| `scim_user_profiles` | External SCIM user attributes |
+| Table                 | Purpose                                       |
+| --------------------- | --------------------------------------------- |
+| `scim_providers`      | Provider connections and hashed tokens        |
+| `scim_user_profiles`  | External SCIM user attributes                 |
 | `scim_group_profiles` | External group attributes linked to org teams |
 
 Run migrations after enabling:
@@ -117,5 +117,5 @@ Use a durable SQL adapter in production. The in-memory adapter suits tests only.
 
 ## Related
 
-- [rustauth-scim README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-scim/README.md)
-- [Organization](/docs/plugins/organization) — teams and org-scoped tokens
+* [rustauth-scim README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-scim/README.md)
+* [Organization](/docs/plugins/organization) — teams and org-scoped tokens

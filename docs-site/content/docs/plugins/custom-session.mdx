@@ -44,15 +44,15 @@ let auth = RustAuth::builder()
 
 The handler receives:
 
-- `CustomSessionInput { user, session }` — parsed from the default session response (`user` and `session` JSON objects).
-- `CustomSessionContext { auth_context, request }` — read-only access to the auth context and incoming request.
+* `CustomSessionInput { user, session }` — parsed from the default session response (`user` and `session` JSON objects).
+* `CustomSessionContext { auth_context, request }` — read-only access to the auth context and incoming request.
 
 Return any JSON value. The default `{ user, session }` envelope is **not** required — you can return a flat object or a completely custom shape.
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
+| Field                                         | Description                                                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `should_mutate_list_device_sessions_endpoint` | When `true`, apply the same handler to `/multi-session/list-device-sessions` (default `false`) |
 
 ```rust
@@ -72,10 +72,10 @@ Use `CustomSessionOptions::builder()` for a fluent builder.
 
 This plugin does not register routes. It hooks **after** these endpoints:
 
-| Method | Path | Behavior |
-| --- | --- | --- |
-| GET | `/get-session` | Replace response body when status is `200` and body is non-null |
-| GET | `/multi-session/list-device-sessions` | Transform each session in the array when `should_mutate_list_device_sessions_endpoint` is enabled |
+| Method | Path                                  | Behavior                                                                                          |
+| ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| GET    | `/get-session`                        | Replace response body when status is `200` and body is non-null                                   |
+| GET    | `/multi-session/list-device-sessions` | Transform each session in the array when `should_mutate_list_device_sessions_endpoint` is enabled |
 
 When the client is unauthenticated, `/get-session` returns `null` and the handler is **not** called.
 

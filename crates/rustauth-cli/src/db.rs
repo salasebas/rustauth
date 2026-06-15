@@ -70,6 +70,11 @@ fn is_mysql_provider(provider: &str) -> bool {
 pub enum DbCliError {
     #[error("database provider is not configured")]
     MissingProvider,
+    #[error(
+        "database.adapter is required; set it explicitly in rustauth.toml \
+         (e.g. sqlx, diesel, tokio-postgres, deadpool-postgres)"
+    )]
+    MissingAdapter,
     #[error("database URL environment variable {0} is not set; add it to .env/.env.local next to the project or config file, or export it before running this command")]
     MissingDatabaseUrl(String),
     #[error(
@@ -152,6 +157,7 @@ pub async fn plan_with_base(
     cwd: Option<&Path>,
 ) -> Result<PlannedMigration, DbCliError> {
     validate_cli_migration_adapter(config)?;
+    let adapter = required_database_adapter(config)?;
     let schema = target_schema(config)?;
     let provider = config
         .database
@@ -165,7 +171,7 @@ pub async fn plan_with_base(
         full_schema_plan(dialect, &schema)?
     } else {
         let database_url = database_url_with_base(config, cwd)?;
-        match config.database.adapter.as_str() {
+        match adapter {
             #[cfg(feature = "sqlx")]
             "sqlx" => plan_with_sqlx(&provider, &database_url, &schema).await?,
             #[cfg(feature = "tokio-postgres")]
@@ -218,7 +224,8 @@ pub async fn migrate_with_base(
     }
     let database_url = database_url_with_base(config, cwd)?;
     let plugin_migrations = plugin_migrations_for_config(&config.plugins.enabled)?;
-    match config.database.adapter.as_str() {
+    let adapter = required_database_adapter(config)?;
+    match adapter {
         #[cfg(feature = "sqlx")]
         "sqlx" => {
             run_migrations_with_sqlx(
@@ -486,10 +493,13 @@ pub fn database_url_with_base(
 }
 
 pub fn supports_sql_migrations(config: &CliConfig) -> bool {
-    if !is_cli_migration_adapter(&config.database.adapter) {
+    let Some(adapter) = config.database_adapter() else {
+        return false;
+    };
+    if !is_cli_migration_adapter(adapter) {
         return false;
     }
-    match config.database.adapter.as_str() {
+    match adapter {
         "sqlx" if cfg!(feature = "sqlx") => config
             .database
             .provider
@@ -560,7 +570,7 @@ pub fn unsupported_adapter_guidance(adapter: &str, command: &str) -> String {
 }
 
 fn validate_cli_migration_adapter(config: &CliConfig) -> Result<(), DbCliError> {
-    let adapter = config.database.adapter.as_str();
+    let adapter = required_database_adapter(config)?;
     if is_adapter_feature_disabled(adapter) {
         return Err(DbCliError::AdapterFeatureDisabled(
             adapter.to_owned(),
@@ -568,11 +578,13 @@ fn validate_cli_migration_adapter(config: &CliConfig) -> Result<(), DbCliError> 
         ));
     }
     if !is_cli_migration_adapter(adapter) {
-        return Err(DbCliError::UnsupportedAdapter(
-            config.database.adapter.clone(),
-        ));
+        return Err(DbCliError::UnsupportedAdapter(adapter.to_owned()));
     }
     Ok(())
+}
+
+fn required_database_adapter(config: &CliConfig) -> Result<&str, DbCliError> {
+    config.database_adapter().ok_or(DbCliError::MissingAdapter)
 }
 
 fn adapter_dispatch_error(adapter: &str) -> DbCliError {

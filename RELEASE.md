@@ -71,7 +71,8 @@ The current workspace packages must be published in this order:
 20. `rustauth-fred` — depends on `rustauth-core`, and its publish
     verification uses a dev-dependency on `rustauth`.
 21. `rustauth-axum` — depends on `rustauth`.
-22. `rustauth-cli` — depends on `rustauth`, `rustauth-core`,
+22. `rustauth-actix-web` — depends on `rustauth`.
+23. `rustauth-cli` — depends on `rustauth`, `rustauth-core`,
     `rustauth-plugins`, `rustauth-sqlx`, and optionally `rustauth-diesel`
     (via the `diesel` feature).
 
@@ -81,6 +82,7 @@ Rust crate names match the `name` field in each `crates/*/Cargo.toml`. The
 workspace currently includes:
 
 - `rustauth` — main umbrella crate (re-exports / integration surface)
+- `rustauth-actix-web`
 - `rustauth-axum`
 - `rustauth-cli`
 - `rustauth-core`

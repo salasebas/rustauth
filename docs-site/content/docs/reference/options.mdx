@@ -143,15 +143,15 @@ See [plugins index](/docs/plugins) and `examples/backend-reference/src/auth/plug
 
 ## Session, user, email/password
 
-| Builder method | Type | Purpose |
-| -------------- | ---- | ------- |
-| `.session(...)` | `SessionOptions` | Expiry, refresh age, cookie cache |
-| `.user(...)` | `UserOptions` | Change-email, delete-user hooks |
-| `.email_password(...)` | `EmailPasswordOptions` | Email/password sign-in toggles |
-| `.email_verification(...)` | `EmailVerificationOptions` | Verification email sender hook |
-| `.password(...)` | `PasswordOptions` | Custom hash/verify (Argon2 default) |
-| `.account(...)` | `AccountOptions` | Linking, OAuth state strategy, token encryption |
-| `.verification(...)` | `VerificationOptions` | OTP/token storage identifiers |
+| Builder method             | Type                       | Purpose                                         |
+| -------------------------- | -------------------------- | ----------------------------------------------- |
+| `.session(...)`            | `SessionOptions`           | Expiry, refresh age, cookie cache               |
+| `.user(...)`               | `UserOptions`              | Change-email, delete-user hooks                 |
+| `.email_password(...)`     | `EmailPasswordOptions`     | Email/password sign-in toggles                  |
+| `.email_verification(...)` | `EmailVerificationOptions` | Verification email sender hook                  |
+| `.password(...)`           | `PasswordOptions`          | Custom hash/verify (Argon2 default)             |
+| `.account(...)`            | `AccountOptions`           | Linking, OAuth state strategy, token encryption |
+| `.verification(...)`       | `VerificationOptions`      | OTP/token storage identifiers                   |
 
 Outbound email/SMS hooks must not block the HTTP response — use [`dispatch_outbound`](/docs/security-outbound-delivery) patterns from core plugins.
 
@@ -172,11 +172,11 @@ RustAuthOptions::new().rate_limit(
 
 ## Hooks and database hooks
 
-| Builder method | Purpose |
-| -------------- | ------- |
-| `.hooks(GlobalHooksOptions { ... })` | Global before/after HTTP hooks |
-| `.init_database_hooks(...)` | Typed create/update hooks on core models |
-| `.database_hook(...)` | Low-level plugin database hooks |
+| Builder method                       | Purpose                                  |
+| ------------------------------------ | ---------------------------------------- |
+| `.hooks(GlobalHooksOptions { ... })` | Global before/after HTTP hooks           |
+| `.init_database_hooks(...)`          | Typed create/update hooks on core models |
+| `.database_hook(...)`                | Low-level plugin database hooks          |
 
 See [hooks concepts](/docs/concepts/hooks).
 

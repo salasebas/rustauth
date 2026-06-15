@@ -11,15 +11,15 @@ RustAuth has no reactive `useSession` hook—frontends poll or call `/get-sessio
 
 Persisted sessions include:
 
-| Field | Description |
-| --- | --- |
-| `id` | Unique session id |
-| `token` | Session token (cookie value) |
-| `user_id` | Owning user |
-| `expires_at` | Expiration time |
-| `ip_address` | Optional client IP |
-| `user_agent` | Optional user agent |
-| `created_at` / `updated_at` | Timestamps |
+| Field                       | Description                  |
+| --------------------------- | ---------------------------- |
+| `id`                        | Unique session id            |
+| `token`                     | Session token (cookie value) |
+| `user_id`                   | Owning user                  |
+| `expires_at`                | Expiration time              |
+| `ip_address`                | Optional client IP           |
+| `user_agent`                | Optional user agent          |
+| `created_at` / `updated_at` | Timestamps                   |
 
 ## Session options
 
@@ -63,14 +63,14 @@ Some sensitive routes require a **fresh** session (created within `fresh_age`). 
 
 All routes are under your auth base path. Forward the session cookie on authenticated calls.
 
-| Route | Method | Purpose |
-| --- | --- | --- |
-| `/get-session` | GET / POST | Current session and user |
-| `/list-sessions` | GET | Active sessions for the user |
-| `/revoke-session` | POST | Revoke one session by token |
-| `/revoke-sessions` | POST | Revoke all sessions |
-| `/revoke-other-sessions` | POST | Revoke all except current |
-| `/update-session` | POST | Update custom session fields |
+| Route                    | Method     | Purpose                      |
+| ------------------------ | ---------- | ---------------------------- |
+| `/get-session`           | GET / POST | Current session and user     |
+| `/list-sessions`         | GET        | Active sessions for the user |
+| `/revoke-session`        | POST       | Revoke one session by token  |
+| `/revoke-sessions`       | POST       | Revoke all sessions          |
+| `/revoke-other-sessions` | POST       | Revoke all except current    |
+| `/update-session`        | POST       | Update custom session fields |
 
 Example:
 

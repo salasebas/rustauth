@@ -74,11 +74,11 @@ Postgres adapters use native Postgres arrays for RustAuth array fields and apply
 
 ## When to use
 
-| Scenario | Adapter |
-| --- | --- |
-| App already uses SQLx with Postgres | `PostgresStores` / `PostgresAdapter` (this page) |
-| Production Postgres **without** SQLx | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) — pooled, recommended |
-| Minimal footprint, single client, tests | [`tokio-postgres`](/docs/adapters/tokio-postgres) — no pool |
+| Scenario                                | Adapter                                                                       |
+| --------------------------------------- | ----------------------------------------------------------------------------- |
+| App already uses SQLx with Postgres     | `PostgresStores` / `PostgresAdapter` (this page)                              |
+| Production Postgres **without** SQLx    | [`deadpool-postgres`](/docs/adapters/deadpool-postgres) — pooled, recommended |
+| Minimal footprint, single client, tests | [`tokio-postgres`](/docs/adapters/tokio-postgres) — no pool                   |
 
 <Callout type="info">
   For production connection pooling without a SQLx dependency, prefer [`rustauth-deadpool-postgres`](/docs/adapters/deadpool-postgres) over SQLx Postgres.
@@ -104,7 +104,7 @@ For [`deadpool-postgres`](/docs/adapters/deadpool-postgres) or [`tokio-postgres`
 
 ## Related
 
-- [SQLx adapters](/docs/adapters/sqlx) — shared SQLx behavior and feature flags
-- [Deadpool Postgres](/docs/adapters/deadpool-postgres) — production pooling without SQLx
-- [Tokio Postgres](/docs/adapters/tokio-postgres) — minimal single-client adapter
-- [Database](/docs/concepts/database) — core auth schema
+* [SQLx adapters](/docs/adapters/sqlx) — shared SQLx behavior and feature flags
+* [Deadpool Postgres](/docs/adapters/deadpool-postgres) — production pooling without SQLx
+* [Tokio Postgres](/docs/adapters/tokio-postgres) — minimal single-client adapter
+* [Database](/docs/concepts/database) — core auth schema

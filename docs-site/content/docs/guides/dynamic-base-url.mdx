@@ -5,9 +5,9 @@ description: Configure RustAuth for preview deployments, multiple domains, and r
 
 Use this guide when your auth server is reachable from more than one public hostname:
 
-- Production and staging domains (`myapp.com`, `staging.myapp.com`)
-- Preview deployments (`my-app-abc123.vercel.app`)
-- Multiple regional domains (`myapp.com`, `myapp.eu`)
+* Production and staging domains (`myapp.com`, `staging.myapp.com`)
+* Preview deployments (`my-app-abc123.vercel.app`)
+* Multiple regional domains (`myapp.com`, `myapp.eu`)
 
 RustAuth does **not** expose a Better Auth-style `baseURL.allowedHosts` object. Configure a fixed [`base_url`](/docs/reference/options#base_url-and-base_path) in production, extend [`trusted_origins`](/docs/reference/options#trustedorigins) for CSRF and redirect validation, and optionally enable **Axum-only** per-request URL inference behind a trusted proxy.
 
@@ -131,7 +131,7 @@ Typical pattern:
 3. List every frontend origin (including `*.vercel.app`) in `trusted_origins`
 
 <Callout type="info">
-  Base URL inference is implemented in `rustauth-axum` only. Other Rust web frameworks must set `base_url` explicitly or inject [`RequestBaseUrl`](https://docs.rs/rustauth-core/latest/rustauth_core/api/struct.RequestBaseUrl.html) on each request before calling `handler_async`.
+  Base URL inference is implemented in `rustauth-axum` and `rustauth-actix-web`. Other Rust web frameworks must set `base_url` explicitly or inject [`RequestBaseUrl`](https://docs.rs/rustauth-core/latest/rustauth_core/api/struct.RequestBaseUrl.html) on each request before calling `handler_async`.
 </Callout>
 
 ## Cross-subdomain cookies
@@ -161,16 +161,17 @@ RustAuth::builder()
 
 ## Common deployment patterns
 
-| Pattern | `base_url` | Axum inference | `trusted_origins` |
-| --- | --- | --- | --- |
-| Single production domain | Fixed `https://myapp.com/api/auth` | Off | Production frontend origins |
-| Staging + production | Fixed per environment | Off | Both frontends |
-| Vercel previews | Env or inference | Optional on | `https://*.vercel.app` + production |
-| Local + production dev | Fixed in prod; `http://localhost:3000` in dev | Off locally | Include localhost only in dev |
+| Pattern                  | `base_url`                                    | Axum inference | `trusted_origins`                   |
+| ------------------------ | --------------------------------------------- | -------------- | ----------------------------------- |
+| Single production domain | Fixed `https://myapp.com/api/auth`            | Off            | Production frontend origins         |
+| Staging + production     | Fixed per environment                         | Off            | Both frontends                      |
+| Vercel previews          | Env or inference                              | Optional on    | `https://*.vercel.app` + production |
+| Local + production dev   | Fixed in prod; `http://localhost:3000` in dev | Off locally    | Include localhost only in dev       |
 
 ## Reference
 
-- [`base_url` / `base_path`](/docs/reference/options#base_url-and-base_path)
-- [`trusted_origins`](/docs/reference/options#trustedorigins)
-- [Security](/docs/reference/security)
-- [Axum integration](/docs/integrations/axum)
+* [`base_url` / `base_path`](/docs/reference/options#base_url-and-base_path)
+* [`trusted_origins`](/docs/reference/options#trustedorigins)
+* [Security](/docs/reference/security)
+* [Axum integration](/docs/integrations/axum)
+* [Actix Web integration](/docs/integrations/actix-web)

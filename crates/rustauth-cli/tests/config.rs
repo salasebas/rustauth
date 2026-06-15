@@ -51,6 +51,34 @@ enabled = ["username"]
 }
 
 #[test]
+fn load_rejects_config_without_database_adapter() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("rustauth.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+[project]
+framework = "axum"
+
+[database]
+provider = "sqlite"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[plugins]
+enabled = []
+"#,
+    )
+    .expect("write config");
+
+    let error = CliConfig::load(&config_path).expect_err("missing adapter should fail");
+    assert!(matches!(
+        error,
+        rustauth_cli::config::ConfigError::MissingDatabaseAdapter
+    ));
+}
+
+#[test]
 fn default_config_uses_stable_contract() {
     let config = CliConfig {
         project: ProjectConfig {
@@ -58,6 +86,7 @@ fn default_config_uses_stable_contract() {
             ..ProjectConfig::default()
         },
         database: DatabaseConfig {
+            adapter: Some("sqlx".to_owned()),
             provider: Some("sqlite".to_owned()),
             ..DatabaseConfig::default()
         },
@@ -69,6 +98,7 @@ fn default_config_uses_stable_contract() {
     assert!(rendered.contains("[project]"));
     assert!(rendered.contains("framework = \"axum\""));
     assert!(rendered.contains("[database]"));
+    assert!(rendered.contains("adapter = \"sqlx\""));
     assert!(rendered.contains("migrations_dir = \"migrations/rustauth\""));
     assert!(rendered.contains("secret_env = \"RUSTAUTH_SECRET\""));
 }

@@ -1,0 +1,21 @@
+[package]
+name = "rustauth-example-actix-web"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "Minimal RustAuth + Actix Web server with memory adapter and test-safe defaults."
+
+[dependencies]
+actix-web.workspace = true
+rustauth = { path = "../../crates/rustauth" }
+rustauth-actix-web = { path = "../../crates/rustauth-actix-web" }
+rustauth-core = { workspace = true, features = ["test-utils"] }
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+
+[dev-dependencies]
+actix-http = "3"
+serde_json = "1"
+
+[lints]
+workspace = true

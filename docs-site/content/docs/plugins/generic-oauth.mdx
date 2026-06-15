@@ -48,20 +48,20 @@ Built-in helpers on `GenericOAuthConfig` include `auth0`, `okta`, and `keycloak`
 
 Each **`GenericOAuthConfig`** entry:
 
-| Field | Description |
-| --- | --- |
-| `provider_id` | Unique provider identifier used in routes |
-| `discovery_url` | OIDC discovery document URL |
-| `issuer` | Expected token issuer (RFC 9207 validation) |
-| `require_issuer_validation` | Enforce issuer checks (default `true`) |
-| `authorization_url` / `token_url` / `user_info_url` | Manual endpoints when discovery is omitted |
-| `client_id` / `client_secret` | OAuth client credentials |
-| `scopes` | Requested scopes |
-| `redirect_uri` | Override redirect URI |
-| `pkce` | PKCE settings |
-| `disable_implicit_sign_up` / `disable_sign_up` | Control auto-registration |
-| `authentication` | Token endpoint auth method |
-| Custom hooks | `get_token`, `get_user_info`, `refresh_token`, `revoke_token`, `verify_id_token` |
+| Field                                               | Description                                                                      |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `provider_id`                                       | Unique provider identifier used in routes                                        |
+| `discovery_url`                                     | OIDC discovery document URL                                                      |
+| `issuer`                                            | Expected token issuer (RFC 9207 validation)                                      |
+| `require_issuer_validation`                         | Enforce issuer checks (default `true`)                                           |
+| `authorization_url` / `token_url` / `user_info_url` | Manual endpoints when discovery is omitted                                       |
+| `client_id` / `client_secret`                       | OAuth client credentials                                                         |
+| `scopes`                                            | Requested scopes                                                                 |
+| `redirect_uri`                                      | Override redirect URI                                                            |
+| `pkce`                                              | PKCE settings                                                                    |
+| `disable_implicit_sign_up` / `disable_sign_up`      | Control auto-registration                                                        |
+| `authentication`                                    | Token endpoint auth method                                                       |
+| Custom hooks                                        | `get_token`, `get_user_info`, `refresh_token`, `revoke_token`, `verify_id_token` |
 
 Issuer validation failures return `ISSUER_MISMATCH` or `ISSUER_MISSING`.
 
@@ -69,11 +69,11 @@ Issuer validation failures return `ISSUER_MISMATCH` or `ISSUER_MISSING`.
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/sign-in/oauth2` | Start OAuth sign-in for a configured provider |
-| GET | `/oauth2/callback/:providerId` | OAuth callback |
-| POST | `/oauth2/link` | Link provider to the current session (requires session) |
+| Method | Path                           | Description                                             |
+| ------ | ------------------------------ | ------------------------------------------------------- |
+| POST   | `/sign-in/oauth2`              | Start OAuth sign-in for a configured provider           |
+| GET    | `/oauth2/callback/:providerId` | OAuth callback                                          |
+| POST   | `/oauth2/link`                 | Link provider to the current session (requires session) |
 
 Each configured provider is registered as a social OAuth provider at init time. Linked accounts use the core `accounts` table — no plugin-specific tables.
 

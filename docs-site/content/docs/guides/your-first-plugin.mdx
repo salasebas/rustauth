@@ -15,9 +15,9 @@ In this guide you will create a small **birthday plugin** that stores a user's b
 
     Pick a unique plugin id (kebab-case or lowercase, for example `birthday`). Decide what you need:
 
-    - Extra columns on core tables (schema contribution)
-    - Validation on existing routes (before hooks)
-    - New HTTP routes (optional; not needed for this tutorial)
+    * Extra columns on core tables (schema contribution)
+    * Validation on existing routes (before hooks)
+    * New HTTP routes (optional; not needed for this tutorial)
 
     We will add a required `birthday` timestamp on `user` and validate it on `POST /sign-up/email`.
   </Step>
@@ -196,7 +196,7 @@ In this guide you will create a small **birthday plugin** that stores a user's b
 
 You added a server plugin with schema and validation—no client plugin required. Next steps:
 
-- [Plugins concept](/docs/concepts/plugins) — endpoints, database hooks, rate limits
-- [Hooks](/docs/concepts/hooks) — global vs plugin hooks
-- [Plugin index](/docs/plugins) — official modules in `rustauth-plugins`
-- [Contributing](https://github.com/salasebas/rustauth/pulls) — share reusable plugins via pull request
+* [Plugins concept](/docs/concepts/plugins) — endpoints, database hooks, rate limits
+* [Hooks](/docs/concepts/hooks) — global vs plugin hooks
+* [Plugin index](/docs/plugins) — official modules in `rustauth-plugins`
+* [Contributing](https://github.com/salasebas/rustauth/pulls) — share reusable plugins via pull request

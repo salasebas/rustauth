@@ -70,9 +70,9 @@ let rate_limit = SqliteRateLimitStore::from(&adapter);
 
 ## When to use
 
-- **Local development** — zero external services; a file-backed database is enough for most auth flows.
-- **CI and integration tests** — fast, isolated databases per test run.
-- **Small single-node deployments** — acceptable when traffic and concurrency stay modest.
+* **Local development** — zero external services; a file-backed database is enough for most auth flows.
+* **CI and integration tests** — fast, isolated databases per test run.
+* **Small single-node deployments** — acceptable when traffic and concurrency stay modest.
 
 For production PostgreSQL or MySQL, use the dialect-specific SQLx adapters or native Postgres pools instead. See [SQLx overview](/docs/adapters/sqlx) for the full comparison.
 
@@ -96,7 +96,7 @@ Migrations are **CLI-only**. See [Database migrations](/docs/database-migrations
 
 ## Related
 
-- [SQLx adapters](/docs/adapters/sqlx) — feature flags and shared SQLx behavior
-- [PostgreSQL](/docs/adapters/postgresql) — production Postgres via SQLx
-- [MySQL](/docs/adapters/mysql) — MySQL via SQLx
-- [Database](/docs/concepts/database) — core auth schema
+* [SQLx adapters](/docs/adapters/sqlx) — feature flags and shared SQLx behavior
+* [PostgreSQL](/docs/adapters/postgresql) — production Postgres via SQLx
+* [MySQL](/docs/adapters/mysql) — MySQL via SQLx
+* [Database](/docs/concepts/database) — core auth schema

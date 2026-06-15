@@ -32,11 +32,11 @@ Some providers need extra fields (Google `hd`, Microsoft `tenant_id`, Apple audi
 
 For providers **not** in the catalog, use the [generic OAuth plugin](/docs/plugins/generic-oauth). It registers arbitrary authorization and token endpoints without a first-party catalog entry.
 
-| Layer | When to use |
-| ----- | ----------- |
+| Layer                                   | When to use                                      |
+| --------------------------------------- | ------------------------------------------------ |
 | **Catalog** (`providers::github`, etc.) | Official supported provider with tested defaults |
-| **Advanced** (`advanced::google`, etc.) | Catalog provider with extra OAuth parameters |
-| **Generic OAuth plugin** | Custom or niche IdPs not in `PROVIDER_IDS` |
+| **Advanced** (`advanced::google`, etc.) | Catalog provider with extra OAuth parameters     |
+| **Generic OAuth plugin**                | Custom or niche IdPs not in `PROVIDER_IDS`       |
 
 ## Callback URLs
 
@@ -50,5 +50,5 @@ All social providers use:
 
 ## Reference
 
-- Full wiring: [`examples/backend-reference/src/auth/social_providers.rs`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference/src/auth/social_providers.rs)
-- Provider IDs: `crates/rustauth-social-providers/src/lib.rs`
+* Full wiring: [`examples/backend-reference/src/auth/social_providers.rs`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference/src/auth/social_providers.rs)
+* Provider IDs: `crates/rustauth-social-providers/src/lib.rs`
