@@ -63,6 +63,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+For Postgres or MySQL with Diesel, enable `diesel-postgres` or `diesel-mysql` on
+the `rustauth` crate:
+
+```toml
+[dependencies]
+rustauth = { version = "0.2.0", features = ["diesel-postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+```rust
+use rustauth::prelude::*;
+use rustauth::diesel::{DieselPostgresAdapter, DieselPostgresStores};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let adapter = DieselPostgresAdapter::connect(
+        "postgres://user:password@localhost:5432/rustauth",
+    )
+    .await?;
+
+    let auth = RustAuth::builder()
+        .secret("secret-a-at-least-32-chars-long!!")
+        .base_url("https://app.example.com/api/auth")
+        .email_password(EmailPasswordOptions::new().enabled(true))
+        .adapter(adapter)
+        .build()
+        .await?;
+
+    // Or bundle adapter + SQL rate limits:
+    let stores = DieselPostgresStores::connect(
+        "postgres://user:password@localhost:5432/rustauth",
+    )
+    .await?;
+    let _options = stores.apply_to_options(RustAuthOptions::default());
+
+    Ok(())
+}
+```
+
 Configure `rustauth.toml` with the same adapter and plugins, then run
 `rustauth db migrate --yes` in local setup, CI, or release jobs before starting
 the server. See [docs/database-migrations.md](../../docs/database-migrations.md).
@@ -156,6 +195,7 @@ separate steps. Low-level provider types remain under
   This feature also enables `rustauth-telemetry/oauth` so social-provider
   config snapshots match Better Auth parity.
 - `sqlx-sqlite`, `sqlx-postgres`, `sqlx-mysql`: SQLx adapters.
+- `diesel-postgres`, `diesel-mysql`: Diesel adapters (re-export `rustauth-diesel`).
 - `tokio-postgres` and `deadpool-postgres`: Postgres adapters.
 
 ## Choosing The Right Crate

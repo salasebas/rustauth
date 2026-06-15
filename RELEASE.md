@@ -40,38 +40,40 @@ The current workspace packages must be published in this order:
 3. `rustauth-social-providers` — depends on `rustauth-oauth`.
 4. `rustauth-core` — depends on `rustauth-oauth` and
    `rustauth-social-providers`.
-5. `rustauth-stripe` — depends on `rustauth-core`.
-6. `rustauth-saml` — depends on `rustauth-core`.
-7. `rustauth-i18n` — depends on `rustauth-core`.
-8. `rustauth-sqlx` — depends on `rustauth-core`.
-9. `rustauth-telemetry` — depends on `rustauth-core`.
-10. `rustauth-tokio-postgres` — depends on `rustauth-core`.
-11. `rustauth-deadpool-postgres` — depends on `rustauth-core` and
+5. `rustauth-diesel` — depends on `rustauth-core`.
+6. `rustauth-stripe` — depends on `rustauth-core`.
+7. `rustauth-saml` — depends on `rustauth-core`.
+8. `rustauth-i18n` — depends on `rustauth-core`.
+9. `rustauth-sqlx` — depends on `rustauth-core`.
+10. `rustauth-telemetry` — depends on `rustauth-core`.
+11. `rustauth-tokio-postgres` — depends on `rustauth-core`.
+12. `rustauth-deadpool-postgres` — depends on `rustauth-core` and
     `rustauth-tokio-postgres`.
-12. `rustauth-redis` — depends on `rustauth-core`.
-13. `rustauth-plugins` — depends on `rustauth-core`, `rustauth-oauth`, and
+13. `rustauth-redis` — depends on `rustauth-core`.
+14. `rustauth-plugins` — depends on `rustauth-core`, `rustauth-oauth`, and
     `rustauth-social-providers`; publish verification also uses
     `rustauth-redis` and `rustauth-sqlx`.
-14. `rustauth-passkey` — depends on `rustauth-core`; publish verification also
+15. `rustauth-passkey` — depends on `rustauth-core`; publish verification also
     uses `rustauth-sqlx`.
-15. `rustauth-sso` — depends on `rustauth-core`, `rustauth-oauth`,
+16. `rustauth-sso` — depends on `rustauth-core`, `rustauth-oauth`,
     `rustauth-oidc`, and `rustauth-saml`; publish verification also uses
     `rustauth-sqlx`.
-16. `rustauth-scim` — depends on `rustauth-core`; publish verification also
+17. `rustauth-scim` — depends on `rustauth-core`; publish verification also
     uses `rustauth-deadpool-postgres`, `rustauth-plugins`, `rustauth-sqlx`, and
     `rustauth-tokio-postgres`.
-17. `rustauth-oauth-provider` — depends on `rustauth-core` and
+18. `rustauth-oauth-provider` — depends on `rustauth-core` and
     `rustauth-plugins`.
-18. `rustauth` — depends on `rustauth-core`,
-    `rustauth-deadpool-postgres`, `rustauth-i18n`, `rustauth-oidc`,
-    `rustauth-passkey`, `rustauth-plugins`, `rustauth-saml`,
+19. `rustauth` — depends on `rustauth-core`,
+    `rustauth-deadpool-postgres`, `rustauth-diesel`, `rustauth-i18n`,
+    `rustauth-oidc`, `rustauth-passkey`, `rustauth-plugins`, `rustauth-saml`,
     `rustauth-scim`, `rustauth-sqlx`, `rustauth-sso`, `rustauth-stripe`,
     `rustauth-telemetry`, and `rustauth-tokio-postgres`.
-19. `rustauth-fred` — depends on `rustauth-core`, and its publish
+20. `rustauth-fred` — depends on `rustauth-core`, and its publish
     verification uses a dev-dependency on `rustauth`.
-20. `rustauth-axum` — depends on `rustauth`.
-21. `rustauth-cli` — depends on `rustauth`, `rustauth-core`,
-    `rustauth-plugins`, and `rustauth-sqlx`.
+21. `rustauth-axum` — depends on `rustauth`.
+22. `rustauth-cli` — depends on `rustauth`, `rustauth-core`,
+    `rustauth-plugins`, `rustauth-sqlx`, and optionally `rustauth-diesel`
+    (via the `diesel` feature).
 
 ## Crate names
 
@@ -83,6 +85,7 @@ workspace currently includes:
 - `rustauth-cli`
 - `rustauth-core`
 - `rustauth-deadpool-postgres`
+- `rustauth-diesel`
 - `rustauth-fred`
 - `rustauth-i18n`
 - `rustauth-oidc`

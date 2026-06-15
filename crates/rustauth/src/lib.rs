@@ -15,6 +15,8 @@ pub use rustauth_core::{
 
 #[cfg(feature = "deadpool-postgres")]
 pub use rustauth_deadpool_postgres as deadpool_postgres;
+#[cfg(feature = "diesel")]
+pub use rustauth_diesel as diesel;
 #[cfg(feature = "fred")]
 pub use rustauth_fred as fred;
 #[cfg(feature = "i18n")]

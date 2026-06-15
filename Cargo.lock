@@ -4029,6 +4029,7 @@ dependencies = [
  "http",
  "rustauth-core",
  "rustauth-deadpool-postgres",
+ "rustauth-diesel",
  "rustauth-fred",
  "rustauth-i18n",
  "rustauth-oauth-provider",

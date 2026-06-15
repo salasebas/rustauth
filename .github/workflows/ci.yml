@@ -66,7 +66,7 @@ jobs:
       - name: Check semver (published API crates)
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          package: rustauth,rustauth-core,rustauth-oauth,rustauth-plugins,rustauth-sqlx
+          package: rustauth,rustauth-core,rustauth-oauth,rustauth-plugins,rustauth-sqlx,rustauth-diesel
           release-type: major
 
   test-crate:

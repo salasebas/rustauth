@@ -18,6 +18,7 @@ path = "src/lib.rs"
 http.workspace = true
 rustauth-core = { workspace = true }
 rustauth-deadpool-postgres = { workspace = true, optional = true }
+rustauth-diesel = { workspace = true, default-features = false, optional = true }
 rustauth-i18n = { workspace = true, optional = true }
 rustauth-oidc = { workspace = true, optional = true }
 rustauth-oauth-provider = { workspace = true, optional = true }
@@ -42,6 +43,9 @@ oauth = ["rustauth-core/oauth"]
 social-providers = ["oauth", "rustauth-core/social-providers"]
 full = ["jose", "oauth", "social-providers"]
 deadpool-postgres = ["dep:rustauth-deadpool-postgres"]
+diesel = ["dep:rustauth-diesel"]
+diesel-postgres = ["diesel", "rustauth-diesel/postgres"]
+diesel-mysql = ["diesel", "rustauth-diesel/mysql"]
 fred = ["dep:rustauth-fred"]
 i18n = ["dep:rustauth-i18n"]
 oidc = ["dep:rustauth-oidc", "rustauth-sso?/oidc"]

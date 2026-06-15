@@ -72,6 +72,9 @@ jobs:
           - package: rustauth-sqlx
             services: postgres mysql
             nextest_args: --all-features
+          - package: rustauth-diesel
+            services: postgres mysql
+            nextest_args: --all-features
           - package: rustauth-deadpool-postgres
             services: postgres
             nextest_args: --all-features

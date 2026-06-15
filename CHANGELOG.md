@@ -5,6 +5,14 @@ All notable changes to the RustAuth workspace are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project follows [Semantic Versioning](https://semver.org/) while the API is still pre-1.0.
 
+## Unreleased
+
+### Added
+
+- `rustauth-diesel` — async Diesel adapters for Postgres and MySQL (`diesel-postgres`,
+  `diesel-mysql` features on the `rustauth` umbrella crate).
+- Integration CI coverage for `rustauth-diesel` with Postgres and MySQL services.
+
 ## [0.2.0] - 2026-06-14
 
 Initial public working release of **RustAuth** — an unofficial Rust authentication toolkit
