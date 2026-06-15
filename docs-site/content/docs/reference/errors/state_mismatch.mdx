@@ -9,12 +9,12 @@ When an OAuth or SSO flow starts, RustAuth stores state (cookie and/or verificat
 
 **Emitted by RustAuth:** yes — but the **exact query slug depends on the code path**:
 
-| Redirect slug | Location | When |
-| ------------- | -------- | ---- |
-| **`invalid_state`** | `crates/rustauth-core/src/api/routes/social/flow.rs:127` | Social callback state parse/decrypt fails |
-| **`invalid_state`** | `crates/rustauth-sso/src/routes/oidc.rs:79,98,119` | SSO OIDC state validation fails |
-| **`invalid_state`** | `crates/rustauth-plugins/src/generic_oauth/routes.rs:275,290` | Generic OAuth state invalid |
-| **`state_mismatch`** | `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:171` | OAuth Proxy decrypted state ≠ callback state |
+| Redirect slug        | Location                                                      | When                                         |
+| -------------------- | ------------------------------------------------------------- | -------------------------------------------- |
+| **`invalid_state`**  | `crates/rustauth-core/src/api/routes/social/flow.rs:127`      | Social callback state parse/decrypt fails    |
+| **`invalid_state`**  | `crates/rustauth-sso/src/routes/oidc.rs:79,98,119`            | SSO OIDC state validation fails              |
+| **`invalid_state`**  | `crates/rustauth-plugins/src/generic_oauth/routes.rs:275,290` | Generic OAuth state invalid                  |
+| **`state_mismatch`** | `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:171`        | OAuth Proxy decrypted state ≠ callback state |
 
 <Callout type="info">
   Upstream Better Auth documents many sub-codes under the `state_mismatch` umbrella. RustAuth core social flows emit **`invalid_state`**, not `state_mismatch`, when state parsing fails. Only the [OAuth Proxy](/docs/plugins/oauth-proxy) plugin emits `state_mismatch` today.
@@ -35,14 +35,14 @@ if let Some(location) = response.headers().get(http::header::LOCATION) {
 
 ## Common causes
 
-- State cookie missing (Safari ITP, cross-site preview domains, proxy stripping `Cookie`).
-- State expired (~10 minutes) or callback replayed after successful consumption.
-- Secret rotation between flow start and callback.
-- Multi-instance deployments without shared verification storage.
+* State cookie missing (Safari ITP, cross-site preview domains, proxy stripping `Cookie`).
+* State expired (\~10 minutes) or callback replayed after successful consumption.
+* Secret rotation between flow start and callback.
+* Multi-instance deployments without shared verification storage.
 
 ## How to fix
 
-- Set a stable `base_url` and consistent `RUSTAUTH_SECRET` / secret rotation policy.
-- Use a shared database (or reliable secondary storage) across all app instances.
-- For OAuth Proxy cross-domain flows, verify proxy encryption keys and callback URLs.
-- Optionally set `account.skip_state_cookie_check` only when you understand the CSRF trade-off (see [options](/docs/reference/options#account)).
+* Set a stable `base_url` and consistent `RUSTAUTH_SECRET` / secret rotation policy.
+* Use a shared database (or reliable secondary storage) across all app instances.
+* For OAuth Proxy cross-domain flows, verify proxy encryption keys and callback URLs.
+* Optionally set `account.skip_state_cookie_check` only when you understand the CSRF trade-off (see [options](/docs/reference/options#account)).

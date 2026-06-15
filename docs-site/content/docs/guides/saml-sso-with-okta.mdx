@@ -17,8 +17,8 @@ This guide walks through SAML single sign-on (SSO) with Okta as the identity pro
 
 SAML (Security Assertion Markup Language) exchanges authentication data between an IdP (Okta, Azure AD, OneLogin, and others) and your application. In this setup:
 
-- **IdP (Okta)** authenticates users and sends signed assertions about their identity.
-- **SP (RustAuth)** validates assertions, provisions or links accounts, and creates a session.
+* **IdP (Okta)** authenticates users and sends signed assertions about their identity.
+* **SP (RustAuth)** validates assertions, provisions or links accounts, and creates a session.
 
 RustAuth has **no browser auth client SDK**. Frontends start SSO over HTTP and follow redirects; the browser completes the SAML dance with Okta.
 
@@ -32,11 +32,11 @@ RustAuth has **no browser auth client SDK**. Frontends start SSO over HTTP and f
     4. Choose **SAML 2.0** as the sign-in method.
     5. Configure URLs under your RustAuth `base_path` (default `/api/auth`). Replace `app.example.com` and `{providerId}` with your values (for example `okta-prod`):
 
-    | Okta field | Example value |
-    | --- | --- |
-    | **Single sign-on URL** | `https://app.example.com/api/auth/sso/saml2/sp/acs/{providerId}` |
-    | **Audience URI (SP Entity ID)** | `https://app.example.com/api/auth/sso/saml2/sp/metadata` |
-    | **Name ID format** | Email Address (or your policy) |
+    | Okta field                      | Example value                                                    |
+    | ------------------------------- | ---------------------------------------------------------------- |
+    | **Single sign-on URL**          | `https://app.example.com/api/auth/sso/saml2/sp/acs/{providerId}` |
+    | **Audience URI (SP Entity ID)** | `https://app.example.com/api/auth/sso/saml2/sp/metadata`         |
+    | **Name ID format**              | Email Address (or your policy)                                   |
 
     6. Download the IdP metadata XML and signing certificate from Okta.
 
@@ -145,9 +145,9 @@ RustAuth has **no browser auth client SDK**. Frontends start SSO over HTTP and f
 
     Sign-in resolution for `default_sso` entries:
 
-    - **`providerId`** — explicit provider (recommended).
-    - **`email`** — domain taken from the address (`user@company.com` → `company.com`).
-    - **`domain`** — explicit domain match against each provider's `domain` field (comma-separated domains are supported on stored providers).
+    * **`providerId`** — explicit provider (recommended).
+    * **`email`** — domain taken from the address (`user@company.com` → `company.com`).
+    * **`domain`** — explicit domain match against each provider's `domain` field (comma-separated domains are supported on stored providers).
   </Step>
 
   <Step>
@@ -194,9 +194,9 @@ RustAuth has **no browser auth client SDK**. Frontends start SSO over HTTP and f
 
     Notes:
 
-    - Paths are relative to your configured `base_path`.
-    - `callbackURL` is the post-login destination in your app, not the SAML ACS URL. The ACS URL is `callback_url` in `SamlConfig` (defaults to `{base_url}/sso/saml2/sp/acs/{providerId}` when omitted in some flows).
-    - When domain verification is enabled on the plugin, unverified provider domains return `DOMAIN_NOT_VERIFIED` until DNS TXT verification completes ([SSO plugin](/docs/plugins/sso)).
+    * Paths are relative to your configured `base_path`.
+    * `callbackURL` is the post-login destination in your app, not the SAML ACS URL. The ACS URL is `callback_url` in `SamlConfig` (defaults to `{base_url}/sso/saml2/sp/acs/{providerId}` when omitted in some flows).
+    * When domain verification is enabled on the plugin, unverified provider domains return `DOMAIN_NOT_VERIFIED` until DNS TXT verification completes ([SSO plugin](/docs/plugins/sso)).
   </Step>
 
   <Step>
@@ -228,15 +228,15 @@ RustAuth has **no browser auth client SDK**. Frontends start SSO over HTTP and f
 
 ## Related routes
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| POST | `/sign-in/sso` | Start SSO (returns IdP redirect URL for SAML) |
-| POST | `/sso/saml2/sp/acs/:providerId` | Assertion Consumer Service (Okta POST target) |
-| GET | `/sso/saml2/callback/:providerId` | IdP-initiated callback |
-| GET | `/sso/saml2/sp/metadata` | SP metadata for Okta Audience URI |
+| Method | Path                              | Purpose                                       |
+| ------ | --------------------------------- | --------------------------------------------- |
+| POST   | `/sign-in/sso`                    | Start SSO (returns IdP redirect URL for SAML) |
+| POST   | `/sso/saml2/sp/acs/:providerId`   | Assertion Consumer Service (Okta POST target) |
+| GET    | `/sso/saml2/callback/:providerId` | IdP-initiated callback                        |
+| GET    | `/sso/saml2/sp/metadata`          | SP metadata for Okta Audience URI             |
 
 ## Additional resources
 
-- [SSO plugin documentation](/docs/plugins/sso)
-- [Okta SAML documentation](https://developer.okta.com/docs/concepts/saml/)
-- [SAML 2.0 core specification](https://docs.oasis-open.org/security/saml/v2.0/saml-core-2.0-os.pdf)
+* [SSO plugin documentation](/docs/plugins/sso)
+* [Okta SAML documentation](https://developer.okta.com/docs/concepts/saml/)
+* [SAML 2.0 core specification](https://docs.oasis-open.org/security/saml/v2.0/saml-core-2.0-os.pdf)

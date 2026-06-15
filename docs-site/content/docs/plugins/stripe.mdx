@@ -68,25 +68,25 @@ Organization billing requires the [organization](/docs/plugins/organization) plu
 
 **StripeOptions:**
 
-| Field | Description |
-| --- | --- |
-| `create_customer_on_sign_up` | Create Stripe customer on user registration |
-| `subscription` | User subscription settings (`SubscriptionOptions`) |
-| `organization` | Organization billing settings (`OrganizationStripeOptions`) |
-| `on_event` | Webhook event hook |
-| `on_customer_create` / `get_customer_create_params` | Customer creation hooks |
-| `schema` | Column name overrides |
+| Field                                               | Description                                                 |
+| --------------------------------------------------- | ----------------------------------------------------------- |
+| `create_customer_on_sign_up`                        | Create Stripe customer on user registration                 |
+| `subscription`                                      | User subscription settings (`SubscriptionOptions`)          |
+| `organization`                                      | Organization billing settings (`OrganizationStripeOptions`) |
+| `on_event`                                          | Webhook event hook                                          |
+| `on_customer_create` / `get_customer_create_params` | Customer creation hooks                                     |
+| `schema`                                            | Column name overrides                                       |
 
 **SubscriptionOptions:**
 
-| Field | Description |
-| --- | --- |
-| `enabled` / `enabled_dynamic` | Enable subscription routes |
-| `plans` / `plans_provider` | Static or dynamic plan catalog |
-| `require_email_verification` | Gate checkout on verified email |
-| `authorize_reference` | Authorize org/user for subscription actions |
-| Lifecycle hooks | `on_subscription_complete`, `on_subscription_created`, etc. |
-| `get_checkout_session_params` | Customize Checkout session creation |
+| Field                         | Description                                                 |
+| ----------------------------- | ----------------------------------------------------------- |
+| `enabled` / `enabled_dynamic` | Enable subscription routes                                  |
+| `plans` / `plans_provider`    | Static or dynamic plan catalog                              |
+| `require_email_verification`  | Gate checkout on verified email                             |
+| `authorize_reference`         | Authorize org/user for subscription actions                 |
+| Lifecycle hooks               | `on_subscription_complete`, `on_subscription_created`, etc. |
+| `get_checkout_session_params` | Customize Checkout session creation                         |
 
 **StripePlan** fields: `name`, `price_id`, `lookup_key`, annual discount, limits, `group`, `seat_price_id`, `line_items`, free trial.
 
@@ -94,15 +94,15 @@ Organization billing requires the [organization](/docs/plugins/organization) plu
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | When | Description |
-| --- | --- | --- | --- |
-| POST | `/stripe/webhook` | always | Stripe webhook receiver |
-| POST | `/subscription/upgrade` | subscription enabled | Start upgrade/checkout |
-| POST | `/subscription/cancel` | subscription enabled | Cancel subscription |
-| POST | `/subscription/restore` | subscription enabled | Restore canceled subscription |
-| GET | `/subscription/list` | subscription enabled | List subscriptions |
-| GET | `/subscription/success` | subscription enabled | Checkout success redirect |
-| POST | `/subscription/billing-portal` | subscription enabled | Create billing portal session |
+| Method | Path                           | When                 | Description                   |
+| ------ | ------------------------------ | -------------------- | ----------------------------- |
+| POST   | `/stripe/webhook`              | always               | Stripe webhook receiver       |
+| POST   | `/subscription/upgrade`        | subscription enabled | Start upgrade/checkout        |
+| POST   | `/subscription/cancel`         | subscription enabled | Cancel subscription           |
+| POST   | `/subscription/restore`        | subscription enabled | Restore canceled subscription |
+| GET    | `/subscription/list`           | subscription enabled | List subscriptions            |
+| GET    | `/subscription/success`        | subscription enabled | Checkout success redirect     |
+| POST   | `/subscription/billing-portal` | subscription enabled | Create billing portal session |
 
 Configure your Stripe dashboard webhook to point at `{base_url}/stripe/webhook`. Verify signatures with the same secret passed to `StripeOptions::new`.
 
@@ -114,10 +114,10 @@ Configure your Stripe dashboard webhook to point at `{base_url}/stripe/webhook`.
 
 **Tables:**
 
-| Table | Purpose |
-| --- | --- |
-| `stripe_webhook_events` | Webhook idempotency |
-| `subscriptions` | Subscription state (when subscriptions enabled) |
+| Table                   | Purpose                                         |
+| ----------------------- | ----------------------------------------------- |
+| `stripe_webhook_events` | Webhook idempotency                             |
+| `subscriptions`         | Subscription state (when subscriptions enabled) |
 
 Run migrations after enabling:
 

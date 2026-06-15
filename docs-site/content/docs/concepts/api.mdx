@@ -68,9 +68,9 @@ Query parameters use standard URI query strings (for example `/verify-email?toke
 
 ## Request and response shape
 
-- **Body:** JSON with camelCase field names in HTTP (for example `rememberMe`, `callbackURL`).
-- **Headers:** Set `Content-Type: application/json` on POST bodies. Forward `Cookie` for session-authenticated routes.
-- **Responses:** JSON bodies on success; errors return `{ "code": "…", "message": "…" }`.
+* **Body:** JSON with camelCase field names in HTTP (for example `rememberMe`, `callbackURL`).
+* **Headers:** Set `Content-Type: application/json` on POST bodies. Forward `Cookie` for session-authenticated routes.
+* **Responses:** JSON bodies on success; errors return `{ "code": "…", "message": "…" }`.
 
 Inspect registered routes with [`RustAuth::endpoint_registry`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.endpoint_registry) or [`RustAuth::openapi_schema`](https://docs.rs/rustauth/latest/rustauth/struct.RustAuth.html#method.openapi_schema).
 

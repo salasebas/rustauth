@@ -32,12 +32,12 @@ Set `enabled: true` to activate checks. By default the plugin is wired but inact
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `enabled` | Turn breach checks on or off (default `false`) |
-| `paths` | Routes to inspect (default `/sign-up/email`, `/change-password`, `/reset-password`) |
-| `custom_password_compromised_message` | Override the error message shown to users |
-| `checker` | Custom `HaveIBeenPwnedChecker` instead of the built-in HIBP client |
+| Field                                 | Description                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------------------- |
+| `enabled`                             | Turn breach checks on or off (default `false`)                                      |
+| `paths`                               | Routes to inspect (default `/sign-up/email`, `/change-password`, `/reset-password`) |
+| `custom_password_compromised_message` | Override the error message shown to users                                           |
+| `checker`                             | Custom `HaveIBeenPwnedChecker` instead of the built-in HIBP client                  |
 
 Builder helpers: `.enabled(...)`, `.path(...)`, `.paths(...)`, `.checker(...)`.
 

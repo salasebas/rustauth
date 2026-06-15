@@ -32,25 +32,25 @@ let auth = RustAuth::builder()
 
 Top-level `JwtOptions` fields:
 
-| Field | Description |
-| --- | --- |
-| `jwks` | Key management settings (`JwtJwksOptions`) |
-| `jwt` | Signing claims settings (`JwtSigningOptions`) |
-| `adapter` | Custom JWKS storage hooks (`JwtAdapterOptions`) |
-| `disable_setting_jwt_header` | Skip attaching JWT on `/get-session` |
-| `schema` | Physical JWKS table/column overrides |
+| Field                        | Description                                     |
+| ---------------------------- | ----------------------------------------------- |
+| `jwks`                       | Key management settings (`JwtJwksOptions`)      |
+| `jwt`                        | Signing claims settings (`JwtSigningOptions`)   |
+| `adapter`                    | Custom JWKS storage hooks (`JwtAdapterOptions`) |
+| `disable_setting_jwt_header` | Skip attaching JWT on `/get-session`            |
+| `schema`                     | Physical JWKS table/column overrides            |
 
 `JwtJwksOptions` highlights:
 
-| Field | Description |
-| --- | --- |
-| `remote_url` | Use remote JWKS instead of local key storage |
-| `key_pair_algorithm` | Signing algorithm (default EdDSA) |
-| `rsa_modulus_length` | RSA modulus size when using RSA |
-| `disable_private_key_encryption` | Store private keys without encryption |
-| `rotation_interval` | Automatic key rotation interval (seconds) |
-| `grace_period` | Retired key grace period (default 30 days) |
-| `jwks_path` | JWKS endpoint path (default `/jwks`) |
+| Field                            | Description                                  |
+| -------------------------------- | -------------------------------------------- |
+| `remote_url`                     | Use remote JWKS instead of local key storage |
+| `key_pair_algorithm`             | Signing algorithm (default EdDSA)            |
+| `rsa_modulus_length`             | RSA modulus size when using RSA              |
+| `disable_private_key_encryption` | Store private keys without encryption        |
+| `rotation_interval`              | Automatic key rotation interval (seconds)    |
+| `grace_period`                   | Retired key grace period (default 30 days)   |
+| `jwks_path`                      | JWKS endpoint path (default `/jwks`)         |
 
 `JwtSigningOptions` highlights: `issuer`, `audience`, `expiration_time`, `define_payload`, `get_subject`, `sign`.
 
@@ -58,12 +58,12 @@ Top-level `JwtOptions` fields:
 
 Clients call these routes under your configured `base_path`. Paths follow `jwks_path` when customized.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/jwks` | JSON Web Key Set (public keys) |
-| GET | `/token` | JWT for the current session |
-| POST | `/sign-jwt` | Server-only: sign arbitrary claims |
-| POST | `/verify-jwt` | Server-only: verify a JWT |
+| Method | Path          | Description                        |
+| ------ | ------------- | ---------------------------------- |
+| GET    | `/jwks`       | JSON Web Key Set (public keys)     |
+| GET    | `/token`      | JWT for the current session        |
+| POST   | `/sign-jwt`   | Server-only: sign arbitrary claims |
+| POST   | `/verify-jwt` | Server-only: verify a JWT          |
 
 ## Database
 

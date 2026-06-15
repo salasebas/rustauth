@@ -2,7 +2,7 @@
 
 RustAuth is an unofficial Rust authentication toolkit inspired by [Better Auth](https://www.better-auth.com/).
 It is server-first: sessions, OAuth/OIDC, SSO, SCIM, SAML, passkeys, plugins, storage adapters,
-and Axum integration live in the `rustauth-*` crates.
+and Axum and Actix Web integrations live in the `rustauth-*` crates.
 
 **0.2.0** is the initial public working release. The API is pre-1.0; breaking changes are still
 possible before 1.0.
@@ -24,22 +24,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Mount into Axum with [`rustauth-axum`](crates/rustauth-axum/README.md):
+Mount into Axum with [`rustauth-axum`](crates/rustauth-axum/README.md) or Actix Web with [`rustauth-actix-web`](crates/rustauth-actix-web/README.md):
 
 ```rust
 use rustauth_axum::RustAuthAxumExt;
 
-let app = auth.mount_at_base_path()?;
+let app = auth.mount_at_base_path(RustAuthAxumOptions::default())?;
 ```
 
-Run `rustauth init` to create `rustauth.toml`, keep `[plugins].enabled` in sync with the plugins
+```rust
+use rustauth_actix_web::RustAuthActixWebExt;
+
+let scope = auth.mount_at_base_path(RustAuthActixWebOptions::default())?;
+```
+
+Run `rustauth init --framework axum` or `rustauth init --framework actix-web` to create
+`rustauth.toml`, keep `[plugins].enabled` in sync with the plugins
 you register in Rust, then `rustauth db migrate --yes` before serving traffic. See
 [docs/database-migrations.md](docs/database-migrations.md).
 
 ## Packages
 
 Start with the [umbrella `rustauth` crate](crates/rustauth/README.md) — its README links every
-`rustauth-*` package (core, axum, cli, plugins, OAuth, SSO, SCIM, adapters, and more).
+`rustauth-*` package (core, axum, actix-web, cli, plugins, OAuth, SSO, SCIM, adapters, and more).
 
 ## Docs and parity
 

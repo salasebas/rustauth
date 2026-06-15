@@ -158,7 +158,14 @@ fn init_rejects_unknown_plugin() {
     let temp = tempfile::tempdir().expect("tempdir");
 
     rustauth_cmd(temp.path())
-        .args(["init", "--plugins", "not-a-real-plugin", "--yes"])
+        .args([
+            "init",
+            "--framework",
+            "axum",
+            "--plugins",
+            "not-a-real-plugin",
+            "--yes",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("not an official RustAuth plugin"));

@@ -26,7 +26,7 @@ the app entirely — `rustauth.toml` alone is enough to test migrations.
 Create a starter config with:
 
 ```bash
-rustauth init --seed-secrets
+rustauth init --framework axum --seed-secrets
 ```
 
 ## Why SQLite + `sqlx`?

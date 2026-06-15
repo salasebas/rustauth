@@ -5,6 +5,23 @@ use predicates::prelude::*;
 use std::fs;
 
 #[test]
+fn init_requires_framework_flag() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "init",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--framework"));
+}
+
+#[test]
 fn init_creates_config_and_env_example() {
     let temp = tempfile::tempdir().expect("tempdir");
 
@@ -41,6 +58,37 @@ fn init_creates_config_and_env_example() {
     let env = fs::read_to_string(temp.path().join(".env.example")).expect("env example");
     assert!(env.contains("RUSTAUTH_SECRET=<generate-with-rustauth-secret>"));
     assert!(env.contains("DATABASE_URL="));
+}
+
+#[test]
+fn init_prints_actix_web_integration_snippet() {
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "init",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--framework",
+            "actix-web",
+            "--adapter",
+            "sqlx",
+            "--database",
+            "sqlite",
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Actix Web integration snippet"))
+        .stdout(predicate::str::contains("use std::sync::Arc;"))
+        .stdout(predicate::str::contains("HttpServer::new"))
+        .stdout(predicate::str::contains(
+            "mount_at_base_path(RustAuthActixWebOptions::default())",
+        ))
+        .stdout(predicate::str::contains(
+            ".expect(\"valid RustAuth Actix mount\")",
+        ));
 }
 
 #[test]
@@ -100,6 +148,8 @@ fn init_refuses_to_overwrite_existing_config() {
             "init",
             "--cwd",
             temp.path().to_str().expect("utf8 path"),
+            "--framework",
+            "axum",
             "--yes",
         ])
         .assert()

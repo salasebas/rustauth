@@ -100,9 +100,9 @@ Configure [`AdvancedOptions::background_tasks`](https://docs.rs/rustauth-core/la
 
 Official and custom plugins can register:
 
-- `before` / `after` endpoint hooks with path matchers
-- `async_before` / `async_after` for async work
-- `on_request` / `on_response` for global plugin behavior
-- `middlewares` scoped to plugin routes
+* `before` / `after` endpoint hooks with path matchers
+* `async_before` / `async_after` for async work
+* `on_request` / `on_response` for global plugin behavior
+* `middlewares` scoped to plugin routes
 
 See [Plugins](/docs/concepts/plugins) for plugin authoring. Global hooks on `RustAuthOptions` apply to every matched route; plugin hooks apply to routes owned by that plugin or matched explicitly.

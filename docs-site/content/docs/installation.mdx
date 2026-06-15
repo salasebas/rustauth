@@ -1,13 +1,13 @@
 ---
 title: Installation
-description: Install RustAuth with Cargo, configure secrets and adapters, run migrations, and mount on Axum.
+description: Install RustAuth with Cargo, configure secrets and adapters, run migrations, and mount on Axum or Actix Web.
 ---
 
 <Steps>
   <Step>
     ### Add dependencies
 
-    Add RustAuth and the Axum integration to your `Cargo.toml`:
+    Add RustAuth and a web framework adapter to your `Cargo.toml`:
 
     ```toml title="Cargo.toml"
     [dependencies]
@@ -15,6 +15,13 @@ description: Install RustAuth with Cargo, configure secrets and adapters, run mi
     rustauth-axum = "0.1"
     axum = "0.8"
     tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+    ```
+
+    For Actix Web instead of Axum:
+
+    ```toml title="Cargo.toml (Actix Web)"
+    rustauth-actix-web = "0.1"
+    actix-web = "4"
     ```
 
     <Callout type="info">
@@ -67,7 +74,7 @@ description: Install RustAuth with Cargo, configure secrets and adapters, run mi
     For larger apps, mirror `examples/backend-reference/src/auth/options.rs`: load `AppConfig` from env, attach plugins, social providers, and hooks on `RustAuthOptions`.
 
     <Callout type="warn">
-      **CLI migrations use a separate config file.** `rustauth db status`, `db generate`, and `db migrate` read **`rustauth.toml`** in your project root — they do not inspect `RustAuth::builder()` or compile your app. Create it with `rustauth init`, then keep `[database]` and `[plugins].enabled` aligned with the adapter and plugin ids you register in Rust. See [CLI](/docs/concepts/cli) and [database migrations](/docs/database-migrations).
+      **CLI migrations use a separate config file.** `rustauth db status`, `db generate`, and `db migrate` read **`rustauth.toml`** in your project root — they do not inspect `RustAuth::builder()` or compile your app. Create it with `rustauth init --framework axum` or `rustauth init --framework actix-web`, then keep `[database]` and `[plugins].enabled` aligned with the adapter and plugin ids you register in Rust. See [CLI](/docs/concepts/cli) and [database migrations](/docs/database-migrations).
     </Callout>
   </Step>
 
@@ -159,10 +166,11 @@ description: Install RustAuth with Cargo, configure secrets and adapters, run mi
 
     ```bash title="Terminal"
     cargo install rustauth-cli --features sqlx,plugins
-    rustauth init --seed-secrets
+    rustauth init --framework axum --seed-secrets
     ```
 
-    `rustauth init` writes `rustauth.toml`, `.env.example`, and `.env`. Edit the TOML
+    Use `--framework actix-web` when you mount auth with [`rustauth-actix-web`](/docs/integrations/actix-web)
+    instead of Axum. `rustauth init` writes `rustauth.toml`, `.env.example`, and `.env`. Edit the TOML
     so it matches your app — same SQL adapter, provider, and plugin ids as in Rust:
 
     ```toml title="rustauth.toml"
@@ -229,7 +237,9 @@ description: Install RustAuth with Cargo, configure secrets and adapters, run mi
     async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let auth = build_auth().await?;
 
-        let app = auth.into_router_with(RustAuthAxumOptions::new().body_limit(1024 * 1024))?;
+        let app = auth.mount_at_base_path(
+            RustAuthAxumOptions::new().body_limit(1024 * 1024),
+        )?;
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
         axum::serve(
@@ -245,14 +255,15 @@ description: Install RustAuth with Cargo, configure secrets and adapters, run mi
       RustAuth does not ship a browser `authClient`. Frontends call REST endpoints under your auth base path, or your app's BFF proxies cookies. See [basic usage](/docs/basic-usage).
     </Callout>
 
-    Full Axum patterns: [Axum integration](/docs/integrations/axum). Reference app: [`examples/backend-reference`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference).
+    Full Axum patterns: [Axum integration](/docs/integrations/axum). Actix Web: [Actix integration](/docs/integrations/actix-web). Reference app: [`examples/backend-reference`](https://github.com/salasebas/rustauth/tree/main/examples/backend-reference).
   </Step>
 
   <Step>
     ### Next steps
 
-    - [Basic usage](/docs/basic-usage) — sign up, sign in, sessions over HTTP
-    - [Axum integration](/docs/integrations/axum) — mount APIs and production notes
-    - [Plugins](/docs/plugins) — extend auth with official plugins
+    * [Basic usage](/docs/basic-usage) — sign up, sign in, sessions over HTTP
+    * [Axum integration](/docs/integrations/axum) — mount APIs and production notes
+    * [Actix Web integration](/docs/integrations/actix-web) — Actix mount APIs and limitations
+    * [Plugins](/docs/plugins) — extend auth with official plugins
   </Step>
 </Steps>

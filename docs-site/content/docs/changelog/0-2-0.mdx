@@ -9,14 +9,14 @@ description: Initial public working release of RustAuth.
 
 First public release under the `rustauth` / `rustauth-*` crate namespace.
 
-- **Core** — `RustAuth`, sessions, cookies (prefix `rustauth`), rate limits, opt-in email/password, plugins, hooks, and camelCase HTTP JSON.
-- **Integrations** — `rustauth-axum`, `rustauth-cli`, and `rustauth.toml` + `rustauth db migrate`.
-- **Plugins** — admin, organization, JWT, API keys, magic link, email OTP, two-factor, SIWE, CAPTCHA, device authorization, and more (`rustauth-plugins`).
-- **Enterprise** — OAuth client, social providers, OAuth/OIDC provider, OIDC RP, SAML, SSO, SCIM, passkeys, Stripe, i18n, telemetry.
-- **Adapters** — SQLx (SQLite/Postgres/MySQL), tokio-postgres, deadpool-postgres, Redis, Fred.
+* **Core** — `RustAuth`, sessions, cookies (prefix `rustauth`), rate limits, opt-in email/password, plugins, hooks, and camelCase HTTP JSON.
+* **Integrations** — `rustauth-axum`, `rustauth-cli`, and `rustauth.toml` + `rustauth db migrate`.
+* **Plugins** — admin, organization, JWT, API keys, magic link, email OTP, two-factor, SIWE, CAPTCHA, device authorization, and more (`rustauth-plugins`).
+* **Enterprise** — OAuth client, social providers, OAuth/OIDC provider, OIDC RP, SAML, SSO, SCIM, passkeys, Stripe, i18n, telemetry.
+* **Adapters** — SQLx (SQLite/Postgres/MySQL), tokio-postgres, deadpool-postgres, Redis, Fred.
 
 ## Notes
 
-- Email/password routes are opt-in (`EmailPasswordOptions::enabled(true)`).
-- Several crates use `default = []`; enable features explicitly or use `full` on the umbrella `rustauth` crate.
-- Run `rustauth db migrate` before serving traffic.
+* Email/password routes are opt-in (`EmailPasswordOptions::enabled(true)`).
+* Several crates use `default = []`; enable features explicitly or use `full` on the umbrella `rustauth` crate.
+* Run `rustauth db migrate` before serving traffic.

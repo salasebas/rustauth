@@ -85,17 +85,17 @@ When `enable_session_for_api_keys: true`, a global before-hook resolves a valid 
 
 ## Storage modes
 
-| Mode | Behavior |
-| --- | --- |
-| `Database` (default) | Keys stored and verified in the primary adapter |
-| `SecondaryStorage` | Fast lookup in Redis or custom storage with optional DB fallback |
+| Mode                 | Behavior                                                         |
+| -------------------- | ---------------------------------------------------------------- |
+| `Database` (default) | Keys stored and verified in the primary adapter                  |
+| `SecondaryStorage`   | Fast lookup in Redis or custom storage with optional DB fallback |
 
 Secondary storage options on `ApiKeyConfiguration`:
 
-- `custom_storage` — implement lookup/update/delete
-- `fallback_to_database` — read through to DB when secondary misses
-- `revalidate_secondary_against_database` — reconcile stale cache entries
-- `defer_updates` — batch writes to secondary storage
+* `custom_storage` — implement lookup/update/delete
+* `fallback_to_database` — read through to DB when secondary misses
+* `revalidate_secondary_against_database` — reconcile stale cache entries
+* `defer_updates` — batch writes to secondary storage
 
 For Redis-backed secondary storage, see the `rustauth-redis` crate and enable the `redis` feature on `rustauth`.
 
@@ -103,12 +103,12 @@ For Redis-backed secondary storage, see the `rustauth-redis` crate and enable th
 
 Hook points on `ApiKeyConfiguration`:
 
-| Field | Purpose |
-| --- | --- |
-| `custom_key_generator` | Generate raw key material |
-| `custom_api_key_getter` | Extract key from non-standard requests |
-| `custom_api_key_validator` | Additional validation after hash verify |
-| `default_permissions_resolver` | Resolve permissions at create time |
+| Field                          | Purpose                                 |
+| ------------------------------ | --------------------------------------- |
+| `custom_key_generator`         | Generate raw key material               |
+| `custom_api_key_getter`        | Extract key from non-standard requests  |
+| `custom_api_key_validator`     | Additional validation after hash verify |
+| `default_permissions_resolver` | Resolve permissions at create time      |
 
 ## Prefix and display hints
 

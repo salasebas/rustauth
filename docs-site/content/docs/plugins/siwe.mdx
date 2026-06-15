@@ -56,15 +56,15 @@ let auth = RustAuth::builder()
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `domain` | Expected SIWE domain (required in production) |
-| `email_domain_name` | Domain for synthetic user emails |
-| `anonymous` | Allow wallet-only users without prior account (default `true`) |
-| `get_nonce` | Async nonce generator (required) |
-| `verify_message` | Async signature verifier (required) |
-| `ens_lookup` | Optional ENS name resolver |
-| `schema` | Table and column overrides via `SiweSchemaOptions` |
+| Field               | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| `domain`            | Expected SIWE domain (required in production)                  |
+| `email_domain_name` | Domain for synthetic user emails                               |
+| `anonymous`         | Allow wallet-only users without prior account (default `true`) |
+| `get_nonce`         | Async nonce generator (required)                               |
+| `verify_message`    | Async signature verifier (required)                            |
+| `ens_lookup`        | Optional ENS name resolver                                     |
+| `schema`            | Table and column overrides via `SiweSchemaOptions`             |
 
 Builder API: `SiweOptions::builder()` with `domain`, `email_domain_name`, `anonymous`, `get_nonce`, `verify_message`, `ens_lookup`, `schema`, and `build()`.
 
@@ -74,10 +74,10 @@ Nonces are stored in the verification store with a 15-minute TTL.
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/siwe/nonce` | Request a sign-in nonce |
-| POST | `/siwe/verify` | Verify a signed SIWE message and create a session |
+| Method | Path           | Description                                       |
+| ------ | -------------- | ------------------------------------------------- |
+| POST   | `/siwe/nonce`  | Request a sign-in nonce                           |
+| POST   | `/siwe/verify` | Verify a signed SIWE message and create a session |
 
 Typical flow: fetch a nonce, construct the SIWE message in the wallet, sign it, then POST the message and signature to `/siwe/verify`.
 
@@ -85,14 +85,14 @@ Typical flow: fetch a nonce, construct the SIWE message in the wallet, sign it, 
 
 The plugin adds **`wallet_addresses`** (customizable via schema options):
 
-| Column | Description |
-| --- | --- |
-| `id` | Record ID |
-| `user_id` | Linked user |
-| `address` | Wallet address |
-| `chain_id` | Chain identifier |
+| Column       | Description         |
+| ------------ | ------------------- |
+| `id`         | Record ID           |
+| `user_id`    | Linked user         |
+| `address`    | Wallet address      |
+| `chain_id`   | Chain identifier    |
 | `is_primary` | Primary wallet flag |
-| `created_at` | Creation timestamp |
+| `created_at` | Creation timestamp  |
 
 Run migrations after enabling:
 

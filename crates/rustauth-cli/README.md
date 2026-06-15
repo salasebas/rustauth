@@ -33,7 +33,7 @@ Without a config, `doctor` reports what is missing (including the absent
 `rustauth.toml`) and `schema print` emits the default schema, so the CLI is
 useful before any project setup.
 
-To create a project and unlock the config-bound workflow, run `rustauth init`
+To create a project and unlock the config-bound workflow, run `rustauth init --framework <axum|actix-web>`
 first. It writes `rustauth.toml`, syncs `.env.example`, and creates or updates
 `.env` in the current directory. Missing keys are merged in without overwriting
 values that are already present; a new `.env` is copied from `.env.example` and
@@ -41,8 +41,9 @@ uses placeholder secrets unless you pass `--seed-secrets` to generate a signing
 secret for local development. The following commands read `rustauth.toml`:
 
 ```sh
-rustauth init                # rustauth.toml + .env.example + .env
-rustauth init --seed-secrets # same, but a new .env gets a generated RUSTAUTH_SECRET
+rustauth init --framework axum                # rustauth.toml + .env.example + .env
+rustauth init --framework actix-web           # same, with Actix Web integration snippet
+rustauth init --framework axum --seed-secrets # new .env gets a generated RUSTAUTH_SECRET
 rustauth doctor --production # config-aware production readiness checks
 rustauth db generate         # generate a migration from the configured schema
 rustauth db migrate --yes    # apply pending migrations (non-interactive)

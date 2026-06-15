@@ -42,6 +42,7 @@ Agent prompts: [`UPSTREAM_SPLIT_PROMPT.md`](./UPSTREAM_SPLIT_PROMPT.md) (move RE
 | [`rustauth-telemetry`](../../crates/rustauth-telemetry/UPSTREAM.md) | `@better-auth/telemetry` | Contributor doc |
 | [`rustauth-cli`](../../crates/rustauth-cli/UPSTREAM.md) | `packages/cli` (`auth` npm) | Contributor doc |
 | [`rustauth-axum`](../../crates/rustauth-axum/UPSTREAM.md) | `better-auth` HTTP integrations | Contributor doc |
+| [`rustauth-actix-web`](../../crates/rustauth-actix-web/UPSTREAM.md) | `better-auth` HTTP integrations | Contributor doc |
 | [`rustauth-sqlx`](../../crates/rustauth-sqlx/UPSTREAM.md) | `@better-auth/kysely-adapter` | Contributor doc |
 | [`rustauth-tokio-postgres`](../../crates/rustauth-tokio-postgres/UPSTREAM.md) | `@better-auth/kysely-adapter` (Postgres) | Contributor doc |
 | [`rustauth-deadpool-postgres`](../../crates/rustauth-deadpool-postgres/UPSTREAM.md) | `@better-auth/kysely-adapter` (Postgres) | Contributor doc |

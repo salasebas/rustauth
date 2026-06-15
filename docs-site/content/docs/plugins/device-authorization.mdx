@@ -36,30 +36,30 @@ let auth = RustAuth::builder()
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `expires_in` | Device code lifetime (default 30 minutes) |
-| `interval` | Minimum polling interval for `/device/token` |
-| `device_code_length` | Length of the device code |
-| `user_code_length` | Length of the human-readable user code |
-| `verification_uri` | URI shown to users for approval (default `/device`) |
-| `generate_device_code` | Custom async device-code generator |
-| `generate_user_code` | Custom async user-code generator |
-| `validate_client` | Async client-ID validator |
-| `on_device_auth_request` | Hook when a device authorization starts |
-| `schema` | Physical table and column name overrides |
+| Field                    | Description                                         |
+| ------------------------ | --------------------------------------------------- |
+| `expires_in`             | Device code lifetime (default 30 minutes)           |
+| `interval`               | Minimum polling interval for `/device/token`        |
+| `device_code_length`     | Length of the device code                           |
+| `user_code_length`       | Length of the human-readable user code              |
+| `verification_uri`       | URI shown to users for approval (default `/device`) |
+| `generate_device_code`   | Custom async device-code generator                  |
+| `generate_user_code`     | Custom async user-code generator                    |
+| `validate_client`        | Async client-ID validator                           |
+| `on_device_auth_request` | Hook when a device authorization starts             |
+| `schema`                 | Physical table and column name overrides            |
 
 ## HTTP endpoints
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/device/code` | Request a device and user code |
-| POST | `/device/token` | Poll for tokens after user approval |
-| GET | `/device` | Look up device authorization status by user code |
-| POST | `/device/approve` | Approve a pending device authorization |
-| POST | `/device/deny` | Deny a pending device authorization |
+| Method | Path              | Description                                      |
+| ------ | ----------------- | ------------------------------------------------ |
+| POST   | `/device/code`    | Request a device and user code                   |
+| POST   | `/device/token`   | Poll for tokens after user approval              |
+| GET    | `/device`         | Look up device authorization status by user code |
+| POST   | `/device/approve` | Approve a pending device authorization           |
+| POST   | `/device/deny`    | Deny a pending device authorization              |
 
 ## Database
 

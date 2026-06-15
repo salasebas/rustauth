@@ -61,29 +61,29 @@ editor.authorize(req, Connector::And)?;
 
 ## API reference
 
-| Symbol | Description |
-| --- | --- |
-| `statements([...])` | Build a resource-to-actions map from `(resource, actions)` pairs |
-| `create_access_control(statements)` | Create a policy; returns `Result<AccessControl, AccessError>` |
-| `AccessControl::new_role(statements)` | Create a validated role |
-| `role(statements)` | Create a role without policy validation (use when you control inputs) |
-| `access_request([...])` | Build an authorization request (all actions per resource required) |
-| `Role::authorize_all(request)` | Authorize with AND across resources |
-| `Role::authorize_any(request)` | Authorize with OR across resources |
-| `Role::authorize(request, connector)` | Authorize with an explicit top-level connector |
+| Symbol                                | Description                                                           |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| `statements([...])`                   | Build a resource-to-actions map from `(resource, actions)` pairs      |
+| `create_access_control(statements)`   | Create a policy; returns `Result<AccessControl, AccessError>`         |
+| `AccessControl::new_role(statements)` | Create a validated role                                               |
+| `role(statements)`                    | Create a role without policy validation (use when you control inputs) |
+| `access_request([...])`               | Build an authorization request (all actions per resource required)    |
+| `Role::authorize_all(request)`        | Authorize with AND across resources                                   |
+| `Role::authorize_any(request)`        | Authorize with OR across resources                                    |
+| `Role::authorize(request, connector)` | Authorize with an explicit top-level connector                        |
 
 ## Errors
 
 `AccessError` covers validation and authorization failures:
 
-| Variant | Meaning |
-| --- | --- |
-| `EmptyRequest` | Authorization request has no resources |
-| `UnknownResource` | Role references a resource not in the base policy |
-| `UnknownAction` | Role references an action not allowed for that resource |
-| `ResourceDenied` | Role has no permissions for the requested resource |
-| `UnauthorizedResource` | Role is missing one or more requested actions |
-| `NotAuthorized` | OR authorization failed for every resource |
+| Variant                | Meaning                                                 |
+| ---------------------- | ------------------------------------------------------- |
+| `EmptyRequest`         | Authorization request has no resources                  |
+| `UnknownResource`      | Role references a resource not in the base policy       |
+| `UnknownAction`        | Role references an action not allowed for that resource |
+| `ResourceDenied`       | Role has no permissions for the requested resource      |
+| `UnauthorizedResource` | Role is missing one or more requested actions           |
+| `NotAuthorized`        | OR authorization failed for every resource              |
 
 ## Using with Admin
 

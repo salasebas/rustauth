@@ -37,10 +37,10 @@ Alternatively, set `client_id` on `OneTapOptions` to override the Google provide
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `disable_signup` | Reject unknown Google accounts (default `false`) |
-| `client_id` | Override Google OAuth client ID for token verification |
+| Field            | Description                                            |
+| ---------------- | ------------------------------------------------------ |
+| `disable_signup` | Reject unknown Google accounts (default `false`)       |
+| `client_id`      | Override Google OAuth client ID for token verification |
 
 When `disable_signup` is `false`, unknown Google accounts are registered automatically (subject to core sign-up rules).
 
@@ -48,9 +48,9 @@ When `disable_signup` is `false`, unknown Google accounts are registered automat
 
 Clients call this route under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/one-tap/callback` | Verify Google `idToken` and return a session |
+| Method | Path                | Description                                  |
+| ------ | ------------------- | -------------------------------------------- |
+| POST   | `/one-tap/callback` | Verify Google `idToken` and return a session |
 
 Request body (JSON, camelCase):
 
@@ -76,5 +76,5 @@ rustauth db migrate
 
 ## Related
 
-- [Google authentication](/docs/authentication/google) — full Google OAuth sign-in
-- [OAuth concepts](/docs/concepts/oauth) — social provider setup
+* [Google authentication](/docs/authentication/google) — full Google OAuth sign-in
+* [OAuth concepts](/docs/concepts/oauth) — social provider setup

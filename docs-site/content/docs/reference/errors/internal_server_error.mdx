@@ -9,9 +9,9 @@ description: Unexpected authentication failure (upstream redirect slug).
   Not yet emitted by RustAuth as an OAuth redirect slug named `internal_server_error` (parity gap). Unexpected failures in Rust typically surface as:
 </Callout>
 
-- **Router errors** — `RustAuthError` returned from `handler_async` (check server logs).
-- **JSON API errors** — HTTP 500 with [`ApiErrorResponse`](/docs/concepts/api#error-handling) where implemented.
-- **Plugin password validation** — `PluginPasswordValidationRejection::internal_server_error` in plugins such as Have I Been Pwned (returns plugin JSON codes, not this redirect slug).
+* **Router errors** — `RustAuthError` returned from `handler_async` (check server logs).
+* **JSON API errors** — HTTP 500 with [`ApiErrorResponse`](/docs/concepts/api#error-handling) where implemented.
+* **Plugin password validation** — `PluginPasswordValidationRejection::internal_server_error` in plugins such as Have I Been Pwned (returns plugin JSON codes, not this redirect slug).
 
 ## Handling in Rust
 
@@ -28,6 +28,6 @@ match auth.handler_async(request).await {
 
 ## How to fix
 
-- Check structured logs / tracing output from your Axum stack.
-- Verify database connectivity, migrations, and required secrets.
-- Review custom hooks and plugin endpoints for panics or rejected operations.
+* Check structured logs / tracing output from your Axum stack.
+* Verify database connectivity, migrations, and required secrets.
+* Review custom hooks and plugin endpoints for panics or rejected operations.

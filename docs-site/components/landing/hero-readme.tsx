@@ -20,7 +20,7 @@ import {
 } from "./framework-sections";
 
 const cliCommand =
-	"cargo install rustauth-cli --features sqlx\nrustauth init --seed-secrets";
+	"cargo install rustauth-cli --features sqlx\nrustauth init --framework axum --seed-secrets";
 
 const aiPromptText = `Set up authentication in my Rust project using RustAuth (rustauth crate).
 
@@ -230,7 +230,7 @@ function InstallBlock() {
 											cargo install rustauth-cli --features sqlx
 										</span>
 										<span className="text-neutral-700 dark:text-neutral-300 block">
-											rustauth init --seed-secrets
+											rustauth init --framework axum --seed-secrets
 										</span>
 									</code>
 									<div className="relative">

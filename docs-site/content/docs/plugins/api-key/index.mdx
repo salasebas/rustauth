@@ -60,26 +60,26 @@ See [Advanced](/docs/plugins/api-key/advanced) for organization-owned keys, seco
 
 Top-level **`ApiKeyOptions`**:
 
-| Field | Description |
-| --- | --- |
-| `configurations` | One or more `ApiKeyConfiguration` entries |
-| `schema` | Table and column overrides via `ApiKeySchemaOptions` |
+| Field            | Description                                          |
+| ---------------- | ---------------------------------------------------- |
+| `configurations` | One or more `ApiKeyConfiguration` entries            |
+| `schema`         | Table and column overrides via `ApiKeySchemaOptions` |
 
 Each **`ApiKeyConfiguration`**:
 
-| Field | Description |
-| --- | --- |
-| `config_id` | Required when using multiple configurations |
-| `reference` | `User` (default) or `Organization` |
-| `api_key_headers` | Header names to read keys from (default `x-api-key`) |
-| `rate_limit` | Per-key rate limiting |
-| `key_expiration` | Default and bounds for key expiry |
-| `starting_characters` | Store/display prefix of raw key |
-| `default_prefix` / `default_key_length` | Key generation defaults |
-| `enable_metadata` | Allow arbitrary metadata on keys |
-| `enable_session_for_api_keys` | Treat valid keys as authenticated sessions |
-| `default_permissions` | Default permission set for new keys |
-| `storage` | `Database` or `SecondaryStorage` lookup mode |
+| Field                                   | Description                                          |
+| --------------------------------------- | ---------------------------------------------------- |
+| `config_id`                             | Required when using multiple configurations          |
+| `reference`                             | `User` (default) or `Organization`                   |
+| `api_key_headers`                       | Header names to read keys from (default `x-api-key`) |
+| `rate_limit`                            | Per-key rate limiting                                |
+| `key_expiration`                        | Default and bounds for key expiry                    |
+| `starting_characters`                   | Store/display prefix of raw key                      |
+| `default_prefix` / `default_key_length` | Key generation defaults                              |
+| `enable_metadata`                       | Allow arbitrary metadata on keys                     |
+| `enable_session_for_api_keys`           | Treat valid keys as authenticated sessions           |
+| `default_permissions`                   | Default permission set for new keys                  |
+| `storage`                               | `Database` or `SecondaryStorage` lookup mode         |
 
 Organization-owned keys require the [organization](/docs/plugins/organization) plugin.
 
@@ -87,15 +87,15 @@ Organization-owned keys require the [organization](/docs/plugins/organization) p
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/api-key/create` | Create an API key (returns raw key once) |
-| POST | `/api-key/verify` | Verify a key |
-| GET | `/api-key/get` | Get key metadata by ID |
-| POST | `/api-key/update` | Update key settings |
-| POST | `/api-key/delete` | Delete a key |
-| GET | `/api-key/list` | List keys for the current user or org |
-| POST | `/api-key/delete-all-expired-api-keys` | Purge expired keys |
+| Method | Path                                   | Description                              |
+| ------ | -------------------------------------- | ---------------------------------------- |
+| POST   | `/api-key/create`                      | Create an API key (returns raw key once) |
+| POST   | `/api-key/verify`                      | Verify a key                             |
+| GET    | `/api-key/get`                         | Get key metadata by ID                   |
+| POST   | `/api-key/update`                      | Update key settings                      |
+| POST   | `/api-key/delete`                      | Delete a key                             |
+| GET    | `/api-key/list`                        | List keys for the current user or org    |
+| POST   | `/api-key/delete-all-expired-api-keys` | Purge expired keys                       |
 
 Protected routes can also accept keys via configured headers when session mode or custom validators are enabled.
 

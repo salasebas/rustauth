@@ -32,10 +32,27 @@ pub(crate) enum Commands {
     Completions(CompletionsArgs),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum InitFramework {
+    Axum,
+    #[value(name = "actix-web", alias = "actix_web")]
+    ActixWeb,
+}
+
+impl InitFramework {
+    pub(crate) fn as_config_str(self) -> &'static str {
+        match self {
+            Self::Axum => "axum",
+            Self::ActixWeb => "actix-web",
+        }
+    }
+}
+
 #[derive(Debug, clap::Args)]
 pub(crate) struct InitArgs {
-    #[arg(long)]
-    pub(crate) framework: Option<String>,
+    /// HTTP framework for the integration snippet and `[project].framework` in `rustauth.toml`.
+    #[arg(long, required = true)]
+    pub(crate) framework: InitFramework,
     #[arg(long)]
     pub(crate) adapter: Option<String>,
     #[arg(long)]
@@ -290,7 +307,7 @@ impl AppContext {
                 if source.kind() == std::io::ErrorKind::NotFound =>
             {
                 AppError::Message(format!(
-                    "No RustAuth CLI config found at {}. Run `rustauth init` or pass --config <path>.",
+                    "No RustAuth CLI config found at {}. Run `rustauth init --framework axum` or `rustauth init --framework actix-web`, or pass --config <path>.",
                     path.display()
                 ))
             }

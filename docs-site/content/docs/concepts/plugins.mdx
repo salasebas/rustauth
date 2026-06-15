@@ -30,8 +30,8 @@ let auth = RustAuth::builder()
 
 When configuring [`RustAuthOptions`](https://docs.rs/rustauth-core/latest/rustauth_core/options/struct.RustAuthOptions.html) directly:
 
-- `.plugin(x)` appends one plugin
-- `.plugins(vec![…])` appends a batch
+* `.plugin(x)` appends one plugin
+* `.plugins(vec![…])` appends a batch
 
 Run `rustauth db migrate` after enabling plugins so schema matches. List official plugins with `rustauth plugins list`.
 
@@ -55,12 +55,12 @@ pub fn my_plugin() -> AuthPlugin {
 
 ### What plugins can do
 
-- Add HTTP endpoints (`PluginEndpoint` / `AsyncAuthEndpoint`)
-- Contribute database schema and migrations
-- Register before/after/async hooks and middleware
-- Hook `on_request` / `on_response`
-- Define custom rate-limit rules
-- Register password validators and database hooks
+* Add HTTP endpoints (`PluginEndpoint` / `AsyncAuthEndpoint`)
+* Contribute database schema and migrations
+* Register before/after/async hooks and middleware
+* Hook `on_request` / `on_response`
+* Define custom rate-limit rules
+* Register password validators and database hooks
 
 ### Endpoints
 

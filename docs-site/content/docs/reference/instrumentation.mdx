@@ -11,9 +11,9 @@ description: Observability hooks for RustAuth (tracing-first; OpenTelemetry WIP)
 
 Integrators typically initialize `tracing-subscriber` in the Axum/binary entrypoint and rely on:
 
-- Application hooks ([`GlobalHooksOptions`](/docs/concepts/hooks)) — log or trace around each auth route.
-- Plugin and adapter logs — enable `RUST_LOG=rustauth=debug,rustauth_core=debug`.
-- Backend reference pattern — `tracing::debug!(path, "auth request")` in `examples/backend-reference/src/auth/options.rs`.
+* Application hooks ([`GlobalHooksOptions`](/docs/concepts/hooks)) — log or trace around each auth route.
+* Plugin and adapter logs — enable `RUST_LOG=rustauth=debug,rustauth_core=debug`.
+* Backend reference pattern — `tracing::debug!(path, "auth request")` in `examples/backend-reference/src/auth/options.rs`.
 
 ```rust
 use tracing_subscriber::EnvFilter;
@@ -27,12 +27,12 @@ Mount RustAuth on Axum and propagate trace contexts with your framework's middle
 
 ## HTTP error and latency signals
 
-| Signal | Source |
-| ------ | ------ |
-| Request path / status | Axum `TraceLayer` or reverse proxy access logs |
-| Auth API error codes | Parse [`ApiErrorResponse`](/docs/concepts/api#error-handling) bodies |
+| Signal                  | Source                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| Request path / status   | Axum `TraceLayer` or reverse proxy access logs                                |
+| Auth API error codes    | Parse [`ApiErrorResponse`](/docs/concepts/api#error-handling) bodies          |
 | OAuth redirect failures | Parse `?error=` on redirect URLs ([errors reference](/docs/reference/errors)) |
-| Rate limits | `429` responses with `X-Retry-After` header |
+| Rate limits             | `429` responses with `X-Retry-After` header                                   |
 
 ## Database and adapter visibility
 
@@ -42,13 +42,13 @@ SQLx and custom adapters should log slow queries at the integration layer. RustA
 
 Future work aims to cover:
 
-- Endpoint spans (`{METHOD} {route}`)
-- Global and plugin hook spans
-- Adapter operation spans
+* Endpoint spans (`{METHOD} {route}`)
+* Global and plugin hook spans
+* Adapter operation spans
 
 Until then, treat upstream [Better Auth instrumentation docs](https://www.better-auth.com/docs/reference/instrumentation) as the behavioral target, not the current Rust implementation.
 
 ## Related
 
-- [Hooks](/docs/concepts/hooks) — inject custom tracing inside auth lifecycle.
-- [Telemetry](/docs/reference/telemetry) — anonymous usage metrics (separate from request tracing).
+* [Hooks](/docs/concepts/hooks) — inject custom tracing inside auth lifecycle.
+* [Telemetry](/docs/reference/telemetry) — anonymous usage metrics (separate from request tracing).

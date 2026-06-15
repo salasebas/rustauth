@@ -32,12 +32,12 @@ Use [`RustAuth::openapi_schema`](https://docs.rs/rustauth/latest/rustauth/struct
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `path` | Interactive UI path (default `"/reference"`) |
-| `disable_default_reference` | Skip serving Scalar HTML (default `false`) |
-| `theme` | Scalar theme name (default `"default"`) |
-| `nonce` | Optional CSP nonce for the reference page |
+| Field                       | Description                                  |
+| --------------------------- | -------------------------------------------- |
+| `path`                      | Interactive UI path (default `"/reference"`) |
+| `disable_default_reference` | Skip serving Scalar HTML (default `false`)   |
+| `theme`                     | Scalar theme name (default `"default"`)      |
+| `nonce`                     | Optional CSP nonce for the reference page    |
 
 When `disable_default_reference` is `true`, `/open-api/generate-schema` still works but the UI route returns 404.
 
@@ -45,10 +45,10 @@ When `disable_default_reference` is `true`, `/open-api/generate-schema` still wo
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/open-api/generate-schema` | Full OpenAPI 3 JSON for all routes |
-| GET | `/reference` | Interactive Scalar UI (default; follows `path`) |
+| Method | Path                        | Description                                     |
+| ------ | --------------------------- | ----------------------------------------------- |
+| GET    | `/open-api/generate-schema` | Full OpenAPI 3 JSON for all routes              |
+| GET    | `/reference`                | Interactive Scalar UI (default; follows `path`) |
 
 The reference route is hidden from the generated OpenAPI document itself.
 
@@ -58,5 +58,5 @@ No schema changes.
 
 ## Related
 
-- [API concepts](/docs/concepts/api) — calling auth HTTP routes from your backend
-- [Plugins overview](/docs/concepts/plugins) — discovering routes without the UI
+* [API concepts](/docs/concepts/api) — calling auth HTTP routes from your backend
+* [Plugins overview](/docs/concepts/plugins) — discovering routes without the UI

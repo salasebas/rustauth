@@ -29,9 +29,9 @@ ApiKeyOptions::builder()
 
 Where the key is anchored:
 
-| Variant | Description |
-| --- | --- |
-| `User` | Key belongs to the authenticated user (default) |
+| Variant        | Description                                                  |
+| -------------- | ------------------------------------------------------------ |
+| `User`         | Key belongs to the authenticated user (default)              |
 | `Organization` | Key belongs to an organization; requires organization plugin |
 
 Organization keys include `reference_id` pointing at the organization row.
@@ -40,22 +40,22 @@ Organization keys include `reference_id` pointing at the organization row.
 
 Primary configuration struct. Important fields:
 
-| Field | Type | Default / notes |
-| --- | --- | --- |
-| `config_id` | `Option<String>` | Required with multiple configs |
-| `reference` | `ApiKeyReference` | `User` |
-| `api_key_headers` | `Vec<String>` | `["x-api-key"]` |
-| `disable_key_hashing` | `bool` | `false` (dev only) |
-| `default_key_length` | `usize` | 64 |
-| `default_prefix` | `Option<String>` | Optional key prefix |
-| `require_name` | `bool` | Require name on create |
-| `enable_metadata` | `bool` | Allow metadata JSON |
-| `key_expiration` | `ApiKeyExpirationOptions` | TTL defaults and bounds |
-| `rate_limit` | `ApiKeyRateLimitOptions` | Per-key rate limit |
-| `enable_session_for_api_keys` | `bool` | Global session hook |
-| `default_permissions` | `Option<Value>` | Default permission JSON |
-| `storage` | `ApiKeyStorageMode` | `Database` or `SecondaryStorage` |
-| `starting_characters` | `StartingCharactersConfig` | Display prefix storage |
+| Field                         | Type                       | Default / notes                  |
+| ----------------------------- | -------------------------- | -------------------------------- |
+| `config_id`                   | `Option<String>`           | Required with multiple configs   |
+| `reference`                   | `ApiKeyReference`          | `User`                           |
+| `api_key_headers`             | `Vec<String>`              | `["x-api-key"]`                  |
+| `disable_key_hashing`         | `bool`                     | `false` (dev only)               |
+| `default_key_length`          | `usize`                    | 64                               |
+| `default_prefix`              | `Option<String>`           | Optional key prefix              |
+| `require_name`                | `bool`                     | Require name on create           |
+| `enable_metadata`             | `bool`                     | Allow metadata JSON              |
+| `key_expiration`              | `ApiKeyExpirationOptions`  | TTL defaults and bounds          |
+| `rate_limit`                  | `ApiKeyRateLimitOptions`   | Per-key rate limit               |
+| `enable_session_for_api_keys` | `bool`                     | Global session hook              |
+| `default_permissions`         | `Option<Value>`            | Default permission JSON          |
+| `storage`                     | `ApiKeyStorageMode`        | `Database` or `SecondaryStorage` |
+| `starting_characters`         | `StartingCharactersConfig` | Display prefix storage           |
 
 ## ApiKeyRateLimitOptions
 
@@ -95,9 +95,9 @@ When `should_store` is true, the first `characters_length` characters of the raw
 
 ## ApiKeyStorageMode
 
-| Variant | Description |
-| --- | --- |
-| `Database` | Primary adapter only |
+| Variant            | Description                               |
+| ------------------ | ----------------------------------------- |
+| `Database`         | Primary adapter only                      |
 | `SecondaryStorage` | Secondary store with optional DB fallback |
 
 Related fields: `custom_storage`, `fallback_to_database`, `revalidate_secondary_against_database`, `defer_updates`.
@@ -106,20 +106,20 @@ Related fields: `custom_storage`, `fallback_to_database`, `revalidate_secondary_
 
 Default table name: **`api_keys`**
 
-| Column | Description |
-| --- | --- |
-| `id` | Key ID |
-| `config_id` | Configuration profile |
-| `name` | Human-readable name |
-| `start` | Starting characters for display |
-| `prefix` | Key prefix |
-| `key` | Hashed secret |
-| `reference_id` | User or organization ID |
-| `enabled` | Whether the key is active |
-| `expires_at` | Expiration timestamp |
-| `metadata` | Optional JSON metadata |
-| `permissions` | Optional permission JSON |
-| Rate limit / refill columns | Counters and windows |
+| Column                      | Description                     |
+| --------------------------- | ------------------------------- |
+| `id`                        | Key ID                          |
+| `config_id`                 | Configuration profile           |
+| `name`                      | Human-readable name             |
+| `start`                     | Starting characters for display |
+| `prefix`                    | Key prefix                      |
+| `key`                       | Hashed secret                   |
+| `reference_id`              | User or organization ID         |
+| `enabled`                   | Whether the key is active       |
+| `expires_at`                | Expiration timestamp            |
+| `metadata`                  | Optional JSON metadata          |
+| `permissions`               | Optional permission JSON        |
+| Rate limit / refill columns | Counters and windows            |
 
 Override table and column names with `ApiKeySchemaOptions`.
 
@@ -131,7 +131,7 @@ rustauth db migrate
 
 ## Docs.rs
 
-- [`ApiKeyOptions`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/struct.ApiKeyOptions.html)
-- [`ApiKeyConfiguration`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/struct.ApiKeyConfiguration.html)
-- [`ApiKeyReference`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/enum.ApiKeyReference.html)
-- [`ApiKeyRateLimitOptions`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/struct.ApiKeyRateLimitOptions.html)
+* [`ApiKeyOptions`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/struct.ApiKeyOptions.html)
+* [`ApiKeyConfiguration`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/struct.ApiKeyConfiguration.html)
+* [`ApiKeyReference`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/enum.ApiKeyReference.html)
+* [`ApiKeyRateLimitOptions`](https://docs.rs/rustauth-plugins/latest/rustauth_plugins/api_key/struct.ApiKeyRateLimitOptions.html)

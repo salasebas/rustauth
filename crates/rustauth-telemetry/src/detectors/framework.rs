@@ -28,6 +28,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn detects_actix_web_from_manifest() {
+        let manifest = r#"
+            [package]
+            name = "app"
+
+            [dependencies]
+            actix-web = "4.13"
+        "#;
+
+        assert_eq!(
+            detect_framework_from_manifest(manifest),
+            Some(DetectionInfo {
+                name: "actix-web".to_owned(),
+                version: Some("4.13".to_owned()),
+            })
+        );
+    }
+
+    #[test]
     fn detects_known_rust_framework_from_manifest() {
         let manifest = r#"
             [package]

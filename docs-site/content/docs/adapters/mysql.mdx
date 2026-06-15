@@ -76,8 +76,8 @@ let rate_limit = MySqlRateLimitStore::from(&adapter);
 
 ## When to use
 
-- Your application already uses SQLx with MySQL.
-- You operate on MySQL or MariaDB and want the same RustAuth schema and migration tooling as SQLite and Postgres.
+* Your application already uses SQLx with MySQL.
+* You operate on MySQL or MariaDB and want the same RustAuth schema and migration tooling as SQLite and Postgres.
 
 RustAuth does not ship a separate native MySQL driver adapter — MySQL support is SQLx-only. For Postgres without SQLx, see [Deadpool Postgres](/docs/adapters/deadpool-postgres) or [Tokio Postgres](/docs/adapters/tokio-postgres).
 
@@ -101,7 +101,7 @@ Migrations are **CLI-only**. See [Database migrations](/docs/database-migrations
 
 ## Related
 
-- [SQLx adapters](/docs/adapters/sqlx) — feature flags and migration behavior
-- [SQLite](/docs/adapters/sqlite) — local development
-- [PostgreSQL](/docs/adapters/postgresql) — Postgres via SQLx
-- [Database](/docs/concepts/database) — core auth schema
+* [SQLx adapters](/docs/adapters/sqlx) — feature flags and migration behavior
+* [SQLite](/docs/adapters/sqlite) — local development
+* [PostgreSQL](/docs/adapters/postgresql) — Postgres via SQLx
+* [Database](/docs/concepts/database) — core auth schema

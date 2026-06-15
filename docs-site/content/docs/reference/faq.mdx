@@ -23,6 +23,37 @@ description: Frequently asked questions about RustAuth on Rust servers.
     See [installation](/docs/installation) and [basic usage](/docs/basic-usage).
   </Accordion>
 
+  <Accordion id="mount-rustauth-actix-web" title="How do I mount RustAuth on Actix Web?">
+    Build `RustAuth` with `RustAuth::builder()`, then use [`rustauth-actix-web`](https://docs.rs/rustauth-actix-web):
+
+    ```rust
+    use std::sync::Arc;
+
+    use actix_web::{App, HttpServer};
+    use rustauth::prelude::*;
+    use rustauth_actix_web::{RustAuthActixWebExt, RustAuthActixWebOptions};
+
+    let auth = Arc::new(
+        RustAuth::builder()
+            .secret(std::env::var("RUSTAUTH_SECRET")?)
+            .base_url("https://app.example.com/api/auth")
+            .build()
+            .await?,
+    );
+
+    HttpServer::new(move || {
+        App::new().service(
+            auth.mount_at_base_path(RustAuthActixWebOptions::default())?,
+        )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await?;
+    ```
+
+    See [Actix Web integration](/docs/integrations/actix-web).
+  </Accordion>
+
   <Accordion id="get-session-server" title="How do I read the session on the server?">
     RustAuth has no browser `authClient`. Call the HTTP API in-process with `handler_async` or forward cookies from your frontend:
 

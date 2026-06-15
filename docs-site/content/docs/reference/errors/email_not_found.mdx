@@ -7,8 +7,8 @@ description: OAuth provider profile did not include an email address.
 
 **Emitted by RustAuth:** yes (OAuth Proxy plugin)
 
-| Location | When |
-| -------- | ---- |
+| Location                                               | When                                                  |
+| ------------------------------------------------------ | ----------------------------------------------------- |
 | `crates/rustauth-plugins/src/oauth_proxy/hooks.rs:223` | Provider userinfo lacks `email` during proxy callback |
 
 Redirect shape: `{errorCallbackURL}?error=email_not_found`.
@@ -21,6 +21,6 @@ Parse `error=email_not_found` from the redirect URL.
 
 ## How to fix
 
-- Request email-related OAuth scopes from the provider.
-- Synthesize email via provider-specific profile mapping where supported.
-- See [OAuth without email](/docs/concepts/oauth) for provider-specific guidance.
+* Request email-related OAuth scopes from the provider.
+* Synthesize email via provider-specific profile mapping where supported.
+* See [OAuth without email](/docs/concepts/oauth) for provider-specific guidance.

@@ -42,23 +42,23 @@ let auth = RustAuth::builder()
 
 ## Configuration
 
-| Field | Description |
-| --- | --- |
-| `scopes` | Supported scope identifiers |
-| `grant_types` | Enabled grants (authorization_code, refresh_token, client_credentials by default) |
-| `login_page` / `consent_page` | Required UI redirect paths |
-| `signup_page` / `select_account_page` / `post_login_page` | Optional flow pages |
-| `code_expires_in` / `access_token_expires_in` / `refresh_token_expires_in` / `id_token_expires_in` | Token lifetimes |
-| `allow_dynamic_client_registration` | Public `/oauth2/register` |
-| `allow_unauthenticated_client_registration` | Register without a session |
-| `disable_jwt_plugin` | Skip JWT plugin requirement (default `false`) |
-| `client_reference` / `client_privileges` | Client ownership and permissions hooks |
-| `custom_access_token_claims` / `custom_id_token_claims` | Claim customization |
-| `store_client_secret` / `store_tokens` | Secret and token storage modes |
-| `pairwise_secret` | Pairwise subject identifiers |
-| `jwks_path` | JWKS URL path (default `/jwks`) |
-| `rate_limits` | Per-route rate limits |
-| `mcp` | MCP protected-resource metadata (`McpOptions`) |
+| Field                                                                                              | Description                                                                          |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `scopes`                                                                                           | Supported scope identifiers                                                          |
+| `grant_types`                                                                                      | Enabled grants (authorization\_code, refresh\_token, client\_credentials by default) |
+| `login_page` / `consent_page`                                                                      | Required UI redirect paths                                                           |
+| `signup_page` / `select_account_page` / `post_login_page`                                          | Optional flow pages                                                                  |
+| `code_expires_in` / `access_token_expires_in` / `refresh_token_expires_in` / `id_token_expires_in` | Token lifetimes                                                                      |
+| `allow_dynamic_client_registration`                                                                | Public `/oauth2/register`                                                            |
+| `allow_unauthenticated_client_registration`                                                        | Register without a session                                                           |
+| `disable_jwt_plugin`                                                                               | Skip JWT plugin requirement (default `false`)                                        |
+| `client_reference` / `client_privileges`                                                           | Client ownership and permissions hooks                                               |
+| `custom_access_token_claims` / `custom_id_token_claims`                                            | Claim customization                                                                  |
+| `store_client_secret` / `store_tokens`                                                             | Secret and token storage modes                                                       |
+| `pairwise_secret`                                                                                  | Pairwise subject identifiers                                                         |
+| `jwks_path`                                                                                        | JWKS URL path (default `/jwks`)                                                      |
+| `rate_limits`                                                                                      | Per-route rate limits                                                                |
+| `mcp`                                                                                              | MCP protected-resource metadata (`McpOptions`)                                       |
 
 **MCP profile:** When `mcp: Some(McpOptions { ... })`, clients discover authorization metadata at `/.well-known/oauth-authorization-server` and protected-resource metadata at `/.well-known/oauth-protected-resource`. Token traffic uses standard `/oauth2/*` routes.
 
@@ -66,45 +66,45 @@ let auth = RustAuth::builder()
 
 Clients call these routes under your configured `base_path`.
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/.well-known/oauth-authorization-server` | Authorization server metadata |
-| GET | `/.well-known/openid-configuration` | OpenID Provider metadata |
-| GET | `/.well-known/oauth-protected-resource` | MCP protected resource metadata |
-| GET | `/oauth2/authorize` | Authorization endpoint |
-| POST | `/oauth2/consent` | Submit consent |
-| GET/POST | `/oauth2/continue` | Continue authorization flow |
-| POST | `/oauth2/token` | Token endpoint |
-| POST | `/oauth2/introspect` | Token introspection |
-| POST | `/oauth2/revoke` | Token revocation |
-| GET | `/oauth2/userinfo` | UserInfo endpoint |
-| GET | `/oauth2/end-session` | End session / logout |
-| POST | `/oauth2/register` | Dynamic client registration |
-| POST | `/oauth2/create-client` | Create client (authenticated) |
-| POST | `/admin/oauth2/create-client` | Admin client creation |
-| GET | `/oauth2/get-client` | Get client metadata |
-| GET/POST | `/oauth2/public-client` | Public client helpers |
-| GET/POST | `/oauth2/public-client-prelogin` | Pre-login public client flow |
-| GET | `/oauth2/get-clients` | List clients |
-| POST | `/oauth2/update-client` | Update client |
-| POST | `/admin/oauth2/update-client` | Admin client update |
-| POST | `/oauth2/client/rotate-secret` | Rotate client secret |
-| POST | `/oauth2/delete-client` | Delete client |
-| GET | `/oauth2/get-consent` | Get consent record |
-| GET | `/oauth2/get-consents` | List consents |
-| POST | `/oauth2/update-consent` | Update consent |
-| POST | `/oauth2/delete-consent` | Delete consent |
+| Method   | Path                                      | Description                     |
+| -------- | ----------------------------------------- | ------------------------------- |
+| GET      | `/.well-known/oauth-authorization-server` | Authorization server metadata   |
+| GET      | `/.well-known/openid-configuration`       | OpenID Provider metadata        |
+| GET      | `/.well-known/oauth-protected-resource`   | MCP protected resource metadata |
+| GET      | `/oauth2/authorize`                       | Authorization endpoint          |
+| POST     | `/oauth2/consent`                         | Submit consent                  |
+| GET/POST | `/oauth2/continue`                        | Continue authorization flow     |
+| POST     | `/oauth2/token`                           | Token endpoint                  |
+| POST     | `/oauth2/introspect`                      | Token introspection             |
+| POST     | `/oauth2/revoke`                          | Token revocation                |
+| GET      | `/oauth2/userinfo`                        | UserInfo endpoint               |
+| GET      | `/oauth2/end-session`                     | End session / logout            |
+| POST     | `/oauth2/register`                        | Dynamic client registration     |
+| POST     | `/oauth2/create-client`                   | Create client (authenticated)   |
+| POST     | `/admin/oauth2/create-client`             | Admin client creation           |
+| GET      | `/oauth2/get-client`                      | Get client metadata             |
+| GET/POST | `/oauth2/public-client`                   | Public client helpers           |
+| GET/POST | `/oauth2/public-client-prelogin`          | Pre-login public client flow    |
+| GET      | `/oauth2/get-clients`                     | List clients                    |
+| POST     | `/oauth2/update-client`                   | Update client                   |
+| POST     | `/admin/oauth2/update-client`             | Admin client update             |
+| POST     | `/oauth2/client/rotate-secret`            | Rotate client secret            |
+| POST     | `/oauth2/delete-client`                   | Delete client                   |
+| GET      | `/oauth2/get-consent`                     | Get consent record              |
+| GET      | `/oauth2/get-consents`                    | List consents                   |
+| POST     | `/oauth2/update-consent`                  | Update consent                  |
+| POST     | `/oauth2/delete-consent`                  | Delete consent                  |
 
 ## Database
 
 The plugin adds:
 
-| Table | Purpose |
-| --- | --- |
-| `oauth_clients` | Registered OAuth clients |
-| `oauth_consents` | User consent grants |
-| `oauth_access_tokens` | Issued access tokens |
-| `oauth_refresh_tokens` | Issued refresh tokens |
+| Table                  | Purpose                  |
+| ---------------------- | ------------------------ |
+| `oauth_clients`        | Registered OAuth clients |
+| `oauth_consents`       | User consent grants      |
+| `oauth_access_tokens`  | Issued access tokens     |
+| `oauth_refresh_tokens` | Issued refresh tokens    |
 
 Run migrations after enabling:
 
@@ -114,6 +114,6 @@ rustauth db migrate
 
 ## Related
 
-- [rustauth-oauth-provider README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-oauth-provider/README.md)
-- [JWT](/docs/plugins/jwt) — signing and JWKS integration
-- [SSO](/docs/plugins/sso) — consume external IdPs instead of issuing tokens
+* [rustauth-oauth-provider README](https://github.com/salasebas/rustauth/blob/main/crates/rustauth-oauth-provider/README.md)
+* [JWT](/docs/plugins/jwt) — signing and JWKS integration
+* [SSO](/docs/plugins/sso) — consume external IdPs instead of issuing tokens

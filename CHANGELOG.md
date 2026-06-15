@@ -27,9 +27,11 @@ release line under the `rustauth` / `rustauth-*` crate namespace.
 - Default cookie prefix `rustauth`; configuration via `RUSTAUTH_*` environment variables and
   `rustauth.toml`.
 
-#### Web integration (`rustauth-axum`)
+#### Web integration (`rustauth-axum`, `rustauth-actix-web`)
 
 - Axum router mounting via `RustAuthAxumExt` (`mount_at_base_path`, `into_router`, `handle`, …).
+- Actix Web scope mounting via `RustAuthActixWebExt` (`mount_at_base_path`, `mount_routes`,
+  `handle`, …).
 
 #### CLI (`rustauth-cli`)
 

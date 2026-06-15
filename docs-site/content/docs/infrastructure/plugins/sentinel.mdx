@@ -26,7 +26,7 @@ export const auth = betterAuth({
 
 | Option     | Type              | Description                         |
 | ---------- | ----------------- | ----------------------------------- |
-| `apiUrl`   | `string`          | RustAuth Infrastructure API URL  |
+| `apiUrl`   | `string`          | RustAuth Infrastructure API URL     |
 | `kvUrl`    | `string`          | KV store URL for rate limiting data |
 | `apiKey`   | `string`          | Your API key for authentication     |
 | `security` | `SecurityOptions` | Security feature configuration      |
@@ -421,14 +421,14 @@ export const authClient = createAuthClient({
 
 #### `sentinelNativeClient` options
 
-| Option                | Type                            | Default                                                 | Description                                                                 |
-| --------------------- | ------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Option                | Type                            | Default                                              | Description                                                                 |
+| --------------------- | ------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
 | `identifyUrl`         | `string`                        | `BETTER_AUTH_KV_URL`, then `https://kv.rustauth.dev` | KV identify endpoint base URL                                               |
-| `autoSolveChallenge`  | `boolean`                       | `true`                                                  | On `423` with `X-PoW-Challenge`, solve and retry once with `X-PoW-Solution` |
-| `onChallengeReceived` | `(reason: string) => void`      | —                                                       | Called when a PoW challenge is received                                     |
-| `onChallengeSolved`   | `(solveTimeMs: number) => void` | —                                                       | Called after a successful solve                                             |
-| `onChallengeFailed`   | `(error: Error) => void`        | —                                                       | Called if solving fails                                                     |
-| `storage`             | `{ getItem, setItem }`          | Async Storage when installed                            | Persistent async storage for a stable per-install visitor ID                |
+| `autoSolveChallenge`  | `boolean`                       | `true`                                               | On `423` with `X-PoW-Challenge`, solve and retry once with `X-PoW-Solution` |
+| `onChallengeReceived` | `(reason: string) => void`      | —                                                    | Called when a PoW challenge is received                                     |
+| `onChallengeSolved`   | `(solveTimeMs: number) => void` | —                                                    | Called after a successful solve                                             |
+| `onChallengeFailed`   | `(error: Error) => void`        | —                                                    | Called if solving fails                                                     |
+| `storage`             | `{ getItem, setItem }`          | Async Storage when installed                         | Persistent async storage for a stable per-install visitor ID                |
 
 ## Security Events
 

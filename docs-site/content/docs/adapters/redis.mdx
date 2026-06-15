@@ -80,9 +80,9 @@ Supported URL schemes: `redis://`, `rediss://`, `valkey://`, and `valkeys://`. V
 
 ## When to use
 
-- **Distributed rate limiting** across multiple auth server instances — see [Rate limit](/docs/concepts/rate-limit).
-- **Secondary storage** for sessions, verification state, SSO state, and plugin data that opt into secondary storage.
-- Your stack already uses `redis-rs`, or you want a small Redis integration.
+* **Distributed rate limiting** across multiple auth server instances — see [Rate limit](/docs/concepts/rate-limit).
+* **Secondary storage** for sessions, verification state, SSO state, and plugin data that opt into secondary storage.
+* Your stack already uses `redis-rs`, or you want a small Redis integration.
 
 Use [`rustauth-fred`](/docs/adapters/fred) instead when your application standardizes on the [`fred`](https://docs.rs/fred) client.
 
@@ -102,7 +102,7 @@ See [Database migrations](/docs/database-migrations), [CLI](/docs/concepts/cli),
 
 ## Related
 
-- [Fred](/docs/adapters/fred) — same integration points via the `fred` client
-- [Rate limit](/docs/concepts/rate-limit) — memory, database, and Redis backends
-- [Database](/docs/concepts/database) — primary adapter and secondary storage
-- [SQLx adapters](/docs/adapters/sqlx) — primary persistence
+* [Fred](/docs/adapters/fred) — same integration points via the `fred` client
+* [Rate limit](/docs/concepts/rate-limit) — memory, database, and Redis backends
+* [Database](/docs/concepts/database) — primary adapter and secondary storage
+* [SQLx adapters](/docs/adapters/sqlx) — primary persistence
