@@ -4081,6 +4081,7 @@ dependencies = [
  "rand 0.8.6",
  "rustauth-core",
  "rustauth-deadpool-postgres",
+ "rustauth-diesel",
  "rustauth-oauth-provider",
  "rustauth-passkey",
  "rustauth-plugins",

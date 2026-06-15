@@ -60,6 +60,7 @@ Use `rustauth db status --check` in CI to fail when pending schema changes exist
 | `sqlx` | `sqlite`, `postgres`, `mysql` |
 | `tokio-postgres` | `postgres` |
 | `deadpool-postgres` | `postgres` |
+| `diesel` | `postgres`, `mysql` |
 
 Prisma, Drizzle, Kysely, memory, and MongoDB adapters are not driven by
 `rustauth db migrate`. Use `rustauth db generate` and apply SQL with your ORM,

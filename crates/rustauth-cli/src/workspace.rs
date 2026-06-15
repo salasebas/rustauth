@@ -144,6 +144,9 @@ fn detect_databases(metadata: &Metadata) -> Vec<DetectedItem> {
     if has_dep_or_package(metadata, "rustauth-deadpool-postgres") {
         databases.push(detected("deadpool-postgres", DetectionConfidence::High));
     }
+    if has_dep_or_package(metadata, "rustauth-diesel") {
+        databases.push(detected("diesel", DetectionConfidence::High));
+    }
     databases
 }
 

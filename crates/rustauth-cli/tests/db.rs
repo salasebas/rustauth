@@ -917,6 +917,167 @@ fn db_generate_passkey_without_cli_feature_reports_disabled() {
 }
 
 #[test]
+#[cfg(feature = "diesel")]
+fn generate_diesel_adapter_and_dialect_writes_sql_without_config_or_database_url() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let output = temp.path().join("schema.sql");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "generate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--adapter",
+            "diesel",
+            "--dialect",
+            "postgresql",
+            "--output",
+            output.to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .env_remove("DATABASE_URL")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Generated migration:"));
+
+    let sql = fs::read_to_string(output).expect("generated sql");
+    assert!(sql.contains("-- dialect: postgres"));
+    assert!(sql.contains(r#"CREATE TABLE IF NOT EXISTS "users""#));
+}
+
+#[test]
+#[cfg(feature = "diesel")]
+fn diesel_adapter_with_sqlite_provider_reports_unsupported_provider() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_config_with_adapter(temp.path(), "diesel", "sqlite", "migrations/rustauth", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", "sqlite::memory:")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unsupported database provider"));
+}
+
+#[test]
+#[cfg(feature = "diesel")]
+#[ignore = "requires docker compose postgres service"]
+fn diesel_postgres_status_and_migrate_work_against_docker_compose() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_config_with_adapter(
+        temp.path(),
+        "diesel",
+        "postgres",
+        "migrations/rustauth",
+        &["api-key"],
+    );
+    let database_url = isolated_postgres_database_url("diesel_pg");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success();
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "diesel")]
+#[ignore = "requires docker compose mysql service"]
+fn diesel_mysql_status_and_migrate_work_against_docker_compose() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_config_with_adapter(
+        temp.path(),
+        "diesel",
+        "mysql",
+        "migrations/rustauth",
+        &["api-key"],
+    );
+    let database_url = std::env::var("RUSTAUTH_CLI_TEST_MYSQL_URL")
+        .unwrap_or_else(|_| "mysql://user:password@localhost:3306/rustauth".to_owned());
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success();
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--yes",
+        ])
+        .env("DATABASE_URL", &database_url)
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(not(feature = "diesel"))]
+fn db_status_diesel_without_cli_feature_reports_disabled() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_config_with_adapter(
+        temp.path(),
+        "diesel",
+        "postgres",
+        "migrations/rustauth",
+        &[],
+    );
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "status",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env(
+            "DATABASE_URL",
+            "postgres://user:password@localhost:5432/rustauth",
+        )
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not enabled in this CLI build"))
+        .stderr(predicate::str::contains("diesel"));
+}
+
+#[test]
 #[cfg(feature = "sqlx")]
 fn adding_schema_plugin_updates_config_and_reports_database_impact() {
     let temp = tempfile::tempdir().expect("tempdir");

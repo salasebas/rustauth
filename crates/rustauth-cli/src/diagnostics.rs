@@ -223,6 +223,16 @@ fn inspect_adapter_dependency_alignment(
                 ));
             }
         }
+        "diesel" => {
+            if !cfg!(feature = "diesel") {
+                findings.push(cli_adapter_feature_disabled_finding("diesel"));
+            } else if !package_has_dependency(workspace, "rustauth-diesel") {
+                findings.push(adapter_dependency_mismatch_finding(
+                    "diesel",
+                    "rustauth-diesel",
+                ));
+            }
+        }
         _ => {}
     }
 }

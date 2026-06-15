@@ -61,6 +61,7 @@ rustauth-scim = { workspace = true, optional = true }
 rustauth-sso = { workspace = true, default-features = false, optional = true }
 rustauth-stripe = { workspace = true, optional = true }
 rustauth-deadpool-postgres = { workspace = true, optional = true }
+rustauth-diesel = { workspace = true, features = ["postgres", "mysql"], optional = true }
 rustauth-sqlx = { workspace = true, features = ["mysql", "postgres", "sqlite"], optional = true }
 rustauth-telemetry = { workspace = true, default-features = false, optional = true }
 rustauth-tokio-postgres = { workspace = true, optional = true }
@@ -92,6 +93,7 @@ sso = ["dep:rustauth-sso", "rustauth-sso/oidc"]
 stripe = ["dep:rustauth-stripe"]
 telemetry = ["dep:rustauth-telemetry", "rustauth-telemetry/http"]
 deadpool-postgres = ["dep:rustauth-deadpool-postgres"]
+diesel = ["dep:rustauth-diesel"]
 sqlx = ["dep:rustauth-sqlx", "dep:sqlx"]
 tokio-postgres = ["dep:rustauth-tokio-postgres"]
 full = [
@@ -105,6 +107,7 @@ full = [
     "sqlx",
     "tokio-postgres",
     "deadpool-postgres",
+    "diesel",
 ]
 
 [lints]

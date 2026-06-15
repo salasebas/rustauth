@@ -350,6 +350,25 @@ fn migrate_deadpool_postgres_adapter_does_not_print_sqlx_guidance() {
 }
 
 #[test]
+fn migrate_diesel_adapter_does_not_print_sqlx_guidance() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    write_sqlite_config(temp.path(), "diesel", &[]);
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "db",
+            "migrate",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+        ])
+        .env("DATABASE_URL", "sqlite::memory:")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Set `database.adapter = \"sqlx\"`").not());
+}
+
+#[test]
 #[cfg(feature = "tokio-postgres")]
 fn doctor_tokio_postgres_adapter_reports_migration_support() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -364,6 +383,50 @@ production = false
 
 [database]
 adapter = "tokio-postgres"
+provider = "postgres"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+enabled = []
+"#,
+    )
+    .expect("write config");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "doctor",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .env_remove("DATABASE_URL")
+        .env("RUSTAUTH_SECRET", "RustAuthSecretForCliTests-1234567890!")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"migration_support\": true"))
+        .stdout(predicate::str::contains("database.migrations_unsupported").not());
+}
+
+#[test]
+#[cfg(feature = "diesel")]
+fn doctor_diesel_adapter_reports_migration_support() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        temp.path().join("rustauth.toml"),
+        r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "diesel"
 provider = "postgres"
 url_env = "DATABASE_URL"
 migrations_dir = "migrations/rustauth"
@@ -422,6 +485,64 @@ production = false
 
 [database]
 adapter = "tokio-postgres"
+provider = "postgres"
+url_env = "DATABASE_URL"
+migrations_dir = "migrations/rustauth"
+
+[security]
+secret_env = "RUSTAUTH_SECRET"
+
+[plugins]
+enabled = []
+"#,
+    )
+    .expect("write config");
+
+    Command::cargo_bin("rustauth")
+        .expect("binary")
+        .args([
+            "doctor",
+            "--cwd",
+            temp.path().to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .env_remove("DATABASE_URL")
+        .env("RUSTAUTH_SECRET", "RustAuthSecretForCliTests-1234567890!")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("database.cli_feature_disabled"))
+        .stdout(predicate::str::contains("database.adapter_mismatch").not());
+}
+
+#[test]
+#[cfg(not(feature = "diesel"))]
+fn doctor_diesel_without_cli_feature_reports_disabled() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::create_dir_all(temp.path().join("src")).expect("create src dir");
+    fs::write(
+        temp.path().join("Cargo.toml"),
+        r#"
+[package]
+name = "rustauth-doctor-cli-feature-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+"#,
+    )
+    .expect("write Cargo.toml");
+    fs::write(temp.path().join("src/main.rs"), "fn main() {}\n").expect("write main.rs");
+    fs::write(
+        temp.path().join("rustauth.toml"),
+        r#"
+[project]
+framework = "axum"
+base_url = "http://localhost:3000/api/auth"
+base_path = "/api/auth"
+production = false
+
+[database]
+adapter = "diesel"
 provider = "postgres"
 url_env = "DATABASE_URL"
 migrations_dir = "migrations/rustauth"

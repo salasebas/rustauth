@@ -5,6 +5,8 @@ use rustauth_core::db::{DbAdapter, DbSchema, SchemaMigrationPlan, SchemaMigratio
 use rustauth_core::error::RustAuthError;
 #[cfg(feature = "deadpool-postgres")]
 use rustauth_deadpool_postgres::DeadpoolPostgresAdapter;
+#[cfg(feature = "diesel")]
+use rustauth_diesel::{DieselMysqlAdapter, DieselPostgresAdapter};
 #[cfg(feature = "sqlx")]
 use rustauth_sqlx::{MySqlAdapter, PostgresAdapter, SqliteAdapter};
 #[cfg(feature = "tokio-postgres")]
@@ -23,12 +25,16 @@ pub fn is_cli_migration_adapter(adapter: &str) -> bool {
         "sqlx" if cfg!(feature = "sqlx") => true,
         "tokio-postgres" if cfg!(feature = "tokio-postgres") => true,
         "deadpool-postgres" if cfg!(feature = "deadpool-postgres") => true,
+        "diesel" if cfg!(feature = "diesel") => true,
         _ => false,
     }
 }
 
 pub fn is_known_cli_migration_adapter(adapter: &str) -> bool {
-    matches!(adapter, "sqlx" | "tokio-postgres" | "deadpool-postgres")
+    matches!(
+        adapter,
+        "sqlx" | "tokio-postgres" | "deadpool-postgres" | "diesel"
+    )
 }
 
 fn is_adapter_feature_disabled(adapter: &str) -> bool {
@@ -46,11 +52,18 @@ pub fn cli_migration_adapter_names() -> Vec<&'static str> {
     if cfg!(feature = "deadpool-postgres") {
         adapters.push("deadpool-postgres");
     }
+    if cfg!(feature = "diesel") {
+        adapters.push("diesel");
+    }
     adapters
 }
 
 fn is_postgres_provider(provider: &str) -> bool {
     matches!(provider, "postgres" | "postgresql" | "pg")
+}
+
+fn is_mysql_provider(provider: &str) -> bool {
+    provider == "mysql"
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -178,6 +191,8 @@ pub async fn plan_with_base(
                     .plan_migrations(&schema)
                     .await?
             }
+            #[cfg(feature = "diesel")]
+            "diesel" => plan_with_diesel(&provider, &database_url, &schema).await?,
             adapter => return Err(adapter_dispatch_error(adapter)),
         }
     };
@@ -231,6 +246,16 @@ pub async fn migrate_with_base(
                 .await?;
             adapter.run_migrations(&planned.schema).await?;
             adapter.run_plugin_migrations(&plugin_migrations).await?;
+        }
+        #[cfg(feature = "diesel")]
+        "diesel" => {
+            run_migrations_with_diesel(
+                &planned.provider,
+                &database_url,
+                &planned.schema,
+                &plugin_migrations,
+            )
+            .await?;
         }
         adapter => return Err(adapter_dispatch_error(adapter)),
     }
@@ -293,6 +318,56 @@ async fn run_migrations_with_sqlx(
             adapter.run_migrations(schema).await?;
             adapter.run_plugin_migrations(plugin_migrations).await?;
         }
+        other => return Err(DbCliError::UnsupportedProvider(other.to_owned())),
+    }
+    Ok(())
+}
+
+#[cfg(feature = "diesel")]
+async fn plan_with_diesel(
+    provider: &str,
+    database_url: &str,
+    schema: &DbSchema,
+) -> Result<SchemaMigrationPlan, DbCliError> {
+    match provider {
+        "postgres" | "postgresql" | "pg" => {
+            DieselPostgresAdapter::connect_with_schema(database_url, schema.clone())
+                .await?
+                .plan_migrations(schema)
+                .await
+                .map_err(Into::into)
+        }
+        "mysql" => DieselMysqlAdapter::connect_with_schema(database_url, schema.clone())
+            .await?
+            .plan_migrations(schema)
+            .await
+            .map_err(Into::into),
+        "sqlite" | "sqlite3" => Err(DbCliError::UnsupportedProvider(provider.to_owned())),
+        other => Err(DbCliError::UnsupportedProvider(other.to_owned())),
+    }
+}
+
+#[cfg(feature = "diesel")]
+async fn run_migrations_with_diesel(
+    provider: &str,
+    database_url: &str,
+    schema: &DbSchema,
+    plugin_migrations: &[rustauth_core::plugin::PluginMigration],
+) -> Result<(), DbCliError> {
+    match provider {
+        "postgres" | "postgresql" | "pg" => {
+            let adapter =
+                DieselPostgresAdapter::connect_with_schema(database_url, schema.clone()).await?;
+            adapter.run_migrations(schema).await?;
+            adapter.run_plugin_migrations(plugin_migrations).await?;
+        }
+        "mysql" => {
+            let adapter =
+                DieselMysqlAdapter::connect_with_schema(database_url, schema.clone()).await?;
+            adapter.run_migrations(schema).await?;
+            adapter.run_plugin_migrations(plugin_migrations).await?;
+        }
+        "sqlite" | "sqlite3" => return Err(DbCliError::UnsupportedProvider(provider.to_owned())),
         other => return Err(DbCliError::UnsupportedProvider(other.to_owned())),
     }
     Ok(())
@@ -430,6 +505,11 @@ pub fn supports_sql_migrations(config: &CliConfig) -> bool {
             .provider
             .as_deref()
             .is_some_and(is_postgres_provider),
+        "diesel" if cfg!(feature = "diesel") => {
+            config.database.provider.as_deref().is_some_and(|provider| {
+                is_postgres_provider(provider) || is_mysql_provider(provider)
+            })
+        }
         _ => false,
     }
 }
@@ -511,6 +591,7 @@ fn adapter_cargo_feature(adapter: &str) -> &'static str {
         "sqlx" => "sqlx",
         "tokio-postgres" => "tokio-postgres",
         "deadpool-postgres" => "deadpool-postgres",
+        "diesel" => "diesel",
         _ => "unknown",
     }
 }
@@ -529,6 +610,9 @@ fn enabled_adapter_guidance() -> String {
     }
     if cfg!(feature = "deadpool-postgres") {
         parts.push("`database.adapter = \"deadpool-postgres\"` (postgres only)".to_owned());
+    }
+    if cfg!(feature = "diesel") {
+        parts.push("`database.adapter = \"diesel\"` (postgres, mysql)".to_owned());
     }
     if parts.is_empty() {
         "no database migration adapters in this CLI build".to_owned()
@@ -632,4 +716,25 @@ fn sqlite_path(database_url: &str) -> Option<PathBuf> {
         .strip_prefix("sqlite://")
         .or_else(|| database_url.strip_prefix("sqlite:"))
         .map(PathBuf::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "diesel")]
+    fn diesel_is_known_cli_migration_adapter_when_feature_enabled() {
+        assert!(is_known_cli_migration_adapter("diesel"));
+        assert!(is_cli_migration_adapter("diesel"));
+        assert!(cli_migration_adapter_names().contains(&"diesel"));
+    }
+
+    #[test]
+    #[cfg(not(feature = "diesel"))]
+    fn diesel_is_known_but_disabled_without_feature() {
+        assert!(is_known_cli_migration_adapter("diesel"));
+        assert!(!is_cli_migration_adapter("diesel"));
+        assert!(!cli_migration_adapter_names().contains(&"diesel"));
+    }
 }
