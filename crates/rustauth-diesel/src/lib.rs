@@ -51,6 +51,9 @@ pub use mysql::{DieselMysqlAdapter, DieselMysqlRateLimitStore};
 #[cfg(feature = "postgres")]
 pub use stores::{DieselPostgresStores, DieselPostgresStoresBuilder};
 
+#[cfg(feature = "mysql")]
+pub use stores::{DieselMysqlStores, DieselMysqlStoresBuilder};
+
 pub(crate) use rustauth_core::db::{
     consume_sql_rate_limit_record as consume_record, rate_limit_count_from_i64 as count_from_i64,
     rate_limit_count_to_i64 as count_to_i64, SqlRateLimitNames as RateLimitSqlNames,

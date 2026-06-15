@@ -90,3 +90,11 @@ diesel_stores!(
     crate::DieselPostgresAdapter,
     crate::DieselPostgresRateLimitStore
 );
+
+#[cfg(feature = "mysql")]
+diesel_stores!(
+    DieselMysqlStores,
+    DieselMysqlStoresBuilder,
+    crate::DieselMysqlAdapter,
+    crate::DieselMysqlRateLimitStore
+);

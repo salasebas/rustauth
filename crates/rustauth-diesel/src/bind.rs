@@ -1,4 +1,4 @@
-use rustauth_core::db::{DbFieldType, DbValue, IdGeneration, SqlParam};
+use rustauth_core::db::{DbFieldType, DbValue, SqlParam};
 use rustauth_core::error::RustAuthError;
 use time::OffsetDateTime;
 
@@ -16,6 +16,7 @@ mod postgres {
     use diesel::sql_types::{
         Array, BigInt, Bool, Jsonb, Nullable, Text, Timestamptz, Uuid as DieselUuid,
     };
+    use rustauth_core::db::IdGeneration;
 
     pub fn bind_postgres_params<'f>(
         sql: &str,

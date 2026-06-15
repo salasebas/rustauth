@@ -1,4 +1,4 @@
-use rustauth_core::db::{DbField, DbFieldType, DbRecord, DbValue, IdGeneration, SqlSelectedField};
+use rustauth_core::db::{DbField, DbFieldType, DbRecord, DbValue, SqlSelectedField};
 use rustauth_core::error::RustAuthError;
 
 /// Row decoding strategy selected for the Diesel adapter.
@@ -25,6 +25,7 @@ mod postgres {
     use diesel::sql_types::{
         Array, BigInt, Bool, Jsonb, Nullable, Text, Timestamptz, Uuid as DieselUuid,
     };
+    use rustauth_core::db::IdGeneration;
     use time::OffsetDateTime;
 
     pub fn decode_postgres_row<'a, R>(

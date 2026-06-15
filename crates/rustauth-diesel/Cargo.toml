@@ -45,7 +45,7 @@ http.workspace = true
 indexmap.workspace = true
 rustauth-core = { workspace = true, features = ["test-utils"] }
 serde_json.workspace = true
-sqlx = { workspace = true, features = ["postgres", "uuid"] }
+sqlx = { workspace = true, features = ["postgres", "mysql", "uuid"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 uuid.workspace = true
 
