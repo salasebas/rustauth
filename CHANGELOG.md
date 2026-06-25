@@ -7,6 +7,13 @@ project follows [Semantic Versioning](https://semver.org/) while the API is stil
 
 ## [Unreleased]
 
+### Changed
+
+#### Official plugins (`rustauth-plugins`)
+
+- Email OTP verification create/get endpoints are now server-only routes, preventing public
+  HTTP dispatch while preserving server-side OTP generation and retrieval flows.
+
 ## [0.3.0] - 2026-06-15
 
 ### Added

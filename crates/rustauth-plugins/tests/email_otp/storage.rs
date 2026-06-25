@@ -160,7 +160,7 @@ async fn custom_encrypt_storage_verifies_and_can_be_retrieved() {
     .unwrap();
 
     let create = router
-        .handle_async(
+        .handle_async_server(
             json_request(
                 "/email-otp/create-verification-otp",
                 r#"{"email":"ada@example.com","type":"email-verification"}"#,
@@ -172,7 +172,7 @@ async fn custom_encrypt_storage_verifies_and_can_be_retrieved() {
         .unwrap();
     let otp: String = serde_json::from_slice(create.body()).unwrap();
     let get = router
-        .handle_async(
+        .handle_async_server(
             get_json_request(
                 "/email-otp/get-verification-otp?email=ada%40example.com&type=email-verification",
                 "",

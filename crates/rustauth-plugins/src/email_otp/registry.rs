@@ -47,13 +47,13 @@ pub fn register(plugin: AuthPlugin, options: EmailOtpOptions) -> AuthPlugin {
             options.clone(),
             send_otp,
         ))
-        .with_endpoint(endpoint(
+        .with_endpoint(server_endpoint(
             CREATE_PATH,
             "createEmailVerificationOTP",
             options.clone(),
             create_verification_otp,
         ))
-        .with_endpoint(endpoint_with_method(
+        .with_endpoint(server_endpoint_with_method(
             GET_PATH,
             Method::GET,
             "getEmailVerificationOTP",
@@ -122,27 +122,42 @@ where
         + Send
         + 'static,
 {
-    create_auth_endpoint(
+    endpoint_with_options(
         path,
         Method::POST,
         AuthEndpointOptions::new()
             .operation_id(operation_id)
             .body_schema(common_schema(path)),
-        {
-            let options = Arc::clone(&options);
-            move |context, request| {
-                let options = Arc::clone(&options);
-                let handler = handler.clone();
-                async move {
-                    context.require_adapter()?;
-                    handler(context, request, options).await
-                }
-            }
-        },
+        options,
+        handler,
     )
 }
 
-fn endpoint_with_method<F, Fut>(
+fn server_endpoint<F, Fut>(
+    path: &'static str,
+    operation_id: &'static str,
+    options: Arc<EmailOtpOptions>,
+    handler: F,
+) -> AsyncAuthEndpoint
+where
+    F: Fn(AuthContext, ApiRequest, Arc<EmailOtpOptions>) -> Fut + Send + Sync + Clone + 'static,
+    Fut: std::future::Future<Output = Result<rustauth_core::api::ApiResponse, RustAuthError>>
+        + Send
+        + 'static,
+{
+    endpoint_with_options(
+        path,
+        Method::POST,
+        AuthEndpointOptions::new()
+            .operation_id(operation_id)
+            .body_schema(common_schema(path))
+            .server_only(),
+        options,
+        handler,
+    )
+}
+
+fn server_endpoint_with_method<F, Fut>(
     path: &'static str,
     method: Method,
     operation_id: &'static str,
@@ -155,20 +170,39 @@ where
         + Send
         + 'static,
 {
-    create_auth_endpoint(
+    endpoint_with_options(
         path,
         method,
-        AuthEndpointOptions::new().operation_id(operation_id),
-        {
-            let options = Arc::clone(&options);
-            move |context, request| {
-                let options = Arc::clone(&options);
-                let handler = handler.clone();
-                async move {
-                    context.require_adapter()?;
-                    handler(context, request, options).await
-                }
-            }
-        },
+        AuthEndpointOptions::new()
+            .operation_id(operation_id)
+            .server_only(),
+        options,
+        handler,
     )
+}
+
+fn endpoint_with_options<F, Fut>(
+    path: &'static str,
+    method: Method,
+    endpoint_options: AuthEndpointOptions,
+    options: Arc<EmailOtpOptions>,
+    handler: F,
+) -> AsyncAuthEndpoint
+where
+    F: Fn(AuthContext, ApiRequest, Arc<EmailOtpOptions>) -> Fut + Send + Sync + Clone + 'static,
+    Fut: std::future::Future<Output = Result<rustauth_core::api::ApiResponse, RustAuthError>>
+        + Send
+        + 'static,
+{
+    create_auth_endpoint(path, method, endpoint_options, {
+        let options = Arc::clone(&options);
+        move |context, request| {
+            let options = Arc::clone(&options);
+            let handler = handler.clone();
+            async move {
+                context.require_adapter()?;
+                handler(context, request, options).await
+            }
+        }
+    })
 }

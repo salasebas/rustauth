@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Email OTP verification create/get endpoints are now marked server-only, so public route
+  dispatch returns `404` while server-side handlers can still create and recover OTP values.
+
 ## [0.2.0] - 2026-06-14
 
 Initial public working release.

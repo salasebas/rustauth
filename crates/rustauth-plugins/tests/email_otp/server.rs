@@ -13,8 +13,26 @@ async fn server_create_and_get_otp_returns_recoverable_plain_value() {
     let sender = CaptureSender::default();
     let router = router(adapter.clone(), sender, EmailOtpOptions::default()).unwrap();
 
-    let create = router
+    let external_create = router
         .handle_async(
+            json_request(
+                "/email-otp/create-verification-otp",
+                r#"{"email":"ada@example.com","type":"email-verification"}"#,
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(external_create.status(), StatusCode::NOT_FOUND);
+    assert!(
+        verification_value(&adapter, "email-verification-otp-ada@example.com")
+            .await
+            .is_none()
+    );
+
+    let create = router
+        .handle_async_server(
             json_request(
                 "/email-otp/create-verification-otp",
                 r#"{"email":"ada@example.com","type":"email-verification"}"#,
@@ -31,8 +49,21 @@ async fn server_create_and_get_otp_returns_recoverable_plain_value() {
             .is_some()
     );
 
-    let get = router
+    let external_get = router
         .handle_async(
+            get_json_request(
+                "/email-otp/get-verification-otp?email=ada%40example.com&type=email-verification",
+                "",
+                None,
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(external_get.status(), StatusCode::NOT_FOUND);
+
+    let get = router
+        .handle_async_server(
             get_json_request(
                 "/email-otp/get-verification-otp?email=ada%40example.com&type=email-verification",
                 "",
@@ -59,7 +90,7 @@ async fn server_get_otp_uses_query_and_handles_percent_encoded_email() {
     .unwrap();
 
     let create = router
-        .handle_async(
+        .handle_async_server(
             json_request(
                 "/email-otp/create-verification-otp",
                 r#"{"email":"ada+tag@example.com","type":"email-verification"}"#,
@@ -72,7 +103,7 @@ async fn server_get_otp_uses_query_and_handles_percent_encoded_email() {
     let otp: String = serde_json::from_slice(create.body()).unwrap();
 
     let get = router
-        .handle_async(
+        .handle_async_server(
             get_json_request(
                 "/email-otp/get-verification-otp?email=ada%2Btag%40example.com&type=email-verification",
                 "",
@@ -102,7 +133,7 @@ async fn server_get_otp_rejects_non_recoverable_hashed_storage() {
     .unwrap();
 
     router
-        .handle_async(
+        .handle_async_server(
             json_request(
                 "/email-otp/create-verification-otp",
                 r#"{"email":"ada@example.com","type":"email-verification"}"#,
@@ -113,7 +144,7 @@ async fn server_get_otp_rejects_non_recoverable_hashed_storage() {
         .await
         .unwrap();
     let get = router
-        .handle_async(
+        .handle_async_server(
             get_json_request(
                 "/email-otp/get-verification-otp?email=ada%40example.com&type=email-verification",
                 "",
@@ -154,7 +185,7 @@ async fn server_get_otp_returns_encrypted_value_with_secret_rotation() {
     .unwrap();
 
     let create = router
-        .handle_async(
+        .handle_async_server(
             json_request(
                 "/email-otp/create-verification-otp",
                 r#"{"email":"ada@example.com","type":"email-verification"}"#,
@@ -166,7 +197,7 @@ async fn server_get_otp_returns_encrypted_value_with_secret_rotation() {
         .unwrap();
     let otp: String = serde_json::from_slice(create.body()).unwrap();
     let get = router
-        .handle_async(
+        .handle_async_server(
             get_json_request(
                 "/email-otp/get-verification-otp?email=ada%40example.com&type=email-verification",
                 "",
@@ -194,7 +225,7 @@ async fn server_create_get_and_check_support_change_email_type() {
     .unwrap();
 
     let create = router
-        .handle_async(
+        .handle_async_server(
             json_request(
                 "/email-otp/create-verification-otp",
                 r#"{"email":"ada@example.com","type":"change-email"}"#,
@@ -207,7 +238,7 @@ async fn server_create_get_and_check_support_change_email_type() {
     let otp: String = serde_json::from_slice(create.body()).unwrap();
 
     let get = router
-        .handle_async(
+        .handle_async_server(
             get_json_request(
                 "/email-otp/get-verification-otp?email=ada%40example.com&type=change-email",
                 "",
