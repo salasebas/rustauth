@@ -280,6 +280,84 @@ async fn saml_acs_denies_implicit_link_for_untrusted_unverified_provider(
     Ok(())
 }
 
+#[tokio::test]
+async fn saml_acs_denies_implicit_link_when_trust_email_verified_without_verified_domain(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) = router_with_options(SsoOptions {
+        trust_email_verified: true,
+        ..SsoOptions::default()
+    })?;
+    let cookie = seed_session(&adapter).await?;
+    router
+        .handle_async(json_request(
+            Method::POST,
+            "/sso/register",
+            r#"{
+                "providerId":"saml-okta",
+                "issuer":"https://idp.example.com",
+                "domain":"example.com",
+                "samlConfig":{
+                    "issuer":"https://app.example.com/sso/saml2/sp/metadata",
+                    "entryPoint":"https://idp.example.com/saml/sso",
+                    "cert":"CERTIFICATE",
+                    "callbackUrl":"https://app.example.com/sso/saml2/sp/acs/saml-okta",
+                    "spMetadata":{"entityId":"https://app.example.com/saml/sp"},
+                    "wantAssertionsSigned":false,
+                    "authnRequestsSigned":false,
+                    "mapping":{"emailVerified":"emailVerified"}
+                }
+            }"#,
+            Some(&cookie),
+        )?)
+        .await?;
+    seed_existing_saml_user_with_account(&adapter).await?;
+    let relay_state = saml_sign_in_relay_state(&router).await?;
+    let saml_response = valid_saml_response(&relay_state, "assertion-trust-email-deny")?;
+    let saml_response = tamper_base64_xml(
+        &saml_response,
+        "</saml:AttributeStatement>",
+        r#"<saml:Attribute Name="emailVerified"><saml:AttributeValue>true</saml:AttributeValue></saml:Attribute></saml:AttributeStatement>"#,
+    )?;
+    let saml_response =
+        tamper_base64_xml(&saml_response, "saml-subject-123", "saml-subject-unlinked")?;
+
+    let response = post_saml_acs(&router, &saml_response, &relay_state).await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_body(response)?["code"], "SAML_SIGN_IN_FAILED");
+    assert_eq!(adapter.records("account").await.len(), 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn saml_acs_rejects_unverified_provider_when_domain_verification_enabled(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (adapter, router) =
+        router_with_options(SsoOptions::default().domain_verification_enabled(true))?;
+    let cookie = seed_session(&adapter).await?;
+    register_saml_provider_allowing_unsigned_assertions(&router, &cookie).await?;
+    let saml_response = idp_initiated_saml_response("saml-okta", "assertion-unverified-domain")?;
+
+    let response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sso/saml2/sp/acs/saml-okta",
+            &format!(
+                r#"{{"SAMLResponse":{}}}"#,
+                serde_json::to_string(&saml_response)?
+            ),
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json_body(response)?["code"], "DOMAIN_NOT_VERIFIED");
+    assert!(adapter.records("account").await.is_empty());
+
+    Ok(())
+}
+
 async fn seed_existing_saml_user_with_account(
     adapter: &MemoryAdapter,
 ) -> Result<(), Box<dyn std::error::Error>> {

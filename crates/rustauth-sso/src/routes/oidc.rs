@@ -220,7 +220,7 @@ async fn callback(
     if !provider_matches_email_domain(&provider, &raw_user_info.email) {
         return redirect_with_error(&error_url, "invalid_email_domain");
     }
-    let is_trusted_provider = is_trusted_sso_provider(options, &provider, &raw_user_info);
+    let is_trusted_provider = is_trusted_sso_provider(&provider, &raw_user_info);
     let user_info = effective_oidc_user_info(raw_user_info, is_trusted_provider);
 
     let result = handle_oauth_user_info(
@@ -296,11 +296,7 @@ fn oauth_state_cookie_value(context: &AuthContext, request: &ApiRequest) -> Opti
         })
 }
 
-fn is_trusted_sso_provider(
-    options: &SsoOptions,
-    provider: &crate::SsoProviderRecord,
-    user_info: &OAuthUserInfo,
-) -> bool {
+fn is_trusted_sso_provider(provider: &crate::SsoProviderRecord, user_info: &OAuthUserInfo) -> bool {
     // Implicit account linking and email-verification trust both require the
     // IdP to actually attest the email (`email_verified`). DNS domain
     // verification only proves the operator controls the provider config for
@@ -308,9 +304,8 @@ fn is_trusted_sso_provider(
     // was verified by the IdP, so it must not bypass the `email_verified`
     // requirement.
     user_info.email_verified
-        && (options.trust_email_verified
-            || (provider.domain_verified.unwrap_or(false)
-                && provider_matches_email_domain(provider, &user_info.email)))
+        && provider.domain_verified.unwrap_or(false)
+        && provider_matches_email_domain(provider, &user_info.email)
 }
 
 fn effective_oidc_user_info(

@@ -350,7 +350,7 @@ async fn oidc_callback_does_not_mark_new_user_email_verified_from_idp_claim_by_d
 }
 
 #[tokio::test]
-async fn oidc_callback_implicitly_links_when_trust_email_verified_is_enabled(
+async fn oidc_callback_does_not_implicitly_link_when_trust_email_verified_without_verified_domain(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let oidc = MockOidcServer::start().await?;
     let (adapter, router) = router_with_options(SsoOptions {
@@ -359,6 +359,53 @@ async fn oidc_callback_implicitly_links_when_trust_email_verified_is_enabled(
     })?;
     let cookie = seed_session(&adapter).await?;
     register_oidc_provider_with_endpoints(&router, &cookie, &oidc.base_url).await?;
+    seed_existing_sso_user(&adapter).await?;
+
+    let sign_in = router
+        .handle_async(json_request(
+            Method::POST,
+            "/sign-in/sso",
+            r#"{"providerId":"okta","callbackURL":"/dashboard","errorCallbackURL":"/login-error"}"#,
+            None,
+        )?)
+        .await?;
+    let (state, nonce) = authorization_state_and_nonce(sign_in)?;
+
+    let callback = router
+        .handle_async(json_request(
+            Method::GET,
+            &format!("/sso/callback/okta?state={state}&code=valid-id-token-code.{nonce}"),
+            "",
+            None,
+        )?)
+        .await?;
+
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback.headers().get(header::LOCATION),
+        Some(&http::HeaderValue::from_static(
+            "/login-error?error=oauth_sign_in_failed"
+        ))
+    );
+    assert!(adapter.records("account").await.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn oidc_callback_implicitly_links_when_trust_email_verified_and_domain_verified(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let oidc = MockOidcServer::start().await?;
+    let (adapter, router) = router_with_options(SsoOptions {
+        trust_email_verified: true,
+        ..SsoOptions::default().domain_verification_enabled(true)
+    })?;
+    let cookie = seed_session(&adapter).await?;
+    register_oidc_provider_with_endpoints(&router, &cookie, &oidc.base_url).await?;
+    SsoProviderStore::new(&adapter)
+        .update_domain_verified("okta", true)
+        .await?
+        .ok_or("missing okta provider")?;
     seed_existing_sso_user(&adapter).await?;
 
     let sign_in = router

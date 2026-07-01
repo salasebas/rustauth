@@ -105,7 +105,7 @@ async fn oidc_callback_maps_azure_userinfo_fixture_with_custom_claims(
     }));
     assert!(adapter.records("user").await.iter().any(|record| {
         record.get("email") == Some(&DbValue::String("ada@contoso.com".to_owned()))
-            && record.get("email_verified") == Some(&DbValue::Boolean(true))
+            && record.get("email_verified") == Some(&DbValue::Boolean(false))
     }));
     let raw = raw_attributes
         .lock()
