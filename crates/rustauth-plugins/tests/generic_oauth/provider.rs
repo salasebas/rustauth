@@ -255,6 +255,55 @@ async fn provider_verified_id_token_rejects_unsigned_token(
 }
 
 #[tokio::test]
+async fn provider_verified_id_token_rejects_missing_id_token(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (_token, jwk) = signed_rs256_id_token(valid_id_token_claims("nonce-1"))?;
+    let result =
+        verified_id_token_user_info_from_tokens(OAuth2Tokens::default(), jwk, Some("nonce-1"))
+            .await;
+
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn provider_verified_id_token_rejects_expired_token() -> Result<(), Box<dyn std::error::Error>>
+{
+    let nonce = "nonce-1";
+    let mut claims = valid_id_token_claims(nonce);
+    claims["exp"] = Value::from(OffsetDateTime::now_utc().unix_timestamp() - 3600);
+    let result = verified_id_token_user_info(claims, Some(nonce)).await;
+
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn provider_verified_id_token_rejects_wrong_jwks_key(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let nonce = "nonce-1";
+    let signing_key = TestSigningKey::new_rs256("generic-oauth-wrong-key")?;
+    let wrong_key = TestSigningKey::new_rs256("generic-oauth-wrong-key")?;
+    let token = signing_key.sign_rs256(valid_id_token_claims(nonce))?;
+    let result =
+        verified_id_token_user_info_with_jwk(token, wrong_key.public_jwk()?, Some(nonce)).await;
+
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn provider_verified_id_token_rejects_unsupported_hmac_algorithm(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let nonce = "nonce-1";
+    let (token, jwk) = signed_hs256_id_token(valid_id_token_claims(nonce))?;
+    let result = verified_id_token_user_info_with_jwk(token, jwk, Some(nonce)).await;
+
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[tokio::test]
 async fn provider_verified_id_token_rejects_wrong_issuer() -> Result<(), Box<dyn std::error::Error>>
 {
     let nonce = "nonce-1";
@@ -408,6 +457,22 @@ async fn verified_id_token_user_info_with_jwk(
     jwk: Value,
     expected_nonce: Option<&str>,
 ) -> Result<Option<OAuth2UserInfo>, OAuthError> {
+    verified_id_token_user_info_from_tokens(
+        OAuth2Tokens {
+            id_token: Some(token),
+            ..OAuth2Tokens::default()
+        },
+        jwk,
+        expected_nonce,
+    )
+    .await
+}
+
+async fn verified_id_token_user_info_from_tokens(
+    tokens: OAuth2Tokens,
+    jwk: Value,
+    expected_nonce: Option<&str>,
+) -> Result<Option<OAuth2UserInfo>, OAuthError> {
     let jwks_url = jwks_server(jwk);
     let mut config = loopback_http_config(verified_id_token_config());
     if let GenericOAuthProfileSource::VerifiedIdToken(profile) = &mut config.profile_source {
@@ -415,13 +480,7 @@ async fn verified_id_token_user_info_with_jwk(
     }
     let provider = provider(config);
     provider
-        .get_user_info_with_context(
-            OAuth2Tokens {
-                id_token: Some(token),
-                ..OAuth2Tokens::default()
-            },
-            GenericOAuthUserInfoContext { expected_nonce },
-        )
+        .get_user_info_with_context(tokens, GenericOAuthUserInfoContext { expected_nonce })
         .await
 }
 

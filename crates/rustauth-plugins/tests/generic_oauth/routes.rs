@@ -849,6 +849,22 @@ async fn oauth2_callback_verified_id_token_rejects_missing_nonce(
 }
 
 #[tokio::test]
+async fn oauth2_callback_verified_id_token_rejects_mismatched_nonce(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (memory, _context, response) =
+        oidc_callback_response(|key, _nonce| key.sign_rs256(route_id_token_claims("wrong-nonce")))
+            .await?;
+
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        location(&response),
+        Some("https://app.example.com/error?error=invalid_id_token")
+    );
+    assert_no_oidc_user_or_session(memory.as_ref()).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn oauth2_callback_verified_id_token_custom_get_user_info_still_works(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let memory = Arc::new(MemoryAdapter::new());

@@ -1,5 +1,6 @@
 pub(super) use http::{header, Method, Request, Response, StatusCode};
 use josekit::jwk::Jwk;
+use josekit::jws::alg::hmac::HmacJwsAlgorithm::Hs256;
 use josekit::jws::alg::rsassa::RsassaJwsAlgorithm::Rs256;
 use josekit::jws::JwsHeader;
 use josekit::jwt::{self, JwtPayload};
@@ -474,6 +475,20 @@ pub(super) fn signed_rs256_id_token(
 ) -> Result<(String, Value), Box<dyn std::error::Error>> {
     let key = TestSigningKey::new_rs256("generic-oauth-test-key")?;
     Ok((key.sign_rs256(claims)?, key.public_jwk()?))
+}
+
+pub(super) fn signed_hs256_id_token(
+    claims: Value,
+) -> Result<(String, Value), Box<dyn std::error::Error>> {
+    let kid = "generic-oauth-hmac-test-key";
+    let mut jwk = Jwk::generate_oct_key(32)?;
+    jwk.set_key_id(kid);
+    jwk.set_algorithm("HS256");
+    let signer = Hs256.signer_from_jwk(&jwk)?;
+    let token = encode_jwt("HS256", kid, claims, |payload, header| {
+        jwt::encode_with_signer(payload, header, &signer)
+    })?;
+    Ok((token, serde_json::to_value(jwk)?))
 }
 
 pub(super) struct TestSigningKey {
