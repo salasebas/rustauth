@@ -1,4 +1,4 @@
-use rustauth_oauth::oauth2::{OAuthError, OAuthHttpClient};
+use rustauth_oauth::oauth2::{http::default_http_client, OAuthError, OAuthHttpClient};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -13,11 +13,13 @@ pub struct DiscoveryDocument {
     pub userinfo_endpoint: Option<String>,
 }
 
-pub(super) fn resolve_http_client(config: &GenericOAuthConfig) -> OAuthHttpClient {
-    config.http_client.clone().unwrap_or_else(|| {
-        OAuthHttpClient::default_client()
-            .unwrap_or_else(|_| OAuthHttpClient::new(reqwest::Client::new()))
-    })
+pub(super) fn resolve_http_client(
+    config: &GenericOAuthConfig,
+) -> Result<OAuthHttpClient, OAuthError> {
+    match &config.http_client {
+        Some(client) => Ok(client.clone()),
+        None => default_http_client(),
+    }
 }
 
 #[derive(Debug, Clone, Default)]

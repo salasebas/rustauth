@@ -22,12 +22,12 @@ use super::user_info;
 pub struct GenericOAuthProvider {
     config: GenericOAuthConfig,
     discovery_cache: Option<DiscoveryCache>,
-    http_client: OAuthHttpClient,
+    http_client: Result<OAuthHttpClient, String>,
 }
 
 impl GenericOAuthProvider {
     pub fn new(config: GenericOAuthConfig) -> Self {
-        let http_client = resolve_http_client(&config);
+        let http_client = resolve_http_client(&config).map_err(|error| error.to_string());
         Self {
             config,
             discovery_cache: None,
@@ -39,7 +39,7 @@ impl GenericOAuthProvider {
         config: GenericOAuthConfig,
         discovery_cache: DiscoveryCache,
     ) -> Self {
-        let http_client = resolve_http_client(&config);
+        let http_client = resolve_http_client(&config).map_err(|error| error.to_string());
         Self {
             config,
             discovery_cache: Some(discovery_cache),
@@ -49,6 +49,12 @@ impl GenericOAuthProvider {
 
     pub fn config(&self) -> &GenericOAuthConfig {
         &self.config
+    }
+
+    fn http_client(&self) -> Result<&OAuthHttpClient, OAuthError> {
+        self.http_client
+            .as_ref()
+            .map_err(|error| OAuthError::InvalidConfiguration(error.clone()))
     }
 
     pub fn authorization_code_request(
@@ -110,7 +116,7 @@ impl GenericOAuthProvider {
             ));
         };
         let discovery = discovery_cache
-            .fetch(&self.config, &self.http_client)
+            .fetch(&self.config, self.http_client()?)
             .await
             .map_err(|error| OAuthError::InvalidResponse(error.to_string()))?
             .ok_or_else(|| {
@@ -188,7 +194,7 @@ impl SocialOAuthProvider for GenericOAuthProvider {
             exchange_authorization_code(
                 &token_endpoint,
                 self.authorization_code_input(input)?,
-                &self.http_client,
+                self.http_client()?,
             )
             .await
         })
@@ -206,7 +212,7 @@ impl SocialOAuthProvider for GenericOAuthProvider {
                 user_info::get_user_info(
                     &tokens,
                     self.config.user_info_url.as_deref(),
-                    &self.http_client,
+                    self.http_client()?,
                 )
                 .await?
             };
@@ -247,7 +253,7 @@ impl SocialOAuthProvider for GenericOAuthProvider {
                     extra_params: self.config.token_url_params.clone(),
                     ..RefreshAccessTokenRequest::default()
                 },
-                &self.http_client,
+                self.http_client()?,
             )
             .await
         })
