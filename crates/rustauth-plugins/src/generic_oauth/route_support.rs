@@ -29,16 +29,16 @@ pub(super) async fn resolved_config(
         .find(provider_id)
         .cloned()
         .ok_or_else(|| api_error_value(super::errors::PROVIDER_CONFIG_NOT_FOUND))?;
-    if let Some(discovery) = discovery_cache
-        .fetch(&config, &super::discovery::resolve_http_client(&config))
-        .await?
-    {
-        config.authorization_url = config
-            .authorization_url
-            .or(discovery.authorization_endpoint);
-        config.token_url = config.token_url.or(discovery.token_endpoint);
-        config.user_info_url = config.user_info_url.or(discovery.userinfo_endpoint);
-        config.issuer = config.issuer.or(discovery.issuer);
+    if config.discovery_url.is_some() {
+        let http_client = super::discovery::resolve_http_client(&config)?;
+        if let Some(discovery) = discovery_cache.fetch(&config, &http_client).await? {
+            config.authorization_url = config
+                .authorization_url
+                .or(discovery.authorization_endpoint);
+            config.token_url = config.token_url.or(discovery.token_endpoint);
+            config.user_info_url = config.user_info_url.or(discovery.userinfo_endpoint);
+            config.issuer = config.issuer.or(discovery.issuer);
+        }
     }
     if config.provider_id.trim().is_empty() {
         return Err(api_error_value(super::errors::PROVIDER_ID_REQUIRED));

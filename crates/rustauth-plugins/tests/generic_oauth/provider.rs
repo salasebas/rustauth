@@ -282,6 +282,85 @@ async fn provider_uses_custom_refresh_verify_and_revoke_hooks() {
 }
 
 #[tokio::test]
+async fn provider_default_http_client_blocks_private_discovery_url() {
+    let plugin = generic_oauth(GenericOAuthOptions {
+        config: vec![GenericOAuthConfig::discovery(
+            "discovery",
+            "client-1",
+            Some("secret-1"),
+            "http://127.0.0.1/.well-known/openid-configuration",
+        )],
+    });
+    let context = create_auth_context_with_adapter(
+        RustAuthOptions {
+            base_url: Some("https://app.example.com".to_owned()),
+            plugins: vec![plugin],
+            ..RustAuthOptions::default()
+        },
+        Arc::new(MemoryAdapter::new()) as Arc<dyn DbAdapter>,
+    )
+    .unwrap();
+    let provider = context
+        .social_provider("discovery")
+        .expect("discovery provider should be registered");
+
+    let error = provider
+        .refresh_access_token("refresh-1".to_owned())
+        .await
+        .expect_err("default client should block private discovery URL");
+
+    assert!(
+        matches!(&error, OAuthError::InvalidResponse(message) if message.contains("private or internal IP address")),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn provider_default_http_client_blocks_private_token_url() {
+    let mut config = example_config();
+    config.token_url = Some("http://127.0.0.1/oauth/token".to_owned());
+    let provider = provider(config);
+
+    let error = provider
+        .validate_authorization_code(SocialAuthorizationCodeRequest {
+            code: "code-1".to_owned(),
+            code_verifier: Some("01234567890123456789012345678901234567890123456789".to_owned()),
+            redirect_uri: "https://app.example.com/oauth2/callback/example".to_owned(),
+            device_id: None,
+        })
+        .await
+        .expect_err("default client should block private token URL");
+
+    assert!(
+        matches!(error, OAuthError::BlockedRequestUrl),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn provider_default_http_client_blocks_private_userinfo_url() {
+    let mut config = example_config();
+    config.user_info_url = Some("http://127.0.0.1/oauth/userinfo".to_owned());
+    let provider = provider(config);
+
+    let error = provider
+        .get_user_info(
+            OAuth2Tokens {
+                access_token: Some("access-1".to_owned()),
+                ..OAuth2Tokens::default()
+            },
+            None,
+        )
+        .await
+        .expect_err("default client should block private userinfo URL");
+
+    assert!(
+        matches!(error, OAuthError::BlockedRequestUrl),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
 async fn provider_rejects_id_token_sign_in_without_custom_verifier() {
     let provider = provider(example_config());
     let verified = provider
