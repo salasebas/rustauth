@@ -115,6 +115,12 @@ async fn handle_acs(
                 );
             }
         };
+    if options.domain_verification.enabled && !provider.domain_verified.unwrap_or(false) {
+        return utils::json(
+            http::StatusCode::UNAUTHORIZED,
+            &json!({"code": "DOMAIN_NOT_VERIFIED", "message": "Provider domain has not been verified"}),
+        );
+    }
     let Some(saml_response) = body.saml_response else {
         let state_store = SsoStateStore::new(context, adapter);
         let authn_record =
@@ -618,13 +624,15 @@ async fn complete_saml_login(
             .await?;
     }
 
+    let is_trusted_provider = is_trusted_sso_provider(input.provider, &input.user_info);
+    let user_info = effective_saml_user_info(input.user_info.clone(), is_trusted_provider);
     let callback_url = saml_callback_url(input.context, input.authn_record);
     let result = handle_oauth_user_info(
         input.context,
         input.adapter,
         HandleOAuthUserInfoInput {
-            user_info: input.user_info.clone(),
-            account: saml_oauth_account(input.provider, &input.user_info),
+            user_info: user_info.clone(),
+            account: saml_oauth_account(input.provider, &user_info),
             callback_url: Some(callback_url.clone()),
             disable_sign_up: input.options.disable_implicit_sign_up
                 && !input
@@ -632,11 +640,7 @@ async fn complete_saml_login(
                     .as_ref()
                     .is_some_and(|record| record.request_sign_up),
             override_user_info: false,
-            is_trusted_provider: is_trusted_sso_provider(
-                input.options,
-                input.provider,
-                &input.user_info,
-            ),
+            is_trusted_provider,
             require_trusted_provider_for_implicit_link: true,
         },
     )
@@ -647,7 +651,7 @@ async fn complete_saml_login(
             &json!({"code": "SAML_SIGN_IN_FAILED"}),
         );
     };
-    let profile = normalized_saml_profile(input.provider, &input.user_info);
+    let profile = normalized_saml_profile(input.provider, &user_info);
     provision_sso_user(
         input.options,
         &data.user,
@@ -1045,12 +1049,15 @@ fn mapped_saml_extra_fields(
     (!object.is_empty()).then_some(serde_json::Value::Object(object))
 }
 
-fn is_trusted_sso_provider(
-    options: &SsoOptions,
-    provider: &crate::SsoProviderRecord,
-    user_info: &OAuthUserInfo,
-) -> bool {
-    (options.trust_email_verified && user_info.email_verified)
-        || (provider.domain_verified.unwrap_or(false)
-            && provider_matches_email_domain(provider, &user_info.email))
+fn is_trusted_sso_provider(provider: &crate::SsoProviderRecord, user_info: &OAuthUserInfo) -> bool {
+    provider.domain_verified.unwrap_or(false)
+        && provider_matches_email_domain(provider, &user_info.email)
+}
+
+fn effective_saml_user_info(
+    mut user_info: OAuthUserInfo,
+    is_trusted_provider: bool,
+) -> OAuthUserInfo {
+    user_info.email_verified = user_info.email_verified && is_trusted_provider;
+    user_info
 }

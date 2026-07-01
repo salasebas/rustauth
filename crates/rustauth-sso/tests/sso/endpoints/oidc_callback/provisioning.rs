@@ -202,7 +202,7 @@ async fn oidc_callback_skips_provision_user_for_existing_user_by_default(
     let (adapter, router) = router_with_options(
         SsoOptions {
             trust_email_verified: true,
-            ..SsoOptions::default()
+            ..SsoOptions::default().domain_verification_enabled(true)
         }
         .provision_user(move |_| {
             let callback_calls = std::sync::Arc::clone(&callback_calls);
@@ -214,6 +214,10 @@ async fn oidc_callback_skips_provision_user_for_existing_user_by_default(
     )?;
     let cookie = seed_session(&adapter).await?;
     register_oidc_provider_with_endpoints(&router, &cookie, &oidc.base_url).await?;
+    SsoProviderStore::new(&adapter)
+        .update_domain_verified("okta", true)
+        .await?
+        .ok_or("missing okta provider")?;
     seed_existing_sso_user(&adapter).await?;
 
     let sign_in = router
@@ -250,7 +254,7 @@ async fn oidc_callback_calls_provision_user_for_existing_user_when_enabled(
     let (adapter, router) = router_with_options(
         SsoOptions {
             trust_email_verified: true,
-            ..SsoOptions::default()
+            ..SsoOptions::default().domain_verification_enabled(true)
         }
         .provision_user(move |input| {
             let callback_calls = std::sync::Arc::clone(&callback_calls);
@@ -264,6 +268,10 @@ async fn oidc_callback_calls_provision_user_for_existing_user_when_enabled(
     )?;
     let cookie = seed_session(&adapter).await?;
     register_oidc_provider_with_endpoints(&router, &cookie, &oidc.base_url).await?;
+    SsoProviderStore::new(&adapter)
+        .update_domain_verified("okta", true)
+        .await?
+        .ok_or("missing okta provider")?;
     seed_existing_sso_user(&adapter).await?;
 
     let sign_in = router
