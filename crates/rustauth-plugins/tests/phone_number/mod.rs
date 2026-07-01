@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use hmac::{Hmac, Mac};
 use http::{header, Method, Request, StatusCode};
 use rustauth_core::api::{core_auth_async_endpoints, AuthRouter};
 use rustauth_core::context::create_auth_context_with_adapter;
@@ -20,12 +22,15 @@ use rustauth_plugins::phone_number::{
     phone_number, PhoneNumberOptions, SignUpOnVerification, UPSTREAM_PLUGIN_ID,
 };
 use serde_json::Value;
+use sha2::Sha256;
 use time::{Duration, OffsetDateTime};
 
 mod edge_cases;
 
 const PHONE: &str = "+1234567890";
 const NEW_PHONE: &str = "+19876543210";
+const TEST_OTP_SALT: &str = "test-phone-otp-salt";
+type HmacSha256 = Hmac<Sha256>;
 
 async fn wait_for_sent_pairs(sent: &Arc<Mutex<Vec<(String, String)>>>, min: usize) {
     for _ in 0..200 {
@@ -80,8 +85,11 @@ async fn plugin_metadata_registers_expected_contracts() -> Result<(), Box<dyn st
 }
 
 #[tokio::test]
-async fn send_otp_stores_code_and_invokes_sender() -> Result<(), Box<dyn std::error::Error>> {
+async fn send_otp_stores_non_redeemable_value_and_invokes_sender(
+) -> Result<(), Box<dyn std::error::Error>> {
     let sent = Arc::new(Mutex::new(Vec::new()));
+    let adapter = Arc::new(MemoryAdapter::new());
+    seed_user_with_phone(&adapter, PHONE, false).await?;
     let router = router_with_options(
         PhoneNumberOptions::default().send_otp({
             let sent = Arc::clone(&sent);
@@ -92,7 +100,7 @@ async fn send_otp_stores_code_and_invokes_sender() -> Result<(), Box<dyn std::er
                 Ok(())
             }
         }),
-        Arc::new(MemoryAdapter::new()),
+        adapter.clone(),
     )?;
 
     let response = router
@@ -107,6 +115,39 @@ async fn send_otp_stores_code_and_invokes_sender() -> Result<(), Box<dyn std::er
     assert_eq!(response.status(), StatusCode::OK);
     wait_for_sent_pairs(&sent, 1).await;
     assert_eq!(sent.lock().map_err(|_| "lock poisoned")?.len(), 1);
+    let code = {
+        let messages = sent.lock().map_err(|_| "lock poisoned")?;
+        messages
+            .first()
+            .map(|(_, code)| code.clone())
+            .ok_or("missing sent code")?
+    };
+    let verification = find_verification(&adapter, PHONE)
+        .await?
+        .ok_or("missing phone verification")?;
+    let stored_value = string_field(&verification, "value")?;
+    assert_ne!(stored_value, format!("{code}:0"));
+    let stored_otp = stored_otp_part(stored_value);
+
+    let attacker_response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{PHONE}","code":"{stored_otp}","disableSession":true}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(attacker_response.status(), StatusCode::BAD_REQUEST);
+
+    let legitimate_response = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/verify",
+            &format!(r#"{{"phoneNumber":"{PHONE}","code":"{code}","disableSession":true}}"#),
+            None,
+        )?)
+        .await?;
+    assert_eq!(legitimate_response.status(), StatusCode::OK);
     Ok(())
 }
 
@@ -424,6 +465,24 @@ async fn request_and_reset_password_by_phone() -> Result<(), Box<dyn std::error:
     assert_eq!(requested.status(), StatusCode::OK);
     wait_for_sent_code(&sent).await;
     let code = sent.lock().map_err(|_| "lock poisoned")?.clone();
+    let verification = find_reset_verification(&adapter, PHONE)
+        .await?
+        .ok_or("missing reset verification")?;
+    let stored_value = string_field(&verification, "value")?;
+    assert_ne!(stored_value, format!("{code}:0"));
+    let stored_otp = stored_otp_part(stored_value);
+
+    let attacker_reset = router
+        .handle_async(json_request(
+            Method::POST,
+            "/api/auth/phone-number/reset-password",
+            &format!(
+                r#"{{"phoneNumber":"{PHONE}","otp":"{stored_otp}","newPassword":"newsecret123"}}"#
+            ),
+            None,
+        )?)
+        .await?;
+    assert_eq!(attacker_reset.status(), StatusCode::BAD_REQUEST);
 
     let reset = router
         .handle_async(json_request(
@@ -800,10 +859,11 @@ async fn seed_otp(
     attempts: u32,
     expires_in_seconds: i64,
 ) -> Result<(), RustAuthError> {
+    let value = encode_seeded_otp(identifier, code, attempts)?;
     DbVerificationStore::new(adapter)
         .create_verification(CreateVerificationInput::new(
             identifier.to_owned(),
-            format!("{code}:{attempts}"),
+            value,
             OffsetDateTime::now_utc() + Duration::seconds(expires_in_seconds),
         ))
         .await?;
@@ -872,6 +932,43 @@ async fn find_verification(
             DbValue::String(identifier.to_owned()),
         )))
         .await
+}
+
+fn string_field<'a>(
+    record: &'a DbRecord,
+    field: &str,
+) -> Result<&'a str, Box<dyn std::error::Error>> {
+    let Some(DbValue::String(value)) = record.get(field) else {
+        return Err(format!("missing string field `{field}`").into());
+    };
+    Ok(value)
+}
+
+fn stored_otp_part(value: &str) -> &str {
+    value.rsplit_once(':').map_or(value, |(otp, _attempts)| otp)
+}
+
+fn encode_seeded_otp(identifier: &str, code: &str, attempts: u32) -> Result<String, RustAuthError> {
+    let mac = phone_otp_mac(secret(), identifier, TEST_OTP_SALT, code)?;
+    Ok(format!("v1:{TEST_OTP_SALT}:{mac}:{attempts}"))
+}
+
+fn phone_otp_mac(
+    secret: &str,
+    identifier: &str,
+    salt: &str,
+    code: &str,
+) -> Result<String, RustAuthError> {
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|_| RustAuthError::Crypto("failed to initialize phone OTP MAC".to_owned()))?;
+    mac.update(b"rustauth-phone-number-otp-v1");
+    mac.update(&[0]);
+    mac.update(identifier.as_bytes());
+    mac.update(&[0]);
+    mac.update(salt.as_bytes());
+    mac.update(&[0]);
+    mac.update(code.as_bytes());
+    Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
 }
 
 struct RecordPasswordReset {

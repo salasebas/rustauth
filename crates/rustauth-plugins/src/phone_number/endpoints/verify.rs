@@ -192,19 +192,21 @@ async fn verify_code(
     if verification.expires_at <= OffsetDateTime::now_utc() {
         return error_response(StatusCode::BAD_REQUEST, otp_expired()).map(Some);
     }
-    let (otp_value, attempts) = otp::decode(&verification.value);
-    if attempts >= options.allowed_attempts {
+    let Some(stored_otp) = otp::decode(&verification.value) else {
+        return error_response(StatusCode::BAD_REQUEST, invalid_otp()).map(Some);
+    };
+    if stored_otp.attempts >= options.allowed_attempts {
         return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
     }
-    if otp_value != code {
-        let next_attempts = attempts + 1;
+    if !otp::verify(&context.secret, phone_number, stored_otp, code)? {
+        let next_attempts = stored_otp.attempts + 1;
         if next_attempts >= options.allowed_attempts {
             return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
         }
         verifications
             .create_verification(CreateVerificationInput::new(
                 phone_number,
-                otp::encode(otp_value, next_attempts),
+                otp::encode_stored(stored_otp, next_attempts),
                 verification.expires_at,
             ))
             .await?;

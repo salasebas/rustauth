@@ -50,6 +50,7 @@ pub(crate) fn endpoint(options: Arc<PhoneNumberOptions>) -> AsyncAuthEndpoint {
                 let code = otp::generate_otp(options.otp_length);
                 otp::create(
                     adapter.as_ref(),
+                    &context.secret,
                     body.phone_number.clone(),
                     &code,
                     options.expires_in,

@@ -104,7 +104,14 @@ async fn send_sign_in_verification(
     phone_number: &str,
 ) -> Result<(), RustAuthError> {
     let code = otp::generate_otp(options.otp_length);
-    otp::create(adapter, phone_number.to_owned(), &code, options.expires_in).await?;
+    otp::create(
+        adapter,
+        &context.secret,
+        phone_number.to_owned(),
+        &code,
+        options.expires_in,
+    )
+    .await?;
     if let Some(sender) = &options.send_otp {
         dispatch_outbound(context, ready_outbound(sender(phone_number, &code)));
     }

@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::phone_number::errors::{
-    error_response, json_response, otp_expired, otp_not_found, too_many_attempts, unexpected_error,
+    error_response, invalid_otp, json_response, otp_expired, otp_not_found, too_many_attempts,
+    unexpected_error,
 };
 use crate::phone_number::options::PhoneNumberOptions;
 use crate::phone_number::{otp, store};
@@ -62,7 +63,14 @@ pub(crate) fn request_endpoint(options: Arc<PhoneNumberOptions>) -> AsyncAuthEnd
                 {
                     let code = otp::generate_otp(options.otp_length);
                     let identifier = reset_identifier(&body.phone_number);
-                    otp::create(adapter.as_ref(), identifier, &code, options.expires_in).await?;
+                    otp::create(
+                        adapter.as_ref(),
+                        &context.secret,
+                        identifier,
+                        &code,
+                        options.expires_in,
+                    )
+                    .await?;
                     if let Some(sender) = &options.send_password_reset_otp {
                         dispatch_outbound(
                             &context,
@@ -168,27 +176,25 @@ async fn verify_reset_code(
     if verification.expires_at <= OffsetDateTime::now_utc() {
         return error_response(StatusCode::BAD_REQUEST, otp_expired()).map(Some);
     }
-    let (otp_value, attempts) = otp::decode(&verification.value);
-    if attempts >= options.allowed_attempts {
+    let Some(stored_otp) = otp::decode(&verification.value) else {
+        return error_response(StatusCode::BAD_REQUEST, invalid_otp()).map(Some);
+    };
+    if stored_otp.attempts >= options.allowed_attempts {
         return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
     }
-    if otp_value != code {
-        let next_attempts = attempts + 1;
+    if !otp::verify(&context.secret, &identifier, stored_otp, code)? {
+        let next_attempts = stored_otp.attempts + 1;
         if next_attempts >= options.allowed_attempts {
             return error_response(StatusCode::FORBIDDEN, too_many_attempts()).map(Some);
         }
         verifications
             .create_verification(CreateVerificationInput::new(
                 identifier,
-                otp::encode(otp_value, next_attempts),
+                otp::encode_stored(stored_otp, next_attempts),
                 verification.expires_at,
             ))
             .await?;
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            rustauth_core::plugin::PluginErrorCode::new("INVALID_OTP", "Invalid OTP"),
-        )
-        .map(Some);
+        return error_response(StatusCode::BAD_REQUEST, invalid_otp()).map(Some);
     }
     Ok(None)
 }
