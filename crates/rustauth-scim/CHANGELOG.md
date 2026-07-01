@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.1) - 2026-07-01
+
+### Fixed
+
+- fix scim filter complexity limits ([#177](https://github.com/salasebas/rustauth/pull/177))
+
 ## [0.2.0] - 2026-06-14
 
 Initial public working release.

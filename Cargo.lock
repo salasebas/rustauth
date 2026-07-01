@@ -4258,7 +4258,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "http 1.4.2",
  "rustauth-core",
@@ -4286,7 +4286,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-actix-web"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "actix-web",
  "futures-util",
@@ -4302,7 +4302,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-axum"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "axum",
  "http-body-util",
@@ -4318,7 +4318,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "assert_cmd",
  "base64 0.22.1",
@@ -4356,7 +4356,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -4384,7 +4384,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-deadpool-postgres"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "deadpool-postgres",
  "http 1.4.2",
@@ -4400,7 +4400,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-diesel"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "diesel",
  "diesel-async",
@@ -4436,7 +4436,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-fred"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "fred",
  "http 1.4.2",
@@ -4452,7 +4452,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-i18n"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "http 1.4.2",
  "indexmap 2.14.0",
@@ -4466,7 +4466,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-oauth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "josekit",
@@ -4482,7 +4482,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-oauth-provider"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "data-encoding",
@@ -4506,7 +4506,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-oidc"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "http 1.4.2",
  "openidconnect",
@@ -4520,7 +4520,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-passkey"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "http 1.4.2",
@@ -4541,7 +4541,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-plugins"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "data-encoding",
@@ -4573,7 +4573,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-redis"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "redis",
  "rustauth-core",
@@ -4583,7 +4583,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-saml"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -4601,7 +4601,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-scim"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "http 1.4.2",
@@ -4622,7 +4622,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-social-providers"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "josekit",
@@ -4637,7 +4637,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-sqlx"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "http 1.4.2",
  "indexmap 2.14.0",
@@ -4651,7 +4651,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-sso"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -4684,7 +4684,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-stripe"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "hex",
@@ -4705,7 +4705,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-telemetry"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "http 1.4.2",
@@ -4722,7 +4722,7 @@ dependencies = [
 
 [[package]]
 name = "rustauth-tokio-postgres"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "http 1.4.2",
  "rustauth-core",

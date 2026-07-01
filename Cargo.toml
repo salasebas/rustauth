@@ -34,7 +34,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/salasebas/rustauth"
@@ -59,10 +59,10 @@ josekit = "0.10"
 hkdf = "0.12"
 data-encoding = "2"
 deadpool-postgres = "0.14.1"
-rustauth-core = { path = "crates/rustauth-core", version = "0.3.0", default-features = false }
-rustauth-i18n = { path = "crates/rustauth-i18n", version = "0.3.0" }
-rustauth-oidc = { path = "crates/rustauth-oidc", version = "0.3.0" }
-rustauth = { path = "crates/rustauth", version = "0.3.0" }
+rustauth-core = { path = "crates/rustauth-core", version = "0.3.1", default-features = false }
+rustauth-i18n = { path = "crates/rustauth-i18n", version = "0.3.1" }
+rustauth-oidc = { path = "crates/rustauth-oidc", version = "0.3.1" }
+rustauth = { path = "crates/rustauth", version = "0.3.1" }
 actix-web = { version = "4.13", default-features = false }
 axum = "0.8"
 camino = { version = "1.1", features = ["serde1"] }
@@ -70,27 +70,27 @@ cargo_metadata = "0.19"
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
 inquire = "0.7"
-rustauth-oauth = { path = "crates/rustauth-oauth", version = "0.3.0", default-features = false }
-rustauth-oauth-provider = { path = "crates/rustauth-oauth-provider", version = "0.3.0" }
-rustauth-fred = { path = "crates/rustauth-fred", version = "0.3.0" }
-rustauth-plugins = { path = "crates/rustauth-plugins", version = "0.3.0" }
-rustauth-passkey = { path = "crates/rustauth-passkey", version = "0.3.0" }
-rustauth-redis = { path = "crates/rustauth-redis", version = "0.3.0" }
-rustauth-scim = { path = "crates/rustauth-scim", version = "0.3.0" }
-rustauth-social-providers = { path = "crates/rustauth-social-providers", version = "0.3.0" }
-rustauth-saml = { path = "crates/rustauth-saml", version = "0.3.0" }
-rustauth-sqlx = { path = "crates/rustauth-sqlx", version = "0.3.0", default-features = false }
-rustauth-sso = { path = "crates/rustauth-sso", version = "0.3.0", default-features = false }
-rustauth-stripe = { path = "crates/rustauth-stripe", version = "0.3.0" }
-rustauth-telemetry = { path = "crates/rustauth-telemetry", version = "0.3.0", default-features = false }
-rustauth-deadpool-postgres = { path = "crates/rustauth-deadpool-postgres", version = "0.3.0" }
+rustauth-oauth = { path = "crates/rustauth-oauth", version = "0.3.1", default-features = false }
+rustauth-oauth-provider = { path = "crates/rustauth-oauth-provider", version = "0.3.1" }
+rustauth-fred = { path = "crates/rustauth-fred", version = "0.3.1" }
+rustauth-plugins = { path = "crates/rustauth-plugins", version = "0.3.1" }
+rustauth-passkey = { path = "crates/rustauth-passkey", version = "0.3.1" }
+rustauth-redis = { path = "crates/rustauth-redis", version = "0.3.1" }
+rustauth-scim = { path = "crates/rustauth-scim", version = "0.3.1" }
+rustauth-social-providers = { path = "crates/rustauth-social-providers", version = "0.3.1" }
+rustauth-saml = { path = "crates/rustauth-saml", version = "0.3.1" }
+rustauth-sqlx = { path = "crates/rustauth-sqlx", version = "0.3.1", default-features = false }
+rustauth-sso = { path = "crates/rustauth-sso", version = "0.3.1", default-features = false }
+rustauth-stripe = { path = "crates/rustauth-stripe", version = "0.3.1" }
+rustauth-telemetry = { path = "crates/rustauth-telemetry", version = "0.3.1", default-features = false }
+rustauth-deadpool-postgres = { path = "crates/rustauth-deadpool-postgres", version = "0.3.1" }
 diesel = { version = "2.3", default-features = false }
 diesel-async = { version = "0.9", default-features = false }
-rustauth-diesel = { path = "crates/rustauth-diesel", version = "0.3.0", default-features = false }
-rustauth-tokio-postgres = { path = "crates/rustauth-tokio-postgres", version = "0.3.0" }
-rustauth-actix-web = { path = "crates/rustauth-actix-web", version = "0.3.0" }
-rustauth-axum = { path = "crates/rustauth-axum", version = "0.3.0" }
-rustauth-cli = { path = "crates/rustauth-cli", version = "0.3.0" }
+rustauth-diesel = { path = "crates/rustauth-diesel", version = "0.3.1", default-features = false }
+rustauth-tokio-postgres = { path = "crates/rustauth-tokio-postgres", version = "0.3.1" }
+rustauth-actix-web = { path = "crates/rustauth-actix-web", version = "0.3.1" }
+rustauth-axum = { path = "crates/rustauth-axum", version = "0.3.1" }
+rustauth-cli = { path = "crates/rustauth-cli", version = "0.3.1" }
 openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 publicsuffix2 = { version = "0.5.2", default-features = false, features = ["std", "idna"] }
 quick-xml = "0.37.5"
