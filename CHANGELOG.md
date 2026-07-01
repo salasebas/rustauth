@@ -7,6 +7,27 @@ project follows [Semantic Versioning](https://semver.org/) while the API is stil
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.1) - 2026-07-01
+
+### Changed
+
+- Harden SSO provider trust ([#183](https://github.com/salasebas/rustauth/pull/183))
+- [codex] Add verified Generic OIDC profile extraction ([#186](https://github.com/salasebas/rustauth/pull/186))
+- *(release)* add release-plz automation
+
+### Fixed
+
+- fail closed when OIDC HTTP client build fails ([#176](https://github.com/salasebas/rustauth/pull/176))
+- fix scim filter complexity limits ([#177](https://github.com/salasebas/rustauth/pull/177))
+- *(sso)* cap SAML SLO message inflation ([#184](https://github.com/salasebas/rustauth/pull/184))
+- *(plugins)* restrict email OTP verification endpoints
+- *(plugins)* reject unverified generic oauth id tokens ([#179](https://github.com/salasebas/rustauth/pull/179))
+- fix generic oauth fail-closed http client ([#180](https://github.com/salasebas/rustauth/pull/180))
+- fix phone otp storage ([#182](https://github.com/salasebas/rustauth/pull/182))
+- reject protected admin user updates ([#185](https://github.com/salasebas/rustauth/pull/185))
+- fix oauth client reference id update ([#181](https://github.com/salasebas/rustauth/pull/181))
+- break plugins/fred dev-dep cycle and repair post-0.3.0 CI
+
 ### Changed
 
 #### Official plugins (`rustauth-plugins`)
