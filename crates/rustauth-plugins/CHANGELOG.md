@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.2) - 2026-07-26
+
+### Changed
+
+- [codex] Add verified Generic OIDC profile extraction ([#186](https://github.com/salasebas/rustauth/pull/186))
+- release v0.3.1 ([#175](https://github.com/salasebas/rustauth/pull/175))
+
+### Fixed
+
+- break plugins/fred dev-dep cycle and repair post-0.3.0 CI
+- *(plugins)* restrict email OTP verification endpoints
+- *(plugins)* reject unverified generic oauth id tokens ([#179](https://github.com/salasebas/rustauth/pull/179))
+- fix generic oauth fail-closed http client ([#180](https://github.com/salasebas/rustauth/pull/180))
+- fix phone otp storage ([#182](https://github.com/salasebas/rustauth/pull/182))
+- reject protected admin user updates ([#185](https://github.com/salasebas/rustauth/pull/185))
+- *(organization)* authorize invitation team assignment
+- *(organization)* authorize add-member team assignment
+- *(admin)* reject reserved create-user data fields ([#199](https://github.com/salasebas/rustauth/pull/199))
+- *(phone-number)* require password before sign-in OTP ([#202](https://github.com/salasebas/rustauth/pull/202))
+
 ## [0.3.1](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.1) - 2026-07-02
 
 ### Changed

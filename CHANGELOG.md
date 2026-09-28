@@ -7,6 +7,47 @@ project follows [Semantic Versioning](https://semver.org/) while the API is stil
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.2) - 2026-07-26
+
+### Changed
+
+- Harden SSO provider trust ([#183](https://github.com/salasebas/rustauth/pull/183))
+- [codex] Add verified Generic OIDC profile extraction ([#186](https://github.com/salasebas/rustauth/pull/186))
+- [codex] Preserve offline refresh-token semantics ([#205](https://github.com/salasebas/rustauth/pull/205))
+- release v0.3.1 ([#175](https://github.com/salasebas/rustauth/pull/175))
+- update Cargo.lock dependencies
+- *(release)* add release-plz automation
+
+### Fixed
+
+- *(stripe)* validate success redirect
+- fail closed when OIDC HTTP client build fails ([#176](https://github.com/salasebas/rustauth/pull/176))
+- *(sso)* harden saml acs idp-initiated responses
+- *(sso)* require org admin for provider registration ([#196](https://github.com/salasebas/rustauth/pull/196))
+- *(sso)* enforce saml assertion signature policy ([#200](https://github.com/salasebas/rustauth/pull/200))
+- *(sso)* require signed SAML SLO logout requests ([#201](https://github.com/salasebas/rustauth/pull/201))
+- *(sso)* prevent provider update org reassignment ([#198](https://github.com/salasebas/rustauth/pull/198))
+- fix scim filter complexity limits ([#177](https://github.com/salasebas/rustauth/pull/177))
+- *(scim)* deny empty required role allow-list
+- *(sso)* cap SAML SLO message inflation ([#184](https://github.com/salasebas/rustauth/pull/184))
+- *(plugins)* restrict email OTP verification endpoints
+- *(plugins)* reject unverified generic oauth id tokens ([#179](https://github.com/salasebas/rustauth/pull/179))
+- fix generic oauth fail-closed http client ([#180](https://github.com/salasebas/rustauth/pull/180))
+- fix phone otp storage ([#182](https://github.com/salasebas/rustauth/pull/182))
+- reject protected admin user updates ([#185](https://github.com/salasebas/rustauth/pull/185))
+- *(organization)* authorize invitation team assignment
+- *(organization)* authorize add-member team assignment
+- *(admin)* reject reserved create-user data fields ([#199](https://github.com/salasebas/rustauth/pull/199))
+- *(phone-number)* require password before sign-in OTP ([#202](https://github.com/salasebas/rustauth/pull/202))
+- *(passkey)* bind verification to challenge config
+- fix oauth client reference id update ([#181](https://github.com/salasebas/rustauth/pull/181))
+- *(oauth)* enforce skip-consent boundary
+- *(oauth)* prevent public client downgrade
+- *(oauth)* bind introspection and revocation to clients
+- break plugins/fred dev-dep cycle and repair post-0.3.0 CI
+- repair release preflight ([#207](https://github.com/salasebas/rustauth/pull/207))
+- *(ci)* restore failing checks ([#208](https://github.com/salasebas/rustauth/pull/208))
+
 ## [0.3.1](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.1) - 2026-07-02
 
 ### Changed

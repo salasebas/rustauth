@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.2](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.2) - 2026-07-26
+
+### Changed
+
+- release v0.3.1 ([#175](https://github.com/salasebas/rustauth/pull/175))
+
+### Fixed
+
+- fix scim filter complexity limits ([#177](https://github.com/salasebas/rustauth/pull/177))
+- *(scim)* deny empty required role allow-list
+
 ## [0.3.1](https://github.com/salasebas/rustauth/compare/v0.3.0...v0.3.1) - 2026-07-02
 
 ### Fixed

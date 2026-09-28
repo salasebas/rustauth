@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/salasebas/rustauth/compare/v0.3.1...v0.3.2) - 2026-07-26
+
+### Changed
+
+- update Cargo.lock dependencies
+
 ## [0.3.0] - 2026-06-15
 
 ### Added
