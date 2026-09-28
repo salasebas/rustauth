@@ -1,3 +1,14 @@
+> [!WARNING]
+> **RustAuth is no longer maintained.**
+>
+> No new releases, bug fixes, or security updates are planned. Please do not adopt RustAuth for new production systems.
+>
+> For a Rust alternative, you can evaluate [better-auth-rs](https://github.com/better-auth-rs/better-auth-rs). It is an independent implementation inspired by Better Auth, and its v1 work is alpha. Check feature parity and migration requirements before using it as a replacement.
+>
+> RustAuth is [MIT-licensed](https://github.com/salasebas/rustauth/blob/main/LICENSE). You are welcome to fork or clone it and continue maintaining your own version under the license terms. Please clearly identify maintained forks and any published crates as community-maintained.
+>
+> Previously published crate versions remain available but receive no support.
+
 # RustAuth
 
 RustAuth is an unofficial Rust authentication toolkit inspired by [Better Auth](https://www.better-auth.com/).
